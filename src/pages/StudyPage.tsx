@@ -8,6 +8,7 @@ import { parseYouTubeId, parseStartTime } from '../utils/youtube';
 import { parseTranscript } from '../utils/transcriptParser';
 import { normalizeTranscriptToSentences } from '../utils/transcriptNormalizer';
 import { analyzeTranscript } from '../services/aiAnalysis';
+import { getVideoTitle } from '../services/youtubeApi';
 import {
   loadVocabulary,
   addVocabularyItem,
@@ -86,6 +87,13 @@ const StudyPage: React.FC = () => {
       setUrlInput(saved.youtubeUrl);
       setSessionTitle(saved.title);
       setStartTime(undefined); // Don't auto-jump on restore
+
+      // If title looks like a URL, try fetching the real title
+      if (saved.title.startsWith('http') || saved.title === saved.youtubeUrl) {
+        getVideoTitle(saved.youtubeUrl).then((info) => {
+          if (info?.title) setSessionTitle(info.title);
+        });
+      }
 
       // Migrate: use transcriptData if available, else treat legacy transcriptLines as rawBlocks
       if (saved.transcriptData) {
@@ -213,9 +221,14 @@ const StudyPage: React.FC = () => {
     setVideoId(id);
     setStartTime(st);
 
-    // If no title yet, use the URL as default
+    // If no title yet, fetch from YouTube oEmbed (no API key needed)
     if (!sessionTitle) {
-      setSessionTitle(urlInput.trim());
+      setSessionTitle(urlInput.trim()); // temporary fallback
+      getVideoTitle(urlInput).then((info) => {
+        if (info?.title) {
+          setSessionTitle(info.title);
+        }
+      });
     }
 
     // If transcript already loaded, save session immediately

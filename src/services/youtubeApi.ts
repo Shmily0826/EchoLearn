@@ -12,6 +12,29 @@ export function hasApiKey(): boolean {
 }
 
 /**
+ * Fetch the video title (and optionally channel name) via YouTube oEmbed API.
+ * No API key required. Returns null on failure.
+ */
+export async function getVideoTitle(
+  videoUrlOrId: string,
+): Promise<{ title: string; channelTitle: string } | null> {
+  try {
+    const url = videoUrlOrId.startsWith('http')
+      ? videoUrlOrId
+      : `https://www.youtube.com/watch?v=${videoUrlOrId}`;
+    const res = await fetch(
+      `https://www.youtube.com/oembed?url=${encodeURIComponent(url)}&format=json`,
+    );
+    if (!res.ok) return null;
+    const data = (await res.json()) as { title?: string; author_name?: string };
+    if (!data.title) return null;
+    return { title: data.title, channelTitle: data.author_name || '' };
+  } catch {
+    return null;
+  }
+}
+
+/**
  * Resolve a channel handle (@name) or channelId to its uploads playlist ID.
  * Returns null when the channel cannot be found.
  */
