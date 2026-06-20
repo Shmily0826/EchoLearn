@@ -10,17 +10,17 @@ import {
   loadDailyPlan,
   addDailyPlanItem,
   updateDailyPlanItem,
+  removeDailyPlanItem,
   planHasVideoId,
   saveCurrentSession,
 } from '../utils/storage';
-import { getLatestVideoFromChannel, hasApiKey } from '../services/youtubeApi';
+import { getRecentVideosFromChannel, hasApiKey } from '../services/youtubeApi';
 import { TARGET_CHANNEL } from '../config/targetChannel';
 import type {
   VocabularyItem,
   SentenceItem,
   VideoStudySession,
   DailyPlanItem,
-  ChannelVideo,
 } from '../types';
 
 const CHANNEL_PREFS_KEY = 'echolearn_channel_prefs';
@@ -98,7 +98,7 @@ const DashboardPage: React.FC = () => {
     }
   };
 
-  // ── Check latest video from configured channel ─────────────
+  // ── Fetch recent videos from configured channel ───────────
   const handleCheckLatest = useCallback(async () => {
     if (!hasApiKey()) {
       setCheckMessage('Please configure VITE_YOUTUBE_API_KEY in .env.local to check latest videos.');
@@ -109,36 +109,43 @@ const DashboardPage: React.FC = () => {
     setCheckMessage(null);
 
     try {
-      const video: ChannelVideo | null = await getLatestVideoFromChannel(channelPrefs.input);
+      const videos = await getRecentVideosFromChannel(channelPrefs.input, 10);
 
-      if (!video) {
-        setCheckMessage('Could not fetch the latest video. Check the channel handle or API key.');
+      if (videos.length === 0) {
+        setCheckMessage('Could not fetch videos. Check the channel handle or API key.');
         return;
       }
 
-      if (planHasVideoId(video.videoId)) {
-        setCheckMessage('Latest video is already in your plan.');
+      // Filter out videos already in the plan
+      const newVideos = videos.filter((v) => !planHasVideoId(v.videoId));
+
+      if (newVideos.length === 0) {
+        setCheckMessage('All recent videos are already in your plan. Try again later.');
         return;
       }
 
       const today = new Date().toISOString().slice(0, 10);
-      const item: DailyPlanItem = {
-        id: `plan_${Date.now()}`,
-        date: today,
-        videoId: video.videoId,
-        youtubeUrl: video.youtubeUrl,
-        title: video.title,
-        channelTitle: video.channelTitle,
-        thumbnailUrl: video.thumbnailUrl,
-        status: 'planned',
-        createdAt: Date.now(),
-      };
+      let added = 0;
+      for (const video of newVideos) {
+        const item: DailyPlanItem = {
+          id: `plan_${Date.now()}_${added}`,
+          date: today,
+          videoId: video.videoId,
+          youtubeUrl: video.youtubeUrl,
+          title: video.title,
+          channelTitle: video.channelTitle,
+          thumbnailUrl: video.thumbnailUrl,
+          status: 'planned',
+          createdAt: Date.now() + added,
+        };
+        addDailyPlanItem(item);
+        added++;
+      }
 
-      const updated = addDailyPlanItem(item);
-      setDailyPlan(updated);
-      setCheckMessage(`Added: "${video.title}"`);
+      setDailyPlan(loadDailyPlan());
+      setCheckMessage(`Added ${added} new video${added > 1 ? 's' : ''} to your plan.`);
     } catch {
-      setCheckMessage('An error occurred while fetching the latest video.');
+      setCheckMessage('An error occurred while fetching videos.');
     } finally {
       setCheckLoading(false);
     }
@@ -174,6 +181,12 @@ const DashboardPage: React.FC = () => {
     },
     [navigate, sessions],
   );
+
+  // ── Remove a plan item ────────────────────────────────────
+  const handleDeletePlanItem = useCallback((id: string) => {
+    const updated = removeDailyPlanItem(id);
+    setDailyPlan(updated);
+  }, []);
 
   return (
     <div className="max-w-5xl mx-auto px-6 py-10">
@@ -264,7 +277,7 @@ const DashboardPage: React.FC = () => {
           </div>
 
           <p className="text-[10px] text-gray-400 mb-3">
-            Enter a YouTube channel handle and click the button to fetch its latest video into today's plan.
+            Fetches up to 10 recent videos from the channel. Duplicates are skipped automatically.
           </p>
 
           <button
@@ -281,13 +294,13 @@ const DashboardPage: React.FC = () => {
                 Checking...
               </>
             ) : (
-              'Check Latest Video'
+              'Fetch Latest Videos'
             )}
           </button>
 
           {checkMessage && (
             <p className={`text-xs mt-3 ${
-              checkMessage.startsWith('Added') || checkMessage.startsWith('Latest video is already')
+              checkMessage.startsWith('Added') || checkMessage.startsWith('All recent')
                 ? 'text-green-600'
                 : 'text-amber-600'
             }`}>
@@ -309,15 +322,15 @@ const DashboardPage: React.FC = () => {
             <div className="py-8 text-center">
               <p className="text-gray-400 text-sm">No videos in your plan yet.</p>
               <p className="text-gray-400 text-xs mt-1">
-                Click "Check Latest Video" to add one.
+                Click "Fetch Latest Videos" to add some.
               </p>
             </div>
           ) : (
-            <div className="space-y-2 max-h-56 overflow-y-auto">
+            <div className="space-y-1.5 max-h-72 overflow-y-auto">
               {dailyPlan.map((item) => (
                 <div
                   key={item.id}
-                  className="flex items-center gap-3 rounded-lg p-2.5 border border-transparent hover:border-gray-200 hover:bg-gray-50 transition-colors group cursor-pointer"
+                  className="flex items-center gap-3 rounded-lg px-2.5 py-2 border border-transparent hover:border-gray-200 hover:bg-gray-50 transition-colors group cursor-pointer"
                   onClick={() => handleOpenPlanItem(item)}
                 >
                   {/* Thumbnail */}
@@ -325,11 +338,11 @@ const DashboardPage: React.FC = () => {
                     <img
                       src={item.thumbnailUrl}
                       alt=""
-                      className="w-20 h-[45px] rounded object-cover bg-gray-200 flex-shrink-0"
+                      className="w-16 h-9 rounded object-cover bg-gray-200 flex-shrink-0"
                     />
                   ) : (
-                    <div className="w-20 h-[45px] rounded bg-gray-200 flex-shrink-0 flex items-center justify-center">
-                      <svg className="w-5 h-5 text-gray-400" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                    <div className="w-16 h-9 rounded bg-gray-200 flex-shrink-0 flex items-center justify-center">
+                      <svg className="w-4 h-4 text-gray-400" fill="none" viewBox="0 0 24 24" stroke="currentColor">
                         <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M14.752 11.168l-3.197-2.132A1 1 0 0010 9.87v4.263a1 1 0 001.555.832l3.197-2.132a1 1 0 000-1.664z" />
                       </svg>
                     </div>
@@ -337,36 +350,36 @@ const DashboardPage: React.FC = () => {
 
                   {/* Info */}
                   <div className="flex-1 min-w-0">
-                    <p className="text-sm font-medium text-gray-800 truncate">
+                    <p className="text-sm text-gray-800 truncate">
                       {item.title}
                     </p>
-                    <div className="flex items-center gap-2 mt-0.5">
-                      <span className="text-[11px] text-gray-400">{item.channelTitle}</span>
-                      <span className="text-[11px] text-gray-300">·</span>
-                      <span className="text-[11px] text-gray-400">{item.date}</span>
-                    </div>
+                    <span className="text-[10px] text-gray-400">{item.channelTitle}</span>
                   </div>
 
-                  {/* Status badge */}
-                  <span className={`px-1.5 py-0.5 rounded text-[10px] font-medium flex-shrink-0 ${
-                    item.status === 'studying'
-                      ? 'bg-blue-100 text-blue-600'
-                      : item.status === 'completed'
-                        ? 'bg-green-100 text-green-600'
-                        : 'bg-gray-100 text-gray-500'
-                  }`}>
-                    {item.status}
-                  </span>
+                  {/* Status dot */}
+                  <span
+                    className={`w-2 h-2 rounded-full flex-shrink-0 ${
+                      item.status === 'studying'
+                        ? 'bg-blue-400'
+                        : item.status === 'completed'
+                          ? 'bg-green-400'
+                          : 'bg-gray-300'
+                    }`}
+                    title={item.status}
+                  />
 
-                  {/* Study button */}
+                  {/* Delete button */}
                   <button
                     onClick={(e) => {
                       e.stopPropagation();
-                      handleOpenPlanItem(item);
+                      handleDeletePlanItem(item.id);
                     }}
-                    className="px-3 py-1.5 text-xs text-indigo-600 bg-indigo-50 rounded-lg hover:bg-indigo-100 transition-colors font-medium opacity-0 group-hover:opacity-100 cursor-pointer flex-shrink-0"
+                    className="text-gray-300 hover:text-red-500 opacity-0 group-hover:opacity-100 transition-opacity flex-shrink-0 cursor-pointer"
+                    title="Remove from plan"
                   >
-                    Study
+                    <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                      <path strokeLinecap="round" strokeLinejoin="round" d="M6 18L18 6M6 6l12 12" />
+                    </svg>
                   </button>
                 </div>
               ))}

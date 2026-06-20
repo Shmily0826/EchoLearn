@@ -66,42 +66,62 @@ export async function getChannelByHandleOrId(
 }
 
 /**
- * Fetch the latest public video from the given channel (handle or id).
- * Returns null when no video can be found or the API key is missing.
+ * Fetch up to `count` recent public videos from the given channel (handle or id).
+ * Returns an empty array when no videos can be found or the API key is missing.
  */
-export async function getLatestVideoFromChannel(
+export async function getRecentVideosFromChannel(
   input: string,
-): Promise<ChannelVideo | null> {
+  count = 10,
+): Promise<ChannelVideo[]> {
   const channel = await getChannelByHandleOrId(input);
-  if (!channel) return null;
+  if (!channel) return [];
 
   const key = apiKey();
   const params = new URLSearchParams({
     part: 'snippet',
     playlistId: channel.uploadsPlaylistId,
-    maxResults: '1',
+    maxResults: String(Math.min(count, 50)),
     key,
   });
 
   const res = await fetch(`${BASE}/playlistItems?${params}`);
-  if (!res.ok) return null;
+  if (!res.ok) return [];
 
   const data = await res.json();
-  const item = data.items?.[0];
-  if (!item) return null;
+  const items: Array<{
+    snippet: {
+      resourceId: { videoId: string };
+      title: string;
+      publishedAt: string;
+      thumbnails: Record<string, { url: string }>;
+    };
+  }> = data.items ?? [];
 
-  const videoId: string = item.snippet.resourceId.videoId;
-  const thumbs = item.snippet.thumbnails;
-  const thumbnailUrl: string =
-    thumbs?.high?.url ?? thumbs?.medium?.url ?? thumbs?.default?.url ?? '';
+  return items.map((item) => {
+    const videoId = item.snippet.resourceId.videoId;
+    const thumbs = item.snippet.thumbnails;
+    const thumbnailUrl =
+      thumbs?.high?.url ?? thumbs?.medium?.url ?? thumbs?.default?.url ?? '';
+    return {
+      videoId,
+      title: item.snippet.title,
+      channelId: channel.channelId,
+      channelTitle: channel.title,
+      publishedAt: item.snippet.publishedAt,
+      thumbnailUrl,
+      youtubeUrl: `https://www.youtube.com/watch?v=${videoId}`,
+    };
+  });
+}
 
-  return {
-    videoId,
-    title: item.snippet.title,
-    channelId: channel.channelId,
-    channelTitle: channel.title,
-    publishedAt: item.snippet.publishedAt,
-    thumbnailUrl,
-    youtubeUrl: `https://www.youtube.com/watch?v=${videoId}`,
-  };
+/**
+ * Fetch the latest public video from the given channel (handle or id).
+ * Returns null when no video can be found or the API key is missing.
+ * @deprecated Use getRecentVideosFromChannel for batch fetching.
+ */
+export async function getLatestVideoFromChannel(
+  input: string,
+): Promise<ChannelVideo | null> {
+  const videos = await getRecentVideosFromChannel(input, 1);
+  return videos[0] ?? null;
 }
