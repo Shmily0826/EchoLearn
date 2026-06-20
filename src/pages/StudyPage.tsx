@@ -3,6 +3,7 @@ import YouTubeEmbed, { type PlayerHandle } from '../components/YouTubeEmbed';
 import TranscriptViewer from '../components/TranscriptViewer';
 import TranscriptImporter from '../components/TranscriptImporter';
 import AIAnalysisPanel from '../components/AIAnalysisPanel';
+import WordDictionaryPopup from '../components/WordDictionaryPopup';
 import { parseYouTubeId, parseStartTime } from '../utils/youtube';
 import { parseTranscript } from '../utils/transcriptParser';
 import { normalizeTranscriptToSentences } from '../utils/transcriptNormalizer';
@@ -479,6 +480,7 @@ const StudyPage: React.FC = () => {
               <TranscriptViewer
                 lines={displayLines}
                 videoId={videoId || 'unknown'}
+                videoTitle={sessionTitle}
                 onAddVocabulary={handleAddVocabulary}
                 onAddSentence={handleAddSentence}
                 savedWords={savedWords}
@@ -548,6 +550,7 @@ const StudyPage: React.FC = () => {
               <SentenceList
                 items={filteredSentences}
                 onRemove={handleRemoveSentence}
+                onSeek={handleSeekTo}
               />
             )}
           </div>
@@ -559,10 +562,24 @@ const StudyPage: React.FC = () => {
 
 // ─── Vocabulary List Sub-component ──────────────────────────
 
+interface DictPopupState {
+  word: string;
+  x: number;
+  y: number;
+}
+
 const VocabularyList: React.FC<{
   items: VocabularyItem[];
   onRemove: (id: string) => void;
 }> = ({ items, onRemove }) => {
+  const [dictPopup, setDictPopup] = useState<DictPopupState | null>(null);
+
+  const handleWordClick = (word: string, e: React.MouseEvent) => {
+    e.stopPropagation();
+    const rect = (e.target as HTMLElement).getBoundingClientRect();
+    setDictPopup({ word, x: rect.left + rect.width / 2, y: rect.top });
+  };
+
   if (items.length === 0) {
     return (
       <p className="text-center text-gray-400 text-sm py-6">
@@ -572,30 +589,49 @@ const VocabularyList: React.FC<{
   }
 
   return (
-    <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3">
-      {items.map((item) => (
-        <div
-          key={item.id}
-          className="bg-amber-50 border border-amber-200 rounded-lg p-3 group"
-        >
-          <div className="flex items-start justify-between">
-            <span className="text-base font-semibold text-amber-800">
-              {item.word}
-            </span>
-            <button
-              onClick={() => onRemove(item.id)}
-              className="text-gray-400 hover:text-red-500 opacity-0 group-hover:opacity-100 transition-opacity text-xs cursor-pointer"
-            >
-              Remove
-            </button>
+    <>
+      {dictPopup && (
+        <WordDictionaryPopup
+          word={dictPopup.word}
+          x={dictPopup.x}
+          y={dictPopup.y}
+          onClose={() => setDictPopup(null)}
+        />
+      )}
+      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3">
+        {items.map((item) => (
+          <div
+            key={item.id}
+            className="bg-amber-50 border border-amber-200 rounded-lg p-3 group"
+          >
+            <div className="flex items-start justify-between">
+              <span
+                className="text-base font-semibold text-amber-800 cursor-pointer hover:text-amber-900 hover:underline"
+                onClick={(e) => handleWordClick(item.word, e)}
+                title="Click to look up in dictionary"
+              >
+                {item.word}
+              </span>
+              <button
+                onClick={() => onRemove(item.id)}
+                className="text-gray-400 hover:text-red-500 opacity-0 group-hover:opacity-100 transition-opacity text-xs cursor-pointer"
+              >
+                Remove
+              </button>
+            </div>
+            <p className="text-xs text-gray-500 mt-1 line-clamp-2">"{item.context}"</p>
+            <div className="flex items-center gap-2 mt-1.5">
+              <span className="text-[10px] text-gray-400 truncate max-w-[120px]">
+                {item.sourceVideoTitle || item.sourceVideoId}
+              </span>
+              <span className="text-[10px] text-gray-400">
+                {new Date(item.addedAt).toLocaleDateString()}
+              </span>
+            </div>
           </div>
-          <p className="text-xs text-gray-500 mt-1 line-clamp-2">"{item.context}"</p>
-          <p className="text-[10px] text-gray-400 mt-1.5">
-            {new Date(item.addedAt).toLocaleDateString()}
-          </p>
-        </div>
-      ))}
-    </div>
+        ))}
+      </div>
+    </>
   );
 };
 
@@ -604,7 +640,8 @@ const VocabularyList: React.FC<{
 const SentenceList: React.FC<{
   items: SentenceItem[];
   onRemove: (id: string) => void;
-}> = ({ items, onRemove }) => {
+  onSeek?: (seconds: number) => void;
+}> = ({ items, onRemove, onSeek }) => {
   if (items.length === 0) {
     return (
       <p className="text-center text-gray-400 text-sm py-6">
@@ -630,8 +667,15 @@ const SentenceList: React.FC<{
             </button>
           </div>
           <div className="flex items-center gap-2 mt-2">
-            <span className="text-[10px] font-mono text-gray-400">
+            <button
+              onClick={() => onSeek?.(item.startTime)}
+              className="text-[10px] font-mono text-indigo-500 hover:text-indigo-700 hover:underline cursor-pointer"
+              title="Jump to this point in the video"
+            >
               @{formatTime(item.startTime)}
+            </button>
+            <span className="text-[10px] text-gray-400 truncate max-w-[120px]">
+              {item.sourceVideoTitle || item.sourceVideoId}
             </span>
             <span className="text-[10px] text-gray-400">
               {new Date(item.addedAt).toLocaleDateString()}

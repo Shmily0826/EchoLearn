@@ -6,6 +6,7 @@ import { lookupWord } from '../services/dictionaryService';
 interface TranscriptViewerProps {
   lines: TranscriptLine[];
   videoId: string;
+  videoTitle?: string;
   onAddVocabulary: (item: VocabularyItem) => void;
   onAddSentence: (item: SentenceItem) => void;
   savedWords: Set<string>;
@@ -26,6 +27,7 @@ interface WordPopupState {
 const TranscriptViewer: React.FC<TranscriptViewerProps> = ({
   lines,
   videoId,
+  videoTitle,
   onAddVocabulary,
   onAddSentence,
   savedWords,
@@ -110,6 +112,7 @@ const TranscriptViewer: React.FC<TranscriptViewerProps> = ({
       meaningCn: dictEntry?.definitionEn || '',
       context: popup.context,
       sourceVideoId: videoId,
+      sourceVideoTitle: videoTitle,
       sourceTimestamp: popup.startTime,
       addedAt: Date.now(),
       mastered: false,
@@ -144,6 +147,7 @@ const TranscriptViewer: React.FC<TranscriptViewerProps> = ({
       text: line.text,
       meaningCn: '',
       sourceVideoId: videoId,
+      sourceVideoTitle: videoTitle,
       startTime: line.start,
       addedAt: Date.now(),
       myOwnSentence: '',

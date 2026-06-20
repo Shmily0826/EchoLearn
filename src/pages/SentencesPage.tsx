@@ -1,11 +1,12 @@
-import React, { useEffect, useState, useCallback } from 'react';
+import React, { useEffect, useState, useCallback, useMemo } from 'react';
 import {
   loadSentences,
   removeSentenceItem,
   updateSentenceItem,
+  loadAllSessions,
 } from '../utils/storage';
 import WordDictionaryPopup from '../components/WordDictionaryPopup';
-import type { SentenceItem } from '../types';
+import type { SentenceItem, VideoStudySession } from '../types';
 
 interface DictPopupState {
   word: string;
@@ -20,6 +21,7 @@ function splitTokens(text: string): string[] {
 
 const SentencesPage: React.FC = () => {
   const [sentences, setSentences] = useState<SentenceItem[]>([]);
+  const [sessions, setSessions] = useState<VideoStudySession[]>([]);
   const [search, setSearch] = useState('');
   const [editingId, setEditingId] = useState<string | null>(null);
   const [editText, setEditText] = useState('');
@@ -29,7 +31,20 @@ const SentencesPage: React.FC = () => {
 
   useEffect(() => {
     setSentences(loadSentences());
+    setSessions(loadAllSessions());
   }, []);
+
+  // Build videoId -> title map
+  const titleMap = useMemo(() => {
+    const map = new Map<string, string>();
+    for (const s of sessions) {
+      map.set(s.youtubeId, s.title || s.youtubeUrl);
+    }
+    return map;
+  }, [sessions]);
+
+  const getVideoTitle = (item: SentenceItem) =>
+    item.sourceVideoTitle || titleMap.get(item.sourceVideoId) || item.sourceVideoId;
 
   const handleRemove = useCallback((id: string) => {
     setSentences(removeSentenceItem(id));
@@ -259,8 +274,8 @@ const SentencesPage: React.FC = () => {
                 <span className="text-[10px] font-mono text-gray-400">
                   @{formatTime(item.startTime)}
                 </span>
-                <span className="text-[10px] font-mono text-gray-400">
-                  {item.sourceVideoId}
+                <span className="text-[10px] font-mono text-gray-400 truncate max-w-[120px]" title={item.sourceVideoId}>
+                  {getVideoTitle(item)}
                 </span>
                 <span className="text-[10px] text-gray-400">
                   {new Date(item.addedAt).toLocaleDateString()}

@@ -1,11 +1,12 @@
-import React, { useEffect, useState, useCallback } from 'react';
+import React, { useEffect, useState, useCallback, useMemo } from 'react';
 import {
   loadVocabulary,
   removeVocabularyItem,
   updateVocabularyItem,
+  loadAllSessions,
 } from '../utils/storage';
 import WordDictionaryPopup from '../components/WordDictionaryPopup';
-import type { VocabularyItem } from '../types';
+import type { VocabularyItem, VideoStudySession } from '../types';
 
 type FilterMode = 'all' | 'mastered' | 'unmastered';
 
@@ -17,6 +18,7 @@ interface DictPopupState {
 
 const VocabularyPage: React.FC = () => {
   const [vocabulary, setVocabulary] = useState<VocabularyItem[]>([]);
+  const [sessions, setSessions] = useState<VideoStudySession[]>([]);
   const [search, setSearch] = useState('');
   const [filter, setFilter] = useState<FilterMode>('all');
   const [editingId, setEditingId] = useState<string | null>(null);
@@ -25,7 +27,20 @@ const VocabularyPage: React.FC = () => {
 
   useEffect(() => {
     setVocabulary(loadVocabulary());
+    setSessions(loadAllSessions());
   }, []);
+
+  // Build videoId -> title map
+  const titleMap = useMemo(() => {
+    const map = new Map<string, string>();
+    for (const s of sessions) {
+      map.set(s.youtubeId, s.title || s.youtubeUrl);
+    }
+    return map;
+  }, [sessions]);
+
+  const getVideoTitle = (item: VocabularyItem) =>
+    item.sourceVideoTitle || titleMap.get(item.sourceVideoId) || item.sourceVideoId;
 
   const handleRemove = useCallback((id: string) => {
     setVocabulary(removeVocabularyItem(id));
@@ -241,8 +256,8 @@ const VocabularyPage: React.FC = () => {
               {/* Footer: source + date + toggle */}
               <div className="flex items-center justify-between mt-3 pt-2 border-t border-gray-100">
                 <div className="flex items-center gap-2">
-                  <span className="text-[10px] font-mono text-gray-400">
-                    {item.sourceVideoId}
+                  <span className="text-[10px] font-mono text-gray-400 truncate max-w-[120px]" title={item.sourceVideoId}>
+                    {getVideoTitle(item)}
                   </span>
                   <span className="text-[10px] text-gray-400">
                     {new Date(item.addedAt).toLocaleDateString()}

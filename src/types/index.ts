@@ -38,6 +38,7 @@ export interface VocabularyItem {
   meaningCn: string;         // Chinese meaning / translation
   context: string;           // the full sentence where the word appeared
   sourceVideoId: string;     // YouTube video ID this word was learned from
+  sourceVideoTitle?: string; // human-readable video title (optional)
   addedAt: number;           // when the word was saved (unix ms)
   mastered: boolean;         // whether the user has mastered this word
   reviewCount: number;       // how many times the user reviewed this word
@@ -61,6 +62,7 @@ export interface SentenceItem {
   text: string;              // the full sentence
   meaningCn: string;         // Chinese translation of the sentence
   sourceVideoId: string;     // YouTube video ID this sentence was saved from
+  sourceVideoTitle?: string; // human-readable video title (optional)
   startTime: number;         // start time of the sentence in the video (seconds)
   addedAt: number;           // when the sentence was saved (unix ms)
   myOwnSentence: string;     // user's own sentence using the same pattern / structure
