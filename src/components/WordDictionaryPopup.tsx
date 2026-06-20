@@ -1,0 +1,159 @@
+import { useState, useEffect, useRef } from 'react';
+import type { DictionaryEntry } from '../types';
+import { lookupWord } from '../services/dictionaryService';
+
+interface WordDictionaryPopupProps {
+  /** The word to look up */
+  word: string;
+  /** Position for the popup (viewport coordinates) */
+  x: number;
+  y: number;
+  /** Called when the user clicks outside — parent should set active popup to null */
+  onClose: () => void;
+  /** Optional: additional content below dictionary data (e.g. "Add to vocabulary" button) */
+  actions?: React.ReactNode;
+}
+
+/**
+ * A reusable popup that shows dictionary information for a word.
+ * Used by TranscriptViewer, VocabularyPage, and SentencesPage.
+ */
+const WordDictionaryPopup: React.FC<WordDictionaryPopupProps> = ({
+  word,
+  x,
+  y,
+  onClose,
+  actions,
+}) => {
+  const [entry, setEntry] = useState<DictionaryEntry | null>(null);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState(false);
+  const popupRef = useRef<HTMLDivElement>(null);
+
+  // Close on outside click
+  useEffect(() => {
+    const handler = (e: MouseEvent) => {
+      if (popupRef.current && !popupRef.current.contains(e.target as Node)) {
+        onClose();
+      }
+    };
+    document.addEventListener('mousedown', handler);
+    return () => document.removeEventListener('mousedown', handler);
+  }, [onClose]);
+
+  // Fetch dictionary data
+  useEffect(() => {
+    let cancelled = false;
+    setLoading(true);
+    setError(false);
+    lookupWord(word).then((result) => {
+      if (cancelled) return;
+      if (result) {
+        setEntry(result);
+      } else {
+        setError(true);
+      }
+      setLoading(false);
+    });
+    return () => { cancelled = true; };
+  }, [word]);
+
+  const handlePlayAudio = (e: React.MouseEvent) => {
+    e.stopPropagation();
+    if (entry?.audioUrl) {
+      new Audio(entry.audioUrl).play().catch(() => {});
+    }
+  };
+
+  const shouldFlip = y < 280;
+
+  return (
+    <div
+      ref={popupRef}
+      className={`fixed z-50 transform -translate-x-1/2 ${
+        shouldFlip ? '' : '-translate-y-full'
+      }`}
+      style={{ left: x, top: shouldFlip ? y + 24 : y }}
+    >
+      <div className="bg-white rounded-xl shadow-xl border border-gray-200 p-4 min-w-[280px] max-w-[340px]">
+        {/* Word + phonetic */}
+        <div className="flex items-center gap-2 mb-1">
+          <span className="text-lg font-bold text-gray-800">{word}</span>
+          {entry?.phonetic && (
+            <span className="text-sm text-gray-400 font-mono">{entry.phonetic}</span>
+          )}
+          {entry?.audioUrl && (
+            <button
+              onClick={handlePlayAudio}
+              title="Play pronunciation"
+              className="p-1 text-indigo-500 hover:text-indigo-700 hover:bg-indigo-50 rounded-full transition-colors cursor-pointer"
+            >
+              <svg className="w-4 h-4" fill="currentColor" viewBox="0 0 24 24">
+                <path d="M11.5 3.75a.75.75 0 011.085-.674l6.75 3.5a.75.75 0 010 1.348l-6.75 3.5a.75.75 0 01-1.085-.674V3.75z" />
+                <path d="M3.5 8.75a.75.75 0 011.085-.674l6.75 3.5a.75.75 0 010 1.348l-6.75 3.5A.75.75 0 013.5 15.75V8.75z" />
+              </svg>
+            </button>
+          )}
+        </div>
+
+        {/* Part of speech */}
+        {entry?.partOfSpeech && (
+          <span className="inline-block text-[11px] px-2 py-0.5 bg-indigo-50 text-indigo-600 rounded-full font-medium mb-2">
+            {entry.partOfSpeech}
+          </span>
+        )}
+
+        {/* Loading */}
+        {loading && (
+          <div className="flex items-center gap-2 py-2 text-xs text-gray-400">
+            <svg className="animate-spin w-3.5 h-3.5" fill="none" viewBox="0 0 24 24">
+              <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
+              <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z" />
+            </svg>
+            Looking up...
+          </div>
+        )}
+
+        {/* Dictionary result */}
+        {entry && !loading && (
+          <div className="mb-3">
+            {entry.definitionEn && (
+              <p className="text-sm text-gray-700 leading-relaxed">{entry.definitionEn}</p>
+            )}
+            {entry.example && (
+              <p className="text-xs text-gray-400 mt-1.5 italic leading-relaxed">
+                &ldquo;{entry.example}&rdquo;
+              </p>
+            )}
+            {entry.synonyms.length > 0 && (
+              <div className="mt-2 flex items-start gap-1 flex-wrap">
+                <span className="text-[10px] text-gray-400 font-medium mt-px">syn:</span>
+                {entry.synonyms.slice(0, 5).map((s) => (
+                  <span key={s} className="text-[10px] px-1.5 py-0.5 bg-gray-100 text-gray-600 rounded">{s}</span>
+                ))}
+              </div>
+            )}
+            {entry.antonyms.length > 0 && (
+              <div className="mt-1 flex items-start gap-1 flex-wrap">
+                <span className="text-[10px] text-gray-400 font-medium mt-px">ant:</span>
+                {entry.antonyms.slice(0, 5).map((s) => (
+                  <span key={s} className="text-[10px] px-1.5 py-0.5 bg-gray-100 text-gray-600 rounded">{s}</span>
+                ))}
+              </div>
+            )}
+          </div>
+        )}
+
+        {/* Error */}
+        {error && !loading && (
+          <p className="text-xs text-gray-400 mb-3">Dictionary entry not found.</p>
+        )}
+
+        {/* Actions slot */}
+        {actions}
+      </div>
+    </div>
+  );
+};
+
+export default WordDictionaryPopup;

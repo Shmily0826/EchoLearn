@@ -1,12 +1,19 @@
-import { useEffect, useState, useCallback } from 'react';
+import React, { useEffect, useState, useCallback } from 'react';
 import {
   loadVocabulary,
   removeVocabularyItem,
   updateVocabularyItem,
 } from '../utils/storage';
+import WordDictionaryPopup from '../components/WordDictionaryPopup';
 import type { VocabularyItem } from '../types';
 
 type FilterMode = 'all' | 'mastered' | 'unmastered';
+
+interface DictPopupState {
+  word: string;
+  x: number;
+  y: number;
+}
 
 const VocabularyPage: React.FC = () => {
   const [vocabulary, setVocabulary] = useState<VocabularyItem[]>([]);
@@ -14,6 +21,7 @@ const VocabularyPage: React.FC = () => {
   const [filter, setFilter] = useState<FilterMode>('all');
   const [editingId, setEditingId] = useState<string | null>(null);
   const [editMeaning, setEditMeaning] = useState('');
+  const [dictPopup, setDictPopup] = useState<DictPopupState | null>(null);
 
   useEffect(() => {
     setVocabulary(loadVocabulary());
@@ -43,6 +51,16 @@ const VocabularyPage: React.FC = () => {
     setEditMeaning('');
   };
 
+  const handleWordClick = (word: string, e: React.MouseEvent) => {
+    e.stopPropagation();
+    const rect = (e.target as HTMLElement).getBoundingClientRect();
+    setDictPopup({
+      word,
+      x: rect.left + rect.width / 2,
+      y: rect.top - 8,
+    });
+  };
+
   // Search + filter
   const filtered = vocabulary.filter((v) => {
     const matchesSearch =
@@ -63,6 +81,16 @@ const VocabularyPage: React.FC = () => {
 
   return (
     <div className="max-w-5xl mx-auto px-6 py-10">
+      {/* Dictionary popup */}
+      {dictPopup && (
+        <WordDictionaryPopup
+          word={dictPopup.word}
+          x={dictPopup.x}
+          y={dictPopup.y}
+          onClose={() => setDictPopup(null)}
+        />
+      )}
+
       {/* Header */}
       <div className="flex items-end justify-between mb-6">
         <div>
@@ -115,12 +143,34 @@ const VocabularyPage: React.FC = () => {
                 item.mastered ? 'border-green-200' : 'border-gray-200'
               }`}
             >
-              {/* Top row: word + mastered badge */}
+              {/* Top row: word + phonetic + mastered badge */}
               <div className="flex items-start justify-between gap-2 mb-2">
                 <div className="flex items-center gap-2 min-w-0">
-                  <span className="text-lg font-semibold text-gray-800 truncate">
+                  <span
+                    onClick={(e) => handleWordClick(item.word, e)}
+                    className="text-lg font-semibold text-gray-800 truncate cursor-pointer hover:text-indigo-600 transition-colors"
+                    title="Click to look up in dictionary"
+                  >
                     {item.word}
                   </span>
+                  {item.phonetic && (
+                    <span className="text-xs text-gray-400 font-mono">{item.phonetic}</span>
+                  )}
+                  {item.audioUrl && (
+                    <button
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        new Audio(item.audioUrl).play().catch(() => {});
+                      }}
+                      title="Play pronunciation"
+                      className="p-0.5 text-indigo-400 hover:text-indigo-600 cursor-pointer"
+                    >
+                      <svg className="w-3.5 h-3.5" fill="currentColor" viewBox="0 0 24 24">
+                        <path d="M11.5 3.75a.75.75 0 011.085-.674l6.75 3.5a.75.75 0 010 1.348l-6.75 3.5a.75.75 0 01-1.085-.674V3.75z" />
+                        <path d="M3.5 8.75a.75.75 0 011.085-.674l6.75 3.5a.75.75 0 010 1.348l-6.75 3.5A.75.75 0 013.5 15.75V8.75z" />
+                      </svg>
+                    </button>
+                  )}
                   {item.mastered && (
                     <span className="shrink-0 px-1.5 py-0.5 text-[10px] font-medium bg-green-100 text-green-700 rounded">
                       mastered
@@ -134,6 +184,18 @@ const VocabularyPage: React.FC = () => {
                   Delete
                 </button>
               </div>
+
+              {/* Part of speech + definition (if available from dictionary) */}
+              {item.partOfSpeech && (
+                <span className="inline-block text-[10px] px-1.5 py-0.5 bg-indigo-50 text-indigo-500 rounded-full font-medium mb-1.5">
+                  {item.partOfSpeech}
+                </span>
+              )}
+              {item.definitionEn && (
+                <p className="text-xs text-gray-500 leading-relaxed mb-2 line-clamp-2">
+                  {item.definitionEn}
+                </p>
+              )}
 
               {/* Chinese meaning — editable */}
               {editingId === item.id ? (
@@ -173,7 +235,7 @@ const VocabularyPage: React.FC = () => {
 
               {/* Example sentence */}
               <p className="text-sm text-gray-600 leading-relaxed line-clamp-2">
-                "{item.context}"
+                &ldquo;{item.context}&rdquo;
               </p>
 
               {/* Footer: source + date + toggle */}

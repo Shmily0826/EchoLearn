@@ -1,10 +1,22 @@
-import { useEffect, useState, useCallback } from 'react';
+import React, { useEffect, useState, useCallback } from 'react';
 import {
   loadSentences,
   removeSentenceItem,
   updateSentenceItem,
 } from '../utils/storage';
+import WordDictionaryPopup from '../components/WordDictionaryPopup';
 import type { SentenceItem } from '../types';
+
+interface DictPopupState {
+  word: string;
+  x: number;
+  y: number;
+}
+
+/** Split a sentence into word and punctuation tokens for rendering. */
+function splitTokens(text: string): string[] {
+  return text.match(/[\w']+|[^\w\s]+|\s+/g) || [];
+}
 
 const SentencesPage: React.FC = () => {
   const [sentences, setSentences] = useState<SentenceItem[]>([]);
@@ -13,6 +25,7 @@ const SentencesPage: React.FC = () => {
   const [editText, setEditText] = useState('');
   const [editingMeaningId, setEditingMeaningId] = useState<string | null>(null);
   const [editMeaning, setEditMeaning] = useState('');
+  const [dictPopup, setDictPopup] = useState<DictPopupState | null>(null);
 
   useEffect(() => {
     setSentences(loadSentences());
@@ -21,6 +34,16 @@ const SentencesPage: React.FC = () => {
   const handleRemove = useCallback((id: string) => {
     setSentences(removeSentenceItem(id));
   }, []);
+
+  const handleWordClick = (word: string, e: React.MouseEvent) => {
+    e.stopPropagation();
+    const rect = (e.target as HTMLElement).getBoundingClientRect();
+    setDictPopup({
+      word,
+      x: rect.left + rect.width / 2,
+      y: rect.top - 8,
+    });
+  };
 
   // ── myOwnSentence editing ──────────────────────────────────
   const handleStartEditOwn = (item: SentenceItem) => {
@@ -72,6 +95,16 @@ const SentencesPage: React.FC = () => {
 
   return (
     <div className="max-w-5xl mx-auto px-6 py-10">
+      {/* Dictionary popup */}
+      {dictPopup && (
+        <WordDictionaryPopup
+          word={dictPopup.word}
+          x={dictPopup.x}
+          y={dictPopup.y}
+          onClose={() => setDictPopup(null)}
+        />
+      )}
+
       {/* Header */}
       <div className="flex items-end justify-between mb-6">
         <div>
@@ -105,10 +138,25 @@ const SentencesPage: React.FC = () => {
               key={item.id}
               className="bg-white border border-gray-200 rounded-xl p-5 group hover:shadow-sm transition-shadow"
             >
-              {/* Original sentence */}
+              {/* Original sentence — words are clickable */}
               <div className="flex items-start justify-between gap-3 mb-2">
                 <p className="text-sm text-gray-800 leading-relaxed flex-1">
-                  {item.text}
+                  {splitTokens(item.text).map((token, i) => {
+                    if (/^\s+$/.test(token)) return <span key={i}>{token}</span>;
+                    if (/^[^\w']+$/.test(token))
+                      return (
+                        <span key={i} className="text-gray-400">{token}</span>
+                      );
+                    return (
+                      <span
+                        key={i}
+                        onClick={(e) => handleWordClick(token, e)}
+                        className="inline-block mx-[1px] px-0.5 rounded cursor-pointer hover:bg-indigo-100 hover:text-indigo-700 transition-colors"
+                      >
+                        {token}
+                      </span>
+                    );
+                  })}
                 </p>
                 <button
                   onClick={() => handleRemove(item.id)}

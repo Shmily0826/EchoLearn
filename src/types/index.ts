@@ -3,9 +3,32 @@ export type SessionStatus = 'draft' | 'studying' | 'completed';
 
 /** A single line in the transcript */
 export interface TranscriptLine {
-  start: number;  // start time in seconds
-  end: number;    // end time in seconds
-  text: string;   // the spoken sentence
+  start: number;            // start time in seconds
+  end: number;              // end time in seconds
+  text: string;             // the spoken sentence
+  id?: string;              // optional unique id
+  translation?: string;     // optional Chinese translation
+  note?: string;            // optional user note
+  sourceBlockIds?: string[]; // ids of raw caption blocks that formed this line
+}
+
+/** Normalized transcript data: raw caption blocks + sentence-level lines */
+export interface TranscriptData {
+  rawBlocks: TranscriptLine[];
+  sentenceLines: TranscriptLine[];
+}
+
+/** Result from a dictionary API lookup */
+export interface DictionaryEntry {
+  word: string;
+  phonetic: string;
+  audioUrl: string;
+  partOfSpeech: string;
+  definitionEn: string;
+  example: string;
+  synonyms: string[];
+  antonyms: string[];
+  provider: string;
 }
 
 /** A vocabulary item saved by the user */
@@ -20,6 +43,16 @@ export interface VocabularyItem {
   reviewCount: number;       // how many times the user reviewed this word
   lastReviewedAt: number;    // unix ms of last review (0 if never reviewed)
   nextReviewAt: number;      // unix ms of next scheduled review
+  // Optional dictionary data (merged from DictionaryEntry on save)
+  phonetic?: string;
+  audioUrl?: string;
+  partOfSpeech?: string;
+  definitionEn?: string;
+  example?: string;
+  synonyms?: string[];
+  antonyms?: string[];
+  dictionaryProvider?: string;
+  sourceTimestamp?: number;  // start time of the transcript line (seconds)
 }
 
 /** A key sentence saved by the user */
@@ -43,10 +76,45 @@ export interface VideoStudySession {
   youtubeUrl: string;                // the original URL the user pasted
   youtubeId: string;                 // extracted 11-char video ID
   title: string;                     // user-editable title (defaults to URL)
-  transcriptLines: TranscriptLine[]; // the parsed transcript for this video
+  transcriptLines: TranscriptLine[]; // the parsed transcript for this video (legacy)
+  transcriptData?: TranscriptData;   // normalized data (rawBlocks + sentenceLines)
+  aiAnalysis?: AIAnalysisResult;     // AI-generated analysis (mock or real)
   createdAt: number;                 // unix ms when session was created
   updatedAt: number;                 // unix ms when session was last modified
   status: SessionStatus;             // draft → studying → completed
+}
+
+// ── AI Analysis ────────────────────────────────────────────
+
+/** A vocabulary word suggested by AI analysis */
+export interface VocabularySuggestion {
+  word: string;
+  context: string;     // sentence where the word appeared
+  meaningCn: string;   // mock Chinese translation
+  reason: string;      // why this word is worth learning
+}
+
+/** A sentence suggested by AI analysis */
+export interface SentenceSuggestion {
+  text: string;
+  meaningCn: string;   // mock Chinese translation
+  reason: string;      // why this sentence is useful
+}
+
+/** A learning task suggested by AI */
+export interface LearningTask {
+  task: string;        // task description
+  type: string;        // 'listening' | 'speaking' | 'writing' | 'reading'
+}
+
+/** Full result of an AI transcript analysis */
+export interface AIAnalysisResult {
+  summaryEn: string;
+  summaryCn: string;
+  keyTakeaways: string[];
+  vocabularySuggestions: VocabularySuggestion[];
+  sentenceSuggestions: SentenceSuggestion[];
+  learningTasks: LearningTask[];
 }
 
 // ── Channel & Daily Plan ────────────────────────────────────

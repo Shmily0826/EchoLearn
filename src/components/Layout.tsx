@@ -1,4 +1,5 @@
-import { NavLink, Outlet } from 'react-router-dom';
+import { NavLink } from 'react-router-dom';
+import type { ReactNode } from 'react';
 
 const navItems = [
   { to: '/', label: 'Dashboard' },
@@ -8,7 +9,7 @@ const navItems = [
   { to: '/review', label: 'Review' },
 ];
 
-const Layout: React.FC = () => {
+const Layout: React.FC<{ children: ReactNode }> = ({ children }) => {
   return (
     <div className="min-h-screen bg-slate-50 flex flex-col">
       {/* Top navigation */}
@@ -43,7 +44,7 @@ const Layout: React.FC = () => {
 
       {/* Page content */}
       <main className="flex-1">
-        <Outlet />
+        {children}
       </main>
     </div>
   );

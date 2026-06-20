@@ -23,6 +23,25 @@ import type {
   ChannelVideo,
 } from '../types';
 
+const CHANNEL_PREFS_KEY = 'echolearn_channel_prefs';
+
+interface ChannelPrefs {
+  input: string;
+  topic: string;
+}
+
+function loadChannelPrefs(): ChannelPrefs {
+  try {
+    const raw = localStorage.getItem(CHANNEL_PREFS_KEY);
+    if (raw) return JSON.parse(raw);
+  } catch { /* noop */ }
+  return { input: TARGET_CHANNEL.input, topic: TARGET_CHANNEL.topic };
+}
+
+function saveChannelPrefs(prefs: ChannelPrefs): void {
+  localStorage.setItem(CHANNEL_PREFS_KEY, JSON.stringify(prefs));
+}
+
 const DashboardPage: React.FC = () => {
   const navigate = useNavigate();
 
@@ -36,6 +55,9 @@ const DashboardPage: React.FC = () => {
   const [checkLoading, setCheckLoading] = useState(false);
   const [checkMessage, setCheckMessage] = useState<string | null>(null);
 
+  // Editable channel prefs
+  const [channelPrefs, setChannelPrefs] = useState<ChannelPrefs>(loadChannelPrefs);
+
   useEffect(() => {
     setVocabulary(loadVocabulary());
     setSentences(loadSentences());
@@ -43,6 +65,12 @@ const DashboardPage: React.FC = () => {
     setCurrentSession(loadCurrentSession());
     setDailyPlan(loadDailyPlan());
   }, []);
+
+  const handleChannelChange = (field: keyof ChannelPrefs, value: string) => {
+    const updated = { ...channelPrefs, [field]: value };
+    setChannelPrefs(updated);
+    saveChannelPrefs(updated);
+  };
 
   // Today's review: items where nextReviewAt <= end of today and not mastered
   const todayCount = useMemo(() => {
@@ -81,7 +109,7 @@ const DashboardPage: React.FC = () => {
     setCheckMessage(null);
 
     try {
-      const video: ChannelVideo | null = await getLatestVideoFromChannel(TARGET_CHANNEL.input);
+      const video: ChannelVideo | null = await getLatestVideoFromChannel(channelPrefs.input);
 
       if (!video) {
         setCheckMessage('Could not fetch the latest video. Check the channel handle or API key.');
@@ -212,17 +240,28 @@ const DashboardPage: React.FC = () => {
           <p className="text-xs text-gray-400 uppercase tracking-wider mb-2">
             Single Channel
           </p>
-          <p className="text-base font-semibold text-gray-800 mb-1">
-            {TARGET_CHANNEL.topic}
-          </p>
-          <p className="text-xs text-gray-500 mb-4">
-            Channel: <span className="font-mono text-indigo-500">{TARGET_CHANNEL.input}</span>
+          <input
+            type="text"
+            value={channelPrefs.topic}
+            onChange={(e) => handleChannelChange('topic', e.target.value)}
+            className="text-base font-semibold text-gray-800 mb-1 w-full px-1 py-0.5 border border-transparent hover:border-gray-300 focus:border-indigo-400 focus:outline-none rounded transition-colors bg-transparent"
+            placeholder="Topic..."
+          />
+          <div className="flex items-center gap-1.5 mb-4">
+            <span className="text-xs text-gray-500">Channel:</span>
+            <input
+              type="text"
+              value={channelPrefs.input}
+              onChange={(e) => handleChannelChange('input', e.target.value)}
+              className="text-xs font-mono text-indigo-500 flex-1 px-1 py-0.5 border border-transparent hover:border-gray-300 focus:border-indigo-400 focus:outline-none rounded transition-colors bg-transparent"
+              placeholder="@ChannelHandle"
+            />
             {TARGET_CHANNEL.preferredLevel && (
-              <span className="ml-2 px-1.5 py-0.5 bg-indigo-50 text-indigo-600 rounded text-[10px] font-medium">
+              <span className="px-1.5 py-0.5 bg-indigo-50 text-indigo-600 rounded text-[10px] font-medium">
                 {TARGET_CHANNEL.preferredLevel}
               </span>
             )}
-          </p>
+          </div>
 
           <button
             onClick={handleCheckLatest}
