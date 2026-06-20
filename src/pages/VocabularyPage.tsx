@@ -216,7 +216,7 @@ const VocabularyPage: React.FC = () => {
           {filtered.map((item) => (
             <div
               key={item.id}
-              className={`bg-white border rounded-xl p-4 group hover:shadow-sm transition-shadow ${
+              className={`bg-white border rounded-xl p-4 group hover:shadow-sm transition-shadow overflow-hidden ${
                 item.mastered ? 'border-green-200' : 'border-gray-200'
               }`}
             >
@@ -316,22 +316,22 @@ const VocabularyPage: React.FC = () => {
               </p>
 
               {/* Footer: source + date + toggle */}
-              <div className="flex items-center justify-between mt-3 pt-2 border-t border-gray-100">
-                <div className="flex items-center gap-2">
-                  <span className="text-[10px] font-mono text-gray-400 truncate max-w-[200px]" title={getVideoTitle(item)}>
+              <div className="mt-3 pt-2 border-t border-gray-100 space-y-1.5">
+                <div className="flex items-center gap-2 min-w-0">
+                  <span className="text-[10px] text-gray-400 truncate flex-1 min-w-0" title={getVideoTitle(item)}>
                     {getVideoTitle(item)}
                   </span>
-                  <span className="text-[10px] text-gray-400">
+                  <span className="text-[10px] text-gray-400 shrink-0">
                     {new Date(item.addedAt).toLocaleDateString()}
                   </span>
                 </div>
-                <div className="flex items-center gap-2">
+                <div className="flex items-center justify-between">
                   <span className={`text-[10px] font-medium ${reviewLabel(item.nextReviewAt, item.mastered).color}`}>
                     {reviewLabel(item.nextReviewAt, item.mastered).text}
                   </span>
                   <button
                     onClick={() => handleToggleMastered(item)}
-                    className={`text-xs font-medium cursor-pointer transition-colors ${
+                    className={`text-[10px] font-medium cursor-pointer transition-colors ${
                       item.mastered
                         ? 'text-green-600 hover:text-green-700'
                         : 'text-gray-400 hover:text-indigo-600'
