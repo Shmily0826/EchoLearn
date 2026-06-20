@@ -1,4 +1,5 @@
 import React, { useEffect, useState, useCallback, useMemo } from 'react';
+import { useNavigate } from 'react-router-dom';
 import {
   loadVocabulary,
   removeVocabularyItem,
@@ -9,6 +10,7 @@ import WordDictionaryPopup from '../components/WordDictionaryPopup';
 import type { VocabularyItem, VideoStudySession } from '../types';
 
 type FilterMode = 'all' | 'mastered' | 'unmastered';
+type SortMode = 'newest' | 'az' | 'review' | 'most-reviewed';
 
 interface DictPopupState {
   word: string;
@@ -16,11 +18,25 @@ interface DictPopupState {
   y: number;
 }
 
+/** Format a nextReviewAt timestamp as a short label. */
+function reviewLabel(nextReviewAt: number, mastered: boolean): { text: string; color: string } {
+  if (mastered) return { text: 'Mastered', color: 'text-green-600' };
+  if (nextReviewAt === 0) return { text: 'Mastered', color: 'text-green-600' };
+  const now = Date.now();
+  if (nextReviewAt <= now) return { text: 'Due now', color: 'text-red-500' };
+  const days = Math.ceil((nextReviewAt - now) / (24 * 60 * 60 * 1000));
+  if (days === 1) return { text: 'Due tomorrow', color: 'text-amber-500' };
+  if (days <= 7) return { text: `Due in ${days}d`, color: 'text-amber-500' };
+  return { text: `Due in ${days}d`, color: 'text-gray-400' };
+}
+
 const VocabularyPage: React.FC = () => {
+  const navigate = useNavigate();
   const [vocabulary, setVocabulary] = useState<VocabularyItem[]>([]);
   const [sessions, setSessions] = useState<VideoStudySession[]>([]);
   const [search, setSearch] = useState('');
   const [filter, setFilter] = useState<FilterMode>('all');
+  const [sort, setSort] = useState<SortMode>('newest');
   const [editingId, setEditingId] = useState<string | null>(null);
   const [editMeaning, setEditMeaning] = useState('');
   const [dictPopup, setDictPopup] = useState<DictPopupState | null>(null);
@@ -76,23 +92,48 @@ const VocabularyPage: React.FC = () => {
     });
   };
 
-  // Search + filter
-  const filtered = vocabulary.filter((v) => {
-    const matchesSearch =
-      !search ||
-      v.word.toLowerCase().includes(search.toLowerCase()) ||
-      v.context.toLowerCase().includes(search.toLowerCase()) ||
-      v.meaningCn.toLowerCase().includes(search.toLowerCase());
-    const matchesFilter =
-      filter === 'all'
-        ? true
-        : filter === 'mastered'
-          ? v.mastered
-          : !v.mastered;
-    return matchesSearch && matchesFilter;
-  });
+  // Search + filter + sort
+  const filtered = useMemo(() => {
+    let items = vocabulary.filter((v) => {
+      const matchesSearch =
+        !search ||
+        v.word.toLowerCase().includes(search.toLowerCase()) ||
+        v.context.toLowerCase().includes(search.toLowerCase()) ||
+        v.meaningCn.toLowerCase().includes(search.toLowerCase());
+      const matchesFilter =
+        filter === 'all'
+          ? true
+          : filter === 'mastered'
+            ? v.mastered
+            : !v.mastered;
+      return matchesSearch && matchesFilter;
+    });
+
+    switch (sort) {
+      case 'newest':
+        items = [...items].sort((a, b) => b.addedAt - a.addedAt);
+        break;
+      case 'az':
+        items = [...items].sort((a, b) => a.word.localeCompare(b.word));
+        break;
+      case 'review':
+        items = [...items].sort((a, b) => {
+          if (a.mastered !== b.mastered) return a.mastered ? 1 : -1;
+          return a.nextReviewAt - b.nextReviewAt;
+        });
+        break;
+      case 'most-reviewed':
+        items = [...items].sort((a, b) => b.reviewCount - a.reviewCount);
+        break;
+    }
+    return items;
+  }, [vocabulary, search, filter, sort]);
 
   const masteredCount = vocabulary.filter((v) => v.mastered).length;
+  const dueCount = useMemo(() => {
+    const now = Date.now();
+    return vocabulary.filter((v) => !v.mastered && v.nextReviewAt <= now).length;
+  }, [vocabulary]);
 
   return (
     <div className="max-w-5xl mx-auto px-6 py-10">
@@ -112,32 +153,53 @@ const VocabularyPage: React.FC = () => {
           <h1 className="text-2xl font-bold text-gray-900 tracking-tight">Vocabulary</h1>
           <p className="text-sm text-gray-500 mt-1">
             {vocabulary.length} words &middot; {masteredCount} mastered
+            {dueCount > 0 && <span className="text-amber-500"> &middot; {dueCount} due</span>}
           </p>
         </div>
-        <input
-          type="text"
-          value={search}
-          onChange={(e) => setSearch(e.target.value)}
-          placeholder="Search word / meaning..."
-          className="w-64 px-3 py-1.5 text-sm border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-indigo-400 focus:border-transparent"
-        />
+        <div className="flex items-center gap-3">
+          <input
+            type="text"
+            value={search}
+            onChange={(e) => setSearch(e.target.value)}
+            placeholder="Search word / meaning..."
+            className="w-52 px-3 py-1.5 text-sm border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-indigo-400 focus:border-transparent"
+          />
+          <button
+            onClick={() => navigate('/review')}
+            className="px-4 py-1.5 text-sm bg-indigo-600 text-white rounded-lg hover:bg-indigo-700 transition-colors font-medium cursor-pointer"
+          >
+            Review{dueCount > 0 ? ` (${dueCount})` : ''}
+          </button>
+        </div>
       </div>
 
-      {/* Filter tabs */}
-      <div className="flex gap-1 mb-6">
-        {(['all', 'unmastered', 'mastered'] as FilterMode[]).map((f) => (
-          <button
-            key={f}
-            onClick={() => setFilter(f)}
-            className={`px-3.5 py-1.5 text-sm font-medium rounded-lg transition-colors cursor-pointer ${
-              filter === f
-                ? 'bg-indigo-50 text-indigo-700'
-                : 'text-gray-500 hover:text-gray-700 hover:bg-gray-50'
-            }`}
-          >
-            {f === 'all' ? 'All' : f === 'mastered' ? 'Mastered' : 'Unmastered'}
-          </button>
-        ))}
+      {/* Filter tabs + sort */}
+      <div className="flex items-center justify-between mb-6">
+        <div className="flex gap-1">
+          {(['all', 'unmastered', 'mastered'] as FilterMode[]).map((f) => (
+            <button
+              key={f}
+              onClick={() => setFilter(f)}
+              className={`px-3.5 py-1.5 text-sm font-medium rounded-lg transition-colors cursor-pointer ${
+                filter === f
+                  ? 'bg-indigo-50 text-indigo-700'
+                  : 'text-gray-500 hover:text-gray-700 hover:bg-gray-50'
+              }`}
+            >
+              {f === 'all' ? 'All' : f === 'mastered' ? 'Mastered' : 'Unmastered'}
+            </button>
+          ))}
+        </div>
+        <select
+          value={sort}
+          onChange={(e) => setSort(e.target.value as SortMode)}
+          className="text-xs text-gray-500 border border-gray-200 rounded-lg px-2 py-1.5 focus:outline-none focus:ring-1 focus:ring-indigo-400 cursor-pointer"
+        >
+          <option value="newest">Newest first</option>
+          <option value="az">A - Z</option>
+          <option value="review">Review soonest</option>
+          <option value="most-reviewed">Most reviewed</option>
+        </select>
       </div>
 
       {/* Cards */}
@@ -263,17 +325,35 @@ const VocabularyPage: React.FC = () => {
                     {new Date(item.addedAt).toLocaleDateString()}
                   </span>
                 </div>
-                <button
-                  onClick={() => handleToggleMastered(item)}
-                  className={`text-xs font-medium cursor-pointer transition-colors ${
-                    item.mastered
-                      ? 'text-green-600 hover:text-green-700'
-                      : 'text-gray-400 hover:text-indigo-600'
-                  }`}
-                >
-                  {item.mastered ? 'Unmark' : 'Mark mastered'}
-                </button>
+                <div className="flex items-center gap-2">
+                  <span className={`text-[10px] font-medium ${reviewLabel(item.nextReviewAt, item.mastered).color}`}>
+                    {reviewLabel(item.nextReviewAt, item.mastered).text}
+                  </span>
+                  <button
+                    onClick={() => handleToggleMastered(item)}
+                    className={`text-xs font-medium cursor-pointer transition-colors ${
+                      item.mastered
+                        ? 'text-green-600 hover:text-green-700'
+                        : 'text-gray-400 hover:text-indigo-600'
+                    }`}
+                  >
+                    {item.mastered ? 'Unmark' : 'Mark mastered'}
+                  </button>
+                </div>
               </div>
+
+              {/* Review progress bar */}
+              {!item.mastered && (
+                <div className="mt-2 flex items-center gap-1.5">
+                  <div className="flex-1 h-1 bg-gray-100 rounded-full overflow-hidden">
+                    <div
+                      className="h-full bg-indigo-400 rounded-full transition-all"
+                      style={{ width: `${Math.min(item.reviewCount / 5 * 100, 100)}%` }}
+                    />
+                  </div>
+                  <span className="text-[9px] text-gray-400">{item.reviewCount}/5</span>
+                </div>
+              )}
             </div>
           ))}
         </div>

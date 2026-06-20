@@ -1,4 +1,5 @@
 import React, { useEffect, useState, useCallback, useMemo } from 'react';
+import { useNavigate } from 'react-router-dom';
 import {
   loadSentences,
   removeSentenceItem,
@@ -19,7 +20,20 @@ function splitTokens(text: string): string[] {
   return text.match(/[\w']+|[^\w\s]+|\s+/g) || [];
 }
 
+/** Format a nextReviewAt timestamp as a short label. */
+function reviewLabel(nextReviewAt: number, mastered: boolean): { text: string; color: string } {
+  if (mastered) return { text: 'Mastered', color: 'text-green-600' };
+  if (nextReviewAt === 0) return { text: 'Mastered', color: 'text-green-600' };
+  const now = Date.now();
+  if (nextReviewAt <= now) return { text: 'Due now', color: 'text-red-500' };
+  const days = Math.ceil((nextReviewAt - now) / (24 * 60 * 60 * 1000));
+  if (days === 1) return { text: 'Due tomorrow', color: 'text-amber-500' };
+  if (days <= 7) return { text: `Due in ${days}d`, color: 'text-amber-500' };
+  return { text: `Due in ${days}d`, color: 'text-gray-400' };
+}
+
 const SentencesPage: React.FC = () => {
+  const navigate = useNavigate();
   const [sentences, setSentences] = useState<SentenceItem[]>([]);
   const [sessions, setSessions] = useState<VideoStudySession[]>([]);
   const [search, setSearch] = useState('');
@@ -108,6 +122,15 @@ const SentencesPage: React.FC = () => {
       s.meaningCn.toLowerCase().includes(search.toLowerCase()),
   );
 
+  const dueCount = useMemo(() => {
+    const now = Date.now();
+    return sentences.filter((s) => !s.mastered && s.nextReviewAt <= now).length;
+  }, [sentences]);
+
+  const masteredCount = useMemo(() => {
+    return sentences.filter((s) => s.mastered).length;
+  }, [sentences]);
+
   return (
     <div className="max-w-5xl mx-auto px-6 py-10">
       {/* Dictionary popup */}
@@ -125,16 +148,25 @@ const SentencesPage: React.FC = () => {
         <div>
           <h1 className="text-2xl font-bold text-gray-900 tracking-tight">Sentence Bank</h1>
           <p className="text-sm text-gray-500 mt-1">
-            {sentences.length} sentences saved
+            {sentences.length} sentences &middot; {masteredCount} mastered
+            {dueCount > 0 && <span className="text-amber-500"> &middot; {dueCount} due</span>}
           </p>
         </div>
-        <input
-          type="text"
-          value={search}
-          onChange={(e) => setSearch(e.target.value)}
-          placeholder="Search sentence / meaning..."
-          className="w-64 px-3 py-1.5 text-sm border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-indigo-400 focus:border-transparent"
-        />
+        <div className="flex items-center gap-3">
+          <input
+            type="text"
+            value={search}
+            onChange={(e) => setSearch(e.target.value)}
+            placeholder="Search sentence / meaning..."
+            className="w-52 px-3 py-1.5 text-sm border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-indigo-400 focus:border-transparent"
+          />
+          <button
+            onClick={() => navigate('/review')}
+            className="px-4 py-1.5 text-sm bg-indigo-600 text-white rounded-lg hover:bg-indigo-700 transition-colors font-medium cursor-pointer"
+          >
+            Review{dueCount > 0 ? ` (${dueCount})` : ''}
+          </button>
+        </div>
       </div>
 
       {/* Cards */}
@@ -270,16 +302,26 @@ const SentencesPage: React.FC = () => {
               </div>
 
               {/* Footer */}
-              <div className="flex items-center gap-3">
-                <span className="text-[10px] font-mono text-gray-400">
-                  @{formatTime(item.startTime)}
-                </span>
-                <span className="text-[10px] font-mono text-gray-400 truncate max-w-[200px]" title={getVideoTitle(item)}>
-                  {getVideoTitle(item)}
-                </span>
-                <span className="text-[10px] text-gray-400">
-                  {new Date(item.addedAt).toLocaleDateString()}
-                </span>
+              <div className="flex items-center justify-between">
+                <div className="flex items-center gap-3">
+                  <span className="text-[10px] font-mono text-gray-400">
+                    @{formatTime(item.startTime)}
+                  </span>
+                  <span className="text-[10px] font-mono text-gray-400 truncate max-w-[200px]" title={getVideoTitle(item)}>
+                    {getVideoTitle(item)}
+                  </span>
+                  <span className="text-[10px] text-gray-400">
+                    {new Date(item.addedAt).toLocaleDateString()}
+                  </span>
+                </div>
+                <div className="flex items-center gap-2">
+                  <span className={`text-[10px] font-medium ${reviewLabel(item.nextReviewAt, item.mastered).color}`}>
+                    {reviewLabel(item.nextReviewAt, item.mastered).text}
+                  </span>
+                  {!item.mastered && (
+                    <span className="text-[9px] text-gray-400">{item.reviewCount}/5</span>
+                  )}
+                </div>
               </div>
             </div>
           ))}
