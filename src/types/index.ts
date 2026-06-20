@@ -1,0 +1,79 @@
+/** Possible states for a study session */
+export type SessionStatus = 'draft' | 'studying' | 'completed';
+
+/** A single line in the transcript */
+export interface TranscriptLine {
+  start: number;  // start time in seconds
+  end: number;    // end time in seconds
+  text: string;   // the spoken sentence
+}
+
+/** A vocabulary item saved by the user */
+export interface VocabularyItem {
+  id: string;                // unique id (timestamp-based)
+  word: string;              // the word itself
+  meaningCn: string;         // Chinese meaning / translation
+  context: string;           // the full sentence where the word appeared
+  sourceVideoId: string;     // YouTube video ID this word was learned from
+  addedAt: number;           // when the word was saved (unix ms)
+  mastered: boolean;         // whether the user has mastered this word
+  reviewCount: number;       // how many times the user reviewed this word
+  lastReviewedAt: number;    // unix ms of last review (0 if never reviewed)
+  nextReviewAt: number;      // unix ms of next scheduled review
+}
+
+/** A key sentence saved by the user */
+export interface SentenceItem {
+  id: string;                // unique id (timestamp-based)
+  text: string;              // the full sentence
+  meaningCn: string;         // Chinese translation of the sentence
+  sourceVideoId: string;     // YouTube video ID this sentence was saved from
+  startTime: number;         // start time of the sentence in the video (seconds)
+  addedAt: number;           // when the sentence was saved (unix ms)
+  myOwnSentence: string;     // user's own sentence using the same pattern / structure
+  mastered: boolean;         // whether the user has mastered this sentence
+  reviewCount: number;       // how many times the user reviewed this sentence
+  lastReviewedAt: number;    // unix ms of last review (0 if never reviewed)
+  nextReviewAt: number;      // unix ms of next scheduled review
+}
+
+/** A study session tied to a single YouTube video */
+export interface VideoStudySession {
+  id: string;                        // unique id (timestamp-based)
+  youtubeUrl: string;                // the original URL the user pasted
+  youtubeId: string;                 // extracted 11-char video ID
+  title: string;                     // user-editable title (defaults to URL)
+  transcriptLines: TranscriptLine[]; // the parsed transcript for this video
+  createdAt: number;                 // unix ms when session was created
+  updatedAt: number;                 // unix ms when session was last modified
+  status: SessionStatus;             // draft → studying → completed
+}
+
+// ── Channel & Daily Plan ────────────────────────────────────
+
+/** Metadata for a YouTube video fetched via the Data API. */
+export interface ChannelVideo {
+  videoId: string;
+  title: string;
+  channelId: string;
+  channelTitle: string;
+  publishedAt: string;   // ISO-8601 date string
+  thumbnailUrl: string;
+  youtubeUrl: string;
+}
+
+/** Possible states for a daily plan item. */
+export type DailyPlanStatus = 'planned' | 'studying' | 'completed';
+
+/** A single item in the user's daily study plan. */
+export interface DailyPlanItem {
+  id: string;                  // unique id (timestamp-based)
+  date: string;                // YYYY-MM-DD
+  videoId: string;             // YouTube video ID
+  youtubeUrl: string;          // full YouTube URL
+  title: string;               // video title from API
+  channelTitle: string;        // channel name
+  thumbnailUrl: string;        // video thumbnail
+  status: DailyPlanStatus;     // planned → studying → completed
+  createdAt: number;           // unix ms when added
+}
