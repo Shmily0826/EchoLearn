@@ -256,7 +256,7 @@ const VocabularyPage: React.FC = () => {
               {/* Footer: source + date + toggle */}
               <div className="flex items-center justify-between mt-3 pt-2 border-t border-gray-100">
                 <div className="flex items-center gap-2">
-                  <span className="text-[10px] font-mono text-gray-400 truncate max-w-[120px]" title={item.sourceVideoId}>
+                  <span className="text-[10px] font-mono text-gray-400 truncate max-w-[200px]" title={getVideoTitle(item)}>
                     {getVideoTitle(item)}
                   </span>
                   <span className="text-[10px] text-gray-400">

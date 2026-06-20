@@ -329,7 +329,7 @@ const StudyPage: React.FC = () => {
                     persistSession(videoId, urlInput.trim(), rawBlocks, sentenceLines, sessionTitle);
                   }
                 }}
-                className="px-2 py-0.5 text-sm text-gray-600 border border-transparent hover:border-gray-300 focus:border-indigo-400 focus:outline-none rounded transition-colors max-w-[240px]"
+                className="px-2 py-0.5 text-sm text-gray-600 border border-transparent hover:border-gray-300 focus:border-indigo-400 focus:outline-none rounded transition-colors max-w-[480px]"
                 placeholder="Session title..."
               />
             )}
@@ -634,7 +634,7 @@ const VocabularyList: React.FC<{
             </div>
             <p className="text-xs text-gray-500 mt-1 line-clamp-2">"{item.context}"</p>
             <div className="flex items-center gap-2 mt-1.5">
-              <span className="text-[10px] text-gray-400 truncate max-w-[120px]">
+              <span className="text-[10px] text-gray-400 truncate max-w-[200px]" title={item.sourceVideoTitle || item.sourceVideoId}>
                 {item.sourceVideoTitle || item.sourceVideoId}
               </span>
               <span className="text-[10px] text-gray-400">
@@ -687,7 +687,7 @@ const SentenceList: React.FC<{
             >
               @{formatTime(item.startTime)}
             </button>
-            <span className="text-[10px] text-gray-400 truncate max-w-[120px]">
+            <span className="text-[10px] text-gray-400 truncate max-w-[200px]" title={item.sourceVideoTitle || item.sourceVideoId}>
               {item.sourceVideoTitle || item.sourceVideoId}
             </span>
             <span className="text-[10px] text-gray-400">
