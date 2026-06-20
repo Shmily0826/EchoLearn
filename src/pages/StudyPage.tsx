@@ -329,7 +329,7 @@ const StudyPage: React.FC = () => {
                     persistSession(videoId, urlInput.trim(), rawBlocks, sentenceLines, sessionTitle);
                   }
                 }}
-                className="px-2 py-0.5 text-sm text-gray-600 border border-transparent hover:border-gray-300 focus:border-indigo-400 focus:outline-none rounded transition-colors max-w-[480px]"
+                className="px-2 py-0.5 text-sm text-gray-600 border border-transparent hover:border-gray-300 focus:border-indigo-400 focus:outline-none rounded transition-colors w-[420px]"
                 placeholder="Session title..."
               />
             )}

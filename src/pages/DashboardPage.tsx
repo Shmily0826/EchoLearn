@@ -245,16 +245,16 @@ const DashboardPage: React.FC = () => {
             value={channelPrefs.topic}
             onChange={(e) => handleChannelChange('topic', e.target.value)}
             className="text-base font-semibold text-gray-800 mb-1 w-full px-1 py-0.5 border border-transparent hover:border-gray-300 focus:border-indigo-400 focus:outline-none rounded transition-colors bg-transparent"
-            placeholder="Topic..."
+            placeholder="Topic keyword (e.g. English Podcast)"
           />
-          <div className="flex items-center gap-1.5 mb-4">
+          <div className="flex items-center gap-1.5 mb-2">
             <span className="text-xs text-gray-500">Channel:</span>
             <input
               type="text"
               value={channelPrefs.input}
               onChange={(e) => handleChannelChange('input', e.target.value)}
               className="text-xs font-mono text-indigo-500 flex-1 px-1 py-0.5 border border-transparent hover:border-gray-300 focus:border-indigo-400 focus:outline-none rounded transition-colors bg-transparent"
-              placeholder="@ChannelHandle"
+              placeholder="@ChannelHandle (e.g. @EnglishClass101)"
             />
             {TARGET_CHANNEL.preferredLevel && (
               <span className="px-1.5 py-0.5 bg-indigo-50 text-indigo-600 rounded text-[10px] font-medium">
@@ -262,6 +262,10 @@ const DashboardPage: React.FC = () => {
               </span>
             )}
           </div>
+
+          <p className="text-[10px] text-gray-400 mb-3">
+            Enter a YouTube channel handle and click the button to fetch its latest video into today's plan.
+          </p>
 
           <button
             onClick={handleCheckLatest}
