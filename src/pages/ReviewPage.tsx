@@ -151,23 +151,61 @@ const ReviewPage: React.FC = () => {
     advance();
   }, [advance]);
 
+  // ── Play pronunciation ─────────────────────────────────
+  const playAudio = useCallback(() => {
+    if (!currentCard) return;
+    if (currentCard.kind === 'word' && currentCard.item.audioUrl) {
+      new Audio(currentCard.item.audioUrl).play().catch(() => {});
+    } else {
+      // Use browser TTS for sentences or words without audio
+      const text = currentCard.kind === 'word' ? currentCard.item.word : currentCard.item.text;
+      if ('speechSynthesis' in window) {
+        window.speechSynthesis.cancel();
+        const utterance = new SpeechSynthesisUtterance(text);
+        utterance.lang = 'en-US';
+        utterance.rate = 0.9;
+        window.speechSynthesis.speak(utterance);
+      }
+    }
+  }, [currentCard]);
+
+  // ── Reset to landing ────────────────────────────────────
+  const handleReset = useCallback(() => {
+    setSessionActive(false);
+    setDoneIds(new Set());
+    setStats({ remembered: 0, forgot: 0 });
+    // Reload latest data
+    setVocabulary(loadVocabulary());
+    setSentences(loadSentences());
+  }, []);
+
   // ── Keyboard shortcuts ─────────────────────────────────
   useEffect(() => {
     if (!sessionActive) return;
     const handler = (e: KeyboardEvent) => {
       if (e.target instanceof HTMLInputElement || e.target instanceof HTMLTextAreaElement) return;
-      if (e.key === ' ' || e.key === 'Enter') {
-        e.preventDefault();
-        if (!revealed) setRevealed(true);
+      if (!revealed) {
+        if (e.key === ' ' || e.key === 'Enter' || e.key === 'r' || e.key === 'R') {
+          e.preventDefault();
+          setRevealed(true);
+        }
+        if (e.key === 'p' || e.key === 'P') {
+          e.preventDefault();
+          playAudio();
+        }
       } else if (revealed) {
         if (e.key === '1') handleForgot();
         else if (e.key === '2') handleRemember();
         else if (e.key === '3' || e.key === 'ArrowRight') handleSkip();
+        else if (e.key === 'p' || e.key === 'P') {
+          e.preventDefault();
+          playAudio();
+        }
       }
     };
     window.addEventListener('keydown', handler);
     return () => window.removeEventListener('keydown', handler);
-  }, [sessionActive, revealed, handleForgot, handleRemember, handleSkip]);
+  }, [sessionActive, revealed, handleForgot, handleRemember, handleSkip, playAudio]);
 
   // ── Landing: show stats + mode buttons ─────────────────
   if (!sessionActive) {
@@ -179,6 +217,16 @@ const ReviewPage: React.FC = () => {
         stats.remembered + stats.forgot > 0
           ? Math.round((stats.remembered / (stats.remembered + stats.forgot)) * 100)
           : 0;
+
+      // Recalculate counts after this session
+      const newDueCount = (() => {
+        const now = Date.now();
+        const w = vocabulary.filter((v) => !v.mastered && v.nextReviewAt <= now).length;
+        const s = sentences.filter((ss) => !ss.mastered && ss.nextReviewAt <= now).length;
+        return w + s;
+      })();
+      const newUnmasteredCount = vocabulary.filter((v) => !v.mastered).length +
+        sentences.filter((ss) => !ss.mastered).length;
 
       return (
         <div className="max-w-2xl mx-auto px-6 py-10">
@@ -202,12 +250,62 @@ const ReviewPage: React.FC = () => {
                 <p className="text-xs text-gray-400 mt-1">To Review Again</p>
               </div>
             </div>
-            <button
-              onClick={() => navigate('/')}
-              className="px-6 py-2.5 text-sm bg-indigo-600 text-white rounded-lg hover:bg-indigo-700 transition-colors font-medium cursor-pointer"
-            >
-              Back to Dashboard
-            </button>
+
+            {/* Remaining info */}
+            {(newDueCount > 0 || newUnmasteredCount > 0) && (
+              <p className="text-xs text-gray-400 mb-4">
+                {newDueCount > 0
+                  ? `${newDueCount} items still due`
+                  : 'No items due right now'}{' '}
+                &middot; {newUnmasteredCount} unmastered total
+              </p>
+            )}
+
+            {/* Action buttons */}
+            <div className="space-y-2">
+              {newDueCount > 0 && (
+                <button
+                  onClick={() => {
+                    handleReset();
+                    setTimeout(() => startSession('due'), 50);
+                  }}
+                  className="w-full px-5 py-3 text-sm bg-indigo-600 text-white rounded-xl hover:bg-indigo-700 transition-colors font-medium cursor-pointer"
+                >
+                  Continue Review ({newDueCount} due)
+                </button>
+              )}
+              {newUnmasteredCount > 0 && newUnmasteredCount !== newDueCount && (
+                <button
+                  onClick={() => {
+                    handleReset();
+                    setTimeout(() => startSession('all'), 50);
+                  }}
+                  className="w-full px-5 py-3 text-sm bg-white text-gray-700 border border-gray-200 rounded-xl hover:bg-gray-50 transition-colors font-medium cursor-pointer"
+                >
+                  Review All Unmastered ({newUnmasteredCount})
+                </button>
+              )}
+              <div className="flex gap-2 pt-2">
+                <button
+                  onClick={() => navigate('/vocabulary')}
+                  className="flex-1 px-4 py-2.5 text-xs text-gray-500 bg-gray-50 border border-gray-200 rounded-lg hover:bg-gray-100 transition-colors font-medium cursor-pointer"
+                >
+                  Vocabulary
+                </button>
+                <button
+                  onClick={() => navigate('/sentences')}
+                  className="flex-1 px-4 py-2.5 text-xs text-gray-500 bg-gray-50 border border-gray-200 rounded-lg hover:bg-gray-100 transition-colors font-medium cursor-pointer"
+                >
+                  Sentences
+                </button>
+                <button
+                  onClick={() => navigate('/')}
+                  className="flex-1 px-4 py-2.5 text-xs text-gray-500 bg-gray-50 border border-gray-200 rounded-lg hover:bg-gray-100 transition-colors font-medium cursor-pointer"
+                >
+                  Dashboard
+                </button>
+              </div>
+            </div>
           </div>
         </div>
       );
@@ -287,7 +385,7 @@ const ReviewPage: React.FC = () => {
 
             {/* Keyboard hint */}
             <p className="text-[11px] text-gray-400 mt-6 text-center">
-              Keyboard shortcuts during review: Space to reveal &middot; 1 Forgot &middot; 2 Remember &middot; 3 Skip
+              Keyboard shortcuts: Space/R Reveal &middot; P Play &middot; 1 Forgot &middot; 2 Remember &middot; 3 Skip
             </p>
           </>
         )}
@@ -354,13 +452,25 @@ const ReviewPage: React.FC = () => {
             )}
           </div>
 
-          <p
-            className={`text-gray-800 leading-relaxed mb-8 ${
-              currentCard.kind === 'word' ? 'text-3xl font-bold' : 'text-lg'
-            }`}
-          >
-            {primaryText}
-          </p>
+          <div className="flex items-start gap-3 mb-8">
+            <p
+              className={`text-gray-800 leading-relaxed flex-1 ${
+                currentCard.kind === 'word' ? 'text-3xl font-bold' : 'text-lg'
+              }`}
+            >
+              {primaryText}
+            </p>
+            <button
+              onClick={playAudio}
+              className="shrink-0 p-2 text-indigo-400 hover:text-indigo-600 hover:bg-indigo-50 rounded-lg transition-colors cursor-pointer"
+              title="Play pronunciation (P)"
+            >
+              <svg className="w-5 h-5" fill="currentColor" viewBox="0 0 24 24">
+                <path d="M11.5 3.75a.75.75 0 011.085-.674l6.75 3.5a.75.75 0 010 1.348l-6.75 3.5a.75.75 0 01-1.085-.674V3.75z" />
+                <path d="M3.5 8.75a.75.75 0 011.085-.674l6.75 3.5a.75.75 0 010 1.348l-6.75 3.5A.75.75 0 013.5 15.75V8.75z" />
+              </svg>
+            </button>
+          </div>
 
           {/* Answer (hidden until revealed) */}
           {revealed ? (
@@ -382,7 +492,7 @@ const ReviewPage: React.FC = () => {
               onClick={() => setRevealed(true)}
               className="px-6 py-3 text-sm text-indigo-600 bg-indigo-50 rounded-xl hover:bg-indigo-100 transition-colors font-medium cursor-pointer"
             >
-              Show Answer
+              Show Answer <span className="text-[10px] text-indigo-400 ml-1">R</span>
             </button>
           )}
         </div>
@@ -415,8 +525,8 @@ const ReviewPage: React.FC = () => {
       {/* Keyboard hint */}
       <p className="text-[11px] text-gray-400 mt-4 text-center">
         {revealed
-          ? '1 Forgot \u00B7 2 Remember \u00B7 3 Skip'
-          : 'Space / Enter to reveal'}
+          ? '1 Forgot \u00B7 2 Remember \u00B7 3 Skip \u00B7 P Play'
+          : 'Space / R to reveal \u00B7 P Play'}
       </p>
     </div>
   );

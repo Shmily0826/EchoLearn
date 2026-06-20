@@ -238,6 +238,7 @@ const DashboardPage: React.FC = () => {
           label="Today's Review"
           value={todayCount}
           color="green"
+          onClick={() => navigate('/review')}
           icon={
             <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.5}>
               <path strokeLinecap="round" strokeLinejoin="round" d="M9 12.75L11.25 15 15 9.75M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
@@ -504,10 +505,14 @@ const StatCard: React.FC<{
   value: number;
   color: string;
   icon: React.ReactNode;
-}> = ({ label, value, color, icon }) => {
+  onClick?: () => void;
+}> = ({ label, value, color, icon, onClick }) => {
   const c = colorMap[color] || colorMap.blue;
   return (
-    <div className={`${c.bg} rounded-xl p-5 border border-transparent`}>
+    <div
+      className={`${c.bg} rounded-xl p-5 border border-transparent ${onClick ? 'cursor-pointer hover:shadow-md transition-shadow' : ''}`}
+      onClick={onClick}
+    >
       <div className="flex items-center gap-3 mb-3">
         <div className={`${c.iconBg} ${c.text} p-2 rounded-lg`}>{icon}</div>
       </div>
