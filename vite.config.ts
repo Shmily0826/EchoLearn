@@ -52,16 +52,23 @@ export default defineConfig({
               expiration: { maxEntries: 50, maxAgeSeconds: 60 * 60 * 24 },
             },
           },
-          {
-            urlPattern: /^https:\/\/api\.allorigins\.win\/.*/i,
-            handler: 'StaleWhileRevalidate',
-            options: {
-              cacheName: 'cors-proxy',
-              expiration: { maxEntries: 20, maxAgeSeconds: 60 * 60 },
-            },
-          },
         ],
       },
     }),
   ],
+  server: {
+    proxy: {
+      // Proxy YouTube requests to bypass CORS in dev mode
+      '/yt-proxy': {
+        target: 'https://www.youtube.com',
+        changeOrigin: true,
+        rewrite: (path) => path.replace(/^\/yt-proxy/, ''),
+        headers: {
+          'User-Agent':
+            'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
+          'Accept-Language': 'en-US,en;q=0.9',
+        },
+      },
+    },
+  },
 })
