@@ -88,6 +88,7 @@ const StudyPage: React.FC = () => {
 
   // Auto-fetch status
   const [fetchingCaption, setFetchingCaption] = useState(false);
+  const [captionError, setCaptionError] = useState<string | null>(null);
 
   // Ref to track if we've done the initial restore
   const restoredRef = useRef(false);
@@ -140,13 +141,13 @@ const StudyPage: React.FC = () => {
         !!saved.transcriptData || saved.transcriptLines.length > 0;
       if (saved.youtubeId && !hasTranscript) {
         setFetchingCaption(true);
+        setCaptionError(null);
         fetchYouTubeTranscript(saved.youtubeId)
           .then(({ lines }) => {
             if (lines.length > 0) {
               const sLines = normalizeTranscriptToSentences(lines);
               setRawBlocks(lines);
               setSentenceLines(sLines);
-              // Persist the updated session with transcript data
               const updated: VideoStudySession = {
                 ...saved,
                 transcriptLines: lines,
@@ -158,7 +159,9 @@ const StudyPage: React.FC = () => {
             }
           })
           .catch((err) => {
-            console.warn('[StudyPage] Auto-fetch captions failed:', err);
+            setCaptionError(
+              err instanceof Error ? err.message : 'Unknown error fetching captions',
+            );
           })
           .finally(() => setFetchingCaption(false));
       }
@@ -291,6 +294,7 @@ const StudyPage: React.FC = () => {
 
     // Auto-fetch captions from YouTube
     setFetchingCaption(true);
+    setCaptionError(null);
     fetchYouTubeTranscript(id)
       .then(({ lines }) => {
         if (lines.length > 0) {
@@ -298,7 +302,9 @@ const StudyPage: React.FC = () => {
         }
       })
       .catch((err) => {
-        console.warn('[StudyPage] Auto-fetch captions failed:', err);
+        setCaptionError(
+          err instanceof Error ? err.message : 'Unknown error fetching captions',
+        );
       })
       .finally(() => setFetchingCaption(false));
   }, [urlInput, rawBlocks, sentenceLines, sessionTitle, persistSession, importTranscript]);
@@ -330,6 +336,7 @@ const StudyPage: React.FC = () => {
     setRawBlocks([]);
     setSentenceLines([]);
     setAnalysis(null);
+    setCaptionError(null);
   }, []);
 
   // ── Persist AI analysis to current session ─────────────────
@@ -667,6 +674,23 @@ const StudyPage: React.FC = () => {
                 </svg>
                 <p className="text-sm">Fetching captions from YouTube...</p>
                 <p className="text-xs mt-1 text-gray-300 dark:text-gray-500">This may take a few seconds</p>
+              </div>
+            ) : captionError ? (
+              <div className="flex flex-col items-center justify-center py-12">
+                <div className="bg-red-50 dark:bg-red-950/30 border border-red-200 dark:border-red-800 rounded-xl p-5 max-w-md text-center">
+                  <svg className="w-8 h-8 text-red-400 mx-auto mb-2" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.5}>
+                    <path strokeLinecap="round" strokeLinejoin="round" d="M12 9v3.75m9-.75a9 9 0 11-18 0 9 9 0 0118 0zm-9 3.75h.008v.008H12v-.008z" />
+                  </svg>
+                  <p className="text-sm text-red-600 dark:text-red-400 font-medium mb-1">Caption auto-fetch failed</p>
+                  <p className="text-xs text-red-500/70 dark:text-red-400/60 mb-3">{captionError}</p>
+                  <p className="text-xs text-gray-500 dark:text-gray-400">You can paste or upload the transcript manually below.</p>
+                </div>
+                <button
+                  onClick={() => setCaptionError(null)}
+                  className="mt-3 text-xs text-indigo-500 hover:text-indigo-700 cursor-pointer"
+                >
+                  Dismiss & use manual import
+                </button>
               </div>
             ) : videoId ? (
               <TranscriptImporter onImport={handleImportTranscript} />
