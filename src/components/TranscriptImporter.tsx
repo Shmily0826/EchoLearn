@@ -127,13 +127,13 @@ const TranscriptImporter: React.FC<TranscriptImporterProps> = ({ onImport }) => 
 
   // ── Render ───────────────────────────────────────────────
   return (
-    <div className="bg-white rounded-xl border border-gray-200 shadow-sm">
+    <div className="bg-white dark:bg-slate-800 rounded-xl border border-gray-200 dark:border-slate-700 shadow-sm">
       {/* Header */}
-      <div className="px-5 py-4 border-b border-gray-100">
-        <h3 className="text-base font-semibold text-gray-800">
+      <div className="px-5 py-4 border-b border-gray-100 dark:border-slate-700">
+        <h3 className="text-base font-semibold text-gray-800 dark:text-gray-200">
           Import Transcript
         </h3>
-        <p className="text-xs text-gray-500 mt-1">
+        <p className="text-xs text-gray-500 dark:text-gray-400 mt-1">
           Paste text, or upload an .srt / .vtt file. Supports SRT, VTT, timestamped, and plain text.
         </p>
       </div>
@@ -144,7 +144,7 @@ const TranscriptImporter: React.FC<TranscriptImporterProps> = ({ onImport }) => 
           <div className="space-y-4">
             {/* Textarea */}
             <div>
-              <label className="text-xs font-medium text-gray-500 uppercase tracking-wider mb-1.5 block">
+              <label className="text-xs font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wider mb-1.5 block">
                 Paste Transcript
               </label>
               <textarea
@@ -158,26 +158,26 @@ const TranscriptImporter: React.FC<TranscriptImporterProps> = ({ onImport }) => 
                   '  Time:   0:01 Hello world.\n' +
                   '  Plain:  Hello world. (auto 5s per sentence)'
                 }
-                className="w-full h-48 px-3 py-2.5 text-sm font-mono border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-indigo-400 resize-y"
+                className="w-full h-48 px-3 py-2.5 text-sm font-mono border border-gray-300 dark:border-slate-600 rounded-lg focus:outline-none focus:ring-2 focus:ring-indigo-400 resize-y dark:bg-slate-900 dark:text-gray-200"
               />
             </div>
 
             {/* Divider */}
             <div className="flex items-center gap-3">
-              <div className="flex-1 border-t border-gray-200" />
-              <span className="text-xs text-gray-400">or</span>
-              <div className="flex-1 border-t border-gray-200" />
+              <div className="flex-1 border-t border-gray-200 dark:border-slate-700" />
+              <span className="text-xs text-gray-400 dark:text-gray-500">or</span>
+              <div className="flex-1 border-t border-gray-200 dark:border-slate-700" />
             </div>
 
             {/* File upload */}
             <div>
-              <label className="text-xs font-medium text-gray-500 uppercase tracking-wider mb-1.5 block">
+              <label className="text-xs font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wider mb-1.5 block">
                 Upload File
               </label>
               <div className="flex items-center gap-3">
                 <button
                   onClick={() => fileInputRef.current?.click()}
-                  className="px-4 py-2 text-sm bg-white border border-gray-300 text-gray-700 rounded-lg hover:bg-gray-50 transition-colors font-medium cursor-pointer flex items-center gap-2"
+                  className="px-4 py-2 text-sm bg-white dark:bg-slate-800 border border-gray-300 dark:border-slate-600 text-gray-700 dark:text-gray-300 rounded-lg hover:bg-gray-50 dark:hover:bg-slate-700 transition-colors font-medium cursor-pointer flex items-center gap-2"
                 >
                   <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.5}>
                     <path strokeLinecap="round" strokeLinejoin="round" d="M3 16.5v2.25A2.25 2.25 0 005.25 21h13.5A2.25 2.25 0 0021 18.75V16.5m-13.5-9L12 3m0 0l4.5 4.5M12 3v13.5" />
@@ -224,7 +224,7 @@ const TranscriptImporter: React.FC<TranscriptImporterProps> = ({ onImport }) => 
         {previewLines && (
           <div className="space-y-4">
             <div className="flex items-center justify-between">
-              <p className="text-sm text-gray-600">
+              <p className="text-sm text-gray-600 dark:text-gray-400">
                 <span className="font-semibold text-indigo-600">{previewLines.length}</span> lines parsed
               </p>
               <button
@@ -236,9 +236,9 @@ const TranscriptImporter: React.FC<TranscriptImporterProps> = ({ onImport }) => 
             </div>
 
             {/* Editable table */}
-            <div className="border border-gray-200 rounded-lg overflow-hidden">
+            <div className="border border-gray-200 dark:border-slate-700 rounded-lg overflow-hidden">
               {/* Table header */}
-              <div className="grid grid-cols-[80px_80px_1fr_80px] bg-gray-50 border-b border-gray-200 px-3 py-2 text-[11px] font-medium text-gray-500 uppercase tracking-wider">
+              <div className="grid grid-cols-[80px_80px_1fr_80px] bg-gray-50 dark:bg-slate-900 border-b border-gray-200 dark:border-slate-700 px-3 py-2 text-[11px] font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wider">
                 <span>Start</span>
                 <span>End</span>
                 <span>Text</span>
@@ -246,11 +246,11 @@ const TranscriptImporter: React.FC<TranscriptImporterProps> = ({ onImport }) => 
               </div>
 
               {/* Rows */}
-              <div className="divide-y divide-gray-100">
+              <div className="divide-y divide-gray-100 dark:divide-slate-700">
                 {previewLines.map((line, idx) => (
                   <div
                     key={line.id || idx}
-                    className="grid grid-cols-[80px_80px_1fr_80px] items-center gap-2 px-3 py-1.5 hover:bg-gray-50 transition-colors"
+                    className="grid grid-cols-[80px_80px_1fr_80px] items-center gap-2 px-3 py-1.5 hover:bg-gray-50 dark:hover:bg-slate-900 transition-colors"
                   >
                     {/* Start time */}
                     <input
@@ -318,7 +318,7 @@ const TranscriptImporter: React.FC<TranscriptImporterProps> = ({ onImport }) => 
                 };
                 setPreviewLines([...previewLines, newLine]);
               }}
-              className="w-full py-2 text-xs text-gray-500 border border-dashed border-gray-300 rounded-lg hover:border-indigo-400 hover:text-indigo-600 transition-colors cursor-pointer"
+              className="w-full py-2 text-xs text-gray-500 dark:text-gray-400 border border-dashed border-gray-300 dark:border-slate-600 rounded-lg hover:border-indigo-400 hover:text-indigo-600 transition-colors cursor-pointer"
             >
               + Add line at end
             </button>
@@ -333,7 +333,7 @@ const TranscriptImporter: React.FC<TranscriptImporterProps> = ({ onImport }) => 
               </button>
               <button
                 onClick={handleCancel}
-                className="px-4 py-2.5 text-sm text-gray-500 border border-gray-300 rounded-lg hover:bg-gray-50 transition-colors cursor-pointer"
+                className="px-4 py-2.5 text-sm text-gray-500 dark:text-gray-400 border border-gray-300 dark:border-slate-600 rounded-lg hover:bg-gray-50 dark:hover:bg-slate-700 transition-colors cursor-pointer"
               >
                 Cancel
               </button>

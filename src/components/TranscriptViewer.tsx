@@ -190,14 +190,14 @@ const TranscriptViewer: React.FC<TranscriptViewerProps> = ({
           }`}
           style={{ left: popup.x, top: shouldFlip ? popup.y + 24 : popup.y }}
         >
-          <div className="bg-white rounded-xl shadow-xl border border-gray-200 p-4 min-w-[280px] max-w-[340px]">
+          <div className="bg-white dark:bg-slate-800 rounded-xl shadow-xl border border-gray-200 dark:border-slate-700 p-4 min-w-[280px] max-w-[340px]">
             {/* Word + phonetic */}
             <div className="flex items-center gap-2 mb-1">
-              <span className="text-lg font-bold text-gray-800">
+              <span className="text-lg font-bold text-gray-800 dark:text-gray-200">
                 {popup.word}
               </span>
               {dictEntry?.phonetic && (
-                <span className="text-sm text-gray-400 font-mono">
+                <span className="text-sm text-gray-400 dark:text-gray-500 font-mono">
                   {dictEntry.phonetic}
                 </span>
               )}
@@ -217,7 +217,7 @@ const TranscriptViewer: React.FC<TranscriptViewerProps> = ({
 
             {/* Part of speech */}
             {dictEntry?.partOfSpeech && (
-              <span className="inline-block text-[11px] px-2 py-0.5 bg-indigo-50 text-indigo-600 rounded-full font-medium mb-2">
+              <span className="inline-block text-[11px] px-2 py-0.5 bg-indigo-50 dark:bg-indigo-950 text-indigo-600 rounded-full font-medium mb-2">
                 {dictEntry.partOfSpeech}
               </span>
             )}
@@ -246,22 +246,22 @@ const TranscriptViewer: React.FC<TranscriptViewerProps> = ({
             {dictEntry && !dictLoading && (
               <div className="mb-3">
                 {dictEntry.definitionEn && (
-                  <p className="text-sm text-gray-700 leading-relaxed">
+                  <p className="text-sm text-gray-700 dark:text-gray-300 leading-relaxed">
                     {dictEntry.definitionEn}
                   </p>
                 )}
                 {dictEntry.example && (
-                  <p className="text-xs text-gray-400 mt-1.5 italic leading-relaxed">
+                  <p className="text-xs text-gray-400 dark:text-gray-500 mt-1.5 italic leading-relaxed">
                     &ldquo;{dictEntry.example}&rdquo;
                   </p>
                 )}
                 {dictEntry.synonyms.length > 0 && (
                   <div className="mt-2 flex items-start gap-1 flex-wrap">
-                    <span className="text-[10px] text-gray-400 font-medium mt-px">syn:</span>
+                    <span className="text-[10px] text-gray-400 dark:text-gray-500 font-medium mt-px">syn:</span>
                     {dictEntry.synonyms.slice(0, 5).map((s) => (
                       <span
                         key={s}
-                        className="text-[10px] px-1.5 py-0.5 bg-gray-100 text-gray-600 rounded"
+                        className="text-[10px] px-1.5 py-0.5 bg-gray-100 dark:bg-slate-700 text-gray-600 dark:text-gray-400 rounded"
                       >
                         {s}
                       </span>
@@ -270,11 +270,11 @@ const TranscriptViewer: React.FC<TranscriptViewerProps> = ({
                 )}
                 {dictEntry.antonyms.length > 0 && (
                   <div className="mt-1 flex items-start gap-1 flex-wrap">
-                    <span className="text-[10px] text-gray-400 font-medium mt-px">ant:</span>
+                    <span className="text-[10px] text-gray-400 dark:text-gray-500 font-medium mt-px">ant:</span>
                     {dictEntry.antonyms.slice(0, 5).map((s) => (
                       <span
                         key={s}
-                        className="text-[10px] px-1.5 py-0.5 bg-gray-100 text-gray-600 rounded"
+                        className="text-[10px] px-1.5 py-0.5 bg-gray-100 dark:bg-slate-700 text-gray-600 dark:text-gray-400 rounded"
                       >
                         {s}
                       </span>
@@ -292,7 +292,7 @@ const TranscriptViewer: React.FC<TranscriptViewerProps> = ({
             )}
 
             {/* Context */}
-            <p className="text-[11px] text-gray-400 mb-3 line-clamp-2 leading-relaxed">
+            <p className="text-[11px] text-gray-400 dark:text-gray-500 mb-3 line-clamp-2 leading-relaxed">
               &ldquo;{popup.context}&rdquo;
             </p>
 
@@ -304,7 +304,7 @@ const TranscriptViewer: React.FC<TranscriptViewerProps> = ({
             ) : (
               <button
                 onClick={handleAddWord}
-                className="w-full px-3 py-2 text-sm bg-amber-50 text-amber-700 rounded-lg hover:bg-amber-100 transition-colors font-medium cursor-pointer"
+                className="w-full px-3 py-2 text-sm bg-amber-50 dark:bg-amber-950/30 text-amber-700 rounded-lg hover:bg-amber-100 transition-colors font-medium cursor-pointer"
               >
                 + 加入生词本
               </button>
@@ -323,11 +323,11 @@ const TranscriptViewer: React.FC<TranscriptViewerProps> = ({
           let lineClass =
             'group rounded-lg px-3 py-2.5 transition-all border cursor-pointer';
           if (isActive) {
-            lineClass += ' bg-indigo-50 border-l-[3px] border-l-indigo-500 border-t-indigo-200 border-r-indigo-200 border-b-indigo-200 shadow-sm';
+            lineClass += ' bg-indigo-50 dark:bg-indigo-950 border-l-[3px] border-l-indigo-500 border-t-indigo-200 border-r-indigo-200 border-b-indigo-200 shadow-sm';
           } else if (sentenceSaved) {
-            lineClass += ' bg-violet-50 border-violet-200';
+            lineClass += ' bg-violet-50 dark:bg-violet-950/30 border-violet-200 dark:border-violet-800';
           } else {
-            lineClass += ' bg-white border-transparent hover:bg-gray-50 hover:border-gray-200';
+            lineClass += ' bg-white dark:bg-slate-800 border-transparent hover:bg-gray-50 dark:hover:bg-slate-900 hover:border-gray-200 dark:hover:border-slate-700';
           }
 
           return (
@@ -369,7 +369,7 @@ const TranscriptViewer: React.FC<TranscriptViewerProps> = ({
                           onClick={(e) => handleWordClick(token, line.text, line.start, e)}
                           className={`inline-block mx-[1px] px-0.5 rounded cursor-pointer transition-colors ${
                             saved
-                              ? 'bg-amber-100 text-amber-800 hover:bg-amber-200'
+                              ? 'bg-amber-100 dark:bg-amber-950/30 text-amber-800 hover:bg-amber-200'
                               : 'hover:bg-indigo-100 hover:text-indigo-700'
                           }`}
                         >

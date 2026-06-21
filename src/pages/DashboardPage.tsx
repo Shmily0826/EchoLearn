@@ -195,7 +195,7 @@ const DashboardPage: React.FC = () => {
         <h1 className="text-3xl font-bold text-gray-900 tracking-tight">
           Welcome back
         </h1>
-        <p className="mt-2 text-gray-500 max-w-2xl leading-relaxed">
+        <p className="mt-2 text-gray-500 dark:text-gray-400 max-w-2xl leading-relaxed">
           A focused YouTube-based English learning workspace with transcript
           notes, vocabulary, and review.
         </p>
@@ -250,15 +250,15 @@ const DashboardPage: React.FC = () => {
       {/* ── Check Latest Video + Today's Plan ──────────────── */}
       <div className="grid grid-cols-1 lg:grid-cols-5 gap-4 mb-10">
         {/* Check Latest Video card */}
-        <div className="lg:col-span-2 bg-white rounded-xl border border-gray-200 shadow-sm p-5 flex flex-col">
-          <p className="text-xs text-gray-400 uppercase tracking-wider mb-2">
+        <div className="lg:col-span-2 bg-white dark:bg-slate-800 rounded-xl border border-gray-200 dark:border-slate-700 shadow-sm p-5 flex flex-col">
+          <p className="text-xs text-gray-400 dark:text-gray-500 uppercase tracking-wider mb-2">
             Single Channel
           </p>
           <input
             type="text"
             value={channelPrefs.topic}
             onChange={(e) => handleChannelChange('topic', e.target.value)}
-            className="text-base font-semibold text-gray-800 mb-1 w-full px-1 py-0.5 border border-transparent hover:border-gray-300 focus:border-indigo-400 focus:outline-none rounded transition-colors bg-transparent"
+            className="text-base font-semibold text-gray-800 dark:text-gray-200 mb-1 w-full px-1 py-0.5 border border-transparent hover:border-gray-300 dark:hover:border-slate-600 focus:border-indigo-400 focus:outline-none rounded transition-colors bg-transparent"
             placeholder="Topic keyword (e.g. English Podcast)"
           />
           <div className="flex items-center gap-1.5 mb-2">
@@ -267,17 +267,17 @@ const DashboardPage: React.FC = () => {
               type="text"
               value={channelPrefs.input}
               onChange={(e) => handleChannelChange('input', e.target.value)}
-              className="text-xs font-mono text-indigo-500 flex-1 px-1 py-0.5 border border-transparent hover:border-gray-300 focus:border-indigo-400 focus:outline-none rounded transition-colors bg-transparent"
+              className="text-xs font-mono text-indigo-500 flex-1 px-1 py-0.5 border border-transparent hover:border-gray-300 dark:hover:border-slate-600 focus:border-indigo-400 focus:outline-none rounded transition-colors bg-transparent"
               placeholder="@ChannelHandle (e.g. @EnglishClass101)"
             />
             {TARGET_CHANNEL.preferredLevel && (
-              <span className="px-1.5 py-0.5 bg-indigo-50 text-indigo-600 rounded text-[10px] font-medium">
+              <span className="px-1.5 py-0.5 bg-indigo-50 dark:bg-indigo-950 text-indigo-600 rounded text-[10px] font-medium">
                 {TARGET_CHANNEL.preferredLevel}
               </span>
             )}
           </div>
 
-          <p className="text-[10px] text-gray-400 mb-3">
+          <p className="text-[10px] text-gray-400 dark:text-gray-500 mb-3">
             Fetches up to 10 recent videos from the channel. Duplicates are skipped automatically.
           </p>
 
@@ -311,18 +311,18 @@ const DashboardPage: React.FC = () => {
         </div>
 
         {/* Today's Plan list */}
-        <div className="lg:col-span-3 bg-white rounded-xl border border-gray-200 shadow-sm p-5">
+        <div className="lg:col-span-3 bg-white dark:bg-slate-800 rounded-xl border border-gray-200 dark:border-slate-700 shadow-sm p-5">
           <div className="flex items-center justify-between mb-3">
-            <p className="text-xs text-gray-400 uppercase tracking-wider">
+            <p className="text-xs text-gray-400 dark:text-gray-500 uppercase tracking-wider">
               Today's Plan
             </p>
-            <span className="text-xs text-gray-400">{dailyPlan.length} items</span>
+            <span className="text-xs text-gray-400 dark:text-gray-500">{dailyPlan.length} items</span>
           </div>
 
           {dailyPlan.length === 0 ? (
             <div className="py-8 text-center">
-              <p className="text-gray-400 text-sm">No videos in your plan yet.</p>
-              <p className="text-gray-400 text-xs mt-1">
+              <p className="text-gray-400 dark:text-gray-500 text-sm">No videos in your plan yet.</p>
+              <p className="text-gray-400 dark:text-gray-500 text-xs mt-1">
                 Click "Fetch Latest Videos" to add some.
               </p>
             </div>
@@ -351,10 +351,10 @@ const DashboardPage: React.FC = () => {
 
                   {/* Info */}
                   <div className="flex-1 min-w-0">
-                    <p className="text-sm text-gray-800 truncate">
+                    <p className="text-sm text-gray-800 dark:text-gray-200 truncate">
                       {item.title}
                     </p>
-                    <span className="text-[10px] text-gray-400">{item.channelTitle}</span>
+                    <span className="text-[10px] text-gray-400 dark:text-gray-500">{item.channelTitle}</span>
                   </div>
 
                   {/* Status dot */}
@@ -391,16 +391,16 @@ const DashboardPage: React.FC = () => {
 
       {/* Continue last session */}
       {currentSession && (
-        <div className="bg-white rounded-xl border border-gray-200 shadow-sm p-5 mb-10">
+        <div className="bg-white dark:bg-slate-800 rounded-xl border border-gray-200 dark:border-slate-700 shadow-sm p-5 mb-10">
           <div className="flex items-center justify-between">
             <div>
-              <p className="text-xs text-gray-400 uppercase tracking-wider mb-1">
+              <p className="text-xs text-gray-400 dark:text-gray-500 uppercase tracking-wider mb-1">
                 Continue Last Session
               </p>
-              <p className="text-base font-medium text-gray-800 truncate max-w-md">
+              <p className="text-base font-medium text-gray-800 dark:text-gray-200 truncate max-w-md">
                 {currentSession.title || currentSession.youtubeUrl}
               </p>
-              <p className="text-xs text-gray-400 mt-1">
+              <p className="text-xs text-gray-400 dark:text-gray-500 mt-1">
                 {currentSession.transcriptLines.length} lines &middot;{' '}
                 {currentSession.status} &middot;{' '}
                 updated {new Date(currentSession.updatedAt).toLocaleDateString()}
@@ -419,16 +419,16 @@ const DashboardPage: React.FC = () => {
       {/* Recent sessions */}
       <div>
         <div className="flex items-center justify-between mb-4">
-          <h2 className="text-sm font-semibold text-gray-600 uppercase tracking-wider">
+          <h2 className="text-sm font-semibold text-gray-600 dark:text-gray-400 uppercase tracking-wider">
             Recent Sessions
           </h2>
-          <span className="text-xs text-gray-400">{sessions.length} total</span>
+          <span className="text-xs text-gray-400 dark:text-gray-500">{sessions.length} total</span>
         </div>
 
         {sessions.length === 0 ? (
-          <div className="bg-white rounded-xl border border-gray-200 shadow-sm p-10 text-center">
-            <p className="text-gray-400 text-sm">No study sessions yet.</p>
-            <p className="text-gray-400 text-xs mt-1">
+          <div className="bg-white dark:bg-slate-800 rounded-xl border border-gray-200 dark:border-slate-700 shadow-sm p-10 text-center">
+            <p className="text-gray-400 dark:text-gray-500 text-sm">No study sessions yet.</p>
+            <p className="text-gray-400 dark:text-gray-500 text-xs mt-1">
               Head to <span className="text-indigo-500">Study</span> to start your first session.
             </p>
           </div>
@@ -437,32 +437,32 @@ const DashboardPage: React.FC = () => {
             {sessions.map((s) => (
               <div
                 key={s.id}
-                className="bg-white rounded-xl border border-gray-200 shadow-sm px-5 py-4 flex items-center justify-between group hover:border-gray-300 transition-colors"
+                className="bg-white dark:bg-slate-800 rounded-xl border border-gray-200 dark:border-slate-700 shadow-sm px-5 py-4 flex items-center justify-between group hover:border-gray-300 dark:hover:border-slate-600 transition-colors"
               >
                 <div
                   className="flex-1 min-w-0 cursor-pointer"
                   onClick={() => handleOpenSession(s)}
                 >
-                  <p className="text-sm font-medium text-gray-800 truncate">
+                  <p className="text-sm font-medium text-gray-800 dark:text-gray-200 truncate">
                     {s.title || s.youtubeUrl}
                   </p>
                   <div className="flex items-center gap-3 mt-1">
-                    <span className="text-[11px] font-mono text-gray-400">
+                    <span className="text-[11px] font-mono text-gray-400 dark:text-gray-500">
                       {s.youtubeId}
                     </span>
-                    <span className="text-[11px] text-gray-400">
+                    <span className="text-[11px] text-gray-400 dark:text-gray-500">
                       {s.transcriptLines.length} lines
                     </span>
                     <span className={`px-1.5 py-0.5 rounded text-[10px] font-medium ${
                       s.status === 'studying'
-                        ? 'bg-blue-100 text-blue-600'
+                        ? 'bg-blue-100 dark:bg-blue-900/40 text-blue-600'
                         : s.status === 'completed'
-                          ? 'bg-green-100 text-green-600'
-                          : 'bg-gray-100 text-gray-500'
+                          ? 'bg-green-100 dark:bg-green-900/40 text-green-600'
+                          : 'bg-gray-100 dark:bg-slate-700 text-gray-500'
                     }`}>
                       {s.status}
                     </span>
-                    <span className="text-[11px] text-gray-400">
+                    <span className="text-[11px] text-gray-400 dark:text-gray-500">
                       {new Date(s.updatedAt).toLocaleDateString()}
                     </span>
                   </div>
@@ -471,7 +471,7 @@ const DashboardPage: React.FC = () => {
                 <div className="flex items-center gap-2 ml-4">
                   <button
                     onClick={() => handleOpenSession(s)}
-                    className="px-3 py-1.5 text-xs text-indigo-600 bg-indigo-50 rounded-lg hover:bg-indigo-100 transition-colors font-medium cursor-pointer"
+                    className="px-3 py-1.5 text-xs text-indigo-600 bg-indigo-50 dark:bg-indigo-950 rounded-lg hover:bg-indigo-100 transition-colors font-medium cursor-pointer"
                   >
                     Open
                   </button>
@@ -494,10 +494,10 @@ const DashboardPage: React.FC = () => {
 // ─── Stat Card ──────────────────────────────────────────────
 
 const colorMap: Record<string, { bg: string; text: string; iconBg: string }> = {
-  amber:  { bg: 'bg-amber-50',  text: 'text-amber-700',  iconBg: 'bg-amber-100' },
-  violet: { bg: 'bg-violet-50', text: 'text-violet-700', iconBg: 'bg-violet-100' },
-  blue:   { bg: 'bg-blue-50',   text: 'text-blue-700',   iconBg: 'bg-blue-100' },
-  green:  { bg: 'bg-green-50',  text: 'text-green-700',  iconBg: 'bg-green-100' },
+  amber:  { bg: 'bg-amber-50 dark:bg-amber-950/30',  text: 'text-amber-700',  iconBg: 'bg-amber-100' },
+  violet: { bg: 'bg-violet-50 dark:bg-violet-950/30', text: 'text-violet-700', iconBg: 'bg-violet-100' },
+  blue:   { bg: 'bg-blue-50 dark:bg-blue-900/40',   text: 'text-blue-700',   iconBg: 'bg-blue-100' },
+  green:  { bg: 'bg-green-50 dark:bg-green-900/40',  text: 'text-green-700',  iconBg: 'bg-green-100' },
 };
 
 const StatCard: React.FC<{
@@ -517,7 +517,7 @@ const StatCard: React.FC<{
         <div className={`${c.iconBg} ${c.text} p-2 rounded-lg`}>{icon}</div>
       </div>
       <p className={`text-2xl font-bold ${c.text}`}>{value}</p>
-      <p className="text-xs text-gray-500 mt-1">{label}</p>
+      <p className="text-xs text-gray-500 dark:text-gray-400 mt-1">{label}</p>
     </div>
   );
 };

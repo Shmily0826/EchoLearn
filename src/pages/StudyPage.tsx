@@ -8,6 +8,7 @@ import { parseYouTubeId, parseStartTime } from '../utils/youtube';
 import { parseTranscript } from '../utils/transcriptParser';
 import { normalizeTranscriptToSentences } from '../utils/transcriptNormalizer';
 import { analyzeTranscript } from '../services/aiAnalysis';
+import { fetchYouTubeTranscript } from '../services/youtubeTranscript';
 import { CEFR_LEVELS, type CEFRLevel } from '../services/cefrWordList';
 import { getVideoTitle } from '../services/youtubeApi';
 import {
@@ -73,6 +74,20 @@ const StudyPage: React.FC = () => {
   const [cefrMax, setCefrMax] = useState<CEFRLevel>(
     () => (localStorage.getItem('echolearn_cefr_max') as CEFRLevel) || 'C2',
   );
+
+  // AI analysis output counts
+  const [vocabCount, setVocabCount] = useState(
+    () => Number(localStorage.getItem('echolearn_vocab_count')) || 8,
+  );
+  const [sentenceCount, setSentenceCount] = useState(
+    () => Number(localStorage.getItem('echolearn_sentence_count')) || 4,
+  );
+
+  // Streaming progress
+  const [streamChars, setStreamChars] = useState(0);
+
+  // Auto-fetch status
+  const [fetchingCaption, setFetchingCaption] = useState(false);
 
   // Ref to track if we've done the initial restore
   const restoredRef = useRef(false);
@@ -243,8 +258,22 @@ const StudyPage: React.FC = () => {
     // If transcript already loaded, save session immediately
     if (rawBlocks.length > 0) {
       persistSession(id, urlInput.trim(), rawBlocks, sentenceLines, sessionTitle || urlInput.trim());
+      return;
     }
-  }, [urlInput, rawBlocks, sentenceLines, sessionTitle, persistSession]);
+
+    // Auto-fetch captions from YouTube
+    setFetchingCaption(true);
+    fetchYouTubeTranscript(id)
+      .then(({ lines }) => {
+        if (lines.length > 0) {
+          importTranscript(lines);
+        }
+      })
+      .catch((err) => {
+        console.warn('[StudyPage] Auto-fetch captions failed:', err);
+      })
+      .finally(() => setFetchingCaption(false));
+  }, [urlInput, rawBlocks, sentenceLines, sessionTitle, persistSession, importTranscript]);
 
   // ── Import transcript (from TranscriptImporter) ─────────────
   const handleImportTranscript = useCallback(
@@ -292,21 +321,32 @@ const StudyPage: React.FC = () => {
     if (textLines.length === 0) return;
     const text = textLines.map((l) => l.text).join(' ');
 
-    // Persist CEFR preferences
+    // Persist preferences
     localStorage.setItem('echolearn_cefr_min', cefrMin);
     localStorage.setItem('echolearn_cefr_max', cefrMax);
+    localStorage.setItem('echolearn_vocab_count', String(vocabCount));
+    localStorage.setItem('echolearn_sentence_count', String(sentenceCount));
 
     setAnalyzing(true);
+    setStreamChars(0);
     try {
-      const result = await analyzeTranscript(text, cefrMin, cefrMax);
+      const result = await analyzeTranscript(
+        text,
+        cefrMin,
+        cefrMax,
+        vocabCount,
+        sentenceCount,
+        (chunk) => setStreamChars((prev) => prev + chunk.length),
+      );
       setAnalysis(result);
       persistAnalysis(result);
     } catch {
-      // silently ignore for mock
+      // silently ignore
     } finally {
       setAnalyzing(false);
+      setStreamChars(0);
     }
-  }, [displayMode, sentenceLines, rawBlocks, cefrMin, cefrMax, persistAnalysis]);
+  }, [displayMode, sentenceLines, rawBlocks, cefrMin, cefrMax, vocabCount, sentenceCount, persistAnalysis]);
 
   // ── Vocab / sentence handlers ─────────────────────────────
   const handleAddVocabulary = useCallback((item: VocabularyItem) => {
@@ -329,7 +369,7 @@ const StudyPage: React.FC = () => {
   return (
     <div>
       {/* Study toolbar */}
-      <div className="bg-white border-b border-gray-200 px-6 py-3">
+      <div className="bg-white dark:bg-slate-800 border-b border-gray-200 dark:border-slate-700 px-6 py-3">
         <div className="max-w-7xl mx-auto flex items-center justify-between">
           <div className="flex items-center gap-4">
             {/* Session title (editable when a session exists) */}
@@ -343,7 +383,7 @@ const StudyPage: React.FC = () => {
                     persistSession(videoId, urlInput.trim(), rawBlocks, sentenceLines, sessionTitle);
                   }
                 }}
-                className="px-2 py-0.5 text-sm text-gray-600 border border-transparent hover:border-gray-300 focus:border-indigo-400 focus:outline-none rounded transition-colors w-[420px]"
+                className="px-2 py-0.5 text-sm text-gray-600 dark:text-gray-400 border border-transparent hover:border-gray-300 dark:hover:border-gray-600 focus:border-indigo-400 focus:outline-none rounded transition-colors w-[420px] dark:bg-slate-800"
                 placeholder="Session title..."
               />
             )}
@@ -356,7 +396,7 @@ const StudyPage: React.FC = () => {
               onChange={(e) => setUrlInput(e.target.value)}
               onKeyDown={(e) => e.key === 'Enter' && handleLoadVideo()}
               placeholder="Paste YouTube URL here..."
-              className="w-80 px-3 py-1.5 text-sm border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-indigo-400 focus:border-transparent"
+              className="w-80 px-3 py-1.5 text-sm border border-gray-300 dark:border-slate-700 rounded-lg focus:outline-none focus:ring-2 focus:ring-indigo-400 focus:border-transparent dark:bg-slate-800 dark:text-gray-200"
             />
             <button
               onClick={handleLoadVideo}
@@ -367,7 +407,7 @@ const StudyPage: React.FC = () => {
             {session && (
               <button
                 onClick={handleClearSession}
-                className="px-4 py-1.5 text-sm bg-white border border-red-200 text-red-600 rounded-lg hover:bg-red-50 transition-colors font-medium cursor-pointer"
+                className="px-4 py-1.5 text-sm bg-white dark:bg-slate-800 border border-red-200 dark:border-red-800 text-red-600 rounded-lg hover:bg-red-50 dark:hover:bg-red-950/30 transition-colors font-medium cursor-pointer"
               >
                 Clear Session
               </button>
@@ -384,10 +424,10 @@ const StudyPage: React.FC = () => {
             {videoId ? (
               <YouTubeEmbed ref={playerRef} youtubeId={videoId} startTime={startTime} />
             ) : (
-              <div className="w-full aspect-video rounded-xl bg-gray-100 border-2 border-dashed border-gray-300 flex items-center justify-center">
+              <div className="w-full aspect-video rounded-xl bg-gray-100 dark:bg-slate-800 border-2 border-dashed border-gray-300 dark:border-slate-600 flex items-center justify-center">
                 <div className="text-center">
                   <svg
-                    className="mx-auto w-12 h-12 text-gray-300 mb-3"
+                    className="mx-auto w-12 h-12 text-gray-300 dark:text-gray-500 mb-3"
                     fill="none"
                     viewBox="0 0 24 24"
                     stroke="currentColor"
@@ -405,23 +445,23 @@ const StudyPage: React.FC = () => {
                       d="M21 12a9 9 0 11-18 0 9 9 0 0118 0z"
                     />
                   </svg>
-                  <p className="text-gray-400 text-sm">Paste a YouTube URL above to start</p>
+                  <p className="text-gray-400 dark:text-gray-500 text-sm">Paste a YouTube URL above to start</p>
                 </div>
               </div>
             )}
 
             {/* Quick info */}
             {videoId && (
-              <div className="mt-3 flex items-center gap-3 text-xs text-gray-400">
+              <div className="mt-3 flex items-center gap-3 text-xs text-gray-400 dark:text-gray-500">
                 <span>Video ID: {videoId}</span>
                 {startTime !== undefined && <span>Start: {startTime}s</span>}
                 {session && (
                   <span className={`px-1.5 py-0.5 rounded text-[10px] font-medium ${
                     session.status === 'studying'
-                      ? 'bg-blue-100 text-blue-600'
+                      ? 'bg-blue-100 text-blue-600 dark:bg-blue-900/30 dark:text-blue-400'
                       : session.status === 'completed'
-                        ? 'bg-green-100 text-green-600'
-                        : 'bg-gray-100 text-gray-500'
+                        ? 'bg-green-100 text-green-600 dark:bg-green-900/30 dark:text-green-400'
+                        : 'bg-gray-100 text-gray-500 dark:bg-slate-700 dark:text-gray-400'
                   }`}>
                     {session.status}
                   </span>
@@ -434,55 +474,89 @@ const StudyPage: React.FC = () => {
           <div className="flex-1 flex flex-col min-w-0 h-[calc(100vh-160px)]">
             {/* Toolbar — fixed, never scrolls */}
             <div className="flex items-center justify-between mb-3 flex-shrink-0">
-              <h2 className="text-sm font-semibold text-gray-600 uppercase tracking-wider">
+              <h2 className="text-sm font-semibold text-gray-600 dark:text-gray-400 uppercase tracking-wider">
                 Transcript
               </h2>
               <div className="flex items-center gap-3">
-                {/* CEFR level range selector */}
+                {/* Caption fetch status */}
+                {fetchingCaption && (
+                  <span className="flex items-center gap-1 text-[11px] text-amber-500">
+                    <svg className="animate-spin w-3 h-3" fill="none" viewBox="0 0 24 24">
+                      <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
+                      <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z" />
+                    </svg>
+                    Fetching captions...
+                  </span>
+                )}
+                {/* Count selectors + CEFR + Analyze (only when transcript loaded) */}
                 {displayLines.length > 0 && (
-                  <div className="flex items-center gap-1 text-[11px]">
-                    <span className="text-gray-400 mr-0.5">Level:</span>
-                    <select
-                      value={cefrMin}
-                      onChange={(e) => {
-                        const v = e.target.value as CEFRLevel;
-                        setCefrMin(v);
-                        // Ensure min <= max
-                        if (CEFR_LEVELS.indexOf(v) > CEFR_LEVELS.indexOf(cefrMax)) {
-                          setCefrMax(v);
-                        }
-                      }}
-                      className="px-1.5 py-1 border border-gray-200 rounded text-[11px] bg-white text-gray-600 focus:outline-none focus:ring-1 focus:ring-indigo-300 cursor-pointer"
-                    >
-                      {CEFR_LEVELS.map((l) => (
-                        <option key={l} value={l}>{l}</option>
-                      ))}
-                    </select>
-                    <span className="text-gray-300">–</span>
-                    <select
-                      value={cefrMax}
-                      onChange={(e) => {
-                        const v = e.target.value as CEFRLevel;
-                        setCefrMax(v);
-                        // Ensure max >= min
-                        if (CEFR_LEVELS.indexOf(v) < CEFR_LEVELS.indexOf(cefrMin)) {
+                  <>
+                    {/* Vocab / Sentence count */}
+                    <div className="flex items-center gap-1 text-[11px]">
+                      <span className="text-gray-400 dark:text-gray-500">Words:</span>
+                      <select
+                        value={vocabCount}
+                        onChange={(e) => setVocabCount(Number(e.target.value))}
+                        className="px-1 py-1 border border-gray-200 dark:border-slate-700 rounded text-[11px] bg-white dark:bg-slate-800 text-gray-600 dark:text-gray-400 focus:outline-none focus:ring-1 focus:ring-indigo-300 cursor-pointer"
+                      >
+                        {[4, 6, 8, 10, 12, 15, 20].map((n) => (
+                          <option key={n} value={n}>{n}</option>
+                        ))}
+                      </select>
+                      <span className="text-gray-300 dark:text-gray-500 ml-1">Sents:</span>
+                      <select
+                        value={sentenceCount}
+                        onChange={(e) => setSentenceCount(Number(e.target.value))}
+                        className="px-1 py-1 border border-gray-200 dark:border-slate-700 rounded text-[11px] bg-white dark:bg-slate-800 text-gray-600 dark:text-gray-400 focus:outline-none focus:ring-1 focus:ring-indigo-300 cursor-pointer"
+                      >
+                        {[2, 3, 4, 5, 6, 8, 10].map((n) => (
+                          <option key={n} value={n}>{n}</option>
+                        ))}
+                      </select>
+                    </div>
+                    {/* CEFR level range selector */}
+                    <div className="flex items-center gap-1 text-[11px]">
+                      <span className="text-gray-400 dark:text-gray-500 mr-0.5">Level:</span>
+                      <select
+                        value={cefrMin}
+                        onChange={(e) => {
+                          const v = e.target.value as CEFRLevel;
                           setCefrMin(v);
-                        }
-                      }}
-                      className="px-1.5 py-1 border border-gray-200 rounded text-[11px] bg-white text-gray-600 focus:outline-none focus:ring-1 focus:ring-indigo-300 cursor-pointer"
-                    >
-                      {CEFR_LEVELS.map((l) => (
-                        <option key={l} value={l}>{l}</option>
-                      ))}
-                    </select>
-                  </div>
+                          if (CEFR_LEVELS.indexOf(v) > CEFR_LEVELS.indexOf(cefrMax)) {
+                            setCefrMax(v);
+                          }
+                        }}
+                        className="px-1.5 py-1 border border-gray-200 dark:border-slate-700 rounded text-[11px] bg-white dark:bg-slate-800 text-gray-600 dark:text-gray-400 focus:outline-none focus:ring-1 focus:ring-indigo-300 cursor-pointer"
+                      >
+                        {CEFR_LEVELS.map((l) => (
+                          <option key={l} value={l}>{l}</option>
+                        ))}
+                      </select>
+                      <span className="text-gray-300 dark:text-gray-500">–</span>
+                      <select
+                        value={cefrMax}
+                        onChange={(e) => {
+                          const v = e.target.value as CEFRLevel;
+                          setCefrMax(v);
+                          if (CEFR_LEVELS.indexOf(v) < CEFR_LEVELS.indexOf(cefrMin)) {
+                            setCefrMin(v);
+                          }
+                        }}
+                        className="px-1.5 py-1 border border-gray-200 dark:border-slate-700 rounded text-[11px] bg-white dark:bg-slate-800 text-gray-600 dark:text-gray-400 focus:outline-none focus:ring-1 focus:ring-indigo-300 cursor-pointer"
+                      >
+                        {CEFR_LEVELS.map((l) => (
+                          <option key={l} value={l}>{l}</option>
+                        ))}
+                      </select>
+                    </div>
+                  </>
                 )}
                 {/* Analyze button */}
                 {displayLines.length > 0 && (
                   <button
                     onClick={handleAnalyze}
                     disabled={analyzing}
-                    className="flex items-center gap-1.5 px-3 py-1 text-[11px] font-medium bg-indigo-50 text-indigo-600 rounded-lg hover:bg-indigo-100 transition-colors cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed"
+                    className="flex items-center gap-1.5 px-3 py-1 text-[11px] font-medium bg-indigo-50 dark:bg-indigo-950 text-indigo-600 dark:text-indigo-400 rounded-lg hover:bg-indigo-100 dark:hover:bg-indigo-900 transition-colors cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed"
                   >
                     {analyzing ? (
                       <>
@@ -490,7 +564,7 @@ const StudyPage: React.FC = () => {
                           <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
                           <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z" />
                         </svg>
-                        Analyzing...
+                        {streamChars > 0 ? `${streamChars} chars` : 'Analyzing...'}
                       </>
                     ) : (
                       <>
@@ -504,13 +578,13 @@ const StudyPage: React.FC = () => {
                 )}
                 {/* Display mode toggle */}
                 {sentenceLines.length > 0 && rawBlocks.length > 0 && (
-                  <div className="flex items-center bg-gray-100 rounded-lg p-0.5">
+                  <div className="flex items-center bg-gray-100 dark:bg-slate-700 rounded-lg p-0.5">
                     <button
                       onClick={() => setDisplayMode('sentence')}
                       className={`px-2.5 py-1 text-[11px] font-medium rounded-md transition-colors cursor-pointer ${
                         displayMode === 'sentence'
-                          ? 'bg-white text-indigo-600 shadow-sm'
-                          : 'text-gray-500 hover:text-gray-700'
+                          ? 'bg-white dark:bg-slate-800 text-indigo-600 dark:text-indigo-400 shadow-sm'
+                          : 'text-gray-500 dark:text-gray-400 hover:text-gray-700 dark:hover:text-gray-200'
                       }`}
                     >
                       Sentence
@@ -519,8 +593,8 @@ const StudyPage: React.FC = () => {
                       onClick={() => setDisplayMode('caption')}
                       className={`px-2.5 py-1 text-[11px] font-medium rounded-md transition-colors cursor-pointer ${
                         displayMode === 'caption'
-                          ? 'bg-white text-indigo-600 shadow-sm'
-                          : 'text-gray-500 hover:text-gray-700'
+                          ? 'bg-white dark:bg-slate-800 text-indigo-600 dark:text-indigo-400 shadow-sm'
+                          : 'text-gray-500 dark:text-gray-400 hover:text-gray-700 dark:hover:text-gray-200'
                       }`}
                     >
                       Caption
@@ -535,7 +609,7 @@ const StudyPage: React.FC = () => {
                     Use Demo
                   </button>
                 )}
-                <span className="text-xs text-gray-400">
+                <span className="text-xs text-gray-400 dark:text-gray-500">
                   {displayMode === 'sentence'
                     ? `${sentenceLines.length} sentences`
                     : `${rawBlocks.length} blocks`}
@@ -557,10 +631,19 @@ const StudyPage: React.FC = () => {
                 activeLineIndex={activeLineIndex}
                 onSeekTo={handleSeekTo}
               />
+            ) : fetchingCaption ? (
+              <div className="flex flex-col items-center justify-center py-16 text-gray-400 dark:text-gray-500">
+                <svg className="animate-spin w-8 h-8 mb-3 text-indigo-400" fill="none" viewBox="0 0 24 24">
+                  <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
+                  <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z" />
+                </svg>
+                <p className="text-sm">Fetching captions from YouTube...</p>
+                <p className="text-xs mt-1 text-gray-300 dark:text-gray-500">This may take a few seconds</p>
+              </div>
             ) : videoId ? (
               <TranscriptImporter onImport={handleImportTranscript} />
             ) : (
-              <div className="text-center py-12 text-gray-400 text-sm">
+              <div className="text-center py-12 text-gray-400 dark:text-gray-500 text-sm">
                 <p>No video loaded yet.</p>
                 <p className="mt-1">Load a YouTube video to get started.</p>
               </div>
@@ -583,15 +666,15 @@ const StudyPage: React.FC = () => {
         )}
 
         {/* Bottom: Saved items */}
-        <div className="mt-8 bg-white rounded-xl border border-gray-200 shadow-sm">
+        <div className="mt-8 bg-white dark:bg-slate-800 rounded-xl border border-gray-200 dark:border-slate-700 shadow-sm">
           {/* Tabs */}
-          <div className="flex border-b border-gray-200">
+          <div className="flex border-b border-gray-200 dark:border-slate-700">
             <button
               onClick={() => setActiveTab('vocab')}
               className={`px-5 py-3 text-sm font-medium transition-colors cursor-pointer ${
                 activeTab === 'vocab'
-                  ? 'text-amber-700 border-b-2 border-amber-500'
-                  : 'text-gray-500 hover:text-gray-700'
+                  ? 'text-amber-700 dark:text-amber-400 border-b-2 border-amber-500'
+                  : 'text-gray-500 dark:text-gray-400 hover:text-gray-700 dark:hover:text-gray-200'
               }`}
             >
               Vocabulary ({filteredVocabulary.length})
@@ -600,8 +683,8 @@ const StudyPage: React.FC = () => {
               onClick={() => setActiveTab('sentences')}
               className={`px-5 py-3 text-sm font-medium transition-colors cursor-pointer ${
                 activeTab === 'sentences'
-                  ? 'text-violet-700 border-b-2 border-violet-500'
-                  : 'text-gray-500 hover:text-gray-700'
+                  ? 'text-violet-700 dark:text-violet-400 border-b-2 border-violet-500'
+                  : 'text-gray-500 dark:text-gray-400 hover:text-gray-700 dark:hover:text-gray-200'
               }`}
             >
               Key Sentences ({filteredSentences.length})
@@ -652,7 +735,7 @@ const VocabularyList: React.FC<{
 
   if (items.length === 0) {
     return (
-      <p className="text-center text-gray-400 text-sm py-6">
+      <p className="text-center text-gray-400 dark:text-gray-500 text-sm py-6">
         Click any word in the transcript to add it to your vocabulary.
       </p>
     );
@@ -672,11 +755,11 @@ const VocabularyList: React.FC<{
         {items.map((item) => (
           <div
             key={item.id}
-            className="bg-amber-50 border border-amber-200 rounded-lg p-3 group"
+            className="bg-amber-50 dark:bg-amber-950/30 border border-amber-200 dark:border-amber-800 rounded-lg p-3 group"
           >
             <div className="flex items-start justify-between">
               <span
-                className="text-base font-semibold text-amber-800 cursor-pointer hover:text-amber-900 hover:underline"
+                className="text-base font-semibold text-amber-800 dark:text-amber-300 cursor-pointer hover:text-amber-900 dark:hover:text-amber-200 hover:underline"
                 onClick={(e) => handleWordClick(item.word, e)}
                 title="Click to look up in dictionary"
               >
@@ -684,17 +767,17 @@ const VocabularyList: React.FC<{
               </span>
               <button
                 onClick={() => onRemove(item.id)}
-                className="text-gray-400 hover:text-red-500 opacity-0 group-hover:opacity-100 transition-opacity text-xs cursor-pointer"
+                className="text-gray-400 dark:text-gray-500 hover:text-red-500 opacity-0 group-hover:opacity-100 transition-opacity text-xs cursor-pointer"
               >
                 Remove
               </button>
             </div>
-            <p className="text-xs text-gray-500 mt-1 line-clamp-2">"{item.context}"</p>
+            <p className="text-xs text-gray-500 dark:text-gray-400 mt-1 line-clamp-2">"{item.context}"</p>
             <div className="flex items-center gap-2 mt-1.5">
-              <span className="text-[10px] text-gray-400 truncate max-w-[200px]" title={item.sourceVideoTitle || item.sourceVideoId}>
+              <span className="text-[10px] text-gray-400 dark:text-gray-500 truncate max-w-[200px]" title={item.sourceVideoTitle || item.sourceVideoId}>
                 {item.sourceVideoTitle || item.sourceVideoId}
               </span>
-              <span className="text-[10px] text-gray-400">
+              <span className="text-[10px] text-gray-400 dark:text-gray-500">
                 {new Date(item.addedAt).toLocaleDateString()}
               </span>
             </div>
@@ -714,7 +797,7 @@ const SentenceList: React.FC<{
 }> = ({ items, onRemove, onSeek }) => {
   if (items.length === 0) {
     return (
-      <p className="text-center text-gray-400 text-sm py-6">
+      <p className="text-center text-gray-400 dark:text-gray-500 text-sm py-6">
         Click any sentence in the transcript to save it as a key sentence.
       </p>
     );
@@ -725,13 +808,13 @@ const SentenceList: React.FC<{
       {items.map((item) => (
         <div
           key={item.id}
-          className="bg-violet-50 border border-violet-200 rounded-lg p-3 group"
+          className="bg-violet-50 dark:bg-violet-950/30 border border-violet-200 dark:border-violet-800 rounded-lg p-3 group"
         >
           <div className="flex items-start justify-between gap-3">
-            <p className="text-sm text-violet-800 leading-relaxed">{item.text}</p>
+            <p className="text-sm text-violet-800 dark:text-violet-300 leading-relaxed">{item.text}</p>
             <button
               onClick={() => onRemove(item.id)}
-              className="text-gray-400 hover:text-red-500 opacity-0 group-hover:opacity-100 transition-opacity text-xs whitespace-nowrap cursor-pointer"
+              className="text-gray-400 dark:text-gray-500 hover:text-red-500 opacity-0 group-hover:opacity-100 transition-opacity text-xs whitespace-nowrap cursor-pointer"
             >
               Remove
             </button>
@@ -744,10 +827,10 @@ const SentenceList: React.FC<{
             >
               @{formatTime(item.startTime)}
             </button>
-            <span className="text-[10px] text-gray-400 truncate max-w-[200px]" title={item.sourceVideoTitle || item.sourceVideoId}>
+            <span className="text-[10px] text-gray-400 dark:text-gray-500 truncate max-w-[200px]" title={item.sourceVideoTitle || item.sourceVideoId}>
               {item.sourceVideoTitle || item.sourceVideoId}
             </span>
-            <span className="text-[10px] text-gray-400">
+            <span className="text-[10px] text-gray-400 dark:text-gray-500">
               {new Date(item.addedAt).toLocaleDateString()}
             </span>
           </div>

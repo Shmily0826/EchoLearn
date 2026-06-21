@@ -75,12 +75,12 @@ const WordDictionaryPopup: React.FC<WordDictionaryPopupProps> = ({
       }`}
       style={{ left: x, top: shouldFlip ? y + 24 : y }}
     >
-      <div className="bg-white rounded-xl shadow-xl border border-gray-200 p-4 min-w-[280px] max-w-[340px]">
+      <div className="bg-white dark:bg-slate-800 rounded-xl shadow-xl border border-gray-200 dark:border-slate-700 p-4 min-w-[280px] max-w-[340px]">
         {/* Word + phonetic */}
         <div className="flex items-center gap-2 mb-1">
-          <span className="text-lg font-bold text-gray-800">{word}</span>
+          <span className="text-lg font-bold text-gray-800 dark:text-gray-200">{word}</span>
           {entry?.phonetic && (
-            <span className="text-sm text-gray-400 font-mono">{entry.phonetic}</span>
+            <span className="text-sm text-gray-400 dark:text-gray-500 font-mono">{entry.phonetic}</span>
           )}
           {entry?.audioUrl && (
             <button
@@ -98,7 +98,7 @@ const WordDictionaryPopup: React.FC<WordDictionaryPopupProps> = ({
 
         {/* Part of speech */}
         {entry?.partOfSpeech && (
-          <span className="inline-block text-[11px] px-2 py-0.5 bg-indigo-50 text-indigo-600 rounded-full font-medium mb-2">
+          <span className="inline-block text-[11px] px-2 py-0.5 bg-indigo-50 dark:bg-indigo-950 text-indigo-600 rounded-full font-medium mb-2">
             {entry.partOfSpeech}
           </span>
         )}
@@ -118,26 +118,26 @@ const WordDictionaryPopup: React.FC<WordDictionaryPopupProps> = ({
         {entry && !loading && (
           <div className="mb-3">
             {entry.definitionEn && (
-              <p className="text-sm text-gray-700 leading-relaxed">{entry.definitionEn}</p>
+              <p className="text-sm text-gray-700 dark:text-gray-300 leading-relaxed">{entry.definitionEn}</p>
             )}
             {entry.example && (
-              <p className="text-xs text-gray-400 mt-1.5 italic leading-relaxed">
+              <p className="text-xs text-gray-400 dark:text-gray-500 mt-1.5 italic leading-relaxed">
                 &ldquo;{entry.example}&rdquo;
               </p>
             )}
             {entry.synonyms.length > 0 && (
               <div className="mt-2 flex items-start gap-1 flex-wrap">
-                <span className="text-[10px] text-gray-400 font-medium mt-px">syn:</span>
+                <span className="text-[10px] text-gray-400 dark:text-gray-500 font-medium mt-px">syn:</span>
                 {entry.synonyms.slice(0, 5).map((s) => (
-                  <span key={s} className="text-[10px] px-1.5 py-0.5 bg-gray-100 text-gray-600 rounded">{s}</span>
+                  <span key={s} className="text-[10px] px-1.5 py-0.5 bg-gray-100 dark:bg-slate-700 text-gray-600 dark:text-gray-400 rounded">{s}</span>
                 ))}
               </div>
             )}
             {entry.antonyms.length > 0 && (
               <div className="mt-1 flex items-start gap-1 flex-wrap">
-                <span className="text-[10px] text-gray-400 font-medium mt-px">ant:</span>
+                <span className="text-[10px] text-gray-400 dark:text-gray-500 font-medium mt-px">ant:</span>
                 {entry.antonyms.slice(0, 5).map((s) => (
-                  <span key={s} className="text-[10px] px-1.5 py-0.5 bg-gray-100 text-gray-600 rounded">{s}</span>
+                  <span key={s} className="text-[10px] px-1.5 py-0.5 bg-gray-100 dark:bg-slate-700 text-gray-600 dark:text-gray-400 rounded">{s}</span>
                 ))}
               </div>
             )}

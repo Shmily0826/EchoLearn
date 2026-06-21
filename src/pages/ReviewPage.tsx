@@ -271,30 +271,30 @@ const ReviewPage: React.FC = () => {
 
       return (
         <div className="max-w-2xl mx-auto px-6 py-10">
-          <div className="bg-white rounded-2xl border border-gray-200 shadow-sm p-10 text-center">
+          <div className="bg-white dark:bg-slate-800 rounded-2xl border border-gray-200 dark:border-slate-700 shadow-sm p-10 text-center">
             <svg className="mx-auto w-14 h-14 text-green-500 mb-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.5}>
               <path strokeLinecap="round" strokeLinejoin="round" d="M9 12.75L11.25 15 15 9.75M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
             </svg>
-            <h2 className="text-2xl font-bold text-gray-900 mb-1">Session Complete!</h2>
-            <p className="text-sm text-gray-500 mb-8">Great work — keep it up.</p>
+            <h2 className="text-2xl font-bold text-gray-900 dark:text-gray-100 mb-1">Session Complete!</h2>
+            <p className="text-sm text-gray-500 dark:text-gray-400 mb-8">Great work — keep it up.</p>
             <div className="grid grid-cols-3 gap-6 mb-8">
               <div>
                 <p className="text-3xl font-bold text-indigo-600">{doneIds.size}</p>
-                <p className="text-xs text-gray-400 mt-1">Reviewed</p>
+                <p className="text-xs text-gray-400 dark:text-gray-500 mt-1">Reviewed</p>
               </div>
               <div>
                 <p className="text-3xl font-bold text-green-600">{accuracy}%</p>
-                <p className="text-xs text-gray-400 mt-1">Accuracy</p>
+                <p className="text-xs text-gray-400 dark:text-gray-500 mt-1">Accuracy</p>
               </div>
               <div>
                 <p className="text-3xl font-bold text-amber-600">{stats.forgot}</p>
-                <p className="text-xs text-gray-400 mt-1">To Review Again</p>
+                <p className="text-xs text-gray-400 dark:text-gray-500 mt-1">To Review Again</p>
               </div>
             </div>
 
             {/* Remaining info */}
             {(newDueCount > 0 || newUnmasteredCount > 0) && (
-              <p className="text-xs text-gray-400 mb-4">
+              <p className="text-xs text-gray-400 dark:text-gray-500 mb-4">
                 {newDueCount > 0
                   ? `${newDueCount} items still due`
                   : 'No items due right now'}{' '}
@@ -321,7 +321,7 @@ const ReviewPage: React.FC = () => {
                     handleReset();
                     setTimeout(() => startSession('all', typeFilter), 50);
                   }}
-                  className="w-full px-5 py-3 text-sm bg-white text-gray-700 border border-gray-200 rounded-xl hover:bg-gray-50 transition-colors font-medium cursor-pointer"
+                  className="w-full px-5 py-3 text-sm bg-white dark:bg-slate-800 text-gray-700 dark:text-gray-300 border border-gray-200 dark:border-slate-700 rounded-xl hover:bg-gray-50 dark:hover:bg-slate-700 transition-colors font-medium cursor-pointer"
                 >
                   Review All Unmastered ({newUnmasteredCount})
                 </button>
@@ -329,19 +329,19 @@ const ReviewPage: React.FC = () => {
               <div className="flex gap-2 pt-2">
                 <button
                   onClick={() => navigate('/vocabulary')}
-                  className="flex-1 px-4 py-2.5 text-xs text-gray-500 bg-gray-50 border border-gray-200 rounded-lg hover:bg-gray-100 transition-colors font-medium cursor-pointer"
+                  className="flex-1 px-4 py-2.5 text-xs text-gray-500 dark:text-gray-400 bg-gray-50 dark:bg-slate-900 border border-gray-200 dark:border-slate-700 rounded-lg hover:bg-gray-100 dark:hover:bg-slate-700 transition-colors font-medium cursor-pointer"
                 >
                   Vocabulary
                 </button>
                 <button
                   onClick={() => navigate('/sentences')}
-                  className="flex-1 px-4 py-2.5 text-xs text-gray-500 bg-gray-50 border border-gray-200 rounded-lg hover:bg-gray-100 transition-colors font-medium cursor-pointer"
+                  className="flex-1 px-4 py-2.5 text-xs text-gray-500 dark:text-gray-400 bg-gray-50 dark:bg-slate-900 border border-gray-200 dark:border-slate-700 rounded-lg hover:bg-gray-100 dark:hover:bg-slate-700 transition-colors font-medium cursor-pointer"
                 >
                   Sentences
                 </button>
                 <button
                   onClick={() => navigate('/')}
-                  className="flex-1 px-4 py-2.5 text-xs text-gray-500 bg-gray-50 border border-gray-200 rounded-lg hover:bg-gray-100 transition-colors font-medium cursor-pointer"
+                  className="flex-1 px-4 py-2.5 text-xs text-gray-500 dark:text-gray-400 bg-gray-50 dark:bg-slate-900 border border-gray-200 dark:border-slate-700 rounded-lg hover:bg-gray-100 dark:hover:bg-slate-700 transition-colors font-medium cursor-pointer"
                 >
                   Dashboard
                 </button>
@@ -356,16 +356,16 @@ const ReviewPage: React.FC = () => {
     return (
       <div className="max-w-2xl mx-auto px-6 py-10">
         <div className="mb-8">
-          <h1 className="text-2xl font-bold text-gray-900 tracking-tight">Review</h1>
-          <p className="text-sm text-gray-500 mt-1">
+          <h1 className="text-2xl font-bold text-gray-900 dark:text-gray-100 tracking-tight">Review</h1>
+          <p className="text-sm text-gray-500 dark:text-gray-400 mt-1">
             Spaced repetition flashcards for your saved words and sentences.
           </p>
         </div>
 
         {totalItems === 0 ? (
-          <div className="bg-white rounded-xl border border-gray-200 shadow-sm p-10 text-center">
-            <p className="text-gray-400 text-sm">No items to review yet.</p>
-            <p className="text-gray-400 text-xs mt-1">
+          <div className="bg-white dark:bg-slate-800 rounded-xl border border-gray-200 dark:border-slate-700 shadow-sm p-10 text-center">
+            <p className="text-gray-400 dark:text-gray-500 text-sm">No items to review yet.</p>
+            <p className="text-gray-400 dark:text-gray-500 text-xs mt-1">
               Save some words or sentences during your study sessions first.
             </p>
             <button
@@ -379,19 +379,19 @@ const ReviewPage: React.FC = () => {
           <>
             {/* Stats row */}
             <div className="grid grid-cols-3 gap-3 mb-6">
-              <div className="bg-white border border-gray-200 rounded-xl p-4 text-center">
+              <div className="bg-white dark:bg-slate-800 border border-gray-200 dark:border-slate-700 rounded-xl p-4 text-center">
                 <p className="text-2xl font-bold text-amber-600">{dueCount}</p>
-                <p className="text-xs text-gray-400 mt-1">Due Today</p>
-                <p className="text-[10px] text-gray-300 mt-0.5">{dueWordCount}W / {dueSentenceCount}S</p>
+                <p className="text-xs text-gray-400 dark:text-gray-500 mt-1">Due Today</p>
+                <p className="text-[10px] text-gray-300 dark:text-gray-500 mt-0.5">{dueWordCount}W / {dueSentenceCount}S</p>
               </div>
-              <div className="bg-white border border-gray-200 rounded-xl p-4 text-center">
+              <div className="bg-white dark:bg-slate-800 border border-gray-200 dark:border-slate-700 rounded-xl p-4 text-center">
                 <p className="text-2xl font-bold text-indigo-600">{unmasteredCount}</p>
-                <p className="text-xs text-gray-400 mt-1">Unmastered</p>
-                <p className="text-[10px] text-gray-300 mt-0.5">{unmasteredWordCount}W / {unmasteredSentenceCount}S</p>
+                <p className="text-xs text-gray-400 dark:text-gray-500 mt-1">Unmastered</p>
+                <p className="text-[10px] text-gray-300 dark:text-gray-500 mt-0.5">{unmasteredWordCount}W / {unmasteredSentenceCount}S</p>
               </div>
-              <div className="bg-white border border-gray-200 rounded-xl p-4 text-center">
+              <div className="bg-white dark:bg-slate-800 border border-gray-200 dark:border-slate-700 rounded-xl p-4 text-center">
                 <p className="text-2xl font-bold text-green-600">{masteredCount}</p>
-                <p className="text-xs text-gray-400 mt-1">Mastered</p>
+                <p className="text-xs text-gray-400 dark:text-gray-500 mt-1">Mastered</p>
               </div>
             </div>
 
@@ -407,8 +407,8 @@ const ReviewPage: React.FC = () => {
                   onClick={() => setTypeFilter(key)}
                   className={`px-3.5 py-1.5 text-sm font-medium rounded-lg transition-colors cursor-pointer ${
                     typeFilter === key
-                      ? 'bg-indigo-50 text-indigo-700'
-                      : 'text-gray-500 hover:text-gray-700 hover:bg-gray-50'
+                      ? 'bg-indigo-50 dark:bg-indigo-950 text-indigo-700'
+                      : 'text-gray-500 dark:text-gray-400 hover:text-gray-700 hover:bg-gray-50 dark:hover:bg-slate-900'
                   }`}
                 >
                   {label}
@@ -437,11 +437,11 @@ const ReviewPage: React.FC = () => {
               <button
                 onClick={() => startSession('all', typeFilter)}
                 disabled={unmasteredCount === 0 || (typeFilter === 'words' && unmasteredWordCount === 0) || (typeFilter === 'sentences' && unmasteredSentenceCount === 0)}
-                className="w-full px-5 py-4 text-sm bg-white text-gray-700 border border-gray-200 rounded-xl hover:bg-gray-50 transition-colors font-medium cursor-pointer disabled:opacity-40 disabled:cursor-not-allowed text-left flex items-center justify-between"
+                className="w-full px-5 py-4 text-sm bg-white dark:bg-slate-800 text-gray-700 dark:text-gray-300 border border-gray-200 dark:border-slate-700 rounded-xl hover:bg-gray-50 dark:hover:bg-slate-700 transition-colors font-medium cursor-pointer disabled:opacity-40 disabled:cursor-not-allowed text-left flex items-center justify-between"
               >
                 <div>
                   <p className="font-semibold">Review All Unmastered</p>
-                  <p className="text-xs text-gray-400 mt-0.5">
+                  <p className="text-xs text-gray-400 dark:text-gray-500 mt-0.5">
                     Go through every unmastered item right now
                   </p>
                 </div>
@@ -452,7 +452,7 @@ const ReviewPage: React.FC = () => {
             </div>
 
             {/* Keyboard hint */}
-            <p className="text-[11px] text-gray-400 mt-6 text-center">
+            <p className="text-[11px] text-gray-400 dark:text-gray-500 mt-6 text-center">
               Keyboard shortcuts: Space/R Reveal &middot; P Play &middot; 1 Forgot &middot; 2 Remember &middot; 3 Skip
             </p>
           </>
@@ -492,7 +492,7 @@ const ReviewPage: React.FC = () => {
           </button>
         </div>
       </div>
-      <div className="w-full h-1.5 bg-gray-100 rounded-full mb-8 overflow-hidden">
+      <div className="w-full h-1.5 bg-gray-100 dark:bg-slate-700 rounded-full mb-8 overflow-hidden">
         <div
           className="h-full bg-indigo-500 rounded-full transition-all duration-300"
           style={{ width: `${progress}%` }}
@@ -500,7 +500,7 @@ const ReviewPage: React.FC = () => {
       </div>
 
       {/* Flashcard */}
-      <div className="bg-white border border-gray-200 rounded-2xl p-8 shadow-sm min-h-[300px] flex flex-col">
+      <div className="bg-white dark:bg-slate-800 border border-gray-200 dark:border-slate-700 rounded-2xl p-8 shadow-sm min-h-[300px] flex flex-col">
         {/* Header badge */}
         <div className="flex items-start justify-between mb-6">
           <span
@@ -523,7 +523,7 @@ const ReviewPage: React.FC = () => {
         {currentCard.kind === 'sentence' ? (
           <div className="flex-1 flex flex-col">
             <div className="flex items-start gap-3 mb-6">
-              <p className="text-lg text-gray-800 leading-relaxed flex-1">
+              <p className="text-lg text-gray-800 dark:text-gray-200 leading-relaxed flex-1">
                 {primaryText}
               </p>
               <button
@@ -541,15 +541,15 @@ const ReviewPage: React.FC = () => {
               <p className="text-lg text-indigo-700 font-medium mb-4">{meaningCn}</p>
             )}
             {currentCard.item.myOwnSentence && (
-              <div className="bg-slate-50 rounded-lg px-4 py-3 mb-4">
-                <p className="text-[10px] text-gray-400 uppercase tracking-wider mb-1">My Own Sentence</p>
-                <p className="text-sm text-gray-700">{currentCard.item.myOwnSentence}</p>
+              <div className="bg-slate-50 dark:bg-slate-900 rounded-lg px-4 py-3 mb-4">
+                <p className="text-[10px] text-gray-400 dark:text-gray-500 uppercase tracking-wider mb-1">My Own Sentence</p>
+                <p className="text-sm text-gray-700 dark:text-gray-300">{currentCard.item.myOwnSentence}</p>
               </div>
             )}
-            <div className="mt-auto pt-4 border-t border-gray-100">
+            <div className="mt-auto pt-4 border-t border-gray-100 dark:border-slate-700">
               <button
                 onClick={handleSentenceRead}
-                className="w-full px-4 py-3 text-sm bg-indigo-50 text-indigo-600 border border-indigo-200 rounded-xl hover:bg-indigo-100 transition-colors font-medium cursor-pointer"
+                className="w-full px-4 py-3 text-sm bg-indigo-50 dark:bg-indigo-950 text-indigo-600 border border-indigo-200 rounded-xl hover:bg-indigo-100 transition-colors font-medium cursor-pointer"
               >
                 Next <span className="text-[10px] text-indigo-400 ml-1">Space / Enter</span>
               </button>
@@ -559,7 +559,7 @@ const ReviewPage: React.FC = () => {
           /* ── Word flashcard mode: reveal then judge ── */
           <div className="flex-1 flex flex-col">
             <div className="flex items-start gap-3 mb-8">
-              <p className="text-3xl font-bold text-gray-800 leading-relaxed flex-1">
+              <p className="text-3xl font-bold text-gray-800 dark:text-gray-200 leading-relaxed flex-1">
                 {primaryText}
               </p>
               <button
@@ -581,10 +581,10 @@ const ReviewPage: React.FC = () => {
                   <p className="text-xl text-indigo-700 font-medium">{meaningCn}</p>
                 )}
                 {context && (
-                  <p className="text-sm text-gray-500 leading-relaxed">&ldquo;{context}&rdquo;</p>
+                  <p className="text-sm text-gray-500 dark:text-gray-400 leading-relaxed">&ldquo;{context}&rdquo;</p>
                 )}
                 {currentCard.item.definitionEn && (
-                  <p className="text-sm text-gray-500 leading-relaxed">
+                  <p className="text-sm text-gray-500 dark:text-gray-400 leading-relaxed">
                     {currentCard.item.definitionEn}
                   </p>
                 )}
@@ -592,7 +592,7 @@ const ReviewPage: React.FC = () => {
             ) : (
               <button
                 onClick={() => setRevealed(true)}
-                className="mb-6 px-6 py-3 text-sm text-indigo-600 bg-indigo-50 rounded-xl hover:bg-indigo-100 transition-colors font-medium cursor-pointer"
+                className="mb-6 px-6 py-3 text-sm text-indigo-600 bg-indigo-50 dark:bg-indigo-950 rounded-xl hover:bg-indigo-100 transition-colors font-medium cursor-pointer"
               >
                 Show Answer <span className="text-[10px] text-indigo-400 ml-1">R</span>
               </button>
@@ -600,10 +600,10 @@ const ReviewPage: React.FC = () => {
 
             {/* Action buttons — only visible after reveal */}
             {revealed && (
-              <div className="mt-auto flex gap-3 pt-4 border-t border-gray-100">
+              <div className="mt-auto flex gap-3 pt-4 border-t border-gray-100 dark:border-slate-700">
                 <button
                   onClick={handleForgot}
-                  className="flex-1 px-4 py-3 text-sm bg-red-50 text-red-600 border border-red-200 rounded-xl hover:bg-red-100 transition-colors font-medium cursor-pointer"
+                  className="flex-1 px-4 py-3 text-sm bg-red-50 dark:bg-red-950/30 text-red-600 border border-red-200 rounded-xl hover:bg-red-100 transition-colors font-medium cursor-pointer"
                 >
                   Forgot <span className="text-[10px] text-red-400 ml-1">1</span>
                 </button>
@@ -615,7 +615,7 @@ const ReviewPage: React.FC = () => {
                 </button>
                 <button
                   onClick={handleSkip}
-                  className="px-4 py-3 text-sm text-gray-500 bg-gray-50 border border-gray-200 rounded-xl hover:bg-gray-100 transition-colors font-medium cursor-pointer"
+                  className="px-4 py-3 text-sm text-gray-500 dark:text-gray-400 bg-gray-50 dark:bg-slate-900 border border-gray-200 dark:border-slate-700 rounded-xl hover:bg-gray-100 dark:hover:bg-slate-700 transition-colors font-medium cursor-pointer"
                 >
                   Skip <span className="text-[10px] text-gray-400 ml-1">3</span>
                 </button>
@@ -626,7 +626,7 @@ const ReviewPage: React.FC = () => {
       </div>
 
       {/* Keyboard hint */}
-      <p className="text-[11px] text-gray-400 mt-4 text-center">
+      <p className="text-[11px] text-gray-400 dark:text-gray-500 mt-4 text-center">
         {currentCard.kind === 'sentence'
           ? 'Space / Enter for next \u00B7 P Play'
           : revealed

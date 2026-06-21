@@ -16,7 +16,6 @@ const MAX_TRANSCRIPT_CHARS = 8000;
 
 // ── Helpers ────────────────────────────────────────────────────
 
-/** Truncate transcript to a reasonable length for the API call. */
 function truncateText(text: string, max = MAX_TRANSCRIPT_CHARS): string {
   if (text.length <= max) return text;
   return text.slice(0, max) + '\n...[truncated]';
@@ -36,7 +35,13 @@ Rules:
 5. Always respond with valid JSON only — no markdown fences, no explanation outside JSON.`;
 }
 
-function buildUserPrompt(transcript: string, minLevel: CEFRLevel, maxLevel: CEFRLevel): string {
+function buildUserPrompt(
+  transcript: string,
+  minLevel: CEFRLevel,
+  maxLevel: CEFRLevel,
+  vocabCount: number,
+  sentenceCount: number,
+): string {
   return `Analyze the following English transcript and return a JSON object with this exact schema:
 
 {
@@ -64,8 +69,8 @@ function buildUserPrompt(transcript: string, minLevel: CEFRLevel, maxLevel: CEFR
 }
 
 Requirements:
-- "vocabularySuggestions": exactly 8 words at CEFR level ${minLevel}–${maxLevel}. Focus on words a learner at this level might not know. Each "word" must appear in the transcript.
-- "sentenceSuggestions": exactly 4 sentences that showcase useful grammar, collocations, or expressions. Each "text" must be an exact quote.
+- "vocabularySuggestions": exactly ${vocabCount} words at CEFR level ${minLevel}–${maxLevel}. Focus on words a learner at this level might not know. Each "word" must appear in the transcript.
+- "sentenceSuggestions": exactly ${sentenceCount} sentences that showcase useful grammar, collocations, or expressions. Each "text" must be an exact quote.
 - "learningTasks": exactly 4 tasks, one each for types: "listening", "speaking", "writing", "reading". Reference specific content from the transcript.
 - "keyTakeaways": exactly 3 key points in English.
 
@@ -75,12 +80,15 @@ ${transcript}
 ---`;
 }
 
-// ── DeepSeek API call ────────────────────────────────────────
+// ── DeepSeek API call (with SSE streaming) ───────────────────
 
 async function callDeepSeek(
   transcriptText: string,
   minLevel: CEFRLevel,
   maxLevel: CEFRLevel,
+  vocabCount: number,
+  sentenceCount: number,
+  onChunk?: (chunk: string) => void,
 ): Promise<AIAnalysisResult> {
   const apiKey = import.meta.env.VITE_DEEPSEEK_API_KEY as string | undefined;
   if (!apiKey) {
@@ -88,6 +96,7 @@ async function callDeepSeek(
   }
 
   const transcript = truncateText(transcriptText);
+  const useStreaming = !!onChunk;
 
   const response = await fetch(DEEPSEEK_ENDPOINT, {
     method: 'POST',
@@ -99,10 +108,14 @@ async function callDeepSeek(
       model: DEEPSEEK_MODEL,
       messages: [
         { role: 'system', content: buildSystemPrompt() },
-        { role: 'user', content: buildUserPrompt(transcript, minLevel, maxLevel) },
+        {
+          role: 'user',
+          content: buildUserPrompt(transcript, minLevel, maxLevel, vocabCount, sentenceCount),
+        },
       ],
       temperature: 0.4,
       response_format: { type: 'json_object' },
+      stream: useStreaming,
     }),
   });
 
@@ -111,16 +124,57 @@ async function callDeepSeek(
     throw new Error(`DeepSeek API error ${response.status}: ${errBody.slice(0, 200)}`);
   }
 
-  const data = await response.json();
-  const content = data?.choices?.[0]?.message?.content as string | undefined;
+  let content: string;
+
+  if (useStreaming && response.body) {
+    // ── SSE streaming: read chunks and forward to callback ──
+    const reader = response.body.getReader();
+    const decoder = new TextDecoder();
+    let accumulated = '';
+
+    while (true) {
+      const { done, value } = await reader.read();
+      if (done) break;
+
+      const raw = decoder.decode(value, { stream: true });
+      const lines = raw.split('\n');
+      for (const line of lines) {
+        if (!line.startsWith('data: ')) continue;
+        const dataStr = line.slice(6).trim();
+        if (dataStr === '[DONE]') continue;
+        try {
+          const json = JSON.parse(dataStr) as {
+            choices?: Array<{ delta?: { content?: string } }>;
+          };
+          const delta = json.choices?.[0]?.delta?.content;
+          if (delta) {
+            accumulated += delta;
+            onChunk(delta);
+          }
+        } catch {
+          // skip malformed SSE chunks
+        }
+      }
+    }
+
+    content = accumulated;
+  } else {
+    // ── Non-streaming: read full response at once ──────────
+    const data = await response.json();
+    content = data?.choices?.[0]?.message?.content as string;
+  }
+
   if (!content) {
     throw new Error('Empty response from DeepSeek');
   }
 
-  // Parse the JSON response
+  // Parse and validate the JSON response
   const parsed = JSON.parse(content) as Record<string, unknown>;
+  return validateResult(parsed);
+}
 
-  // Validate and map to AIAnalysisResult
+/** Validate and map raw JSON to AIAnalysisResult. */
+function validateResult(parsed: Record<string, unknown>): AIAnalysisResult {
   return {
     summaryEn: String(parsed.summaryEn ?? ''),
     summaryCn: String(parsed.summaryCn ?? ''),
@@ -159,14 +213,12 @@ async function callDeepSeek(
 
 // ── Fallback: local CEFR-based analysis ──────────────────────
 
-/**
- * Local fallback when DeepSeek API is unavailable.
- * Uses CEFR word lists + heuristics. Translations will be placeholder text.
- */
 function localFallback(
   transcriptText: string,
   minLevel: CEFRLevel,
   maxLevel: CEFRLevel,
+  vocabCount: number,
+  sentenceCount: number,
 ): AIAnalysisResult {
   const sentences = transcriptText
     .split(/(?<=[.!?])\s+/)
@@ -185,7 +237,7 @@ function localFallback(
 
   const cefrWords = extractWordsByLevel(transcriptText, minLevel, maxLevel);
   const vocabSuggestions: VocabularySuggestion[] = cefrWords
-    .slice(0, 8)
+    .slice(0, vocabCount)
     .map(({ word, level, context }) => ({
       word,
       context,
@@ -195,7 +247,7 @@ function localFallback(
 
   const sentSuggestions: SentenceSuggestion[] = sortedByLength
     .filter((s) => s.length > 40 && s.length < 200)
-    .slice(0, 4)
+    .slice(0, sentenceCount)
     .map((text) => {
       const clean = text.endsWith('.') || text.endsWith('!') || text.endsWith('?') ? text : text + '.';
       return {
@@ -229,25 +281,25 @@ function localFallback(
 /**
  * Analyze a transcript using DeepSeek V4 Flash (with local fallback).
  *
- * Flow:
- *   1. Build a structured prompt asking for JSON matching AIAnalysisResult
- *   2. Call DeepSeek API (deepseek-v4-flash, OpenAI-compatible endpoint)
- *   3. Parse + validate the JSON response
- *   4. If anything fails, fall back to local CEFR-based heuristic analysis
- *
- * @param transcriptText Full transcript text
- * @param minLevel Minimum CEFR level for vocabulary (default 'B1')
- * @param maxLevel Maximum CEFR level for vocabulary (default 'C2')
+ * @param transcriptText  Full transcript text
+ * @param minLevel        Minimum CEFR level (default 'B1')
+ * @param maxLevel        Maximum CEFR level (default 'C2')
+ * @param vocabCount      Number of vocabulary suggestions to request (default 8)
+ * @param sentenceCount   Number of sentence suggestions to request (default 4)
+ * @param onChunk         Optional streaming callback — receives each text chunk as it arrives
  */
 export async function analyzeTranscript(
   transcriptText: string,
   minLevel: CEFRLevel = 'B1',
   maxLevel: CEFRLevel = 'C2',
+  vocabCount = 8,
+  sentenceCount = 4,
+  onChunk?: (chunk: string) => void,
 ): Promise<AIAnalysisResult> {
   try {
-    return await callDeepSeek(transcriptText, minLevel, maxLevel);
+    return await callDeepSeek(transcriptText, minLevel, maxLevel, vocabCount, sentenceCount, onChunk);
   } catch (err) {
     console.warn('[aiAnalysis] DeepSeek API failed, falling back to local analysis:', err);
-    return localFallback(transcriptText, minLevel, maxLevel);
+    return localFallback(transcriptText, minLevel, maxLevel, vocabCount, sentenceCount);
   }
 }

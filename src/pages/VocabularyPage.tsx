@@ -152,8 +152,8 @@ const VocabularyPage: React.FC = () => {
       {/* Header */}
       <div className="flex items-end justify-between mb-6">
         <div>
-          <h1 className="text-2xl font-bold text-gray-900 tracking-tight">Vocabulary</h1>
-          <p className="text-sm text-gray-500 mt-1">
+          <h1 className="text-2xl font-bold text-gray-900 dark:text-gray-100 tracking-tight">Vocabulary</h1>
+          <p className="text-sm text-gray-500 dark:text-gray-400 mt-1">
             {vocabulary.length} words &middot; {masteredCount} mastered
             {dueCount > 0 && <span className="text-amber-500"> &middot; {dueCount} due</span>}
           </p>
@@ -164,7 +164,7 @@ const VocabularyPage: React.FC = () => {
             value={search}
             onChange={(e) => setSearch(e.target.value)}
             placeholder="Search word / meaning..."
-            className="w-52 px-3 py-1.5 text-sm border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-indigo-400 focus:border-transparent"
+            className="w-52 px-3 py-1.5 text-sm border border-gray-300 dark:border-slate-600 rounded-lg focus:outline-none focus:ring-2 focus:ring-indigo-400 focus:border-transparent dark:bg-slate-800 dark:text-gray-200"
           />
           <button
             onClick={() => navigate('/review')}
@@ -176,21 +176,21 @@ const VocabularyPage: React.FC = () => {
           <div className="relative">
             <button
               onClick={() => setShowExport(!showExport)}
-              className="px-3 py-1.5 text-sm text-gray-600 bg-white border border-gray-300 rounded-lg hover:bg-gray-50 transition-colors font-medium cursor-pointer"
+              className="px-3 py-1.5 text-sm text-gray-600 dark:text-gray-400 bg-white dark:bg-slate-800 border border-gray-300 dark:border-slate-600 rounded-lg hover:bg-gray-50 dark:hover:bg-slate-700 transition-colors font-medium cursor-pointer"
             >
               Export
             </button>
             {showExport && vocabulary.length > 0 && (
-              <div className="absolute right-0 mt-1 w-36 bg-white border border-gray-200 rounded-lg shadow-lg z-10 py-1">
+              <div className="absolute right-0 mt-1 w-36 bg-white dark:bg-slate-800 border border-gray-200 dark:border-slate-700 rounded-lg shadow-lg z-10 py-1">
                 <button
                   onClick={() => { exportVocabularyCSV(filtered); setShowExport(false); }}
-                  className="w-full text-left px-3 py-1.5 text-sm text-gray-700 hover:bg-gray-50 cursor-pointer"
+                  className="w-full text-left px-3 py-1.5 text-sm text-gray-700 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-slate-700 cursor-pointer"
                 >
                   Export CSV
                 </button>
                 <button
                   onClick={() => { exportVocabularyPDF(filtered); setShowExport(false); }}
-                  className="w-full text-left px-3 py-1.5 text-sm text-gray-700 hover:bg-gray-50 cursor-pointer"
+                  className="w-full text-left px-3 py-1.5 text-sm text-gray-700 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-slate-700 cursor-pointer"
                 >
                   Export PDF
                 </button>
@@ -209,8 +209,8 @@ const VocabularyPage: React.FC = () => {
               onClick={() => setFilter(f)}
               className={`px-3.5 py-1.5 text-sm font-medium rounded-lg transition-colors cursor-pointer ${
                 filter === f
-                  ? 'bg-indigo-50 text-indigo-700'
-                  : 'text-gray-500 hover:text-gray-700 hover:bg-gray-50'
+                  ? 'bg-indigo-50 dark:bg-indigo-950 text-indigo-700'
+                  : 'text-gray-500 dark:text-gray-400 hover:text-gray-700 hover:bg-gray-50 dark:hover:bg-slate-900'
               }`}
             >
               {f === 'all' ? 'All' : f === 'mastered' ? 'Mastered' : 'Unmastered'}
@@ -220,7 +220,7 @@ const VocabularyPage: React.FC = () => {
         <select
           value={sort}
           onChange={(e) => setSort(e.target.value as SortMode)}
-          className="text-xs text-gray-500 border border-gray-200 rounded-lg px-2 py-1.5 focus:outline-none focus:ring-1 focus:ring-indigo-400 cursor-pointer"
+          className="text-xs text-gray-500 dark:text-gray-400 border border-gray-200 dark:border-slate-700 rounded-lg px-2 py-1.5 focus:outline-none focus:ring-1 focus:ring-indigo-400 cursor-pointer dark:bg-slate-800"
         >
           <option value="newest">Newest first</option>
           <option value="az">A - Z</option>
@@ -231,8 +231,8 @@ const VocabularyPage: React.FC = () => {
 
       {/* Cards */}
       {filtered.length === 0 ? (
-        <div className="bg-white rounded-xl border border-gray-200 shadow-sm p-10 text-center">
-          <p className="text-gray-400 text-sm">
+        <div className="bg-white dark:bg-slate-800 rounded-xl border border-gray-200 dark:border-slate-700 shadow-sm p-10 text-center">
+          <p className="text-gray-400 dark:text-gray-500 text-sm">
             {vocabulary.length === 0
               ? 'No words saved yet. Click any word in a transcript to add it.'
               : 'No matching words.'}
@@ -243,8 +243,8 @@ const VocabularyPage: React.FC = () => {
           {filtered.map((item) => (
             <div
               key={item.id}
-              className={`bg-white border rounded-xl p-4 group hover:shadow-sm transition-shadow overflow-hidden ${
-                item.mastered ? 'border-green-200' : 'border-gray-200'
+              className={`bg-white dark:bg-slate-800 border rounded-xl p-4 group hover:shadow-sm transition-shadow overflow-hidden ${
+                item.mastered ? 'border-green-200' : 'border-gray-200 dark:border-slate-700'
               }`}
             >
               {/* Top row: word + phonetic + mastered badge */}
@@ -252,13 +252,13 @@ const VocabularyPage: React.FC = () => {
                 <div className="flex items-center gap-2 min-w-0">
                   <span
                     onClick={(e) => handleWordClick(item.word, e)}
-                    className="text-lg font-semibold text-gray-800 truncate cursor-pointer hover:text-indigo-600 transition-colors"
+                    className="text-lg font-semibold text-gray-800 dark:text-gray-200 truncate cursor-pointer hover:text-indigo-600 transition-colors"
                     title="Click to look up in dictionary"
                   >
                     {item.word}
                   </span>
                   {item.phonetic && (
-                    <span className="text-xs text-gray-400 font-mono">{item.phonetic}</span>
+                    <span className="text-xs text-gray-400 dark:text-gray-500 font-mono">{item.phonetic}</span>
                   )}
                   {item.audioUrl && (
                     <button
@@ -276,7 +276,7 @@ const VocabularyPage: React.FC = () => {
                     </button>
                   )}
                   {item.mastered && (
-                    <span className="shrink-0 px-1.5 py-0.5 text-[10px] font-medium bg-green-100 text-green-700 rounded">
+                    <span className="shrink-0 px-1.5 py-0.5 text-[10px] font-medium bg-green-100 dark:bg-green-900/40 text-green-700 rounded">
                       mastered
                     </span>
                   )}
@@ -291,12 +291,12 @@ const VocabularyPage: React.FC = () => {
 
               {/* Part of speech + definition (if available from dictionary) */}
               {item.partOfSpeech && (
-                <span className="inline-block text-[10px] px-1.5 py-0.5 bg-indigo-50 text-indigo-500 rounded-full font-medium mb-1.5">
+                <span className="inline-block text-[10px] px-1.5 py-0.5 bg-indigo-50 dark:bg-indigo-950 text-indigo-500 rounded-full font-medium mb-1.5">
                   {item.partOfSpeech}
                 </span>
               )}
               {item.definitionEn && (
-                <p className="text-xs text-gray-500 leading-relaxed mb-2 line-clamp-2">
+                <p className="text-xs text-gray-500 dark:text-gray-400 leading-relaxed mb-2 line-clamp-2">
                   {item.definitionEn}
                 </p>
               )}
@@ -325,7 +325,7 @@ const VocabularyPage: React.FC = () => {
                 </div>
               ) : (
                 <p
-                  className="text-sm text-gray-500 mb-2 cursor-pointer hover:text-indigo-600 transition-colors"
+                  className="text-sm text-gray-500 dark:text-gray-400 mb-2 cursor-pointer hover:text-indigo-600 transition-colors"
                   onClick={() => handleStartEdit(item)}
                   title="Click to edit meaning"
                 >
@@ -338,12 +338,12 @@ const VocabularyPage: React.FC = () => {
               )}
 
               {/* Example sentence */}
-              <p className="text-sm text-gray-600 leading-relaxed line-clamp-2">
+              <p className="text-sm text-gray-600 dark:text-gray-400 leading-relaxed line-clamp-2">
                 &ldquo;{item.context}&rdquo;
               </p>
 
               {/* Footer: source + date + toggle */}
-              <div className="mt-3 pt-2 border-t border-gray-100 space-y-1.5">
+              <div className="mt-3 pt-2 border-t border-gray-100 dark:border-slate-700 space-y-1.5">
                 <div className="flex items-center gap-2 min-w-0">
                   <span className="text-[10px] text-gray-400 truncate flex-1 min-w-0" title={getVideoTitle(item)}>
                     {getVideoTitle(item)}
@@ -372,7 +372,7 @@ const VocabularyPage: React.FC = () => {
               {/* Review progress bar */}
               {!item.mastered && (
                 <div className="mt-2 flex items-center gap-1.5">
-                  <div className="flex-1 h-1 bg-gray-100 rounded-full overflow-hidden">
+                  <div className="flex-1 h-1 bg-gray-100 dark:bg-slate-700 rounded-full overflow-hidden">
                     <div
                       className="h-full bg-indigo-400 rounded-full transition-all"
                       style={{ width: `${Math.min(item.reviewCount / 5 * 100, 100)}%` }}

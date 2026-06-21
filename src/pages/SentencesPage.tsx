@@ -148,8 +148,8 @@ const SentencesPage: React.FC = () => {
       {/* Header */}
       <div className="flex items-end justify-between mb-6">
         <div>
-          <h1 className="text-2xl font-bold text-gray-900 tracking-tight">Sentence Bank</h1>
-          <p className="text-sm text-gray-500 mt-1">
+          <h1 className="text-2xl font-bold text-gray-900 dark:text-gray-100 tracking-tight">Sentence Bank</h1>
+          <p className="text-sm text-gray-500 dark:text-gray-400 mt-1">
             {sentences.length} sentences &middot; {masteredCount} mastered
             {dueCount > 0 && <span className="text-amber-500"> &middot; {dueCount} due</span>}
           </p>
@@ -160,7 +160,7 @@ const SentencesPage: React.FC = () => {
             value={search}
             onChange={(e) => setSearch(e.target.value)}
             placeholder="Search sentence / meaning..."
-            className="w-52 px-3 py-1.5 text-sm border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-indigo-400 focus:border-transparent"
+            className="w-52 px-3 py-1.5 text-sm border border-gray-300 dark:border-slate-600 rounded-lg focus:outline-none focus:ring-2 focus:ring-indigo-400 focus:border-transparent dark:bg-slate-800 dark:text-gray-200"
           />
           <button
             onClick={() => navigate('/review')}
@@ -172,21 +172,21 @@ const SentencesPage: React.FC = () => {
           <div className="relative">
             <button
               onClick={() => setShowExport(!showExport)}
-              className="px-3 py-1.5 text-sm text-gray-600 bg-white border border-gray-300 rounded-lg hover:bg-gray-50 transition-colors font-medium cursor-pointer"
+              className="px-3 py-1.5 text-sm text-gray-600 dark:text-gray-400 bg-white dark:bg-slate-800 border border-gray-300 dark:border-slate-600 rounded-lg hover:bg-gray-50 dark:hover:bg-slate-700 transition-colors font-medium cursor-pointer"
             >
               Export
             </button>
             {showExport && sentences.length > 0 && (
-              <div className="absolute right-0 mt-1 w-36 bg-white border border-gray-200 rounded-lg shadow-lg z-10 py-1">
+              <div className="absolute right-0 mt-1 w-36 bg-white dark:bg-slate-800 border border-gray-200 dark:border-slate-700 rounded-lg shadow-lg z-10 py-1">
                 <button
                   onClick={() => { exportSentencesCSV(filtered); setShowExport(false); }}
-                  className="w-full text-left px-3 py-1.5 text-sm text-gray-700 hover:bg-gray-50 cursor-pointer"
+                  className="w-full text-left px-3 py-1.5 text-sm text-gray-700 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-slate-700 cursor-pointer"
                 >
                   Export CSV
                 </button>
                 <button
                   onClick={() => { exportSentencesPDF(filtered); setShowExport(false); }}
-                  className="w-full text-left px-3 py-1.5 text-sm text-gray-700 hover:bg-gray-50 cursor-pointer"
+                  className="w-full text-left px-3 py-1.5 text-sm text-gray-700 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-slate-700 cursor-pointer"
                 >
                   Export PDF
                 </button>
@@ -198,8 +198,8 @@ const SentencesPage: React.FC = () => {
 
       {/* Cards */}
       {filtered.length === 0 ? (
-        <div className="bg-white rounded-xl border border-gray-200 shadow-sm p-10 text-center">
-          <p className="text-gray-400 text-sm">
+        <div className="bg-white dark:bg-slate-800 rounded-xl border border-gray-200 dark:border-slate-700 shadow-sm p-10 text-center">
+          <p className="text-gray-400 dark:text-gray-500 text-sm">
             {sentences.length === 0
               ? 'No sentences saved yet. Click any sentence in a transcript to save it.'
               : 'No matching sentences.'}
@@ -210,11 +210,11 @@ const SentencesPage: React.FC = () => {
           {filtered.map((item) => (
             <div
               key={item.id}
-              className="bg-white border border-gray-200 rounded-xl p-5 group hover:shadow-sm transition-shadow"
+              className="bg-white dark:bg-slate-800 border border-gray-200 dark:border-slate-700 rounded-xl p-5 group hover:shadow-sm transition-shadow"
             >
               {/* Original sentence — words are clickable */}
               <div className="flex items-start justify-between gap-3 mb-2">
-                <p className="text-sm text-gray-800 leading-relaxed flex-1">
+                <p className="text-sm text-gray-800 dark:text-gray-200 leading-relaxed flex-1">
                   {splitTokens(item.text).map((token, i) => {
                     if (/^\s+$/.test(token)) return <span key={i}>{token}</span>;
                     if (/^[^\w']+$/.test(token))
@@ -264,7 +264,7 @@ const SentencesPage: React.FC = () => {
                 </div>
               ) : (
                 <p
-                  className="text-sm text-gray-500 mb-3 cursor-pointer hover:text-indigo-600 transition-colors"
+                  className="text-sm text-gray-500 dark:text-gray-400 mb-3 cursor-pointer hover:text-indigo-600 transition-colors"
                   onClick={() => handleStartEditMeaning(item)}
                   title="Click to edit translation"
                 >
@@ -277,7 +277,7 @@ const SentencesPage: React.FC = () => {
               )}
 
               {/* My own sentence — editable */}
-              <div className="bg-slate-50 rounded-lg px-3 py-2 mb-3">
+              <div className="bg-slate-50 dark:bg-slate-900 rounded-lg px-3 py-2 mb-3">
                 <p className="text-[10px] text-gray-400 uppercase tracking-wider mb-1">
                   My Own Sentence
                 </p>
@@ -315,7 +315,7 @@ const SentencesPage: React.FC = () => {
                   </div>
                 ) : (
                   <p
-                    className="text-sm text-gray-700 cursor-pointer hover:text-indigo-600 transition-colors min-h-[20px]"
+                    className="text-sm text-gray-700 dark:text-gray-300 cursor-pointer hover:text-indigo-600 transition-colors min-h-[20px]"
                     onClick={() => handleStartEditOwn(item)}
                     title="Click to write your own sentence"
                   >

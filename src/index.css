@@ -1,16 +1,38 @@
 @import "tailwindcss";
 
+@custom-variant dark (&:where(.dark, .dark *));
+
 :root {
   --color-primary: #4f46e5;
   --color-primary-hover: #4338ca;
   --color-accent: #f59e0b;
   --color-bg: #f8fafc;
   --color-surface: #ffffff;
+  --color-surface-alt: #f9fafb;
   --color-text: #1e293b;
-  --color-text-muted: #64748b;
+  --color-text-secondary: #475569;
+  --color-text-muted: #94a3b8;
   --color-border: #e2e8f0;
+  --color-border-light: #f1f5f9;
   --color-vocab-bg: #fef3c7;
   --color-sentence-bg: #ede9fe;
+  --color-input-bg: #ffffff;
+  --color-hover: #f1f5f9;
+}
+
+.dark {
+  --color-bg: #0f172a;
+  --color-surface: #1e293b;
+  --color-surface-alt: #1a2332;
+  --color-text: #f1f5f9;
+  --color-text-secondary: #cbd5e1;
+  --color-text-muted: #64748b;
+  --color-border: #334155;
+  --color-border-light: #1e293b;
+  --color-vocab-bg: #422006;
+  --color-sentence-bg: #2e1065;
+  --color-input-bg: #1e293b;
+  --color-hover: #334155;
 }
 
 * {
@@ -24,8 +46,14 @@ body {
   color: var(--color-text);
   -webkit-font-smoothing: antialiased;
   -moz-osx-font-smoothing: grayscale;
+  transition: background-color 0.2s, color 0.2s;
 }
 
 #root {
   min-height: 100vh;
+}
+
+/* Smooth transitions for theme changes */
+header, main, div, section, button, input, select, textarea {
+  transition: background-color 0.2s, border-color 0.2s, color 0.15s;
 }
