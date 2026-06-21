@@ -246,7 +246,7 @@ const TranscriptImporter: React.FC<TranscriptImporterProps> = ({ onImport }) => 
               </div>
 
               {/* Rows */}
-              <div className="max-h-80 overflow-y-auto divide-y divide-gray-100">
+              <div className="divide-y divide-gray-100">
                 {previewLines.map((line, idx) => (
                   <div
                     key={line.id || idx}

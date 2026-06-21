@@ -431,8 +431,9 @@ const StudyPage: React.FC = () => {
           </div>
 
           {/* Right: Transcript */}
-          <div className="flex-1 min-h-[400px] max-h-[calc(100vh-280px)] overflow-y-auto pr-1">
-            <div className="flex items-center justify-between mb-3">
+          <div className="flex-1 flex flex-col min-w-0 h-[calc(100vh-160px)]">
+            {/* Toolbar — fixed, never scrolls */}
+            <div className="flex items-center justify-between mb-3 flex-shrink-0">
               <h2 className="text-sm font-semibold text-gray-600 uppercase tracking-wider">
                 Transcript
               </h2>
@@ -542,6 +543,8 @@ const StudyPage: React.FC = () => {
               </div>
             </div>
 
+            {/* Scrollable content area — single scroll, no nesting */}
+            <div className="flex-1 overflow-y-auto min-h-0 pr-1">
             {displayLines.length > 0 ? (
               <TranscriptViewer
                 lines={displayLines}
@@ -562,6 +565,7 @@ const StudyPage: React.FC = () => {
                 <p className="mt-1">Load a YouTube video to get started.</p>
               </div>
             )}
+            </div>
           </div>
         </div>
 
