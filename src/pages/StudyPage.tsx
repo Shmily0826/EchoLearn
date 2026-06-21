@@ -8,6 +8,7 @@ import { parseYouTubeId, parseStartTime } from '../utils/youtube';
 import { parseTranscript } from '../utils/transcriptParser';
 import { normalizeTranscriptToSentences } from '../utils/transcriptNormalizer';
 import { analyzeTranscript } from '../services/aiAnalysis';
+import { CEFR_LEVELS, type CEFRLevel } from '../services/cefrWordList';
 import { getVideoTitle } from '../services/youtubeApi';
 import {
   loadVocabulary,
@@ -64,6 +65,14 @@ const StudyPage: React.FC = () => {
   // AI analysis state
   const [analysis, setAnalysis] = useState<AIAnalysisResult | null>(null);
   const [analyzing, setAnalyzing] = useState(false);
+
+  // CEFR level range for vocabulary extraction
+  const [cefrMin, setCefrMin] = useState<CEFRLevel>(
+    () => (localStorage.getItem('echolearn_cefr_min') as CEFRLevel) || 'B1',
+  );
+  const [cefrMax, setCefrMax] = useState<CEFRLevel>(
+    () => (localStorage.getItem('echolearn_cefr_max') as CEFRLevel) || 'C2',
+  );
 
   // Ref to track if we've done the initial restore
   const restoredRef = useRef(false);
@@ -282,9 +291,14 @@ const StudyPage: React.FC = () => {
     const textLines = displayMode === 'sentence' ? sentenceLines : rawBlocks;
     if (textLines.length === 0) return;
     const text = textLines.map((l) => l.text).join(' ');
+
+    // Persist CEFR preferences
+    localStorage.setItem('echolearn_cefr_min', cefrMin);
+    localStorage.setItem('echolearn_cefr_max', cefrMax);
+
     setAnalyzing(true);
     try {
-      const result = await analyzeTranscript(text);
+      const result = await analyzeTranscript(text, cefrMin, cefrMax);
       setAnalysis(result);
       persistAnalysis(result);
     } catch {
@@ -292,7 +306,7 @@ const StudyPage: React.FC = () => {
     } finally {
       setAnalyzing(false);
     }
-  }, [displayMode, sentenceLines, rawBlocks, persistAnalysis]);
+  }, [displayMode, sentenceLines, rawBlocks, cefrMin, cefrMax, persistAnalysis]);
 
   // ── Vocab / sentence handlers ─────────────────────────────
   const handleAddVocabulary = useCallback((item: VocabularyItem) => {
@@ -423,6 +437,45 @@ const StudyPage: React.FC = () => {
                 Transcript
               </h2>
               <div className="flex items-center gap-3">
+                {/* CEFR level range selector */}
+                {displayLines.length > 0 && (
+                  <div className="flex items-center gap-1 text-[11px]">
+                    <span className="text-gray-400 mr-0.5">Level:</span>
+                    <select
+                      value={cefrMin}
+                      onChange={(e) => {
+                        const v = e.target.value as CEFRLevel;
+                        setCefrMin(v);
+                        // Ensure min <= max
+                        if (CEFR_LEVELS.indexOf(v) > CEFR_LEVELS.indexOf(cefrMax)) {
+                          setCefrMax(v);
+                        }
+                      }}
+                      className="px-1.5 py-1 border border-gray-200 rounded text-[11px] bg-white text-gray-600 focus:outline-none focus:ring-1 focus:ring-indigo-300 cursor-pointer"
+                    >
+                      {CEFR_LEVELS.map((l) => (
+                        <option key={l} value={l}>{l}</option>
+                      ))}
+                    </select>
+                    <span className="text-gray-300">–</span>
+                    <select
+                      value={cefrMax}
+                      onChange={(e) => {
+                        const v = e.target.value as CEFRLevel;
+                        setCefrMax(v);
+                        // Ensure max >= min
+                        if (CEFR_LEVELS.indexOf(v) < CEFR_LEVELS.indexOf(cefrMin)) {
+                          setCefrMin(v);
+                        }
+                      }}
+                      className="px-1.5 py-1 border border-gray-200 rounded text-[11px] bg-white text-gray-600 focus:outline-none focus:ring-1 focus:ring-indigo-300 cursor-pointer"
+                    >
+                      {CEFR_LEVELS.map((l) => (
+                        <option key={l} value={l}>{l}</option>
+                      ))}
+                    </select>
+                  </div>
+                )}
                 {/* Analyze button */}
                 {displayLines.length > 0 && (
                   <button

@@ -7,6 +7,7 @@ import {
   loadAllSessions,
 } from '../utils/storage';
 import WordDictionaryPopup from '../components/WordDictionaryPopup';
+import { exportVocabularyCSV, exportVocabularyPDF } from '../services/exportService';
 import type { VocabularyItem, VideoStudySession } from '../types';
 
 type FilterMode = 'all' | 'mastered' | 'unmastered';
@@ -40,6 +41,7 @@ const VocabularyPage: React.FC = () => {
   const [editingId, setEditingId] = useState<string | null>(null);
   const [editMeaning, setEditMeaning] = useState('');
   const [dictPopup, setDictPopup] = useState<DictPopupState | null>(null);
+  const [showExport, setShowExport] = useState(false);
 
   useEffect(() => {
     setVocabulary(loadVocabulary());
@@ -170,6 +172,31 @@ const VocabularyPage: React.FC = () => {
           >
             Review{dueCount > 0 ? ` (${dueCount})` : ''}
           </button>
+          {/* Export dropdown */}
+          <div className="relative">
+            <button
+              onClick={() => setShowExport(!showExport)}
+              className="px-3 py-1.5 text-sm text-gray-600 bg-white border border-gray-300 rounded-lg hover:bg-gray-50 transition-colors font-medium cursor-pointer"
+            >
+              Export
+            </button>
+            {showExport && vocabulary.length > 0 && (
+              <div className="absolute right-0 mt-1 w-36 bg-white border border-gray-200 rounded-lg shadow-lg z-10 py-1">
+                <button
+                  onClick={() => { exportVocabularyCSV(filtered); setShowExport(false); }}
+                  className="w-full text-left px-3 py-1.5 text-sm text-gray-700 hover:bg-gray-50 cursor-pointer"
+                >
+                  Export CSV
+                </button>
+                <button
+                  onClick={() => { exportVocabularyPDF(filtered); setShowExport(false); }}
+                  className="w-full text-left px-3 py-1.5 text-sm text-gray-700 hover:bg-gray-50 cursor-pointer"
+                >
+                  Export PDF
+                </button>
+              </div>
+            )}
+          </div>
         </div>
       </div>
 

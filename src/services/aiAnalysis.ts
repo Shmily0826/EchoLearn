@@ -4,6 +4,7 @@ import type {
   SentenceSuggestion,
   LearningTask,
 } from '../types';
+import { extractWordsByLevel, type CEFRLevel } from './cefrWordList';
 
 // ── Common / stop words to exclude from vocabulary suggestions ───
 
@@ -62,10 +63,13 @@ function mockCn(_en: string): string {
 
 /**
  * Generate a mock AIAnalysisResult from transcript text.
- * This is a deterministic, offline "analysis" that extracts real words
- * and sentences from the transcript, so the UI feels realistic.
+ * Uses CEFR-level word classification to extract vocabulary at the right difficulty.
  */
-export function mockAnalyzeTranscript(transcriptText: string): AIAnalysisResult {
+export function mockAnalyzeTranscript(
+  transcriptText: string,
+  minLevel: CEFRLevel = 'B1',
+  maxLevel: CEFRLevel = 'C2',
+): AIAnalysisResult {
   const sentences = splitSentences(transcriptText);
   const allWords = extractWords(transcriptText);
 
@@ -92,22 +96,16 @@ export function mockAnalyzeTranscript(transcriptText: string): AIAnalysisResult 
     s.endsWith('.') || s.endsWith('!') || s.endsWith('?') ? s : s + '.',
   );
 
-  // ── Vocabulary suggestions (pick less common, longer words) ─
-  const vocabSuggestions: VocabularySuggestion[] = allWords
-    .filter((w) => w.length >= 5)
-    .slice(0, 6)
-    .map((word) => {
-      // Find a sentence containing this word for context
-      const ctx =
-        sentences.find((s) => s.toLowerCase().includes(word)) ||
-        transcriptText.slice(0, 120);
-      return {
-        word,
-        context: ctx.endsWith('.') || ctx.endsWith('!') || ctx.endsWith('?') ? ctx : ctx + '.',
-        meaningCn: mockCn(word),
-        reason: `Appears in the transcript; useful ${word.length >= 8 ? 'advanced' : 'intermediate'} vocabulary.`,
-      };
-    });
+  // ── Vocabulary suggestions (CEFR-filtered) ───────────────
+  const cefrWords = extractWordsByLevel(transcriptText, minLevel, maxLevel);
+  const vocabSuggestions: VocabularySuggestion[] = cefrWords
+    .slice(0, 8)
+    .map(({ word, level, context }) => ({
+      word,
+      context,
+      meaningCn: mockCn(word),
+      reason: `${level}-level vocabulary — ${word.length >= 8 ? 'advanced' : 'intermediate'} complexity.`,
+    }));
 
   // ── Sentence suggestions (pick sentences with interesting structure) ─
   const sentSuggestions: SentenceSuggestion[] = sortedByLength
@@ -160,13 +158,19 @@ export function mockAnalyzeTranscript(transcriptText: string): AIAnalysisResult 
 /**
  * Analyze a transcript and return learning-oriented suggestions.
  *
- * **v1**: calls `mockAnalyzeTranscript` locally.
+ * **v1**: calls `mockAnalyzeTranscript` locally with CEFR-level filtering.
  * **v2 (future)**: POST to an AI backend (OpenAI / Claude / custom endpoint).
+ *
+ * @param transcriptText The full transcript text
+ * @param minLevel Minimum CEFR level to extract (default: 'B1')
+ * @param maxLevel Maximum CEFR level to extract (default: 'C2')
  */
 export async function analyzeTranscript(
   transcriptText: string,
+  minLevel: CEFRLevel = 'B1',
+  maxLevel: CEFRLevel = 'C2',
 ): Promise<AIAnalysisResult> {
   // Simulate a small network delay so the loading UI is visible
   await new Promise((r) => setTimeout(r, 600));
-  return mockAnalyzeTranscript(transcriptText);
+  return mockAnalyzeTranscript(transcriptText, minLevel, maxLevel);
 }
