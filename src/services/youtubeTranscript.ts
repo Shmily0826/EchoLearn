@@ -43,18 +43,65 @@ function decodeHtmlEntities(str: string): string {
     .replace(/\\"/g, '"');
 }
 
+/**
+ * Find the end index of a JSON object starting at `startIdx` (which points to '{').
+ * Uses brace-counting to correctly handle nested objects, strings, and escapes.
+ */
+function findJsonObjectEnd(src: string, startIdx: number): number {
+  let depth = 0;
+  let inString = false;
+  let escaped = false;
+
+  for (let i = startIdx; i < src.length; i++) {
+    const ch = src[i];
+
+    if (escaped) {
+      escaped = false;
+      continue;
+    }
+
+    if (inString) {
+      if (ch === '\\') escaped = true;
+      else if (ch === '"') inString = false;
+      continue;
+    }
+
+    switch (ch) {
+      case '"':
+        inString = true;
+        break;
+      case '{':
+        depth++;
+        break;
+      case '}':
+        depth--;
+        if (depth === 0) return i + 1; // exclusive end
+        break;
+    }
+  }
+
+  return -1; // unbalanced
+}
+
 /** Extract ytInitialPlayerResponse JSON from YouTube page HTML. */
 function extractPlayerResponse(html: string): Record<string, unknown> | null {
-  const patterns = [
-    /var\s+ytInitialPlayerResponse\s*=\s*(\{.+?\})\s*;(?:\s*var\s|<\/script>)/s,
-    /ytInitialPlayerResponse\s*=\s*(\{.+?\})\s*;/s,
+  // Patterns to locate the start of the JSON assignment
+  const startPatterns = [
+    /var\s+ytInitialPlayerResponse\s*=\s*\{/g,
+    /ytInitialPlayerResponse\s*=\s*\{/g,
   ];
 
-  for (const pattern of patterns) {
-    const match = html.match(pattern);
-    if (match?.[1]) {
+  for (const pattern of startPatterns) {
+    let match: RegExpExecArray | null;
+    while ((match = pattern.exec(html)) !== null) {
+      // The '{' is the last char of the match
+      const braceIdx = match.index + match[0].length - 1;
+      const endIdx = findJsonObjectEnd(html, braceIdx);
+      if (endIdx < 0) continue;
+
+      const jsonStr = html.slice(braceIdx, endIdx);
       try {
-        return JSON.parse(decodeHtmlEntities(match[1])) as Record<string, unknown>;
+        return JSON.parse(decodeHtmlEntities(jsonStr)) as Record<string, unknown>;
       } catch {
         continue;
       }
