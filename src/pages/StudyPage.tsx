@@ -1,4 +1,5 @@
 import React, { useState, useEffect, useCallback, useMemo, useRef } from 'react';
+import { useLocation } from 'react-router-dom';
 import YouTubeEmbed, { type PlayerHandle } from '../components/YouTubeEmbed';
 import TranscriptViewer from '../components/TranscriptViewer';
 import TranscriptImporter from '../components/TranscriptImporter';
@@ -92,6 +93,9 @@ const StudyPage: React.FC = () => {
 
   // Ref to track if we've done the initial restore
   const restoredRef = useRef(false);
+  // Track which session ID we've loaded, so we can detect new sessions from Dashboard
+  const loadedSessionIdRef = useRef<string | null>(null);
+  const { pathname } = useLocation();
 
   // YouTube player ref & playback time
   const playerRef = useRef<PlayerHandle>(null);
@@ -107,6 +111,7 @@ const StudyPage: React.FC = () => {
 
     const saved = loadCurrentSession();
     if (saved) {
+      loadedSessionIdRef.current = saved.id;
       setSession(saved);
       setVideoId(saved.youtubeId);
       setUrlInput(saved.youtubeUrl);
@@ -170,6 +175,89 @@ const StudyPage: React.FC = () => {
     setVocabulary(loadVocabulary());
     setSentences(loadSentences());
   }, []);
+
+  // ── Detect new session from Dashboard navigation ──────────
+  // Because all pages are always mounted (display:none), the initial
+  // useEffect only runs once. When the user clicks a video in Dashboard,
+  // it saves a new session to localStorage and navigates to /study.
+  // We detect this by watching pathname and comparing session IDs.
+  useEffect(() => {
+    if (pathname !== '/study') return;
+
+    const saved = loadCurrentSession();
+    if (!saved) return;
+
+    // If this is the same session we already loaded, skip
+    if (saved.id === loadedSessionIdRef.current) return;
+
+    // New session detected — reload everything
+    loadedSessionIdRef.current = saved.id;
+    setSession(saved);
+    setVideoId(saved.youtubeId);
+    setUrlInput(saved.youtubeUrl);
+    setSessionTitle(saved.title);
+    setStartTime(undefined);
+    setAnalysis(null);
+    setStreamChars('');
+    setCaptionError(null);
+
+    if (saved.title.startsWith('http') || saved.title === saved.youtubeUrl) {
+      getVideoTitle(saved.youtubeUrl).then((info) => {
+        if (info?.title) setSessionTitle(info.title);
+      });
+    }
+
+    if (saved.transcriptData) {
+      setRawBlocks(saved.transcriptData.rawBlocks);
+      setSentenceLines(saved.transcriptData.sentenceLines);
+    } else if (saved.transcriptLines.length > 0) {
+      const blocks = saved.transcriptLines;
+      const sLines = normalizeTranscriptToSentences(blocks);
+      setRawBlocks(blocks);
+      setSentenceLines(sLines);
+    } else {
+      // No transcript — clear and auto-fetch
+      setRawBlocks([]);
+      setSentenceLines([]);
+    }
+
+    if (saved.aiAnalysis) {
+      setAnalysis(saved.aiAnalysis);
+    }
+
+    // Auto-fetch captions if no transcript exists
+    const hasTranscript =
+      !!saved.transcriptData || saved.transcriptLines.length > 0;
+    if (saved.youtubeId && !hasTranscript) {
+      setFetchingCaption(true);
+      setCaptionError(null);
+      fetchYouTubeTranscript(saved.youtubeId)
+        .then(({ lines }) => {
+          if (lines.length > 0) {
+            const sLines = normalizeTranscriptToSentences(lines);
+            setRawBlocks(lines);
+            setSentenceLines(sLines);
+            const updated: VideoStudySession = {
+              ...saved,
+              transcriptLines: lines,
+              transcriptData: { rawBlocks: lines, sentenceLines: sLines },
+              updatedAt: Date.now(),
+            };
+            saveCurrentSession(updated);
+            setSession(updated);
+          }
+        })
+        .catch((err) => {
+          setCaptionError(
+            err instanceof Error ? err.message : 'Unknown error fetching captions',
+          );
+        })
+        .finally(() => setFetchingCaption(false));
+    }
+
+    setVocabulary(loadVocabulary());
+    setSentences(loadSentences());
+  }, [pathname]);
 
   // ── Poll current playback time every 500ms ─────────────────
   useEffect(() => {
