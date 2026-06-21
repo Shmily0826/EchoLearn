@@ -134,6 +134,34 @@ const StudyPage: React.FC = () => {
       if (saved.aiAnalysis) {
         setAnalysis(saved.aiAnalysis);
       }
+
+      // Auto-fetch captions if no transcript exists for this video
+      const hasTranscript =
+        !!saved.transcriptData || saved.transcriptLines.length > 0;
+      if (saved.youtubeId && !hasTranscript) {
+        setFetchingCaption(true);
+        fetchYouTubeTranscript(saved.youtubeId)
+          .then(({ lines }) => {
+            if (lines.length > 0) {
+              const sLines = normalizeTranscriptToSentences(lines);
+              setRawBlocks(lines);
+              setSentenceLines(sLines);
+              // Persist the updated session with transcript data
+              const updated: VideoStudySession = {
+                ...saved,
+                transcriptLines: lines,
+                transcriptData: { rawBlocks: lines, sentenceLines: sLines },
+                updatedAt: Date.now(),
+              };
+              saveCurrentSession(updated);
+              setSession(updated);
+            }
+          })
+          .catch((err) => {
+            console.warn('[StudyPage] Auto-fetch captions failed:', err);
+          })
+          .finally(() => setFetchingCaption(false));
+      }
     }
 
     setVocabulary(loadVocabulary());
