@@ -59,14 +59,29 @@ export default defineConfig({
   server: {
     proxy: {
       // Proxy YouTube requests to bypass CORS in dev mode
+      // Note: do NOT override headers here — the client code sets
+      // appropriate User-Agent for InnerTube API (Android) vs page fetch.
       '/yt-proxy': {
         target: 'https://www.youtube.com',
         changeOrigin: true,
+        secure: false,
         rewrite: (path) => path.replace(/^\/yt-proxy/, ''),
-        headers: {
-          'User-Agent':
-            'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
-          'Accept-Language': 'en-US,en;q=0.9',
+        configure: (proxy) => {
+          proxy.on('proxyReq', (proxyReq, req) => {
+            // Remove the host header set by the browser (localhost)
+            // so the proxy sends youtube.com as the host
+            proxyReq.removeHeader('origin');
+            proxyReq.removeHeader('referer');
+          });
+          proxy.on('proxyRes', (proxyRes, req) => {
+            // Log proxy responses for debugging
+            console.log(
+              `[yt-proxy] ${req.method} ${req.url?.substring(0, 80)} → ${proxyRes.statusCode}`,
+            );
+          });
+          proxy.on('error', (err, req) => {
+            console.error(`[yt-proxy] ERROR ${req.url?.substring(0, 80)}:`, err.message);
+          });
         },
       },
     },

@@ -50,7 +50,7 @@ const CORS_PROXIES = [
 // ── InnerTube API constants ────────────────────────────────────
 
 const INNERTUBE_API_URL =
-  'https://www.youtube.com/youtubei/v1/player?prettyPrint=false';
+  'https://www.youtube.com/youtubei/v1/player?key=AIzaSyAO_FJ2SlqU8Q4STEHLGCilw_Y9_11qcW8&prettyPrint=false';
 const INNERTUBE_CLIENT_VERSION = '20.10.38';
 const INNERTUBE_USER_AGENT = `com.google.android.youtube/${INNERTUBE_CLIENT_VERSION} (Linux; U; Android 14)`;
 
@@ -247,13 +247,16 @@ async function fetchText(url: string, init?: RequestInit): Promise<string> {
 
 async function fetchViaProxy(url: string): Promise<string> {
   // 1. Use Vite proxy or configured proxy
-  try {
-    const proxied = proxyUrl(url);
-    if (proxied !== url) {
+  const proxied = proxyUrl(url);
+  if (proxied !== url) {
+    try {
       return await fetchText(proxied);
+    } catch (err) {
+      console.warn(
+        `[EchoLearn] Proxy fetch failed:`,
+        err instanceof Error ? err.message : err,
+      );
     }
-  } catch {
-    // proxy failed, try other methods
   }
 
   // 2. Try direct (works in Node.js or if CORS allows)
@@ -384,11 +387,41 @@ async function fetchViaInnerTube(
       }),
     });
 
-    if (!res.ok) return null;
+    if (!res.ok) {
+      const errBody = await res.text().catch(() => '');
+      console.warn(
+        `[EchoLearn] InnerTube API error: ${res.status}`,
+        errBody.substring(0, 200),
+      );
+      return null;
+    }
 
     const data = (await res.json()) as Record<string, unknown>;
+
+    // Log playability status for debugging
+    const playability = data.playabilityStatus as
+      | { status?: string; reason?: string }
+      | undefined;
+    if (playability?.status !== 'OK') {
+      console.warn(
+        `[EchoLearn] InnerTube playability: ${playability?.status} — ${playability?.reason}`,
+      );
+    }
+
     const tracks = getCaptionTracks(data);
-    if (tracks.length === 0) return null;
+    if (tracks.length === 0) {
+      // Log whether captions field exists at all
+      const hasCaptions = 'captions' in data;
+      console.warn(
+        `[EchoLearn] InnerTube: captions field ${hasCaptions ? 'exists but no tracks' : 'missing'}`,
+      );
+      return null;
+    }
+
+    console.log(
+      `[EchoLearn] InnerTube: found ${tracks.length} caption track(s)`,
+      tracks.map((t) => `${t.languageCode}(${t.kind || 'manual'})`),
+    );
 
     const track = selectTrack(tracks, lang);
     // fetchAndParseCaptions may throw on rate-limit — let it propagate
@@ -406,6 +439,10 @@ async function fetchViaInnerTube(
     if (err instanceof Error && err.message.includes('rate-limiting')) {
       throw err;
     }
+    console.warn(
+      '[EchoLearn] InnerTube fetch error:',
+      err instanceof Error ? err.message : err,
+    );
     return null;
   }
 }
@@ -420,6 +457,8 @@ async function fetchViaWebPage(
     const pageUrl = `https://www.youtube.com/watch?v=${videoId}`;
     const html = await fetchViaProxy(pageUrl);
 
+    console.log(`[EchoLearn] Web page: ${html.length} bytes`);
+
     // Check for captcha/bot detection
     if (
       html.includes('class="g-recaptcha"') ||
@@ -431,15 +470,30 @@ async function fetchViaWebPage(
       );
     }
 
+    // Check if the page looks like a consent/login page
+    if (html.length < 50000) {
+      console.warn(
+        `[EchoLearn] Web page suspiciously small (${html.length} bytes) — might be a consent/login page`,
+      );
+    }
+
     const playerResponse = extractPlayerResponse(html);
     if (!playerResponse) {
+      console.warn('[EchoLearn] Could not extract ytInitialPlayerResponse from page HTML');
       throw new Error(
         'Could not extract player data from YouTube page',
       );
     }
 
     const tracks = getCaptionTracks(playerResponse);
-    if (tracks.length === 0) return null;
+    if (tracks.length === 0) {
+      console.warn('[EchoLearn] Web page: player response has no caption tracks');
+      return null;
+    }
+
+    console.log(
+      `[EchoLearn] Web page: found ${tracks.length} caption track(s)`,
+    );
 
     const track = selectTrack(tracks, lang);
     const lines = await fetchAndParseCaptions(track);
@@ -460,6 +514,7 @@ async function fetchViaWebPage(
       ) {
         throw err;
       }
+      console.warn('[EchoLearn] Web page error:', err.message);
     }
     return null;
   }
