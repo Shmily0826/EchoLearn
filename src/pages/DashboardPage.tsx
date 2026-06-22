@@ -1,6 +1,11 @@
 import { useEffect, useState, useMemo, useCallback } from 'react';
 import { useNavigate } from 'react-router-dom';
 import {
+  BarChart, Bar, XAxis, YAxis, Tooltip, ResponsiveContainer,
+  PieChart, Pie, Cell,
+  AreaChart, Area,
+} from 'recharts';
+import {
   loadVocabulary,
   loadSentences,
   loadAllSessions,
@@ -79,6 +84,58 @@ const DashboardPage: React.FC = () => {
     const dueSentences = sentences.filter((s) => !s.mastered && s.nextReviewAt <= todayEnd).length;
     return dueWords + dueSentences;
   }, [vocabulary, sentences]);
+
+  // ── Chart data ──────────────────────────────────────────────
+  const weeklyActivityData = useMemo(() => {
+    const days: Array<{ day: string; words: number; sentences: number }> = [];
+    for (let i = 6; i >= 0; i--) {
+      const d = new Date();
+      d.setDate(d.getDate() - i);
+      d.setHours(0, 0, 0, 0);
+      const dayStart = d.getTime();
+      const dayEnd = dayStart + 24 * 60 * 60 * 1000;
+      const dayLabel = d.toLocaleDateString('en', { weekday: 'short' });
+      days.push({
+        day: dayLabel,
+        words: vocabulary.filter((v) => v.addedAt >= dayStart && v.addedAt < dayEnd).length,
+        sentences: sentences.filter((s) => s.addedAt >= dayStart && s.addedAt < dayEnd).length,
+      });
+    }
+    return days;
+  }, [vocabulary, sentences]);
+
+  const masteryData = useMemo(() => {
+    const mastered = vocabulary.filter((v) => v.mastered).length;
+    const reviewed = vocabulary.filter((v) => !v.mastered && v.reviewCount > 0).length;
+    const newWords = vocabulary.filter((v) => !v.mastered && v.reviewCount === 0).length;
+    return [
+      { name: 'Mastered', value: mastered, color: '#10b981' },
+      { name: 'Reviewing', value: reviewed, color: '#f59e0b' },
+      { name: 'New', value: newWords, color: '#6366f1' },
+    ].filter((d) => d.value > 0);
+  }, [vocabulary]);
+
+  const cumulativeData = useMemo(() => {
+    const points: Array<{ date: string; words: number; sentences: number; total: number }> = [];
+    const now = new Date();
+    for (let i = 29; i >= 0; i--) {
+      const d = new Date(now);
+      d.setDate(d.getDate() - i);
+      d.setHours(23, 59, 59, 999);
+      const cutoff = d.getTime();
+      const wCount = vocabulary.filter((v) => v.addedAt <= cutoff).length;
+      const sCount = sentences.filter((s) => s.addedAt <= cutoff).length;
+      points.push({
+        date: d.toLocaleDateString('en', { month: 'short', day: 'numeric' }),
+        words: wCount,
+        sentences: sCount,
+        total: wCount + sCount,
+      });
+    }
+    return points;
+  }, [vocabulary, sentences]);
+
+  const hasChartData = vocabulary.length > 0 || sentences.length > 0;
 
   const handleContinueSession = () => {
     navigate('/study');
@@ -189,20 +246,20 @@ const DashboardPage: React.FC = () => {
   }, []);
 
   return (
-    <div className="max-w-5xl mx-auto px-6 py-10">
+    <div className="max-w-5xl mx-auto px-4 sm:px-6 py-6 sm:py-10">
       {/* Hero */}
-      <div className="mb-10">
-        <h1 className="text-3xl font-bold text-gray-900 tracking-tight">
+      <div className="mb-6 sm:mb-10">
+        <h1 className="text-2xl sm:text-3xl font-bold text-gray-900 dark:text-gray-100 tracking-tight">
           Welcome back
         </h1>
-        <p className="mt-2 text-gray-500 dark:text-gray-400 max-w-2xl leading-relaxed">
+        <p className="mt-2 text-gray-500 dark:text-gray-400 max-w-2xl leading-relaxed text-sm sm:text-base">
           A focused YouTube-based English learning workspace with transcript
           notes, vocabulary, and review.
         </p>
       </div>
 
       {/* Stat cards */}
-      <div className="grid grid-cols-2 lg:grid-cols-4 gap-4 mb-10">
+      <div className="grid grid-cols-2 lg:grid-cols-4 gap-3 sm:gap-4 mb-6 sm:mb-10">
         <StatCard
           label="Saved Words"
           value={vocabulary.length}
@@ -248,7 +305,7 @@ const DashboardPage: React.FC = () => {
       </div>
 
       {/* ── Check Latest Video + Today's Plan ──────────────── */}
-      <div className="grid grid-cols-1 lg:grid-cols-5 gap-4 mb-10">
+      <div className="grid grid-cols-1 lg:grid-cols-5 gap-3 sm:gap-4 mb-6 sm:mb-10">
         {/* Check Latest Video card */}
         <div className="lg:col-span-2 bg-white dark:bg-slate-800 rounded-xl border border-gray-200 dark:border-slate-700 shadow-sm p-5 flex flex-col">
           <p className="text-xs text-gray-400 dark:text-gray-500 uppercase tracking-wider mb-2">
@@ -389,9 +446,163 @@ const DashboardPage: React.FC = () => {
         </div>
       </div>
 
+      {/* ── Learning Analytics Charts ──────────────────────── */}
+      {hasChartData && (
+        <div className="grid grid-cols-1 lg:grid-cols-2 gap-3 sm:gap-4 mb-6 sm:mb-10">
+          {/* Weekly Activity Bar Chart */}
+          <div className="bg-white dark:bg-slate-800 rounded-xl border border-gray-200 dark:border-slate-700 shadow-sm p-5">
+            <p className="text-xs text-gray-400 dark:text-gray-500 uppercase tracking-wider mb-4">
+              Weekly Activity
+            </p>
+            <ResponsiveContainer width="100%" height={200}>
+              <BarChart data={weeklyActivityData} barGap={2}>
+                <XAxis
+                  dataKey="day"
+                  tick={{ fontSize: 11, fill: '#9ca3af' }}
+                  axisLine={false}
+                  tickLine={false}
+                />
+                <YAxis
+                  tick={{ fontSize: 11, fill: '#9ca3af' }}
+                  axisLine={false}
+                  tickLine={false}
+                  allowDecimals={false}
+                />
+                <Tooltip
+                  contentStyle={{
+                    fontSize: 12,
+                    borderRadius: 8,
+                    border: '1px solid #e5e7eb',
+                    boxShadow: '0 2px 8px rgba(0,0,0,0.08)',
+                  }}
+                />
+                <Bar dataKey="words" fill="#f59e0b" radius={[3, 3, 0, 0]} name="Words" />
+                <Bar dataKey="sentences" fill="#8b5cf6" radius={[3, 3, 0, 0]} name="Sentences" />
+              </BarChart>
+            </ResponsiveContainer>
+          </div>
+
+          {/* Vocabulary Mastery Pie Chart */}
+          <div className="bg-white dark:bg-slate-800 rounded-xl border border-gray-200 dark:border-slate-700 shadow-sm p-5">
+            <p className="text-xs text-gray-400 dark:text-gray-500 uppercase tracking-wider mb-4">
+              Vocabulary Mastery
+            </p>
+            {masteryData.length > 0 ? (
+              <div className="flex items-center">
+                <ResponsiveContainer width="60%" height={200}>
+                  <PieChart>
+                    <Pie
+                      data={masteryData}
+                      cx="50%"
+                      cy="50%"
+                      innerRadius={45}
+                      outerRadius={75}
+                      paddingAngle={3}
+                      dataKey="value"
+                    >
+                      {masteryData.map((entry) => (
+                        <Cell key={entry.name} fill={entry.color} />
+                      ))}
+                    </Pie>
+                    <Tooltip
+                      contentStyle={{
+                        fontSize: 12,
+                        borderRadius: 8,
+                        border: '1px solid #e5e7eb',
+                        boxShadow: '0 2px 8px rgba(0,0,0,0.08)',
+                      }}
+                    />
+                  </PieChart>
+                </ResponsiveContainer>
+                <div className="flex flex-col gap-2.5 ml-2">
+                  {masteryData.map((entry) => (
+                    <div key={entry.name} className="flex items-center gap-2">
+                      <span
+                        className="w-2.5 h-2.5 rounded-full"
+                        style={{ backgroundColor: entry.color }}
+                      />
+                      <span className="text-xs text-gray-600 dark:text-gray-400">
+                        {entry.name}
+                      </span>
+                      <span className="text-xs font-semibold text-gray-800 dark:text-gray-200">
+                        {entry.value}
+                      </span>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            ) : (
+              <div className="flex items-center justify-center h-[200px] text-sm text-gray-400 dark:text-gray-500">
+                No vocabulary data yet
+              </div>
+            )}
+          </div>
+
+          {/* Cumulative Learning Progress Area Chart */}
+          <div className="lg:col-span-2 bg-white dark:bg-slate-800 rounded-xl border border-gray-200 dark:border-slate-700 shadow-sm p-5">
+            <p className="text-xs text-gray-400 dark:text-gray-500 uppercase tracking-wider mb-4">
+              Learning Progress (30 Days)
+            </p>
+            <ResponsiveContainer width="100%" height={220}>
+              <AreaChart data={cumulativeData}>
+                <defs>
+                  <linearGradient id="colorWords" x1="0" y1="0" x2="0" y2="1">
+                    <stop offset="5%" stopColor="#f59e0b" stopOpacity={0.3} />
+                    <stop offset="95%" stopColor="#f59e0b" stopOpacity={0} />
+                  </linearGradient>
+                  <linearGradient id="colorSentences" x1="0" y1="0" x2="0" y2="1">
+                    <stop offset="5%" stopColor="#8b5cf6" stopOpacity={0.3} />
+                    <stop offset="95%" stopColor="#8b5cf6" stopOpacity={0} />
+                  </linearGradient>
+                </defs>
+                <XAxis
+                  dataKey="date"
+                  tick={{ fontSize: 10, fill: '#9ca3af' }}
+                  axisLine={false}
+                  tickLine={false}
+                  interval="preserveStartEnd"
+                />
+                <YAxis
+                  tick={{ fontSize: 11, fill: '#9ca3af' }}
+                  axisLine={false}
+                  tickLine={false}
+                  allowDecimals={false}
+                />
+                <Tooltip
+                  contentStyle={{
+                    fontSize: 12,
+                    borderRadius: 8,
+                    border: '1px solid #e5e7eb',
+                    boxShadow: '0 2px 8px rgba(0,0,0,0.08)',
+                  }}
+                />
+                <Area
+                  type="monotone"
+                  dataKey="words"
+                  stroke="#f59e0b"
+                  strokeWidth={2}
+                  fillOpacity={1}
+                  fill="url(#colorWords)"
+                  name="Words"
+                />
+                <Area
+                  type="monotone"
+                  dataKey="sentences"
+                  stroke="#8b5cf6"
+                  strokeWidth={2}
+                  fillOpacity={1}
+                  fill="url(#colorSentences)"
+                  name="Sentences"
+                />
+              </AreaChart>
+            </ResponsiveContainer>
+          </div>
+        </div>
+      )}
+
       {/* Continue last session */}
       {currentSession && (
-        <div className="bg-white dark:bg-slate-800 rounded-xl border border-gray-200 dark:border-slate-700 shadow-sm p-5 mb-10">
+        <div className="bg-white dark:bg-slate-800 rounded-xl border border-gray-200 dark:border-slate-700 shadow-sm p-4 sm:p-5 mb-6 sm:mb-10">
           <div className="flex items-center justify-between">
             <div>
               <p className="text-xs text-gray-400 dark:text-gray-500 uppercase tracking-wider mb-1">

@@ -49,8 +49,13 @@ const CORS_PROXIES = [
 
 // ── InnerTube API constants ────────────────────────────────────
 
+/** InnerTube API key — read from env, falls back to the well-known public web key. */
+const INNERTUBE_API_KEY =
+  (import.meta.env.VITE_INNERTUBE_API_KEY as string | undefined) ||
+  'AIzaSyAO_FJ2SlqU8Q4STEHLGCilw_Y9_11qcW8';
+
 const INNERTUBE_API_URL =
-  'https://www.youtube.com/youtubei/v1/player?key=AIzaSyAO_FJ2SlqU8Q4STEHLGCilw_Y9_11qcW8&prettyPrint=false';
+  `https://www.youtube.com/youtubei/v1/player?key=${INNERTUBE_API_KEY}&prettyPrint=false`;
 const INNERTUBE_CLIENT_VERSION = '20.10.38';
 const INNERTUBE_USER_AGENT = `com.google.android.youtube/${INNERTUBE_CLIENT_VERSION} (Linux; U; Android 14)`;
 

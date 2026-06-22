@@ -8,6 +8,7 @@ import {
 } from '../utils/storage';
 import WordDictionaryPopup from '../components/WordDictionaryPopup';
 import { exportVocabularyCSV, exportVocabularyPDF } from '../services/exportService';
+import { translateWords } from '../services/translationService';
 import type { VocabularyItem, VideoStudySession } from '../types';
 
 type FilterMode = 'all' | 'mastered' | 'unmastered';
@@ -42,6 +43,7 @@ const VocabularyPage: React.FC = () => {
   const [editMeaning, setEditMeaning] = useState('');
   const [dictPopup, setDictPopup] = useState<DictPopupState | null>(null);
   const [showExport, setShowExport] = useState(false);
+  const [backfilling, setBackfilling] = useState(false);
 
   useEffect(() => {
     setVocabulary(loadVocabulary());
@@ -83,6 +85,24 @@ const VocabularyPage: React.FC = () => {
     setEditingId(null);
     setEditMeaning('');
   };
+
+  const handleBackfillTranslations = useCallback(async () => {
+    const empty = vocabulary.filter((v) => !v.meaningCn);
+    if (empty.length === 0) return;
+    setBackfilling(true);
+    try {
+      const translations = await translateWords(
+        empty.map((v) => ({ id: v.id, word: v.word, context: v.context })),
+      );
+      let updated = [...vocabulary];
+      for (const [id, meaningCn] of Object.entries(translations)) {
+        updated = updateVocabularyItem(id, { meaningCn });
+      }
+      setVocabulary(updated);
+    } finally {
+      setBackfilling(false);
+    }
+  }, [vocabulary]);
 
   const handleWordClick = (word: string, e: React.MouseEvent) => {
     e.stopPropagation();
@@ -138,7 +158,7 @@ const VocabularyPage: React.FC = () => {
   }, [vocabulary]);
 
   return (
-    <div className="max-w-5xl mx-auto px-6 py-10">
+    <div className="max-w-5xl mx-auto px-4 sm:px-6 py-6 sm:py-10">
       {/* Dictionary popup */}
       {dictPopup && (
         <WordDictionaryPopup
@@ -150,21 +170,21 @@ const VocabularyPage: React.FC = () => {
       )}
 
       {/* Header */}
-      <div className="flex items-end justify-between mb-6">
+      <div className="flex flex-col sm:flex-row sm:items-end justify-between mb-4 sm:mb-6 gap-3">
         <div>
-          <h1 className="text-2xl font-bold text-gray-900 dark:text-gray-100 tracking-tight">Vocabulary</h1>
+          <h1 className="text-xl sm:text-2xl font-bold text-gray-900 dark:text-gray-100 tracking-tight">Vocabulary</h1>
           <p className="text-sm text-gray-500 dark:text-gray-400 mt-1">
             {vocabulary.length} words &middot; {masteredCount} mastered
             {dueCount > 0 && <span className="text-amber-500"> &middot; {dueCount} due</span>}
           </p>
         </div>
-        <div className="flex items-center gap-3">
+        <div className="flex items-center gap-2 sm:gap-3 flex-wrap">
           <input
             type="text"
             value={search}
             onChange={(e) => setSearch(e.target.value)}
             placeholder="Search word / meaning..."
-            className="w-52 px-3 py-1.5 text-sm border border-gray-300 dark:border-slate-600 rounded-lg focus:outline-none focus:ring-2 focus:ring-indigo-400 focus:border-transparent dark:bg-slate-800 dark:text-gray-200"
+            className="w-full sm:w-52 px-3 py-1.5 text-sm border border-gray-300 dark:border-slate-600 rounded-lg focus:outline-none focus:ring-2 focus:ring-indigo-400 focus:border-transparent dark:bg-slate-800 dark:text-gray-200"
           />
           <button
             onClick={() => navigate('/review')}
@@ -172,6 +192,16 @@ const VocabularyPage: React.FC = () => {
           >
             Review{dueCount > 0 ? ` (${dueCount})` : ''}
           </button>
+          {/* Backfill translations */}
+          {vocabulary.some((v) => !v.meaningCn) && (
+            <button
+              onClick={handleBackfillTranslations}
+              disabled={backfilling}
+              className="px-3 py-1.5 text-sm text-amber-700 bg-amber-50 dark:bg-amber-950/30 border border-amber-200 dark:border-amber-800 rounded-lg hover:bg-amber-100 dark:hover:bg-amber-900/40 transition-colors font-medium cursor-pointer disabled:opacity-60"
+            >
+              {backfilling ? 'Translating...' : 'Auto Translate'}
+            </button>
+          )}
           {/* Export dropdown */}
           <div className="relative">
             <button

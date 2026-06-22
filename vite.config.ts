@@ -67,7 +67,7 @@ export default defineConfig({
         secure: false,
         rewrite: (path) => path.replace(/^\/yt-proxy/, ''),
         configure: (proxy) => {
-          proxy.on('proxyReq', (proxyReq, req) => {
+          proxy.on('proxyReq', (proxyReq, _req) => {
             // Remove the host header set by the browser (localhost)
             // so the proxy sends youtube.com as the host
             proxyReq.removeHeader('origin');

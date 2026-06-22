@@ -26,7 +26,7 @@ const ReviewPage: React.FC = () => {
   const navigate = useNavigate();
   const [vocabulary, setVocabulary] = useState<VocabularyItem[]>([]);
   const [sentences, setSentences] = useState<SentenceItem[]>([]);
-  const [mode, setMode] = useState<ReviewMode>('due');
+  const [_mode, setMode] = useState<ReviewMode>('due');
   const [typeFilter, setTypeFilter] = useState<TypeFilter>('all');
   const [sessionActive, setSessionActive] = useState(false);
   const [queue, setQueue] = useState<ReviewCard[]>([]);
@@ -270,8 +270,8 @@ const ReviewPage: React.FC = () => {
         sentences.filter((ss) => !ss.mastered).length;
 
       return (
-        <div className="max-w-2xl mx-auto px-6 py-10">
-          <div className="bg-white dark:bg-slate-800 rounded-2xl border border-gray-200 dark:border-slate-700 shadow-sm p-10 text-center">
+        <div className="max-w-2xl mx-auto px-4 sm:px-6 py-6 sm:py-10">
+          <div className="bg-white dark:bg-slate-800 rounded-2xl border border-gray-200 dark:border-slate-700 shadow-sm p-6 sm:p-10 text-center">
             <svg className="mx-auto w-14 h-14 text-green-500 mb-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.5}>
               <path strokeLinecap="round" strokeLinejoin="round" d="M9 12.75L11.25 15 15 9.75M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
             </svg>
@@ -354,7 +354,7 @@ const ReviewPage: React.FC = () => {
 
     // Landing screen
     return (
-      <div className="max-w-2xl mx-auto px-6 py-10">
+      <div className="max-w-2xl mx-auto px-4 sm:px-6 py-6 sm:py-10">
         <div className="mb-8">
           <h1 className="text-2xl font-bold text-gray-900 dark:text-gray-100 tracking-tight">Review</h1>
           <p className="text-sm text-gray-500 dark:text-gray-400 mt-1">
@@ -363,7 +363,7 @@ const ReviewPage: React.FC = () => {
         </div>
 
         {totalItems === 0 ? (
-          <div className="bg-white dark:bg-slate-800 rounded-xl border border-gray-200 dark:border-slate-700 shadow-sm p-10 text-center">
+          <div className="bg-white dark:bg-slate-800 rounded-xl border border-gray-200 dark:border-slate-700 shadow-sm p-6 sm:p-10 text-center">
             <p className="text-gray-400 dark:text-gray-500 text-sm">No items to review yet.</p>
             <p className="text-gray-400 dark:text-gray-500 text-xs mt-1">
               Save some words or sentences during your study sessions first.
@@ -475,7 +475,7 @@ const ReviewPage: React.FC = () => {
   const context = currentCard.kind === 'word' ? currentCard.item.context : undefined;
 
   return (
-    <div className="max-w-2xl mx-auto px-6 py-10">
+    <div className="max-w-2xl mx-auto px-4 sm:px-6 py-6 sm:py-10">
       {/* Progress */}
       <div className="flex items-center justify-between mb-2">
         <span className="text-xs text-gray-400">

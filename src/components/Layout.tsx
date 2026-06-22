@@ -3,11 +3,51 @@ import { NavLink } from 'react-router-dom';
 import type { ReactNode } from 'react';
 
 const navItems = [
-  { to: '/', label: 'Dashboard' },
-  { to: '/study', label: 'Study' },
-  { to: '/vocabulary', label: 'Vocabulary' },
-  { to: '/sentences', label: 'Sentences' },
-  { to: '/review', label: 'Review' },
+  {
+    to: '/',
+    label: 'Dashboard',
+    icon: (
+      <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.5}>
+        <path strokeLinecap="round" strokeLinejoin="round" d="M3.75 6A2.25 2.25 0 016 3.75h2.25A2.25 2.25 0 0110.5 6v2.25a2.25 2.25 0 01-2.25 2.25H6a2.25 2.25 0 01-2.25-2.25V6zM3.75 15.75A2.25 2.25 0 016 13.5h2.25a2.25 2.25 0 012.25 2.25V18a2.25 2.25 0 01-2.25 2.25H6A2.25 2.25 0 013.75 18v-2.25zM13.5 6a2.25 2.25 0 012.25-2.25H18A2.25 2.25 0 0120.25 6v2.25A2.25 2.25 0 0118 10.5h-2.25a2.25 2.25 0 01-2.25-2.25V6zM13.5 15.75a2.25 2.25 0 012.25-2.25H18a2.25 2.25 0 012.25 2.25V18A2.25 2.25 0 0118 20.25h-2.25A2.25 2.25 0 0113.5 18v-2.25z" />
+      </svg>
+    ),
+  },
+  {
+    to: '/study',
+    label: 'Study',
+    icon: (
+      <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.5}>
+        <path strokeLinecap="round" strokeLinejoin="round" d="M12 6.042A8.967 8.967 0 006 3.75c-1.052 0-2.062.18-3 .512v14.25A8.987 8.987 0 016 18c2.305 0 4.408.867 6 2.292m0-14.25a8.966 8.966 0 016-2.292c1.052 0 2.062.18 3 .512v14.25A8.987 8.987 0 0018 18a8.967 8.967 0 00-6 2.292m0-14.25v14.25" />
+      </svg>
+    ),
+  },
+  {
+    to: '/vocabulary',
+    label: 'Words',
+    icon: (
+      <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.5}>
+        <path strokeLinecap="round" strokeLinejoin="round" d="M12 6v12m-3-2.818l.879.659c1.171.879 3.07.879 4.242 0 1.172-.879 1.172-2.303 0-3.182C13.536 12.219 12.768 12 12 12c-.725 0-1.45-.22-2.003-.659-1.106-.879-1.106-2.303 0-3.182s2.9-.879 4.006 0l.415.33M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
+      </svg>
+    ),
+  },
+  {
+    to: '/sentences',
+    label: 'Sentences',
+    icon: (
+      <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.5}>
+        <path strokeLinecap="round" strokeLinejoin="round" d="M7.5 8.25h9m-9 3H12m-9.75 1.51c0 1.6 1.123 2.994 2.707 3.227 1.129.166 2.27.293 3.423.379.35.026.67.21.865.501L12 21l2.755-4.133a1.14 1.14 0 01.865-.501 48.172 48.172 0 003.423-.379c1.584-.233 2.707-1.626 2.707-3.228V6.741c0-1.602-1.123-2.995-2.707-3.228A48.394 48.394 0 0012 3c-2.392 0-4.744.175-7.043.513C3.373 3.746 2.25 5.14 2.25 6.741v6.018z" />
+      </svg>
+    ),
+  },
+  {
+    to: '/review',
+    label: 'Review',
+    icon: (
+      <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.5}>
+        <path strokeLinecap="round" strokeLinejoin="round" d="M16.023 9.348h4.992v-.001M2.985 19.644v-4.992m0 0h4.992m-4.993 0l3.181 3.183a8.25 8.25 0 0013.803-3.7M4.031 9.865a8.25 8.25 0 0113.803-3.7l3.181 3.182M2.985 19.644l3.181-3.183" />
+      </svg>
+    ),
+  },
 ];
 
 function useDarkMode() {
@@ -38,15 +78,15 @@ const Layout: React.FC<{ children: ReactNode }> = ({ children }) => {
         className="sticky top-0 z-40 border-b"
         style={{ backgroundColor: 'var(--color-surface)', borderColor: 'var(--color-border)' }}
       >
-        <div className="max-w-7xl mx-auto px-6 flex items-center justify-between h-14">
+        <div className="max-w-7xl mx-auto px-4 sm:px-6 flex items-center justify-between h-14">
           {/* Brand */}
           <NavLink to="/" className="text-xl font-bold text-indigo-500 tracking-tight">
             EchoLearn
           </NavLink>
 
           <div className="flex items-center gap-2">
-            {/* Nav links */}
-            <nav className="flex items-center gap-1">
+            {/* Desktop nav links — hidden on mobile */}
+            <nav className="hidden md:flex items-center gap-1">
               {navItems.map((item) => (
                 <NavLink
                   key={item.to}
@@ -89,10 +129,36 @@ const Layout: React.FC<{ children: ReactNode }> = ({ children }) => {
         </div>
       </header>
 
-      {/* Page content */}
-      <main className="flex-1">
+      {/* Page content — add bottom padding on mobile for bottom nav */}
+      <main className="flex-1 pb-16 md:pb-0">
         {children}
       </main>
+
+      {/* Mobile bottom navigation — visible only on small screens */}
+      <nav
+        className="md:hidden fixed bottom-0 left-0 right-0 z-40 border-t safe-area-bottom"
+        style={{ backgroundColor: 'var(--color-surface)', borderColor: 'var(--color-border)' }}
+      >
+        <div className="flex items-center justify-around h-14">
+          {navItems.map((item) => (
+            <NavLink
+              key={item.to}
+              to={item.to}
+              end={item.to === '/'}
+              className={({ isActive }) =>
+                `flex flex-col items-center justify-center gap-0.5 w-full h-full transition-colors ${
+                  isActive
+                    ? 'text-indigo-600 dark:text-indigo-400'
+                    : 'text-gray-400 dark:text-gray-500'
+                }`
+              }
+            >
+              {item.icon}
+              <span className="text-[10px] font-medium">{item.label}</span>
+            </NavLink>
+          ))}
+        </div>
+      </nav>
     </div>
   );
 };

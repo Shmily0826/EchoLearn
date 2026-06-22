@@ -188,9 +188,9 @@ const TranscriptViewer: React.FC<TranscriptViewerProps> = ({
           className={`fixed z-50 transform -translate-x-1/2 ${
             shouldFlip ? '' : '-translate-y-full'
           }`}
-          style={{ left: popup.x, top: shouldFlip ? popup.y + 24 : popup.y }}
+          style={{ left: Math.min(Math.max(popup.x, 170), window.innerWidth - 170), top: shouldFlip ? popup.y + 24 : popup.y }}
         >
-          <div className="bg-white dark:bg-slate-800 rounded-xl shadow-xl border border-gray-200 dark:border-slate-700 p-4 min-w-[280px] max-w-[340px]">
+          <div className="bg-white dark:bg-slate-800 rounded-xl shadow-xl border border-gray-200 dark:border-slate-700 p-4 min-w-[260px] max-w-[min(340px,90vw)]">
             {/* Word + phonetic */}
             <div className="flex items-center gap-2 mb-1">
               <span className="text-lg font-bold text-gray-800 dark:text-gray-200">

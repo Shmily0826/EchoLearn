@@ -6,19 +6,21 @@ import TranscriptImporter from '../components/TranscriptImporter';
 import AIAnalysisPanel from '../components/AIAnalysisPanel';
 import WordDictionaryPopup from '../components/WordDictionaryPopup';
 import { parseYouTubeId, parseStartTime } from '../utils/youtube';
-import { parseTranscript } from '../utils/transcriptParser';
 import { normalizeTranscriptToSentences } from '../utils/transcriptNormalizer';
 import { analyzeTranscript } from '../services/aiAnalysis';
 import { fetchYouTubeTranscript } from '../services/youtubeTranscript';
+import { translateWord, translateSentence } from '../services/translationService';
 import { CEFR_LEVELS, type CEFRLevel } from '../services/cefrWordList';
 import { getVideoTitle } from '../services/youtubeApi';
 import {
   loadVocabulary,
   addVocabularyItem,
   removeVocabularyItem,
+  updateVocabularyItem,
   loadSentences,
   addSentenceItem,
   removeSentenceItem,
+  updateSentenceItem,
   loadCurrentSession,
   saveCurrentSession,
   clearCurrentSession,
@@ -30,15 +32,6 @@ import type {
   VideoStudySession,
   AIAnalysisResult,
 } from '../types';
-
-const DEMO_TRANSCRIPT_TEXT = [
-  "Welcome to this English learning session.",
-  "Today we're going to practice listening and reading skills.",
-  "Pay attention to the vocabulary and try to catch new words.",
-  "Remember, the key to improvement is consistent practice.",
-  "Don't hesitate to pause and review any sentence you find difficult.",
-  "Let's begin with our first exercise and see how it goes.",
-].join('\n');
 
 type DisplayMode = 'sentence' | 'caption';
 
@@ -198,7 +191,7 @@ const StudyPage: React.FC = () => {
     setSessionTitle(saved.title);
     setStartTime(undefined);
     setAnalysis(null);
-    setStreamChars('');
+    setStreamChars(0);
     setCaptionError(null);
 
     if (saved.title.startsWith('http') || saved.title === saved.youtubeUrl) {
@@ -405,14 +398,6 @@ const StudyPage: React.FC = () => {
     [importTranscript],
   );
 
-  // ── Use demo transcript ────────────────────────────────────
-  const handleUseDemo = useCallback(() => {
-    const parsed = parseTranscript(DEMO_TRANSCRIPT_TEXT);
-    if (parsed.length > 0) {
-      importTranscript(parsed);
-    }
-  }, [importTranscript]);
-
   // ── Clear current session ──────────────────────────────────
   const handleClearSession = useCallback(() => {
     clearCurrentSession();
@@ -474,10 +459,26 @@ const StudyPage: React.FC = () => {
   // ── Vocab / sentence handlers ─────────────────────────────
   const handleAddVocabulary = useCallback((item: VocabularyItem) => {
     setVocabulary(addVocabularyItem(item));
+    // Auto-translate meaningCn if empty
+    if (!item.meaningCn) {
+      translateWord(item.word, item.context).then((meaningCn) => {
+        if (meaningCn) {
+          setVocabulary(updateVocabularyItem(item.id, { meaningCn }));
+        }
+      }).catch(() => { /* silent */ });
+    }
   }, []);
 
   const handleAddSentence = useCallback((item: SentenceItem) => {
     setSentences(addSentenceItem(item));
+    // Auto-translate meaningCn if empty
+    if (!item.meaningCn) {
+      translateSentence(item.text).then((meaningCn) => {
+        if (meaningCn) {
+          setSentences(updateSentenceItem(item.id, { meaningCn }));
+        }
+      }).catch(() => { /* silent */ });
+    }
   }, []);
 
   const handleRemoveVocabulary = useCallback((id: string) => {
@@ -492,8 +493,8 @@ const StudyPage: React.FC = () => {
   return (
     <div>
       {/* Study toolbar */}
-      <div className="bg-white dark:bg-slate-800 border-b border-gray-200 dark:border-slate-700 px-6 py-3">
-        <div className="max-w-7xl mx-auto flex items-center justify-between">
+      <div className="bg-white dark:bg-slate-800 border-b border-gray-200 dark:border-slate-700 px-4 sm:px-6 py-3">
+        <div className="max-w-7xl mx-auto flex flex-col sm:flex-row items-stretch sm:items-center justify-between gap-2">
           <div className="flex items-center gap-4">
             {/* Session title (editable when a session exists) */}
             {session && (
@@ -506,33 +507,33 @@ const StudyPage: React.FC = () => {
                     persistSession(videoId, urlInput.trim(), rawBlocks, sentenceLines, sessionTitle);
                   }
                 }}
-                className="px-2 py-0.5 text-sm text-gray-600 dark:text-gray-400 border border-transparent hover:border-gray-300 dark:hover:border-gray-600 focus:border-indigo-400 focus:outline-none rounded transition-colors w-[420px] dark:bg-slate-800"
+                className="px-2 py-0.5 text-sm text-gray-600 dark:text-gray-400 border border-transparent hover:border-gray-300 dark:hover:border-gray-600 focus:border-indigo-400 focus:outline-none rounded transition-colors w-full sm:w-[420px] dark:bg-slate-800"
                 placeholder="Session title..."
               />
             )}
           </div>
 
-          <div className="flex items-center gap-3">
+          <div className="flex items-center gap-2 sm:gap-3">
             <input
               type="text"
               value={urlInput}
               onChange={(e) => setUrlInput(e.target.value)}
               onKeyDown={(e) => e.key === 'Enter' && handleLoadVideo()}
               placeholder="Paste YouTube URL here..."
-              className="w-80 px-3 py-1.5 text-sm border border-gray-300 dark:border-slate-700 rounded-lg focus:outline-none focus:ring-2 focus:ring-indigo-400 focus:border-transparent dark:bg-slate-800 dark:text-gray-200"
+              className="flex-1 sm:w-80 px-3 py-1.5 text-sm border border-gray-300 dark:border-slate-700 rounded-lg focus:outline-none focus:ring-2 focus:ring-indigo-400 focus:border-transparent dark:bg-slate-800 dark:text-gray-200 min-w-0"
             />
             <button
               onClick={handleLoadVideo}
-              className="px-4 py-1.5 text-sm bg-indigo-600 text-white rounded-lg hover:bg-indigo-700 transition-colors font-medium cursor-pointer"
+              className="px-3 sm:px-4 py-1.5 text-sm bg-indigo-600 text-white rounded-lg hover:bg-indigo-700 transition-colors font-medium cursor-pointer whitespace-nowrap"
             >
               Load Video
             </button>
             {session && (
               <button
                 onClick={handleClearSession}
-                className="px-4 py-1.5 text-sm bg-white dark:bg-slate-800 border border-red-200 dark:border-red-800 text-red-600 rounded-lg hover:bg-red-50 dark:hover:bg-red-950/30 transition-colors font-medium cursor-pointer"
+                className="px-3 sm:px-4 py-1.5 text-sm bg-white dark:bg-slate-800 border border-red-200 dark:border-red-800 text-red-600 rounded-lg hover:bg-red-50 dark:hover:bg-red-950/30 transition-colors font-medium cursor-pointer whitespace-nowrap"
               >
-                Clear Session
+                Clear
               </button>
             )}
           </div>
@@ -540,10 +541,10 @@ const StudyPage: React.FC = () => {
       </div>
 
       {/* Main content */}
-      <main className="max-w-7xl mx-auto px-6 py-6">
-        <div className="flex gap-6">
+      <main className="max-w-7xl mx-auto px-4 sm:px-6 py-4 sm:py-6">
+        <div className="flex flex-col lg:flex-row gap-4 lg:gap-6">
           {/* Left: video */}
-          <div className="w-[55%] flex-shrink-0">
+          <div className="w-full lg:w-[55%] flex-shrink-0">
             {videoId ? (
               <YouTubeEmbed ref={playerRef} youtubeId={videoId} startTime={startTime} />
             ) : (
@@ -594,13 +595,13 @@ const StudyPage: React.FC = () => {
           </div>
 
           {/* Right: Transcript */}
-          <div className="flex-1 flex flex-col min-w-0 h-[calc(100vh-160px)]">
+          <div className="flex-1 flex flex-col min-w-0 h-[500px] lg:h-[calc(100vh-160px)]">
             {/* Toolbar — fixed, never scrolls */}
-            <div className="flex items-center justify-between mb-3 flex-shrink-0">
+            <div className="flex items-center justify-between mb-3 flex-shrink-0 flex-wrap gap-2">
               <h2 className="text-sm font-semibold text-gray-600 dark:text-gray-400 uppercase tracking-wider">
                 Transcript
               </h2>
-              <div className="flex items-center gap-3">
+              <div className="flex items-center gap-2 sm:gap-3 flex-wrap">
                 {/* Caption fetch status */}
                 {fetchingCaption && (
                   <span className="flex items-center gap-1 text-[11px] text-amber-500">
@@ -725,12 +726,7 @@ const StudyPage: React.FC = () => {
                   </div>
                 )}
                 {videoId && sentenceLines.length === 0 && rawBlocks.length === 0 && (
-                  <button
-                    onClick={handleUseDemo}
-                    className="text-xs text-indigo-500 hover:text-indigo-700 cursor-pointer"
-                  >
-                    Use Demo
-                  </button>
+                  <span />
                 )}
                 <span className="text-xs text-gray-400 dark:text-gray-500">
                   {displayMode === 'sentence'
@@ -786,7 +782,7 @@ const StudyPage: React.FC = () => {
                               setRawBlocks(lines);
                               setSentenceLines(sLines);
                               if (session) {
-                                const updated = { ...session, transcriptLines: lines, transcriptData: null };
+                                const updated = { ...session, transcriptLines: lines, transcriptData: undefined };
                                 saveCurrentSession(updated);
                                 setSession(updated);
                               }

@@ -57,3 +57,13 @@ body {
 header, main, div, section, button, input, select, textarea {
   transition: background-color 0.2s, border-color 0.2s, color 0.15s;
 }
+
+/* Safe area for iOS notch / bottom bar */
+.safe-area-bottom {
+  padding-bottom: env(safe-area-inset-bottom, 0px);
+}
+
+/* Prevent text selection on mobile tap for nav items */
+nav a, nav button {
+  -webkit-tap-highlight-color: transparent;
+}
