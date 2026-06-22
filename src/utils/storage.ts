@@ -292,3 +292,44 @@ export function updateDailyPlanItem(
 export function planHasVideoId(videoId: string): boolean {
   return loadDailyPlan().some((i) => i.videoId === videoId);
 }
+
+// ─── Local Proxy URL ──────────────────────────────────────────
+
+const PROXY_URL_KEY = 'echolearn_local_proxy_url';
+const DEFAULT_PROXY_URL = 'http://127.0.0.1:8787';
+
+/** Get the configured local proxy URL, or the default. */
+export function getLocalProxyUrl(): string {
+  return localStorage.getItem(PROXY_URL_KEY) || DEFAULT_PROXY_URL;
+}
+
+/** Save a custom local proxy URL. */
+export function saveLocalProxyUrl(url: string): void {
+  localStorage.setItem(PROXY_URL_KEY, url.replace(/\/+$/, '')); // trim trailing slashes
+}
+
+/** Clear the custom proxy URL (reset to default). */
+export function clearLocalProxyUrl(): void {
+  localStorage.removeItem(PROXY_URL_KEY);
+}
+
+/** Check if the local proxy is reachable (quick health check). */
+export async function checkLocalProxy(): Promise<{ ok: boolean; error?: string }> {
+  const url = getLocalProxyUrl();
+  try {
+    const controller = new AbortController();
+    const timeout = setTimeout(() => controller.abort(), 3000);
+    const res = await fetch(`${url}/health`, { signal: controller.signal });
+    clearTimeout(timeout);
+    if (res.ok) {
+      const data = await res.json();
+      return { ok: true, error: data.status };
+    }
+    return { ok: false, error: `HTTP ${res.status}` };
+  } catch (err) {
+    return {
+      ok: false,
+      error: err instanceof Error ? err.message : 'Connection failed',
+    };
+  }
+}

@@ -603,7 +603,58 @@ async function fetchViaWebPage(
   }
 }
 
-// ── Strategy 3: Server-side transcript API (CF Worker + Vercel) ──
+// ── Strategy 0: Local proxy (uses your residential IP) ────────
+
+import { getLocalProxyUrl } from '../utils/storage';
+
+/**
+ * Try the local transcript proxy running on the user's machine.
+ * This proxy uses the residential IP, bypassing YouTube's datacenter IP blocking.
+ * Falls back quickly if the proxy is not running (3-second timeout).
+ */
+async function fetchViaLocalProxy(
+  videoId: string,
+  lang: string,
+): Promise<TranscriptFetchResult | null> {
+  const baseUrl = getLocalProxyUrl();
+
+  try {
+    const controller = new AbortController();
+    const timeout = setTimeout(() => controller.abort(), 8000); // 8s timeout
+    const res = await fetch(
+      `${baseUrl}/api/transcript?videoId=${encodeURIComponent(videoId)}&lang=${encodeURIComponent(lang)}`,
+      { signal: controller.signal },
+    );
+    clearTimeout(timeout);
+
+    if (res.ok) {
+      const data = (await res.json()) as TranscriptFetchResult & { source?: string };
+      if (data.lines && data.lines.length > 0) {
+        console.log(
+          `[EchoLearn] Local proxy: got ${data.lines.length} lines (${data.language})`,
+        );
+        return data;
+      }
+    } else if (res.status !== 503 && res.status !== 502) {
+      // 404 = video has no transcript (legitimate), other errors log warning
+      const body = await res.text().catch(() => '');
+      console.warn(`[EchoLearn] Local proxy error: ${res.status}`, body.substring(0, 200));
+    }
+  } catch (err) {
+    // AbortError = proxy not running (expected), other errors = unexpected
+    if (err instanceof Error && err.name !== 'AbortError') {
+      console.warn(
+        '[EchoLearn] Local proxy error:',
+        err.message,
+      );
+    }
+    // AbortError silently ignored — proxy not running
+  }
+
+  return null;
+}
+
+// ── Strategy 1: Server-side transcript API (CF Worker + Vercel) ──
 
 /**
  * Cloudflare Worker URL for server-side transcript fetching.
@@ -714,6 +765,7 @@ export interface TranscriptFetchResult {
  * Fetch the transcript/captions for a YouTube video.
  *
  * Tries multiple strategies in order:
+ *   0. Local proxy (uses your residential IP — most reliable)
  *   1. Server-side transcript API (CF Worker → Vercel fallback)
  *   2. InnerTube API (ANDROID/WEB clients) via Edge Function proxy
  *   3. YouTube page HTML scraping via Edge Function proxy
@@ -727,6 +779,17 @@ export async function fetchYouTubeTranscript(
   lang = 'en',
 ): Promise<TranscriptFetchResult> {
   const errors: string[] = [];
+
+  // Strategy 0: Local proxy (residential IP — best chance)
+  try {
+    const localResult = await fetchViaLocalProxy(videoId, lang);
+    if (localResult) return localResult;
+    errors.push('Local proxy returned no captions');
+  } catch (err) {
+    errors.push(
+      `Local proxy: ${err instanceof Error ? err.message : 'failed'}`,
+    );
+  }
 
   // Strategy 1: Server-side transcript API (CF Worker → Vercel fallback)
   try {

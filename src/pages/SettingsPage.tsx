@@ -14,6 +14,10 @@ import {
   loadVocabulary,
   loadSentences,
   loadAllSessions,
+  getLocalProxyUrl,
+  saveLocalProxyUrl,
+  clearLocalProxyUrl,
+  checkLocalProxy,
 } from '../utils/storage';
 import {
   exportVocabularyCSV,
@@ -52,6 +56,11 @@ const SettingsPage: React.FC = () => {
   const [syncAction, setSyncAction] = useState<'idle' | 'saving' | 'loading' | 'deleting'>('idle');
   const [syncMessage, setSyncMessage] = useState<{ type: 'success' | 'error' | 'info'; text: string } | null>(null);
 
+  // ── Local proxy state ─────────────────────────────────────
+  const [proxyUrl, setProxyUrl] = useState(getLocalProxyUrl());
+  const [proxyStatus, setProxyStatus] = useState<'idle' | 'checking' | 'online' | 'offline'>('idle');
+  const [proxyMessage, setProxyMessage] = useState('');
+
   // Initialise on mount
   useEffect(() => {
     const pat = loadPat();
@@ -61,6 +70,39 @@ const SettingsPage: React.FC = () => {
     if (pat) {
       setPatStatus('valid');
     }
+
+    // Auto-check local proxy status
+    checkLocalProxy().then((result) => {
+      setProxyStatus(result.ok ? 'online' : 'offline');
+      setProxyMessage(result.ok ? 'Proxy is running' : (result.error || 'Not reachable'));
+    });
+  }, []);
+
+  // ── Check proxy status ────────────────────────────────────
+  const handleCheckProxy = useCallback(async () => {
+    setProxyStatus('checking');
+    setProxyMessage('Checking...');
+    const result = await checkLocalProxy();
+    setProxyStatus(result.ok ? 'online' : 'offline');
+    setProxyMessage(result.ok ? 'Proxy is running' : (result.error || 'Not reachable'));
+  }, []);
+
+  // ── Save proxy URL ───────────────────────────────────────
+  const handleSaveProxyUrl = useCallback(() => {
+    const trimmed = proxyUrl.trim();
+    if (trimmed) {
+      saveLocalProxyUrl(trimmed);
+      setProxyUrl(trimmed);
+      handleCheckProxy();
+    }
+  }, [proxyUrl, handleCheckProxy]);
+
+  // ── Reset proxy URL ──────────────────────────────────────
+  const handleResetProxyUrl = useCallback(() => {
+    clearLocalProxyUrl();
+    setProxyUrl(getLocalProxyUrl());
+    setProxyStatus('idle');
+    setProxyMessage('');
   }, []);
 
   // ── Save PAT ──────────────────────────────────────────────
@@ -188,6 +230,113 @@ const SettingsPage: React.FC = () => {
       <p className="text-gray-500 dark:text-gray-400 text-sm mb-8">
         Manage your data sync and export preferences.
       </p>
+
+      {/* ── Local Proxy Section ──────────────────────────────── */}
+      <section className="bg-white dark:bg-slate-800 rounded-xl border border-gray-200 dark:border-slate-700 shadow-sm p-5 sm:p-6 mb-6">
+        <div className="flex items-center gap-3 mb-5">
+          <div className="p-2 bg-emerald-100 dark:bg-emerald-950 rounded-lg">
+            <svg className="w-5 h-5 text-emerald-600 dark:text-emerald-400" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.5}>
+              <path strokeLinecap="round" strokeLinejoin="round" d="M5.25 14.25h13.5m-13.5 0a3 3 0 01-3-3m3 3a3 3 0 100 6h13.5a3 3 0 100-6m-16.5-3a3 3 0 013-3h13.5a3 3 0 013 3m-19.5 0a4.5 4.5 0 01.9-2.7L5.737 5.1a3.375 3.375 0 012.7-1.35h7.126c1.062 0 2.062.5 2.7 1.35l2.587 3.45a4.5 4.5 0 01.9 2.7m0 0a3 3 0 01-3 3m0 3h.008v.008h-.008v-.008zm0-6h.008v.008h-.008v-.008zm-3 6h.008v.008h-.008v-.008zm0-6h.008v.008h-.008v-.008z" />
+            </svg>
+          </div>
+          <div>
+            <h2 className="text-base font-semibold text-gray-800 dark:text-gray-200">Local YouTube Proxy</h2>
+            <p className="text-xs text-gray-400 dark:text-gray-500">Route subtitle requests through your residential IP</p>
+          </div>
+          <span className={`ml-auto flex items-center gap-1.5 text-xs font-medium ${
+            proxyStatus === 'online' ? 'text-green-600 dark:text-green-400' :
+            proxyStatus === 'offline' ? 'text-red-500 dark:text-red-400' :
+            proxyStatus === 'checking' ? 'text-amber-500 dark:text-amber-400' :
+            'text-gray-400 dark:text-gray-500'
+          }`}>
+            <span className={`w-2 h-2 rounded-full ${
+              proxyStatus === 'online' ? 'bg-green-500' :
+              proxyStatus === 'offline' ? 'bg-red-500' :
+              proxyStatus === 'checking' ? 'bg-amber-500 animate-pulse' :
+              'bg-gray-400'
+            }`} />
+            {proxyStatus === 'online' ? 'Online' :
+             proxyStatus === 'offline' ? 'Offline' :
+             proxyStatus === 'checking' ? 'Checking...' :
+             'Unknown'}
+          </span>
+        </div>
+
+        <p className="text-[11px] text-gray-400 dark:text-gray-500 mb-3">
+          YouTube blocks datacenter IPs (Vercel, Cloudflare) from accessing subtitles.
+          Run the local proxy on your machine to use your residential IP instead.
+          See <code className="px-1 py-0.5 bg-gray-100 dark:bg-slate-700 rounded text-[10px]">local-proxy/</code> folder for setup instructions.
+        </p>
+
+        <div className="mb-3">
+          <label className="block text-xs font-medium text-gray-500 dark:text-gray-400 mb-1.5 uppercase tracking-wider">
+            Proxy URL
+          </label>
+          <div className="flex gap-2">
+            <input
+              type="text"
+              value={proxyUrl}
+              onChange={(e) => {
+                setProxyUrl(e.target.value);
+                if (proxyStatus !== 'idle') {
+                  setProxyStatus('idle');
+                  setProxyMessage('');
+                }
+              }}
+              placeholder="http://127.0.0.1:8787"
+              className="flex-1 px-3 py-2 text-sm border border-gray-200 dark:border-slate-600 rounded-lg bg-transparent text-gray-800 dark:text-gray-200 placeholder-gray-300 dark:placeholder-gray-600 focus:outline-none focus:border-emerald-400 focus:ring-1 focus:ring-emerald-400 transition-colors font-mono"
+            />
+            <button
+              onClick={handleSaveProxyUrl}
+              className="px-3 py-2 text-sm bg-emerald-600 text-white rounded-lg hover:bg-emerald-700 transition-colors cursor-pointer whitespace-nowrap"
+            >
+              Save
+            </button>
+            <button
+              onClick={handleCheckProxy}
+              disabled={proxyStatus === 'checking'}
+              className="px-3 py-2 text-sm text-gray-600 dark:text-gray-300 border border-gray-200 dark:border-slate-600 rounded-lg hover:bg-gray-50 dark:hover:bg-slate-700 transition-colors cursor-pointer whitespace-nowrap disabled:opacity-60"
+            >
+              {proxyStatus === 'checking' ? '...' : 'Test'}
+            </button>
+            <button
+              onClick={handleResetProxyUrl}
+              className="px-3 py-2 text-xs text-gray-400 border border-gray-200 dark:border-slate-600 rounded-lg hover:bg-gray-50 dark:hover:bg-slate-700 transition-colors cursor-pointer whitespace-nowrap"
+            >
+              Reset
+            </button>
+          </div>
+          {proxyMessage && (
+            <p className={`text-xs mt-2 ${
+              proxyStatus === 'online' ? 'text-green-600 dark:text-green-400' :
+              proxyStatus === 'offline' ? 'text-red-500' :
+              'text-gray-500'
+            }`}>
+              {proxyStatus === 'online' && (
+                <svg className="w-3 h-3 inline mr-1 -mt-0.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                  <path strokeLinecap="round" strokeLinejoin="round" d="M9 12.75L11.25 15 15 9.75M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
+                </svg>
+              )}
+              {proxyMessage}
+            </p>
+          )}
+        </div>
+
+        <details className="text-xs text-gray-500 dark:text-gray-400">
+          <summary className="cursor-pointer hover:text-gray-700 dark:hover:text-gray-300 transition-colors">
+            How to set up the local proxy?
+          </summary>
+          <div className="mt-2 space-y-1.5 text-[11px] pl-3 border-l-2 border-gray-100 dark:border-slate-700">
+            <p>1. Open a terminal in the <code className="px-1 py-0.5 bg-gray-100 dark:bg-slate-700 rounded">EchoLearn/local-proxy</code> folder</p>
+            <p>2. Run: <code className="px-1 py-0.5 bg-gray-100 dark:bg-slate-700 rounded">npm install</code></p>
+            <p>3. Run: <code className="px-1 py-0.5 bg-gray-100 dark:bg-slate-700 rounded">npm start</code></p>
+            <p>4. Keep the proxy running while using EchoLearn</p>
+            <p className="text-gray-400 dark:text-gray-500 pt-1">
+              Or on Windows: double-click <code className="px-1 py-0.5 bg-gray-100 dark:bg-slate-700 rounded">start.bat</code> in the local-proxy folder.
+            </p>
+          </div>
+        </details>
+      </section>
 
       {/* ── Cloud Sync Section ──────────────────────────────── */}
       <section className="bg-white dark:bg-slate-800 rounded-xl border border-gray-200 dark:border-slate-700 shadow-sm p-5 sm:p-6 mb-6">
