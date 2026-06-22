@@ -6,6 +6,7 @@ import StudyPage from './pages/StudyPage'
 import VocabularyPage from './pages/VocabularyPage'
 import SentencesPage from './pages/SentencesPage'
 import ReviewPage from './pages/ReviewPage'
+import SettingsPage from './pages/SettingsPage'
 
 /**
  * All pages are always mounted (never unmounted on route change).
@@ -31,6 +32,9 @@ function AppContent() {
       </div>
       <div style={{ display: pathname === '/review' ? undefined : 'none' }}>
         <ReviewPage />
+      </div>
+      <div style={{ display: pathname === '/settings' ? undefined : 'none' }}>
+        <SettingsPage />
       </div>
     </Layout>
   );

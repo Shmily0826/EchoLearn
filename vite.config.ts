@@ -52,6 +52,22 @@ export default defineConfig({
               expiration: { maxEntries: 50, maxAgeSeconds: 60 * 60 * 24 },
             },
           },
+          {
+            urlPattern: /^https:\/\/www\.youtube\.com\/.*/i,
+            handler: 'NetworkFirst',
+            options: {
+              cacheName: 'youtube-api',
+              expiration: { maxEntries: 30, maxAgeSeconds: 60 * 60 * 2 },
+            },
+          },
+          {
+            urlPattern: /^https:\/\/fonts\.googleapis\.com\/.*/i,
+            handler: 'CacheFirst',
+            options: {
+              cacheName: 'google-fonts',
+              expiration: { maxEntries: 10, maxAgeSeconds: 60 * 60 * 24 * 365 },
+            },
+          },
         ],
       },
     }),

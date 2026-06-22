@@ -110,6 +110,42 @@ export function exportSentencesPDF(items: SentenceItem[]): void {
   openPrintWindow(html);
 }
 
+// ─── Full JSON export ──────────────────────────────────────
+
+export function exportAllDataJSON(): void {
+  const keys = [
+    'echolearn_vocabulary',
+    'echolearn_sentences',
+    'echolearn_session',
+    'echolearn_sessions_list',
+    'echolearn_daily_plan',
+  ] as const;
+
+  const data: Record<string, unknown> = {};
+  for (const key of keys) {
+    const raw = localStorage.getItem(key);
+    if (raw) {
+      try {
+        data[key] = JSON.parse(raw);
+      } catch {
+        data[key] = raw;
+      }
+    }
+  }
+
+  const payload = {
+    version: 1,
+    exportedAt: Date.now(),
+    data,
+  };
+
+  downloadBlob(
+    JSON.stringify(payload, null, 2),
+    `echolearn-backup-${dateStamp()}.json`,
+    'application/json',
+  );
+}
+
 // ─── Helpers ─────────────────────────────────────────────────
 
 function dateStamp(): string {

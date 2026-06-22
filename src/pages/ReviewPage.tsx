@@ -1,4 +1,4 @@
-import { useEffect, useState, useCallback, useMemo } from 'react';
+import { useEffect, useState, useCallback, useMemo, useRef } from 'react';
 import { useNavigate } from 'react-router-dom';
 import {
   loadVocabulary,
@@ -10,6 +10,40 @@ import {
   computeNextReviewAt,
 } from '../utils/storage';
 import type { VocabularyItem, SentenceItem } from '../types';
+
+// ─── Swipe gesture hook ─────────────────────────────────────
+type SwipeDir = 'left' | 'right' | 'up' | 'down';
+interface SwipeCallbacks {
+  onSwipeLeft?: () => void;
+  onSwipeRight?: () => void;
+  onSwipeUp?: () => void;
+}
+
+function useSwipeGesture(cbs: SwipeCallbacks, threshold = 60) {
+  const startX = useRef(0);
+  const startY = useRef(0);
+
+  const onTouchStart = useCallback((e: React.TouchEvent) => {
+    startX.current = e.touches[0].clientX;
+    startY.current = e.touches[0].clientY;
+  }, []);
+
+  const onTouchEnd = useCallback((e: React.TouchEvent) => {
+    const dx = e.changedTouches[0].clientX - startX.current;
+    const dy = e.changedTouches[0].clientY - startY.current;
+    const absDx = Math.abs(dx);
+    const absDy = Math.abs(dy);
+    if (Math.max(absDx, absDy) < threshold) return;
+    if (absDx > absDy) {
+      if (dx < 0) cbs.onSwipeLeft?.();
+      else cbs.onSwipeRight?.();
+    } else {
+      if (dy < 0) cbs.onSwipeUp?.();
+    }
+  }, [cbs, threshold]);
+
+  return { onTouchStart, onTouchEnd };
+}
 
 // ─── Union type for review cards ────────────────────────────
 
@@ -153,6 +187,14 @@ const ReviewPage: React.FC = () => {
   const handleSkip = useCallback(() => {
     advance();
   }, [advance]);
+
+  // ── Swipe gesture for mobile flashcard interaction ────
+  const swipeHandlers = useMemo(() => ({
+    onSwipeUp: () => { if (!revealed) setRevealed(true); },
+    onSwipeLeft: () => { if (revealed) handleForgot(); },
+    onSwipeRight: () => { if (revealed) handleRemember(); },
+  }), [revealed, handleForgot, handleRemember]);
+  const swipeProps = useSwipeGesture(swipeHandlers);
 
   // ── Sentence browsing: mark as read and advance ────────
   const handleSentenceRead = useCallback(() => {
@@ -557,7 +599,7 @@ const ReviewPage: React.FC = () => {
           </div>
         ) : (
           /* ── Word flashcard mode: reveal then judge ── */
-          <div className="flex-1 flex flex-col">
+          <div className="flex-1 flex flex-col" {...swipeProps}>
             <div className="flex items-start gap-3 mb-8">
               <p className="text-3xl font-bold text-gray-800 dark:text-gray-200 leading-relaxed flex-1">
                 {primaryText}
@@ -623,6 +665,11 @@ const ReviewPage: React.FC = () => {
             )}
           </div>
         )}
+
+        {/* Mobile swipe hint */}
+        <p className="sm:hidden text-[10px] text-gray-400 dark:text-gray-500 mt-3 text-center">
+          {revealed ? '← Swipe left: Forgot · Swipe right: Remember →' : '↑ Swipe up to reveal answer'}
+        </p>
       </div>
 
       {/* Keyboard hint — hidden on mobile */}
