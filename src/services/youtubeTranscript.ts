@@ -603,36 +603,65 @@ async function fetchViaWebPage(
   }
 }
 
-// ── Strategy 3: Server-side transcript API ────────────────────
+// ── Strategy 3: Server-side transcript API (CF Worker + Vercel) ──
 
 /**
- * Calls our Vercel Serverless Function at /api/transcript which runs
- * the youtube-transcript npm package server-side (no CORS, potentially
- * different IP reputation than Edge Functions).
+ * Cloudflare Worker URL for server-side transcript fetching.
+ * CF IPs generally have better reputation with YouTube than Vercel/datacenter IPs.
+ */
+const CF_WORKER_URL = 'https://yt-transcript-proxy.rng2018520.workers.dev';
+
+/**
+ * Calls server-side transcript APIs.
+ * Tries CF Worker first (better IP reputation), then Vercel /api/transcript as fallback.
  */
 async function fetchViaServerApi(
   videoId: string,
   lang: string,
 ): Promise<TranscriptFetchResult | null> {
+  // Try CF Worker first
+  try {
+    const res = await fetch(
+      `${CF_WORKER_URL}/api/transcript?videoId=${encodeURIComponent(videoId)}&lang=${encodeURIComponent(lang)}`,
+    );
+    if (res.ok) {
+      const data = (await res.json()) as TranscriptFetchResult;
+      if (data.lines && data.lines.length > 0) {
+        console.log(
+          `[EchoLearn] CF Worker: got ${data.lines.length} lines (${data.language})`,
+        );
+        return data;
+      }
+    } else {
+      console.warn(`[EchoLearn] CF Worker error: ${res.status}`);
+    }
+  } catch (err) {
+    console.warn(
+      '[EchoLearn] CF Worker error:',
+      err instanceof Error ? err.message : err,
+    );
+  }
+
+  // Fallback: Vercel serverless function
   try {
     const res = await fetch(
       `/api/transcript?videoId=${encodeURIComponent(videoId)}&lang=${encodeURIComponent(lang)}`,
     );
     if (!res.ok) {
       const body = await res.text().catch(() => '');
-      console.warn(`[EchoLearn] Server API error: ${res.status}`, body.substring(0, 200));
+      console.warn(`[EchoLearn] Vercel Server API error: ${res.status}`, body.substring(0, 200));
       return null;
     }
     const data = (await res.json()) as TranscriptFetchResult;
     if (!data.lines || data.lines.length === 0) return null;
 
     console.log(
-      `[EchoLearn] Server API: got ${data.lines.length} lines (${data.language})`,
+      `[EchoLearn] Vercel Server API: got ${data.lines.length} lines (${data.language})`,
     );
     return data;
   } catch (err) {
     console.warn(
-      '[EchoLearn] Server API error:',
+      '[EchoLearn] Vercel Server API error:',
       err instanceof Error ? err.message : err,
     );
     return null;
@@ -685,7 +714,7 @@ export interface TranscriptFetchResult {
  * Fetch the transcript/captions for a YouTube video.
  *
  * Tries multiple strategies in order:
- *   1. Server-side transcript API (Node.js function with CONSENT cookie)
+ *   1. Server-side transcript API (CF Worker → Vercel fallback)
  *   2. InnerTube API (ANDROID/WEB clients) via Edge Function proxy
  *   3. YouTube page HTML scraping via Edge Function proxy
  *   4. youtube-transcript npm package (client-side, last resort)
@@ -699,11 +728,11 @@ export async function fetchYouTubeTranscript(
 ): Promise<TranscriptFetchResult> {
   const errors: string[] = [];
 
-  // Strategy 1: Server-side transcript API (best chance — Node.js runtime + CONSENT cookie)
+  // Strategy 1: Server-side transcript API (CF Worker → Vercel fallback)
   try {
     const serverResult = await fetchViaServerApi(videoId, lang);
     if (serverResult) return serverResult;
-    errors.push('Server API returned no captions');
+    errors.push('Server API (CF Worker + Vercel) returned no captions');
   } catch (err) {
     errors.push(
       `Server API: ${err instanceof Error ? err.message : 'failed'}`,

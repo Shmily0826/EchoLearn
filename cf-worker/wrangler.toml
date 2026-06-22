@@ -1,0 +1,8 @@
+name = "yt-transcript-proxy"
+main = "src/index.js"
+compatibility_date = "2024-12-01"
+
+workers_dev = true
+
+[vars]
+# Any environment variables go here
