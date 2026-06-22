@@ -403,16 +403,16 @@ function ts() {
 
 app.listen(PORT, HOST, () => {
   console.log('');
-  console.log('  ┌──────────────────────────────────────────────┐');
-  console.log('  │   EchoLearn Local YouTube Transcript Proxy   │');
-  console.log('  ├──────────────────────────────────────────────┤');
-  console.log(`  │   Listening on: http://${HOST}:${PORT}       │`);
-  console.log('  │                                              │');
-  console.log('  │   Using YOUR residential IP for YouTube      │');
-  console.log('  │   requests — bypasses datacenter IP blocks.  │');
-  console.log('  │                                              │');
-  console.log('  │   Keep this running while using EchoLearn.   │');
-  console.log('  │   Press Ctrl+C to stop.                      │');
-  console.log('  └──────────────────────────────────────────────┘');
+  console.log('  ==================================================');
+  console.log('    EchoLearn Local YouTube Transcript Proxy');
+  console.log('  ==================================================');
+  console.log(`    Listening on: http://${HOST}:${PORT}`);
+  console.log('');
+  console.log('    Using YOUR residential IP for YouTube requests.');
+  console.log('    Bypasses datacenter IP blocks.');
+  console.log('');
+  console.log('    Keep this running while using EchoLearn.');
+  console.log('    Press Ctrl+C to stop.');
+  console.log('  ==================================================');
   console.log('');
 });

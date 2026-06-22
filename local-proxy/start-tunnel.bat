@@ -1,54 +1,43 @@
 @echo off
-title EchoLearn Proxy + Tunnel
+title EchoLearn Proxy and Tunnel
 
 echo.
-echo   EchoLearn Proxy + Cloudflare Tunnel
-echo   ====================================
+echo   EchoLearn Proxy and Cloudflare Tunnel
+echo   =====================================
 echo.
 
 cd /d "%~dp0"
 
-:: Add cloudflared install path to PATH (winget install may not refresh PATH for Explorer)
-set "PATH=%PATH%;C:\Program Files (x86)\cloudflared;C:\Program Files\cloudflared"
+set "CF32=C:\Program Files (x86)\cloudflared"
+set "CF64=C:\Program Files\cloudflared"
+set "PATH=%PATH%;%CF32%;%CF64%"
 
-:: Check if node is available
 where node >nul 2>&1
 if %errorlevel% neq 0 (
     echo   [ERROR] Node.js not found!
-    echo   Please install Node.js from https://nodejs.org/
-    echo.
-    goto :done
+    echo   Please install from https://nodejs.org/
+    goto :end
 )
 
-:: Check if node_modules exists
 if not exist "node_modules" (
     echo   Installing dependencies...
     call npm install
-    if %errorlevel% neq 0 (
-        echo   [ERROR] npm install failed!
-        goto :done
-    )
-    echo.
 )
 
-:: Check if cloudflared is available
 where cloudflared >nul 2>&1
-if %errorlevel% neq 0 (
-    echo   [WARN] cloudflared not found in PATH.
-    echo   Install it: winget install Cloudflare.cloudflared
-    echo   Then restart this script.
-    echo.
-    echo   Starting proxy WITHOUT tunnel (localhost only)...
-    echo.
-    node server.js
-) else (
-    echo   Starting proxy + tunnel...
+if %errorlevel% equ 0 (
+    echo   Starting proxy and tunnel...
     echo.
     node launch.js
+    goto :end
 )
 
-:done
+echo   cloudflared not found, starting proxy only.
+echo   Install for tunnel: winget install Cloudflare.cloudflared
 echo.
-echo   Proxy has stopped.
+node server.js
+
+:end
 echo.
+echo   Proxy stopped.
 pause

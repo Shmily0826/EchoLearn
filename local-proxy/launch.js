@@ -161,29 +161,26 @@ async function main() {
 
   // Display results
   console.log('');
-  console.log('  ┌──────────────────────────────────────────────┐');
-  console.log('  │   EchoLearn Local Proxy is RUNNING            │');
-  console.log('  ├──────────────────────────────────────────────┤');
-  console.log(`  │   Local:  http://127.0.0.1:${port}             │`);
+  console.log('  ==================================================');
+  console.log('    EchoLearn Local Proxy is RUNNING');
+  console.log('  ==================================================');
+  console.log(`    Local:  http://127.0.0.1:${port}`);
 
   if (tunnelUrl) {
-    // Pad URL line nicely
-    const urlLine = `  │   Public: ${tunnelUrl}`;
-    const padding = 50 - tunnelUrl.length;
-    console.log(urlLine + ' '.repeat(Math.max(0, padding)) + '│');
-    console.log('  │                                              │');
-    console.log('  │   Use the PUBLIC URL in EchoLearn Settings   │');
-    console.log('  │   to access from any device!                 │');
+    console.log(`    Public: ${tunnelUrl}`);
+    console.log('');
+    console.log('    Use the PUBLIC URL in EchoLearn Settings');
+    console.log('    to access from any device!');
   } else {
-    console.log('  │   Public: (tunnel unavailable)               │');
-    console.log('  │                                              │');
-    console.log('  │   Use http://127.0.0.1:' + port + ' in Settings  │');
-    console.log('  │   (works only on this computer)              │');
+    console.log('    Public: (tunnel unavailable)');
+    console.log('');
+    console.log(`    Use http://127.0.0.1:${port} in Settings`);
+    console.log('    (works only on this computer)');
   }
 
-  console.log('  │                                              │');
-  console.log('  │   Press Ctrl+C to stop.                      │');
-  console.log('  └──────────────────────────────────────────────┘');
+  console.log('');
+  console.log('    Press Ctrl+C to stop.');
+  console.log('  ==================================================');
   console.log('');
 
   // Handle graceful shutdown
