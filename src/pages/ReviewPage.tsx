@@ -12,7 +12,7 @@ import {
 import type { VocabularyItem, SentenceItem } from '../types';
 
 // ─── Swipe gesture hook ─────────────────────────────────────
-type SwipeDir = 'left' | 'right' | 'up' | 'down';
+
 interface SwipeCallbacks {
   onSwipeLeft?: () => void;
   onSwipeRight?: () => void;

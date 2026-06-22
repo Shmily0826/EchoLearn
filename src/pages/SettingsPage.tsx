@@ -45,7 +45,6 @@ const SettingsPage: React.FC = () => {
   const [savedPat, setSavedPat] = useState('');
   const [patStatus, setPatStatus] = useState<'idle' | 'validating' | 'valid' | 'invalid'>('idle');
   const [patMessage, setPatMessage] = useState('');
-  const [githubUser, setGithubUser] = useState('');
   const [showPat, setShowPat] = useState(false);
 
   // ── Sync state ────────────────────────────────────────────
@@ -61,7 +60,6 @@ const SettingsPage: React.FC = () => {
     setSyncStatus(getSyncStatus());
     if (pat) {
       setPatStatus('valid');
-      setGithubUser('(已连接)');
     }
   }, []);
 
@@ -83,7 +81,6 @@ const SettingsPage: React.FC = () => {
       setSavedPat(trimmed);
       setPatStatus('valid');
       setPatMessage(`已连接到 ${result.login}`);
-      setGithubUser(result.login || '(已连接)');
       setSyncStatus(getSyncStatus());
     } else {
       setPatStatus('invalid');
@@ -98,7 +95,6 @@ const SettingsPage: React.FC = () => {
     setSavedPat('');
     setPatStatus('idle');
     setPatMessage('');
-    setGithubUser('');
     setSyncStatus(getSyncStatus());
   }, []);
 
