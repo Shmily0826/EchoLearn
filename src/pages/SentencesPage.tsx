@@ -65,6 +65,7 @@ const SentencesPage: React.FC = () => {
     item.sourceVideoTitle || titleMap.get(item.sourceVideoId) || item.sourceVideoId;
 
   const handleRemove = useCallback((id: string) => {
+    if (!window.confirm('确定要删除这个句子吗？')) return;
     setSentences(removeSentenceItem(id));
   }, []);
 

@@ -485,10 +485,12 @@ const StudyPage: React.FC = () => {
   }, []);
 
   const handleRemoveVocabulary = useCallback((id: string) => {
+    if (!window.confirm('确定要删除这个词汇吗？')) return;
     setVocabulary(removeVocabularyItem(id));
   }, []);
 
   const handleRemoveSentence = useCallback((id: string) => {
+    if (!window.confirm('确定要删除这个句子吗？')) return;
     setSentences(removeSentenceItem(id));
   }, []);
 

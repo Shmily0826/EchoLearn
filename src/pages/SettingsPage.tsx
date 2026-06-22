@@ -127,8 +127,9 @@ const SettingsPage: React.FC = () => {
         }
       }
       const detail = parts.length > 0 ? `（${parts.join('、')}）` : '';
-      setSyncMessage({ type: 'success', text: `数据已从云端恢复${detail}。刷新页面后生效。` });
+      setSyncMessage({ type: 'success', text: `数据已从云端恢复${detail}，2秒后自动刷新页面...` });
       setSyncStatus(getSyncStatus());
+      setTimeout(() => window.location.reload(), 2000);
     } else {
       setSyncMessage({ type: 'error', text: result.error || '加载失败' });
     }

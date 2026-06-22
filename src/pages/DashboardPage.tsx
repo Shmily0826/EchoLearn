@@ -148,6 +148,7 @@ const DashboardPage: React.FC = () => {
   };
 
   const handleDeleteSession = (id: string) => {
+    if (!window.confirm('确定要删除这个学习记录吗？')) return;
     deleteSession(id);
     setSessions(loadAllSessions());
     if (currentSession?.id === id) {
@@ -241,6 +242,7 @@ const DashboardPage: React.FC = () => {
 
   // ── Remove a plan item ────────────────────────────────────
   const handleDeletePlanItem = useCallback((id: string) => {
+    if (!window.confirm('确定要从计划中移除这个视频吗？')) return;
     const updated = removeDailyPlanItem(id);
     setDailyPlan(updated);
   }, []);
