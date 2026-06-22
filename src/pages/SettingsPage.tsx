@@ -329,10 +329,11 @@ const SettingsPage: React.FC = () => {
           <div className="mt-2 space-y-1.5 text-[11px] pl-3 border-l-2 border-gray-100 dark:border-slate-700">
             <p>1. Open a terminal in the <code className="px-1 py-0.5 bg-gray-100 dark:bg-slate-700 rounded">EchoLearn/local-proxy</code> folder</p>
             <p>2. Run: <code className="px-1 py-0.5 bg-gray-100 dark:bg-slate-700 rounded">npm install</code></p>
-            <p>3. Run: <code className="px-1 py-0.5 bg-gray-100 dark:bg-slate-700 rounded">npm start</code></p>
+            <p>3a. Local only: <code className="px-1 py-0.5 bg-gray-100 dark:bg-slate-700 rounded">npm start</code> — use <code className="px-1 py-0.5 bg-gray-100 dark:bg-slate-700 rounded">http://127.0.0.1:8787</code> on this computer</p>
+            <p>3b. With tunnel: <code className="px-1 py-0.5 bg-gray-100 dark:bg-slate-700 rounded">npm run tunnel</code> — get a public URL usable from any device</p>
             <p>4. Keep the proxy running while using EchoLearn</p>
             <p className="text-gray-400 dark:text-gray-500 pt-1">
-              Or on Windows: double-click <code className="px-1 py-0.5 bg-gray-100 dark:bg-slate-700 rounded">start.bat</code> in the local-proxy folder.
+              On Windows: double-click <code className="px-1 py-0.5 bg-gray-100 dark:bg-slate-700 rounded">start.bat</code> (local) or <code className="px-1 py-0.5 bg-gray-100 dark:bg-slate-700 rounded">start-tunnel.bat</code> (with tunnel).
             </p>
           </div>
         </details>
