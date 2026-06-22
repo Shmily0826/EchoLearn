@@ -1,5 +1,6 @@
 import { BrowserRouter, useLocation } from 'react-router-dom'
 import Layout from './components/Layout'
+import AuthGuard from './components/AuthGuard'
 import DashboardPage from './pages/DashboardPage'
 import StudyPage from './pages/StudyPage'
 import VocabularyPage from './pages/VocabularyPage'
@@ -38,7 +39,9 @@ function AppContent() {
 function App() {
   return (
     <BrowserRouter>
-      <AppContent />
+      <AuthGuard>
+        <AppContent />
+      </AuthGuard>
     </BrowserRouter>
   );
 }
