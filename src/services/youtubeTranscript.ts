@@ -2,12 +2,14 @@
  * YouTube transcript auto-fetch service.
  *
  * Multi-strategy approach:
- *   1. InnerTube API (ANDROID client) — most reliable, may work directly from browser
- *   2. YouTube page HTML scraping via CORS proxy — fallback
+ *   1. InnerTube API (ANDROID client) via Vercel Edge Function — most reliable
+ *   2. YouTube page HTML scraping via Vercel Edge Function — fallback
  *   3. youtube-transcript npm package — final fallback (uses its own methods)
  *
  * In dev mode, requests go through Vite's proxy to bypass CORS.
- * In production, set VITE_YOUTUBE_PROXY env var or rely on CORS proxies.
+ * In production, all YouTube requests are routed through the Vercel Edge Function
+ * at /api/yt, which adds proper headers (User-Agent, CONSENT cookie) to avoid
+ * YouTube bot detection.
  */
 
 import type { TranscriptLine } from '../types';
@@ -39,7 +41,12 @@ function proxyUrl(ytUrl: string): string {
   return `/api/yt?url=${encodeURIComponent(ytUrl)}`;
 }
 
-// ── CORS proxy fallbacks (used only when Vite proxy / YT_PROXY not available) ──
+/** Whether requests are going through the Edge Function (production) */
+function isUsingEdgeFunction(): boolean {
+  return !IS_DEV && !YT_PROXY_BASE;
+}
+
+// ── CORS proxy fallbacks (only for non-proxied GET requests) ──
 
 const CORS_PROXIES = [
   (url: string) =>
@@ -56,8 +63,14 @@ const INNERTUBE_API_KEY =
 
 const INNERTUBE_API_URL =
   `https://www.youtube.com/youtubei/v1/player?key=${INNERTUBE_API_KEY}&prettyPrint=false`;
-const INNERTUBE_CLIENT_VERSION = '20.10.38';
-const INNERTUBE_USER_AGENT = `com.google.android.youtube/${INNERTUBE_CLIENT_VERSION} (Linux; U; Android 14)`;
+
+/** Android client config */
+const ANDROID_CLIENT_VERSION = '20.10.38';
+const ANDROID_UA = `com.google.android.youtube/${ANDROID_CLIENT_VERSION} (Linux; U; Android 14)`;
+
+/** WEB client config */
+const WEB_CLIENT_VERSION = '2.20241201.00.00';
+const WEB_UA = 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/125.0.0.0 Safari/537.36';
 
 /** Max retries for timedtext fetch (YouTube rate-limits this endpoint) */
 const CAPTION_RETRY_COUNT = 2;
@@ -251,9 +264,9 @@ async function fetchText(url: string, init?: RequestInit): Promise<string> {
 }
 
 async function fetchViaProxy(url: string): Promise<string> {
-  // 1. Use Vite proxy or configured proxy
+  // 1. Use Vite proxy, configured proxy, or Vercel Edge Function
   const proxied = proxyUrl(url);
-  if (proxied !== url) {
+  if (proxied !== url || isUsingEdgeFunction()) {
     try {
       return await fetchText(proxied);
     } catch (err) {
@@ -262,6 +275,21 @@ async function fetchViaProxy(url: string): Promise<string> {
         err instanceof Error ? err.message : err,
       );
     }
+  }
+
+  // In production with Edge Function, don't try direct fetch (CORS will block)
+  if (isUsingEdgeFunction()) {
+    // Only try public CORS proxies as last resort
+    for (const buildUrl of CORS_PROXIES) {
+      try {
+        return await fetchText(buildUrl(url));
+      } catch {
+        continue;
+      }
+    }
+    throw new Error(
+      'Could not reach YouTube (all proxies failed). Check your network connection.',
+    );
   }
 
   // 2. Try direct (works in Node.js or if CORS allows)
@@ -359,86 +387,138 @@ async function fetchAndParseCaptions(
   return [];
 }
 
-// ── Strategy 1: InnerTube API ──────────────────────────────────
+// ── Strategy 1: InnerTube API (multi-client) ──────────────────
+
+/**
+ * Build fetch headers for InnerTube API.
+ * When using the Edge Function, we pass X-YouTube-Client-* headers so the
+ * function can set matching User-Agent for YouTube.
+ */
+function innerTubeHeaders(clientName: string, clientVersion: string): Record<string, string> {
+  const h: Record<string, string> = {
+    'Content-Type': 'application/json',
+  };
+  if (isUsingEdgeFunction()) {
+    // Tell Edge Function which client to emulate
+    h['X-YouTube-Client-Name'] = clientName;
+    h['X-YouTube-Client-Version'] = clientVersion;
+  } else {
+    // Dev mode: set UA directly
+    h['User-Agent'] = clientName === 'WEB' ? WEB_UA : ANDROID_UA;
+    h['X-YouTube-Client-Name'] = clientName === 'WEB' ? '1' : '3';
+    h['X-YouTube-Client-Version'] = clientVersion;
+  }
+  return h;
+}
+
+async function fetchViaInnerTubeClient(
+  videoId: string,
+  lang: string,
+  clientName: 'ANDROID' | 'WEB',
+): Promise<{ data: Record<string, unknown>; tracks: CaptionTrack[] } | null> {
+  const clientVersion = clientName === 'WEB' ? WEB_CLIENT_VERSION : ANDROID_CLIENT_VERSION;
+  const apiUrl = proxyUrl(INNERTUBE_API_URL);
+
+  const body: Record<string, unknown> = {
+    context: {
+      client: {
+        clientName,
+        clientVersion,
+        hl: lang,
+      },
+    },
+    videoId,
+    contentCheckOk: true,
+    racyCheckOk: true,
+  };
+
+  // WEB client needs additional context
+  if (clientName === 'WEB') {
+    (body.context as Record<string, unknown>).client = {
+      ...(body.context as Record<string, Record<string, unknown>>).client,
+      userAgent: WEB_UA,
+    };
+  }
+
+  const res = await fetch(apiUrl, {
+    method: 'POST',
+    headers: innerTubeHeaders(clientName, clientVersion),
+    body: JSON.stringify(body),
+  });
+
+  if (!res.ok) {
+    const errBody = await res.text().catch(() => '');
+    console.warn(
+      `[EchoLearn] InnerTube ${clientName} error: ${res.status}`,
+      errBody.substring(0, 200),
+    );
+    return null;
+  }
+
+  const data = (await res.json()) as Record<string, unknown>;
+
+  // Log playability status for debugging
+  const playability = data.playabilityStatus as
+    | { status?: string; reason?: string }
+    | undefined;
+
+  if (playability?.status === 'LOGIN_REQUIRED') {
+    console.warn(
+      `[EchoLearn] InnerTube ${clientName}: LOGIN_REQUIRED — ${playability?.reason}`,
+    );
+    return null; // Signal to try next client
+  }
+
+  if (playability?.status !== 'OK') {
+    console.warn(
+      `[EchoLearn] InnerTube ${clientName} playability: ${playability?.status} — ${playability?.reason}`,
+    );
+  }
+
+  const tracks = getCaptionTracks(data);
+  return { data, tracks };
+}
 
 async function fetchViaInnerTube(
   videoId: string,
   lang: string,
 ): Promise<TranscriptFetchResult | null> {
   try {
-    const apiUrl = proxyUrl(INNERTUBE_API_URL);
+    // Try ANDROID first, then WEB as fallback
+    const clients: Array<'ANDROID' | 'WEB'> = ['ANDROID', 'WEB'];
 
-    const res = await fetch(apiUrl, {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        'User-Agent': INNERTUBE_USER_AGENT,
-        'X-YouTube-Client-Name': '3',
-        'X-YouTube-Client-Version': INNERTUBE_CLIENT_VERSION,
-      },
-      body: JSON.stringify({
-        context: {
-          client: {
-            clientName: 'ANDROID',
-            clientVersion: INNERTUBE_CLIENT_VERSION,
-            hl: lang,
-          },
-        },
-        videoId,
-        contentCheckOk: true,
-        racyCheckOk: true,
-      }),
-    });
+    for (const client of clients) {
+      const result = await fetchViaInnerTubeClient(videoId, lang, client);
+      if (!result) continue;
 
-    if (!res.ok) {
-      const errBody = await res.text().catch(() => '');
-      console.warn(
-        `[EchoLearn] InnerTube API error: ${res.status}`,
-        errBody.substring(0, 200),
+      const { tracks } = result;
+      if (tracks.length === 0) {
+        const hasCaptions = 'captions' in result.data;
+        console.warn(
+          `[EchoLearn] InnerTube ${client}: captions field ${hasCaptions ? 'exists but no tracks' : 'missing'}`,
+        );
+        continue;
+      }
+
+      console.log(
+        `[EchoLearn] InnerTube ${client}: found ${tracks.length} caption track(s)`,
+        tracks.map((t) => `${t.languageCode}(${t.kind || 'manual'})`),
       );
-      return null;
+
+      const track = selectTrack(tracks, lang);
+      const lines = await fetchAndParseCaptions(track);
+
+      if (lines.length === 0) continue;
+
+      return {
+        lines,
+        language: track.languageCode,
+        isAutoGenerated: track.kind === 'asr',
+      };
     }
 
-    const data = (await res.json()) as Record<string, unknown>;
-
-    // Log playability status for debugging
-    const playability = data.playabilityStatus as
-      | { status?: string; reason?: string }
-      | undefined;
-    if (playability?.status !== 'OK') {
-      console.warn(
-        `[EchoLearn] InnerTube playability: ${playability?.status} — ${playability?.reason}`,
-      );
-    }
-
-    const tracks = getCaptionTracks(data);
-    if (tracks.length === 0) {
-      // Log whether captions field exists at all
-      const hasCaptions = 'captions' in data;
-      console.warn(
-        `[EchoLearn] InnerTube: captions field ${hasCaptions ? 'exists but no tracks' : 'missing'}`,
-      );
-      return null;
-    }
-
-    console.log(
-      `[EchoLearn] InnerTube: found ${tracks.length} caption track(s)`,
-      tracks.map((t) => `${t.languageCode}(${t.kind || 'manual'})`),
-    );
-
-    const track = selectTrack(tracks, lang);
-    // fetchAndParseCaptions may throw on rate-limit — let it propagate
-    const lines = await fetchAndParseCaptions(track);
-
-    if (lines.length === 0) return null;
-
-    return {
-      lines,
-      language: track.languageCode,
-      isAutoGenerated: track.kind === 'asr',
-    };
+    return null;
   } catch (err) {
-    // Propagate rate-limit errors, swallow others
     if (err instanceof Error && err.message.includes('rate-limiting')) {
       throw err;
     }

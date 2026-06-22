@@ -53,10 +53,11 @@ export default defineConfig({
             },
           },
           {
-            urlPattern: /^https:\/\/www\.youtube\.com\/.*/i,
+            // Cache YouTube proxy responses (same-origin /api/yt)
+            urlPattern: /\/api\/yt.*/i,
             handler: 'NetworkFirst',
             options: {
-              cacheName: 'youtube-api',
+              cacheName: 'youtube-proxy',
               expiration: { maxEntries: 30, maxAgeSeconds: 60 * 60 * 2 },
             },
           },
