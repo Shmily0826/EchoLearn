@@ -1,13 +1,16 @@
 /**
  * Vercel Serverless Function (Node.js runtime) — YouTube transcript fetcher.
  *
- * Uses the `youtube-transcript` npm package on the server side,
- * where there's no CORS issue and the server IP may not be blocked
- * by YouTube's bot detection.
+ * Uses the `youtube-transcript` npm package on the server side with
+ * a CONSENT cookie to help bypass YouTube's bot detection.
  *
  * Usage: GET /api/transcript?videoId=<id>&lang=<en>
  * Returns: JSON with transcript lines
  */
+
+// Consent cookie to help bypass YouTube's bot wall
+const CONSENT_COOKIE =
+  'CONSENT=PENDING+987; SOCS=CAISNQgDEitib3FfaWRlbnRpdHlmcm9udGVuZHVpc2VydmVyXzIwMjMwODI5LjA3X3AxGgJlbiACGgYIgJnSmgY';
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 export default async function handler(req: any, res: any): Promise<void> {
@@ -31,7 +34,25 @@ export default async function handler(req: any, res: any): Promise<void> {
 
   try {
     const { YoutubeTranscript } = await import('youtube-transcript');
-    const result = await YoutubeTranscript.fetchTranscript(videoId, { lang });
+
+    // Custom fetch that adds CONSENT cookie to all YouTube requests
+    const customFetch = (url: string | URL | Request, init?: RequestInit) => {
+      const headers = new Headers(init?.headers);
+      headers.set('Cookie', CONSENT_COOKIE);
+      // Also set a realistic browser UA as fallback
+      if (!headers.has('User-Agent')) {
+        headers.set(
+          'User-Agent',
+          'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/125.0.0.0 Safari/537.36',
+        );
+      }
+      return fetch(url, { ...init, headers });
+    };
+
+    const result = await YoutubeTranscript.fetchTranscript(videoId, {
+      lang,
+      fetch: customFetch,
+    });
 
     if (!result || result.length === 0) {
       res.status(404).json({ error: 'No transcript found for this video' });
