@@ -1,6 +1,6 @@
 import { useState, useCallback } from 'react';
 
-const ACCESS_PASSWORD = (import.meta.env.VITE_ACCESS_PASSWORD as string | undefined) || '';
+const ACCESS_PASSWORD = ((import.meta.env.VITE_ACCESS_PASSWORD as string | undefined) || '').trim();
 
 interface AuthGuardProps {
   children: React.ReactNode;
@@ -20,7 +20,7 @@ const AuthGuard: React.FC<AuthGuardProps> = ({ children }) => {
   const handleSubmit = useCallback(
     (e: React.FormEvent) => {
       e.preventDefault();
-      if (input === ACCESS_PASSWORD) {
+      if (input.trim() === ACCESS_PASSWORD) {
         setAuthenticated(true);
         setError(false);
       } else {
