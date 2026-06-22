@@ -685,9 +685,9 @@ export interface TranscriptFetchResult {
  * Fetch the transcript/captions for a YouTube video.
  *
  * Tries multiple strategies in order:
- *   1. InnerTube API (ANDROID/WEB clients) via Edge Function proxy
- *   2. YouTube page HTML scraping via Edge Function proxy
- *   3. Server-side transcript API (Node.js serverless function)
+ *   1. Server-side transcript API (Node.js function with CONSENT cookie)
+ *   2. InnerTube API (ANDROID/WEB clients) via Edge Function proxy
+ *   3. YouTube page HTML scraping via Edge Function proxy
  *   4. youtube-transcript npm package (client-side, last resort)
  *
  * @param videoId  The 11-character YouTube video ID
@@ -699,7 +699,18 @@ export async function fetchYouTubeTranscript(
 ): Promise<TranscriptFetchResult> {
   const errors: string[] = [];
 
-  // Strategy 1: InnerTube API (may throw rate-limit error)
+  // Strategy 1: Server-side transcript API (best chance — Node.js runtime + CONSENT cookie)
+  try {
+    const serverResult = await fetchViaServerApi(videoId, lang);
+    if (serverResult) return serverResult;
+    errors.push('Server API returned no captions');
+  } catch (err) {
+    errors.push(
+      `Server API: ${err instanceof Error ? err.message : 'failed'}`,
+    );
+  }
+
+  // Strategy 2: InnerTube API via Edge Function proxy
   try {
     const innerTubeResult = await fetchViaInnerTube(videoId, lang);
     if (innerTubeResult) return innerTubeResult;
@@ -713,7 +724,7 @@ export async function fetchYouTubeTranscript(
     );
   }
 
-  // Strategy 2: Web page scraping
+  // Strategy 3: Web page scraping via Edge Function proxy
   try {
     const webResult = await fetchViaWebPage(videoId, lang);
     if (webResult) return webResult;
@@ -727,18 +738,7 @@ export async function fetchYouTubeTranscript(
     );
   }
 
-  // Strategy 3: Server-side transcript API (bypasses CORS and bot detection)
-  try {
-    const serverResult = await fetchViaServerApi(videoId, lang);
-    if (serverResult) return serverResult;
-    errors.push('Server API returned no captions');
-  } catch (err) {
-    errors.push(
-      `Server API: ${err instanceof Error ? err.message : 'failed'}`,
-    );
-  }
-
-  // Strategy 4: npm package (client-side, may fail due to CORS)
+  // Strategy 4: npm package client-side (last resort, likely CORS-blocked)
   try {
     const npmResult = await fetchViaNpmPackage(videoId, lang);
     if (npmResult) return npmResult;
