@@ -1,5 +1,6 @@
 import { useState, useCallback } from 'react';
 
+// Access gate — password is trimmed to handle env var whitespace
 const ACCESS_PASSWORD = ((import.meta.env.VITE_ACCESS_PASSWORD as string | undefined) || '').trim();
 
 interface AuthGuardProps {
