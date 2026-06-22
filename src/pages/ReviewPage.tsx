@@ -451,8 +451,8 @@ const ReviewPage: React.FC = () => {
               </button>
             </div>
 
-            {/* Keyboard hint */}
-            <p className="text-[11px] text-gray-400 dark:text-gray-500 mt-6 text-center">
+            {/* Keyboard hint — hidden on mobile */}
+            <p className="hidden sm:block text-[11px] text-gray-400 dark:text-gray-500 mt-6 text-center">
               Keyboard shortcuts: Space/R Reveal &middot; P Play &middot; 1 Forgot &middot; 2 Remember &middot; 3 Skip
             </p>
           </>
@@ -551,7 +551,7 @@ const ReviewPage: React.FC = () => {
                 onClick={handleSentenceRead}
                 className="w-full px-4 py-3 text-sm bg-indigo-50 dark:bg-indigo-950 text-indigo-600 border border-indigo-200 rounded-xl hover:bg-indigo-100 transition-colors font-medium cursor-pointer"
               >
-                Next <span className="text-[10px] text-indigo-400 ml-1">Space / Enter</span>
+                Next <span className="hidden sm:inline text-[10px] text-indigo-400 ml-1">Space / Enter</span>
               </button>
             </div>
           </div>
@@ -605,19 +605,19 @@ const ReviewPage: React.FC = () => {
                   onClick={handleForgot}
                   className="flex-1 px-4 py-3 text-sm bg-red-50 dark:bg-red-950/30 text-red-600 border border-red-200 rounded-xl hover:bg-red-100 transition-colors font-medium cursor-pointer"
                 >
-                  Forgot <span className="text-[10px] text-red-400 ml-1">1</span>
+                  Forgot <span className="hidden sm:inline text-[10px] text-red-400 ml-1">1</span>
                 </button>
                 <button
                   onClick={handleRemember}
                   className="flex-1 px-4 py-3 text-sm bg-green-50 text-green-700 border border-green-200 rounded-xl hover:bg-green-100 transition-colors font-medium cursor-pointer"
                 >
-                  Remember <span className="text-[10px] text-green-400 ml-1">2</span>
+                  Remember <span className="hidden sm:inline text-[10px] text-green-400 ml-1">2</span>
                 </button>
                 <button
                   onClick={handleSkip}
                   className="px-4 py-3 text-sm text-gray-500 dark:text-gray-400 bg-gray-50 dark:bg-slate-900 border border-gray-200 dark:border-slate-700 rounded-xl hover:bg-gray-100 dark:hover:bg-slate-700 transition-colors font-medium cursor-pointer"
                 >
-                  Skip <span className="text-[10px] text-gray-400 ml-1">3</span>
+                  Skip <span className="hidden sm:inline text-[10px] text-gray-400 ml-1">3</span>
                 </button>
               </div>
             )}
@@ -625,8 +625,8 @@ const ReviewPage: React.FC = () => {
         )}
       </div>
 
-      {/* Keyboard hint */}
-      <p className="text-[11px] text-gray-400 dark:text-gray-500 mt-4 text-center">
+      {/* Keyboard hint — hidden on mobile */}
+      <p className="hidden sm:block text-[11px] text-gray-400 dark:text-gray-500 mt-4 text-center">
         {currentCard.kind === 'sentence'
           ? 'Space / Enter for next \u00B7 P Play'
           : revealed

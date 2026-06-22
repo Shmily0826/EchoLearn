@@ -297,7 +297,7 @@ const VocabularyPage: React.FC = () => {
                         new Audio(item.audioUrl).play().catch(() => {});
                       }}
                       title="Play pronunciation"
-                      className="p-0.5 text-indigo-400 hover:text-indigo-600 cursor-pointer"
+                      className="p-1.5 md:p-0.5 text-indigo-400 hover:text-indigo-600 cursor-pointer"
                     >
                       <svg className="w-3.5 h-3.5" fill="currentColor" viewBox="0 0 24 24">
                         <path d="M11.5 3.75a.75.75 0 011.085-.674l6.75 3.5a.75.75 0 010 1.348l-6.75 3.5a.75.75 0 01-1.085-.674V3.75z" />
@@ -313,7 +313,7 @@ const VocabularyPage: React.FC = () => {
                 </div>
                 <button
                   onClick={() => handleRemove(item.id)}
-                  className="shrink-0 text-gray-400 hover:text-red-500 opacity-0 group-hover:opacity-100 transition-opacity text-xs cursor-pointer"
+                  className="shrink-0 text-gray-400 hover:text-red-500 opacity-100 md:opacity-0 md:group-hover:opacity-100 transition-opacity text-xs cursor-pointer"
                 >
                   Delete
                 </button>

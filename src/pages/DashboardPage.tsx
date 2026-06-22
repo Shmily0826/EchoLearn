@@ -432,7 +432,7 @@ const DashboardPage: React.FC = () => {
                       e.stopPropagation();
                       handleDeletePlanItem(item.id);
                     }}
-                    className="text-gray-300 hover:text-red-500 opacity-0 group-hover:opacity-100 transition-opacity flex-shrink-0 cursor-pointer"
+                    className="text-gray-300 hover:text-red-500 opacity-100 md:opacity-0 md:group-hover:opacity-100 transition-opacity flex-shrink-0 cursor-pointer"
                     title="Remove from plan"
                   >
                     <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
@@ -688,7 +688,7 @@ const DashboardPage: React.FC = () => {
                   </button>
                   <button
                     onClick={() => handleDeleteSession(s.id)}
-                    className="px-3 py-1.5 text-xs text-gray-400 hover:text-red-500 rounded-lg hover:bg-red-50 transition-colors opacity-0 group-hover:opacity-100 cursor-pointer"
+                    className="px-3 py-1.5 text-xs text-gray-400 hover:text-red-500 rounded-lg hover:bg-red-50 transition-colors opacity-100 md:opacity-0 md:group-hover:opacity-100 cursor-pointer"
                   >
                     Delete
                   </button>

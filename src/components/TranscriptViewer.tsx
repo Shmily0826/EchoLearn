@@ -1,4 +1,4 @@
-import React, { useState, useRef, useEffect } from 'react';
+import React, { useState, useRef, useEffect, useCallback } from 'react';
 import type { TranscriptLine, VocabularyItem, SentenceItem, DictionaryEntry } from '../types';
 import { tomorrowMs } from '../utils/storage';
 import { lookupWord } from '../services/dictionaryService';
@@ -42,23 +42,48 @@ const TranscriptViewer: React.FC<TranscriptViewerProps> = ({
 
   const popupRef = useRef<HTMLDivElement>(null);
   const activeLineRef = useRef<HTMLDivElement>(null);
+  const userScrolledRef = useRef(false);
+  const scrollTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  // Track user manual scrolling — pause auto-scroll for 3 seconds
+  const handleUserScroll = useCallback(() => {
+    userScrolledRef.current = true;
+    if (scrollTimerRef.current) clearTimeout(scrollTimerRef.current);
+    scrollTimerRef.current = setTimeout(() => {
+      userScrolledRef.current = false;
+    }, 3000);
+  }, []);
+
+  // Attach scroll listener to the nearest scrollable ancestor
+  useEffect(() => {
+    const lineEl = activeLineRef.current;
+    if (!lineEl) return;
+    const container = lineEl.closest('.overflow-y-auto') as HTMLElement | null;
+    if (!container) return;
+    container.addEventListener('scroll', handleUserScroll, { passive: true });
+    return () => container.removeEventListener('scroll', handleUserScroll);
+  }, [handleUserScroll, lines]);
 
   // Close popup when clicking outside
   useEffect(() => {
-    const handleClickOutside = (e: MouseEvent) => {
+    const handleClickOutside = (e: MouseEvent | TouchEvent) => {
       if (popupRef.current && !popupRef.current.contains(e.target as Node)) {
         setPopup(null);
       }
     };
     if (popup) {
       document.addEventListener('mousedown', handleClickOutside);
+      document.addEventListener('touchstart', handleClickOutside);
     }
-    return () => document.removeEventListener('mousedown', handleClickOutside);
+    return () => {
+      document.removeEventListener('mousedown', handleClickOutside);
+      document.removeEventListener('touchstart', handleClickOutside);
+    };
   }, [popup]);
 
-  // Auto-scroll to the active line
+  // Auto-scroll to the active line (only if user hasn't manually scrolled)
   useEffect(() => {
-    if (activeLineIndex >= 0 && activeLineRef.current) {
+    if (activeLineIndex >= 0 && activeLineRef.current && !userScrolledRef.current) {
       activeLineRef.current.scrollIntoView({
         behavior: 'smooth',
         block: 'center',
@@ -190,7 +215,16 @@ const TranscriptViewer: React.FC<TranscriptViewerProps> = ({
           }`}
           style={{ left: Math.min(Math.max(popup.x, 170), window.innerWidth - 170), top: shouldFlip ? popup.y + 24 : popup.y }}
         >
-          <div className="bg-white dark:bg-slate-800 rounded-xl shadow-xl border border-gray-200 dark:border-slate-700 p-4 min-w-[260px] max-w-[min(340px,90vw)]">
+          <div className="bg-white dark:bg-slate-800 rounded-xl shadow-xl border border-gray-200 dark:border-slate-700 p-4 min-w-[260px] max-w-[min(340px,90vw)] max-h-[70vh] overflow-y-auto">
+            {/* Close button — visible on mobile for easy dismissal */}
+            <button
+              onClick={() => setPopup(null)}
+              className="md:hidden absolute top-2 right-2 p-1.5 rounded-full hover:bg-gray-100 dark:hover:bg-slate-700 text-gray-400 hover:text-gray-600 transition-colors cursor-pointer"
+            >
+              <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                <path strokeLinecap="round" strokeLinejoin="round" d="M6 18L18 6M6 6l12 12" />
+              </svg>
+            </button>
             {/* Word + phonetic */}
             <div className="flex items-center gap-2 mb-1">
               <span className="text-lg font-bold text-gray-800 dark:text-gray-200">
@@ -342,7 +376,7 @@ const TranscriptViewer: React.FC<TranscriptViewerProps> = ({
                 <div className="flex-1 min-w-0">
                   {/* Timestamp */}
                   <span
-                    className="text-[11px] font-mono mr-2 select-none cursor-pointer hover:text-indigo-600 transition-colors"
+                    className="text-[11px] font-mono mr-2 select-none cursor-pointer hover:text-indigo-600 transition-colors py-1 md:py-0"
                     style={{ color: isActive ? '#6366f1' : undefined }}
                     onClick={(e) => handleTimestampClick(line, e)}
                   >
@@ -367,7 +401,7 @@ const TranscriptViewer: React.FC<TranscriptViewerProps> = ({
                         <span
                           key={i}
                           onClick={(e) => handleWordClick(token, line.text, line.start, e)}
-                          className={`inline-block mx-[1px] px-0.5 rounded cursor-pointer transition-colors ${
+                          className={`inline-block mx-[1px] px-1 md:px-0.5 py-0.5 md:py-0 rounded cursor-pointer transition-colors ${
                             saved
                               ? 'bg-amber-100 dark:bg-amber-950/30 text-amber-800 hover:bg-amber-200'
                               : 'hover:bg-indigo-100 hover:text-indigo-700'
@@ -387,10 +421,10 @@ const TranscriptViewer: React.FC<TranscriptViewerProps> = ({
                     handleAddSentence(line);
                   }}
                   title={sentenceSaved ? '已收藏' : '收藏此句'}
-                  className={`flex-shrink-0 p-1 rounded transition-colors cursor-pointer ${
+                  className={`flex-shrink-0 p-1.5 md:p-1 rounded transition-colors cursor-pointer ${
                     sentenceSaved
                       ? 'text-violet-500 hover:text-violet-700'
-                      : 'text-gray-300 hover:text-violet-400 opacity-0 group-hover:opacity-100'
+                      : 'text-gray-300 hover:text-violet-400 opacity-100 md:opacity-0 md:group-hover:opacity-100'
                   }`}
                 >
                   {sentenceSaved ? (

@@ -77,3 +77,8 @@ nav a, nav button {
 .animate-shake {
   animation: shake 0.5s ease-in-out;
 }
+
+/* Prevent double-tap zoom on interactive elements for mobile */
+button, a, select, input, [role="button"] {
+  touch-action: manipulation;
+}
