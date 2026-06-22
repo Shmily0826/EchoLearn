@@ -110,6 +110,17 @@ function startTunnel(port) {
     tunnel.stdout.on('data', handleOutput);
     tunnel.stderr.on('data', handleOutput);
 
+    tunnel.on('error', (err) => {
+      if (!tunnelUrl) {
+        console.log(`\ncloudflared error: ${err.message}`);
+        if (err.code === 'ENOENT') {
+          console.log('cloudflared not found. Install: winget install Cloudflare.cloudflared');
+        }
+        console.log('Proxy is still running on localhost (no tunnel).');
+        resolve({ process: tunnel, url: null });
+      }
+    });
+
     tunnel.on('exit', (code) => {
       if (!tunnelUrl) {
         console.log(`\ncloudflared exited (code ${code})`);
