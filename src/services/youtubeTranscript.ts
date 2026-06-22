@@ -603,7 +603,43 @@ async function fetchViaWebPage(
   }
 }
 
-// ── Strategy 3: youtube-transcript npm package ─────────────────
+// ── Strategy 3: Server-side transcript API ────────────────────
+
+/**
+ * Calls our Vercel Serverless Function at /api/transcript which runs
+ * the youtube-transcript npm package server-side (no CORS, potentially
+ * different IP reputation than Edge Functions).
+ */
+async function fetchViaServerApi(
+  videoId: string,
+  lang: string,
+): Promise<TranscriptFetchResult | null> {
+  try {
+    const res = await fetch(
+      `/api/transcript?videoId=${encodeURIComponent(videoId)}&lang=${encodeURIComponent(lang)}`,
+    );
+    if (!res.ok) {
+      const body = await res.text().catch(() => '');
+      console.warn(`[EchoLearn] Server API error: ${res.status}`, body.substring(0, 200));
+      return null;
+    }
+    const data = (await res.json()) as TranscriptFetchResult;
+    if (!data.lines || data.lines.length === 0) return null;
+
+    console.log(
+      `[EchoLearn] Server API: got ${data.lines.length} lines (${data.language})`,
+    );
+    return data;
+  } catch (err) {
+    console.warn(
+      '[EchoLearn] Server API error:',
+      err instanceof Error ? err.message : err,
+    );
+    return null;
+  }
+}
+
+// ── Strategy 4: youtube-transcript npm package (client-side) ──
 
 async function fetchViaNpmPackage(
   videoId: string,
@@ -649,9 +685,10 @@ export interface TranscriptFetchResult {
  * Fetch the transcript/captions for a YouTube video.
  *
  * Tries multiple strategies in order:
- *   1. InnerTube API (ANDROID client) — most reliable
- *   2. YouTube page HTML scraping — fallback
- *   3. youtube-transcript npm package — last resort
+ *   1. InnerTube API (ANDROID/WEB clients) via Edge Function proxy
+ *   2. YouTube page HTML scraping via Edge Function proxy
+ *   3. Server-side transcript API (Node.js serverless function)
+ *   4. youtube-transcript npm package (client-side, last resort)
  *
  * @param videoId  The 11-character YouTube video ID
  * @param lang     Preferred language code (default: 'en')
@@ -668,7 +705,6 @@ export async function fetchYouTubeTranscript(
     if (innerTubeResult) return innerTubeResult;
     errors.push('InnerTube API returned no captions');
   } catch (err) {
-    // If rate-limited, propagate immediately with clear message
     if (err instanceof Error && err.message.includes('rate-limiting')) {
       throw err;
     }
@@ -691,7 +727,18 @@ export async function fetchYouTubeTranscript(
     );
   }
 
-  // Strategy 3: npm package
+  // Strategy 3: Server-side transcript API (bypasses CORS and bot detection)
+  try {
+    const serverResult = await fetchViaServerApi(videoId, lang);
+    if (serverResult) return serverResult;
+    errors.push('Server API returned no captions');
+  } catch (err) {
+    errors.push(
+      `Server API: ${err instanceof Error ? err.message : 'failed'}`,
+    );
+  }
+
+  // Strategy 4: npm package (client-side, may fail due to CORS)
   try {
     const npmResult = await fetchViaNpmPackage(videoId, lang);
     if (npmResult) return npmResult;
