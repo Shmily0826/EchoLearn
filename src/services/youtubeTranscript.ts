@@ -35,8 +35,8 @@ function proxyUrl(ytUrl: string): string {
     // Production: use configured proxy
     return `${YT_PROXY_BASE}${encodeURIComponent(ytUrl)}`;
   }
-  // No proxy — return as-is (may fail due to CORS in browser)
-  return ytUrl;
+  // Production fallback: use the Vercel Edge Function at /api/yt
+  return `/api/yt?url=${encodeURIComponent(ytUrl)}`;
 }
 
 // ── CORS proxy fallbacks (used only when Vite proxy / YT_PROXY not available) ──
