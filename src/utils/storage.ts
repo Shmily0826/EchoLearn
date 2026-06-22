@@ -272,6 +272,11 @@ export function removeDailyPlanItem(id: string): DailyPlanItem[] {
   return items;
 }
 
+export function clearDailyPlan(): DailyPlanItem[] {
+  saveDailyPlan([]);
+  return [];
+}
+
 export function updateDailyPlanItem(
   id: string,
   patch: Partial<DailyPlanItem>,

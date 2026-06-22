@@ -16,6 +16,7 @@ import {
   addDailyPlanItem,
   updateDailyPlanItem,
   removeDailyPlanItem,
+  clearDailyPlan,
   planHasVideoId,
   saveCurrentSession,
 } from '../utils/storage';
@@ -375,7 +376,20 @@ const DashboardPage: React.FC = () => {
             <p className="text-xs text-gray-400 dark:text-gray-500 uppercase tracking-wider">
               Today's Plan
             </p>
-            <span className="text-xs text-gray-400 dark:text-gray-500">{dailyPlan.length} items</span>
+            <div className="flex items-center gap-2">
+              <span className="text-xs text-gray-400 dark:text-gray-500">{dailyPlan.length} items</span>
+              {dailyPlan.length > 0 && (
+                <button
+                  onClick={() => {
+                    setDailyPlan(clearDailyPlan());
+                  }}
+                  className="text-xs text-gray-400 hover:text-red-500 transition-colors cursor-pointer"
+                  title="Clear all plan items"
+                >
+                  Clear
+                </button>
+              )}
+            </div>
           </div>
 
           {dailyPlan.length === 0 ? (
