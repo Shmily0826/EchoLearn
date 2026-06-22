@@ -366,9 +366,7 @@ async function fetchViaInnerTube(
   lang: string,
 ): Promise<TranscriptFetchResult | null> {
   try {
-    const apiUrl = IS_DEV
-      ? proxyUrl(INNERTUBE_API_URL)
-      : INNERTUBE_API_URL;
+    const apiUrl = proxyUrl(INNERTUBE_API_URL);
 
     const res = await fetch(apiUrl, {
       method: 'POST',
