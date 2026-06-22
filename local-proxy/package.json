@@ -6,6 +6,7 @@
   "type": "module",
   "scripts": {
     "start": "node server.js",
+    "tunnel": "node launch.js",
     "dev": "node --watch server.js"
   },
   "dependencies": {
