@@ -48,8 +48,9 @@ const LoginPage: React.FC = () => {
 
   return (
     <div
-      className="min-h-screen flex items-center justify-center px-4"
+      className="min-h-screen flex items-center justify-center px-4 notranslate"
       style={{ backgroundColor: 'var(--color-bg)' }}
+      translate="no"
     >
       <div
         className="w-full max-w-sm rounded-2xl p-8 shadow-lg border"

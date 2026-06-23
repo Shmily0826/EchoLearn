@@ -80,8 +80,9 @@ const Layout: React.FC<{ children: ReactNode }> = ({ children }) => {
 
   return (
     <div
-      className="min-h-screen flex flex-col"
+      className="min-h-screen flex flex-col notranslate"
       style={{ backgroundColor: 'var(--color-bg)', color: 'var(--color-text)' }}
+      translate="no"
     >
       {/* Top navigation */}
       <header

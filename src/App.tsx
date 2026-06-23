@@ -1,5 +1,6 @@
 import { BrowserRouter, useLocation } from 'react-router-dom'
 import { AuthProvider, useAuth } from './contexts/AuthContext'
+import { useAntiTranslate } from './hooks/useAntiTranslate'
 import ErrorBoundary from './components/ErrorBoundary'
 import Layout from './components/Layout'
 import LoginPage from './pages/LoginPage'
@@ -17,9 +18,29 @@ import SettingsPage from './pages/SettingsPage'
  */
 function AppContent() {
   const { pathname } = useLocation();
+  const { translateDetected, dismissWarning } = useAntiTranslate();
 
   return (
     <Layout>
+      {/* Google Translate detection banner */}
+      {translateDetected && (
+        <div
+          className="fixed top-0 left-0 right-0 z-[9999] px-4 py-2.5 text-sm text-center"
+          style={{ backgroundColor: '#fef3c7', color: '#92400e', borderBottom: '1px solid #fcd34d' }}
+          translate="no"
+        >
+          <span>
+            Auto-translate detected — this may break the app. Please disable it in your browser settings.
+          </span>
+          <button
+            onClick={dismissWarning}
+            className="ml-3 font-semibold underline cursor-pointer"
+          >
+            Dismiss
+          </button>
+        </div>
+      )}
+
       <div style={{ display: pathname === '/' ? undefined : 'none' }}>
         <DashboardPage />
       </div>
@@ -53,8 +74,9 @@ function AuthGate() {
     // Initial auth state check — show a minimal loader
     return (
       <div
-        className="min-h-screen flex items-center justify-center"
+        className="min-h-screen flex items-center justify-center notranslate"
         style={{ backgroundColor: 'var(--color-bg)' }}
+        translate="no"
       >
         <div className="flex flex-col items-center gap-3">
           <svg
