@@ -252,14 +252,14 @@ const StudyPage: React.FC = () => {
     setSentences(loadSentences());
   }, [pathname]);
 
-  // ── Poll current playback time every 500ms ─────────────────
+  // ── Poll current playback time every 200ms ─────────────────
   useEffect(() => {
     if (!videoId || !playerRef.current) return;
     const id = setInterval(() => {
       if (playerRef.current) {
         setCurrentTime(playerRef.current.getCurrentTime());
       }
-    }, 500);
+    }, 200);
     return () => clearInterval(id);
   }, [videoId]);
 
