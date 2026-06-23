@@ -272,7 +272,7 @@ const SettingsPage: React.FC = () => {
           <label className="block text-xs font-medium text-gray-500 dark:text-gray-400 mb-1.5 uppercase tracking-wider">
             Proxy URL
           </label>
-          <div className="flex gap-2">
+          <div className="flex flex-wrap gap-2">
             <input
               type="text"
               value={proxyUrl}

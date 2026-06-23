@@ -549,24 +549,24 @@ const StudyPage: React.FC = () => {
       <main className="max-w-7xl mx-auto px-4 sm:px-6 py-4 sm:py-6">
         {/* Mobile tab switcher — only visible on small screens */}
         <div className="lg:hidden flex mb-3 bg-gray-100 dark:bg-slate-700 rounded-xl p-1 gap-1">
-          {(['video', 'transcript', 'saved'] as const).map((tab) => (
+          {(['transcript', 'saved'] as const).map((tab) => (
             <button
               key={tab}
-              onClick={() => setMobileTab(tab)}
+              onClick={() => setMobileTab(tab === 'transcript' ? 'transcript' : 'saved')}
               className={`flex-1 py-2 text-xs font-semibold rounded-lg transition-colors cursor-pointer ${
-                mobileTab === tab
+                (tab === 'transcript' ? (mobileTab === 'transcript' || mobileTab === 'video') : mobileTab === 'saved')
                   ? 'bg-white dark:bg-slate-800 text-indigo-600 dark:text-indigo-400 shadow-sm'
                   : 'text-gray-500 dark:text-gray-400'
               }`}
             >
-              {tab === 'video' ? 'Video' : tab === 'transcript' ? 'Transcript' : `Saved (${filteredVocabulary.length + filteredSentences.length})`}
+              {tab === 'transcript' ? 'Transcript' : `Saved (${filteredVocabulary.length + filteredSentences.length})`}
             </button>
           ))}
         </div>
 
         <div className="flex flex-col lg:flex-row gap-4 lg:gap-6">
-          {/* Left: video — always visible on desktop, conditional on mobile */}
-          <div className={`w-full lg:w-[55%] flex-shrink-0 ${mobileTab === 'video' ? '' : 'hidden lg:block'}`}>
+          {/* Left: video — always visible (mobile: above transcript, desktop: left column) */}
+          <div className="w-full lg:w-[55%] flex-shrink-0">
             {videoId ? (
               <YouTubeEmbed ref={playerRef} youtubeId={videoId} startTime={startTime} />
             ) : (
@@ -614,10 +614,35 @@ const StudyPage: React.FC = () => {
                 )}
               </div>
             )}
+
+            {/* ── Mobile inline transcript — visible below video on small screens ── */}
+            {videoId && displayLines.length > 0 && (
+              <div className="lg:hidden mt-3 bg-white dark:bg-slate-800 rounded-xl border border-gray-200 dark:border-slate-700 shadow-sm overflow-hidden">
+                <div className="flex items-center justify-between px-3 py-2 border-b border-gray-100 dark:border-slate-700">
+                  <span className="text-[10px] font-semibold text-gray-500 dark:text-gray-400 uppercase tracking-wider">
+                    Subtitles
+                  </span>
+                  {fetchingCaption && (
+                    <span className="flex items-center gap-1 text-[10px] text-amber-500">
+                      <svg className="animate-spin w-2.5 h-2.5" fill="none" viewBox="0 0 24 24">
+                        <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
+                        <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z" />
+                      </svg>
+                      Fetching...
+                    </span>
+                  )}
+                </div>
+                <MobileTranscriptPanel
+                  lines={displayLines}
+                  activeLineIndex={activeLineIndex}
+                  onSeekTo={(seconds) => playerRef.current?.seekTo(seconds)}
+                />
+              </div>
+            )}
           </div>
 
-          {/* Right: Transcript — always visible on desktop, conditional on mobile */}
-          <div className={`flex-1 flex flex-col min-w-0 h-[50vh] lg:h-[calc(100vh-160px)] ${mobileTab === 'transcript' ? '' : 'hidden lg:flex'}`}>
+          {/* Right: Transcript — always visible on desktop, tab-gated on mobile */}
+          <div className={`flex-1 flex flex-col min-w-0 h-[50vh] lg:h-[calc(100vh-160px)] ${(mobileTab === 'transcript' || mobileTab === 'video') ? '' : 'hidden lg:flex'}`}>
             {/* Toolbar — fixed, never scrolls */}
             <div className="flex items-center justify-between mb-3 flex-shrink-0 flex-wrap gap-1.5 sm:gap-2">
               <h2 className="text-sm font-semibold text-gray-600 dark:text-gray-400 uppercase tracking-wider">
@@ -1036,5 +1061,77 @@ function formatTime(seconds: number): string {
   const s = Math.floor(seconds % 60);
   return `${m}:${s.toString().padStart(2, '0')}`;
 }
+
+// ─── Mobile Transcript Panel (inline below video) ────────────
+
+const MobileTranscriptPanel: React.FC<{
+  lines: TranscriptLine[];
+  activeLineIndex: number;
+  onSeekTo: (seconds: number) => void;
+}> = ({ lines, activeLineIndex, onSeekTo }) => {
+  const containerRef = useRef<HTMLDivElement>(null);
+  const activeRef = useRef<HTMLDivElement>(null);
+  const userScrolled = useRef(false);
+  const scrollTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  // Detect user scrolling
+  const handleScroll = useCallback(() => {
+    userScrolled.current = true;
+    if (scrollTimer.current) clearTimeout(scrollTimer.current);
+    scrollTimer.current = setTimeout(() => {
+      userScrolled.current = false;
+    }, 3000);
+  }, []);
+
+  // Auto-scroll to active line
+  useEffect(() => {
+    if (!userScrolled.current && activeRef.current && containerRef.current) {
+      const container = containerRef.current;
+      const el = activeRef.current;
+      const containerHeight = container.clientHeight;
+      const elTop = el.offsetTop - container.offsetTop;
+      const elHeight = el.offsetHeight;
+      const targetScroll = elTop - containerHeight / 2 + elHeight / 2;
+      container.scrollTo({ top: targetScroll, behavior: 'smooth' });
+    }
+  }, [activeLineIndex]);
+
+  if (lines.length === 0) {
+    return (
+      <div className="px-3 py-4 text-center text-xs text-gray-400 dark:text-gray-500">
+        No subtitles available
+      </div>
+    );
+  }
+
+  return (
+    <div
+      ref={containerRef}
+      onScroll={handleScroll}
+      className="overflow-y-auto max-h-[35vh] px-2 py-1"
+    >
+      {lines.map((line, idx) => {
+        const isActive = idx === activeLineIndex;
+        return (
+          <div
+            key={line.id}
+            ref={isActive ? activeRef : null}
+            onClick={() => onSeekTo(line.start)}
+            className={`px-2 py-1.5 rounded-lg text-sm leading-relaxed cursor-pointer transition-colors ${
+              isActive
+                ? 'bg-indigo-50 dark:bg-indigo-950/40 text-indigo-900 dark:text-indigo-100 font-medium'
+                : 'text-gray-600 dark:text-gray-400 hover:bg-gray-50 dark:hover:bg-slate-700/50'
+            }`}
+          >
+            <span className="text-[10px] font-mono text-gray-400 dark:text-gray-500 mr-1.5 select-none">
+              {formatTime(line.start)}
+            </span>
+            {line.text}
+          </div>
+        );
+      })}
+    </div>
+  );
+};
 
 export default StudyPage;
