@@ -597,7 +597,7 @@ const StudyPage: React.FC = () => {
 
             {/* ── Mobile inline transcript — visible below video on small screens ── */}
             {videoId && displayLines.length > 0 && (
-              <div className="lg:hidden mt-3 bg-white dark:bg-slate-800 rounded-xl border border-gray-200 dark:border-slate-700 shadow-sm overflow-hidden">
+              <div translate="no" className="notranslate lg:hidden mt-3 bg-white dark:bg-slate-800 rounded-xl border border-gray-200 dark:border-slate-700 shadow-sm overflow-hidden">
                 <div className="flex items-center justify-between px-3 py-2 border-b border-gray-100 dark:border-slate-700">
                   <span className="text-[10px] font-semibold text-gray-500 dark:text-gray-400 uppercase tracking-wider">
                     Subtitles
@@ -622,7 +622,7 @@ const StudyPage: React.FC = () => {
           </div>
 
           {/* Right: Transcript — always visible on desktop, tab-gated on mobile */}
-          <div className="hidden lg:flex flex-1 flex-col min-w-0 h-[calc(100vh-160px)]">
+          <div translate="no" className="notranslate hidden lg:flex flex-1 flex-col min-w-0 h-[calc(100vh-160px)]">
             {/* Toolbar — fixed, never scrolls */}
             <div className="flex items-center justify-between mb-3 flex-shrink-0 flex-wrap gap-1.5 sm:gap-2">
               <h2 className="text-sm font-semibold text-gray-600 dark:text-gray-400 uppercase tracking-wider">
