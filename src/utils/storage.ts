@@ -296,7 +296,7 @@ export function planHasVideoId(videoId: string): boolean {
 // ─── Local Proxy URL ──────────────────────────────────────────
 
 const PROXY_URL_KEY = 'echolearn_local_proxy_url';
-const DEFAULT_PROXY_URL = 'http://127.0.0.1:8787';
+const DEFAULT_PROXY_URL = 'https://proxy.echo-learn.uk';
 
 /** Get the configured local proxy URL, or the default. */
 export function getLocalProxyUrl(): string {
