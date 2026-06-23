@@ -1,5 +1,6 @@
 import { BrowserRouter, useLocation } from 'react-router-dom'
 import { AuthProvider, useAuth } from './contexts/AuthContext'
+import ErrorBoundary from './components/ErrorBoundary'
 import Layout from './components/Layout'
 import LoginPage from './pages/LoginPage'
 import DashboardPage from './pages/DashboardPage'
@@ -83,11 +84,13 @@ function AuthGate() {
 
 function App() {
   return (
-    <BrowserRouter>
-      <AuthProvider>
-        <AuthGate />
-      </AuthProvider>
-    </BrowserRouter>
+    <ErrorBoundary>
+      <BrowserRouter>
+        <AuthProvider>
+          <AuthGate />
+        </AuthProvider>
+      </BrowserRouter>
+    </ErrorBoundary>
   );
 }
 

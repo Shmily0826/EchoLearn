@@ -38,10 +38,19 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
   // Listen for auth state changes
   useEffect(() => {
-    const unsub = onAuthStateChanged(auth, (firebaseUser) => {
-      setUser(firebaseUser);
-      setLoading(false);
-    });
+    const unsub = onAuthStateChanged(
+      auth,
+      (firebaseUser) => {
+        setUser(firebaseUser);
+        setLoading(false);
+      },
+      (error) => {
+        console.error('[Auth] state change error:', error);
+        // On auth error, treat user as logged out rather than stuck in loading
+        setUser(null);
+        setLoading(false);
+      },
+    );
     return unsub;
   }, []);
 
