@@ -252,14 +252,14 @@ const StudyPage: React.FC = () => {
     setSentences(loadSentences());
   }, [pathname]);
 
-  // ── Poll current playback time every 200ms ─────────────────
+  // ── Poll current playback time every 100ms ─────────────────
   useEffect(() => {
     if (!videoId || !playerRef.current) return;
     const id = setInterval(() => {
       if (playerRef.current) {
         setCurrentTime(playerRef.current.getCurrentTime());
       }
-    }, 200);
+    }, 100);
     return () => clearInterval(id);
   }, [videoId]);
 
@@ -1076,8 +1076,8 @@ const MobileTranscriptPanel: React.FC<{
       (elRect.top - containerRect.top) -
       container.clientHeight / 2 +
       elRect.height / 2;
-    // Use 'instant' to avoid smooth scroll affecting the page
-    container.scrollTo({ top: Math.max(0, targetScroll), behavior: 'instant' as ScrollBehavior });
+    // CSS handles smooth animation; JS just sets the target
+    container.scrollTop = Math.max(0, targetScroll);
   }, [activeLineIndex]);
 
   if (lines.length === 0) {
@@ -1093,7 +1093,7 @@ const MobileTranscriptPanel: React.FC<{
       ref={containerRef}
       onScroll={handleScroll}
       className="overflow-y-auto max-h-[35vh] px-2 py-1"
-      style={{ overscrollBehavior: 'contain', overflowAnchor: 'none' }}
+      style={{ overscrollBehavior: 'contain', overflowAnchor: 'none', scrollBehavior: 'smooth' }}
     >
       {lines.map((line, idx) => {
         const isActive = idx === activeLineIndex;
