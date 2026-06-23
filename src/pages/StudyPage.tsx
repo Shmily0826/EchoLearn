@@ -57,9 +57,6 @@ const StudyPage: React.FC = () => {
   // Tab state for the bottom panel
   const [activeTab, setActiveTab] = useState<'vocab' | 'sentences'>('vocab');
 
-  // Mobile tab state for switching between Video / Transcript / Saved
-  const [mobileTab, setMobileTab] = useState<'video' | 'transcript' | 'saved'>('video');
-
   // AI analysis state
   const [analysis, setAnalysis] = useState<AIAnalysisResult | null>(null);
   const [analyzing, setAnalyzing] = useState(false);
@@ -547,23 +544,6 @@ const StudyPage: React.FC = () => {
 
       {/* Main content */}
       <main className="max-w-7xl mx-auto px-4 sm:px-6 py-4 sm:py-6">
-        {/* Mobile tab switcher — only visible on small screens */}
-        <div className="lg:hidden flex mb-3 bg-gray-100 dark:bg-slate-700 rounded-xl p-1 gap-1">
-          {(['transcript', 'saved'] as const).map((tab) => (
-            <button
-              key={tab}
-              onClick={() => setMobileTab(tab === 'transcript' ? 'transcript' : 'saved')}
-              className={`flex-1 py-2 text-xs font-semibold rounded-lg transition-colors cursor-pointer ${
-                (tab === 'transcript' ? (mobileTab === 'transcript' || mobileTab === 'video') : mobileTab === 'saved')
-                  ? 'bg-white dark:bg-slate-800 text-indigo-600 dark:text-indigo-400 shadow-sm'
-                  : 'text-gray-500 dark:text-gray-400'
-              }`}
-            >
-              {tab === 'transcript' ? 'Transcript' : `Saved (${filteredVocabulary.length + filteredSentences.length})`}
-            </button>
-          ))}
-        </div>
-
         <div className="flex flex-col lg:flex-row gap-4 lg:gap-6">
           {/* Left: video — always visible (mobile: above transcript, desktop: left column) */}
           <div className="w-full lg:w-[55%] flex-shrink-0">
@@ -642,7 +622,7 @@ const StudyPage: React.FC = () => {
           </div>
 
           {/* Right: Transcript — always visible on desktop, tab-gated on mobile */}
-          <div className={`flex-1 flex flex-col min-w-0 h-[50vh] lg:h-[calc(100vh-160px)] ${(mobileTab === 'transcript' || mobileTab === 'video') ? '' : 'hidden lg:flex'}`}>
+          <div className="hidden lg:flex flex-1 flex-col min-w-0 h-[calc(100vh-160px)]">
             {/* Toolbar — fixed, never scrolls */}
             <div className="flex items-center justify-between mb-3 flex-shrink-0 flex-wrap gap-1.5 sm:gap-2">
               <h2 className="text-sm font-semibold text-gray-600 dark:text-gray-400 uppercase tracking-wider">
@@ -866,9 +846,9 @@ const StudyPage: React.FC = () => {
           </div>
         </div>
 
-        {/* AI Analysis Panel — show on transcript tab (mobile) or always (desktop) */}
+        {/* AI Analysis Panel */}
         {analysis && (
-          <div className={`${mobileTab === 'transcript' ? '' : 'hidden lg:block'}`}>
+          <div>
             <AIAnalysisPanel
               analysis={analysis}
               videoId={videoId || 'unknown'}
@@ -881,8 +861,8 @@ const StudyPage: React.FC = () => {
           </div>
         )}
 
-        {/* Bottom: Saved items — show on saved tab (mobile) or always (desktop) */}
-        <div className={`mt-8 bg-white dark:bg-slate-800 rounded-xl border border-gray-200 dark:border-slate-700 shadow-sm ${mobileTab === 'saved' ? '' : 'hidden lg:block'}`}>
+        {/* Bottom: Saved items */}
+        <div className="mt-8 bg-white dark:bg-slate-800 rounded-xl border border-gray-200 dark:border-slate-700 shadow-sm">
           {/* Tabs */}
           <div className="flex border-b border-gray-200 dark:border-slate-700">
             <button
