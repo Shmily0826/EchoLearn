@@ -1,5 +1,6 @@
 import React, { useEffect, useState, useCallback, useMemo } from 'react';
 import { useNavigate } from 'react-router-dom';
+import { useI18n } from '../i18n/I18nContext';
 import {
   loadSentences,
   removeSentenceItem,
@@ -23,19 +24,20 @@ function splitTokens(text: string): string[] {
 }
 
 /** Format a nextReviewAt timestamp as a short label. */
-function reviewLabel(nextReviewAt: number, mastered: boolean): { text: string; color: string } {
-  if (mastered) return { text: 'Mastered', color: 'text-green-600' };
-  if (nextReviewAt === 0) return { text: 'Mastered', color: 'text-green-600' };
+function reviewLabel(nextReviewAt: number, mastered: boolean, t: (key: string, vars?: Record<string, string | number>) => string): { text: string; color: string } {
+  if (mastered) return { text: t('reviewLabel.mastered'), color: 'text-green-600' };
+  if (nextReviewAt === 0) return { text: t('reviewLabel.mastered'), color: 'text-green-600' };
   const now = Date.now();
-  if (nextReviewAt <= now) return { text: 'Due now', color: 'text-red-500' };
+  if (nextReviewAt <= now) return { text: t('reviewLabel.dueNow'), color: 'text-red-500' };
   const days = Math.ceil((nextReviewAt - now) / (24 * 60 * 60 * 1000));
-  if (days === 1) return { text: 'Due tomorrow', color: 'text-amber-500' };
-  if (days <= 7) return { text: `Due in ${days}d`, color: 'text-amber-500' };
-  return { text: `Due in ${days}d`, color: 'text-gray-400' };
+  if (days === 1) return { text: t('reviewLabel.dueTomorrow'), color: 'text-amber-500' };
+  if (days <= 7) return { text: t('reviewLabel.dueIn', { n: days }), color: 'text-amber-500' };
+  return { text: t('reviewLabel.dueIn', { n: days }), color: 'text-gray-400' };
 }
 
 const SentencesPage: React.FC = () => {
   const navigate = useNavigate();
+  const { t } = useI18n();
   const [sentences, setSentences] = useState<SentenceItem[]>([]);
   const [sessions, setSessions] = useState<VideoStudySession[]>([]);
   const [search, setSearch] = useState('');
@@ -65,9 +67,9 @@ const SentencesPage: React.FC = () => {
     item.sourceVideoTitle || titleMap.get(item.sourceVideoId) || item.sourceVideoId;
 
   const handleRemove = useCallback((id: string) => {
-    if (!window.confirm('确定要删除这个句子吗？')) return;
+    if (!window.confirm(t('sent.deleteConfirm'))) return;
     setSentences(removeSentenceItem(id));
-  }, []);
+  }, [t]);
 
   const handleWordClick = (word: string, e: React.MouseEvent) => {
     e.stopPropagation();
@@ -169,10 +171,10 @@ const SentencesPage: React.FC = () => {
       {/* Header */}
       <div className="flex flex-col sm:flex-row sm:items-end justify-between mb-4 sm:mb-6 gap-3">
         <div>
-          <h1 className="text-xl sm:text-2xl font-bold text-gray-900 dark:text-gray-100 tracking-tight">Sentence Bank</h1>
+          <h1 className="text-xl sm:text-2xl font-bold text-gray-900 dark:text-gray-100 tracking-tight">{t('sent.title')}</h1>
           <p className="text-sm text-gray-500 dark:text-gray-400 mt-1">
-            {sentences.length} sentences &middot; {masteredCount} mastered
-            {dueCount > 0 && <span className="text-amber-500"> &middot; {dueCount} due</span>}
+            {`${sentences.length} ${t('sent.sentences')}`} &middot; {`${masteredCount} ${t('sent.mastered')}`}
+            {dueCount > 0 && <span className="text-amber-500"> &middot; {`${dueCount} ${t('sent.due')}`}</span>}
           </p>
         </div>
         <div className="flex items-center gap-2 sm:gap-3 flex-wrap">
@@ -180,14 +182,14 @@ const SentencesPage: React.FC = () => {
             type="text"
             value={search}
             onChange={(e) => setSearch(e.target.value)}
-            placeholder="Search sentence / meaning..."
+            placeholder={t('sent.searchPh')}
             className="w-full sm:w-52 px-3 py-1.5 text-sm border border-gray-300 dark:border-slate-600 rounded-lg focus:outline-none focus:ring-2 focus:ring-indigo-400 focus:border-transparent dark:bg-slate-800 dark:text-gray-200"
           />
           <button
             onClick={() => navigate('/review')}
             className="px-4 py-1.5 text-sm bg-indigo-600 text-white rounded-lg hover:bg-indigo-700 transition-colors font-medium cursor-pointer"
           >
-            Review{dueCount > 0 ? ` (${dueCount})` : ''}
+            {t('sent.review')}{dueCount > 0 ? ` (${dueCount})` : ''}
           </button>
           {/* Backfill translations */}
           {sentences.some((s) => !s.meaningCn) && (
@@ -196,7 +198,7 @@ const SentencesPage: React.FC = () => {
               disabled={backfilling}
               className="px-3 py-1.5 text-sm text-amber-700 bg-amber-50 dark:bg-amber-950/30 border border-amber-200 dark:border-amber-800 rounded-lg hover:bg-amber-100 dark:hover:bg-amber-900/40 transition-colors font-medium cursor-pointer disabled:opacity-60"
             >
-              {backfilling ? 'Translating...' : 'Auto Translate'}
+              {backfilling ? t('sent.translating') : t('sent.autoTranslate')}
             </button>
           )}
           {/* Export dropdown */}
@@ -205,7 +207,7 @@ const SentencesPage: React.FC = () => {
               onClick={() => setShowExport(!showExport)}
               className="px-3 py-1.5 text-sm text-gray-600 dark:text-gray-400 bg-white dark:bg-slate-800 border border-gray-300 dark:border-slate-600 rounded-lg hover:bg-gray-50 dark:hover:bg-slate-700 transition-colors font-medium cursor-pointer"
             >
-              Export
+              {t('sent.export')}
             </button>
             {showExport && sentences.length > 0 && (
               <div className="absolute right-0 mt-1 w-36 bg-white dark:bg-slate-800 border border-gray-200 dark:border-slate-700 rounded-lg shadow-lg z-10 py-1">
@@ -213,13 +215,13 @@ const SentencesPage: React.FC = () => {
                   onClick={() => { exportSentencesCSV(filtered); setShowExport(false); }}
                   className="w-full text-left px-3 py-1.5 text-sm text-gray-700 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-slate-700 cursor-pointer"
                 >
-                  Export CSV
+                  {t('sent.exportCSV')}
                 </button>
                 <button
                   onClick={() => { exportSentencesPDF(filtered); setShowExport(false); }}
                   className="w-full text-left px-3 py-1.5 text-sm text-gray-700 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-slate-700 cursor-pointer"
                 >
-                  Export PDF
+                  {t('sent.exportPDF')}
                 </button>
               </div>
             )}
@@ -232,8 +234,8 @@ const SentencesPage: React.FC = () => {
         <div className="bg-white dark:bg-slate-800 rounded-xl border border-gray-200 dark:border-slate-700 shadow-sm p-10 text-center">
           <p className="text-gray-400 dark:text-gray-500 text-sm">
             {sentences.length === 0
-              ? 'No sentences saved yet. Click any sentence in a transcript to save it.'
-              : 'No matching sentences.'}
+              ? t('sent.noSentences')
+              : t('sent.noMatch')}
           </p>
         </div>
       ) : (
@@ -267,7 +269,7 @@ const SentencesPage: React.FC = () => {
                   onClick={() => handleRemove(item.id)}
                   className="shrink-0 text-gray-400 hover:text-red-500 opacity-100 md:opacity-0 md:group-hover:opacity-100 transition-opacity text-xs cursor-pointer"
                 >
-                  Delete
+                  {t('sent.delete')}
                 </button>
               </div>
 
@@ -283,14 +285,14 @@ const SentencesPage: React.FC = () => {
                       if (e.key === 'Escape') handleCancelMeaning();
                     }}
                     autoFocus
-                    placeholder="输入中文翻译..."
+                    placeholder={t('sent.editTransPh')}
                     className="flex-1 px-2 py-1 text-sm border border-indigo-300 rounded focus:outline-none focus:ring-1 focus:ring-indigo-400"
                   />
                   <button
                     onClick={() => handleSaveMeaning(item.id)}
                     className="px-2 py-1 text-xs bg-indigo-600 text-white rounded hover:bg-indigo-700 cursor-pointer"
                   >
-                    Save
+                    {t('sent.save')}
                   </button>
                 </div>
               ) : (
@@ -301,7 +303,7 @@ const SentencesPage: React.FC = () => {
                 >
                   {item.meaningCn || (
                     <span className="text-gray-400 italic text-xs">
-                      Click to add Chinese translation...
+                      {t('sent.clickAddTrans')}
                     </span>
                   )}
                 </p>
@@ -310,7 +312,7 @@ const SentencesPage: React.FC = () => {
               {/* My own sentence — editable */}
               <div className="bg-slate-50 dark:bg-slate-900 rounded-lg px-3 py-2 mb-3">
                 <p className="text-[10px] text-gray-400 uppercase tracking-wider mb-1">
-                  My Own Sentence
+                  {t('sent.myOwn')}
                 </p>
                 {editingId === item.id ? (
                   <div className="flex gap-1.5">
@@ -326,7 +328,7 @@ const SentencesPage: React.FC = () => {
                       }}
                       autoFocus
                       rows={2}
-                      placeholder="Write your own sentence using the same pattern..."
+                      placeholder={t('sent.writePh')}
                       className="flex-1 px-2 py-1 text-sm border border-indigo-300 rounded focus:outline-none focus:ring-1 focus:ring-indigo-400 resize-none"
                     />
                     <div className="flex flex-col gap-1">
@@ -334,13 +336,13 @@ const SentencesPage: React.FC = () => {
                         onClick={() => handleSaveOwn(item.id)}
                         className="px-2 py-1 text-xs bg-indigo-600 text-white rounded hover:bg-indigo-700 cursor-pointer"
                       >
-                        Save
+                        {t('sent.save')}
                       </button>
                       <button
                         onClick={handleCancelOwn}
                         className="px-2 py-1 text-xs text-gray-500 hover:text-gray-700 cursor-pointer"
                       >
-                        Cancel
+                        {t('sent.cancel')}
                       </button>
                     </div>
                   </div>
@@ -352,7 +354,7 @@ const SentencesPage: React.FC = () => {
                   >
                     {item.myOwnSentence || (
                       <span className="text-gray-400 italic text-xs">
-                        Click to write your own sentence...
+                        {t('sent.clickWrite')}
                       </span>
                     )}
                   </p>
@@ -373,8 +375,8 @@ const SentencesPage: React.FC = () => {
                   </span>
                 </div>
                 <div className="flex items-center gap-2">
-                  <span className={`text-[10px] font-medium ${reviewLabel(item.nextReviewAt, item.mastered).color}`}>
-                    {reviewLabel(item.nextReviewAt, item.mastered).text}
+                  <span className={`text-[10px] font-medium ${reviewLabel(item.nextReviewAt, item.mastered, t).color}`}>
+                    {reviewLabel(item.nextReviewAt, item.mastered, t).text}
                   </span>
                   {!item.mastered && (
                     <span className="text-[9px] text-gray-400">{item.reviewCount}/5</span>

@@ -1,10 +1,12 @@
 import { useState } from 'react';
 import { useAuth } from '../contexts/AuthContext';
+import { useI18n } from '../i18n/I18nContext';
 
 type AuthMode = 'login' | 'signup';
 
 const LoginPage: React.FC = () => {
   const { signInWithGoogle, signInWithEmail, signUpWithEmail } = useAuth();
+  const { t } = useI18n();
   const [mode, setMode] = useState<AuthMode>('login');
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
@@ -18,7 +20,7 @@ const LoginPage: React.FC = () => {
     try {
       await signInWithGoogle();
     } catch (err) {
-      setError(getErrorMessage(err));
+      setError(getErrorMessage(err, t));
     } finally {
       setLoading(false);
     }
@@ -33,14 +35,14 @@ const LoginPage: React.FC = () => {
         await signInWithEmail(email, password);
       } else {
         if (password.length < 6) {
-          setError('Password must be at least 6 characters.');
+          setError(t('login.errWeakPw'));
           setLoading(false);
           return;
         }
         await signUpWithEmail(email, password, displayName);
       }
     } catch (err) {
-      setError(getErrorMessage(err));
+      setError(getErrorMessage(err, t));
     } finally {
       setLoading(false);
     }
@@ -75,7 +77,7 @@ const LoginPage: React.FC = () => {
           </div>
           <h1 className="text-2xl font-bold text-indigo-500 tracking-tight">EchoLearn</h1>
           <p className="text-sm mt-1" style={{ color: 'var(--color-text-muted)' }}>
-            Sign in to sync your learning data across devices
+            {t('login.subtitle')}
           </p>
         </div>
 
@@ -107,14 +109,14 @@ const LoginPage: React.FC = () => {
               fill="#EA4335"
             />
           </svg>
-          Continue with Google
+          {t('login.google')}
         </button>
 
         {/* Divider */}
         <div className="flex items-center gap-3 my-6">
           <div className="flex-1 h-px" style={{ backgroundColor: 'var(--color-border)' }} />
           <span className="text-xs" style={{ color: 'var(--color-text-muted)' }}>
-            or
+            {t('login.or')}
           </span>
           <div className="flex-1 h-px" style={{ backgroundColor: 'var(--color-border)' }} />
         </div>
@@ -127,7 +129,7 @@ const LoginPage: React.FC = () => {
                 type="text"
                 value={displayName}
                 onChange={(e) => setDisplayName(e.target.value)}
-                placeholder="Display name (optional)"
+                placeholder={t('login.displayName')}
                 className="w-full px-4 py-3 rounded-xl border text-sm outline-none transition-colors focus:ring-2 focus:ring-indigo-500/30"
                 style={{
                   backgroundColor: 'var(--color-input-bg)',
@@ -146,7 +148,7 @@ const LoginPage: React.FC = () => {
                 setEmail(e.target.value);
                 setError('');
               }}
-              placeholder="Email"
+              placeholder={t('login.email')}
               required
               className="w-full px-4 py-3 rounded-xl border text-sm outline-none transition-colors focus:ring-2 focus:ring-indigo-500/30"
               style={{
@@ -165,7 +167,7 @@ const LoginPage: React.FC = () => {
                 setPassword(e.target.value);
                 setError('');
               }}
-              placeholder="Password"
+              placeholder={t('login.password')}
               required
               className="w-full px-4 py-3 rounded-xl border text-sm outline-none transition-colors focus:ring-2 focus:ring-indigo-500/30"
               style={{
@@ -201,16 +203,16 @@ const LoginPage: React.FC = () => {
             className="w-full py-3 rounded-xl text-sm font-semibold text-white bg-indigo-500 hover:bg-indigo-600 active:bg-indigo-700 transition-colors cursor-pointer disabled:opacity-50"
           >
             {loading
-              ? 'Please wait...'
+              ? t('login.waiting')
               : mode === 'login'
-                ? 'Sign In'
-                : 'Create Account'}
+                ? t('login.signIn')
+                : t('login.signUp')}
           </button>
         </form>
 
         {/* Toggle mode */}
         <p className="text-center text-sm mt-6" style={{ color: 'var(--color-text-muted)' }}>
-          {mode === 'login' ? "Don't have an account? " : 'Already have an account? '}
+          {mode === 'login' ? t('login.noAccount') : t('login.hasAccount')}
           <button
             onClick={() => {
               setMode(mode === 'login' ? 'signup' : 'login');
@@ -218,7 +220,7 @@ const LoginPage: React.FC = () => {
             }}
             className="text-indigo-500 hover:underline font-medium cursor-pointer"
           >
-            {mode === 'login' ? 'Sign up' : 'Sign in'}
+            {mode === 'login' ? t('login.signUpLink') : t('login.signInLink')}
           </button>
         </p>
       </div>
@@ -226,20 +228,20 @@ const LoginPage: React.FC = () => {
   );
 };
 
-function getErrorMessage(err: unknown): string {
+function getErrorMessage(err: unknown, t: (key: string) => string): string {
   if (!(err instanceof Error)) return 'An unknown error occurred.';
   const msg = err.message;
   // Firebase auth error codes are embedded in the message
-  if (msg.includes('auth/user-not-found')) return 'No account found with this email.';
-  if (msg.includes('auth/wrong-password')) return 'Incorrect password.';
-  if (msg.includes('auth/invalid-email')) return 'Invalid email address.';
-  if (msg.includes('auth/email-already-in-use')) return 'This email is already registered.';
-  if (msg.includes('auth/weak-password')) return 'Password is too weak (min 6 characters).';
-  if (msg.includes('auth/invalid-credential')) return 'Invalid email or password.';
-  if (msg.includes('auth/popup-closed-by-user')) return 'Sign-in was cancelled.';
-  if (msg.includes('auth/too-many-requests')) return 'Too many attempts. Please try again later.';
+  if (msg.includes('auth/user-not-found')) return t('login.errNotFound');
+  if (msg.includes('auth/wrong-password')) return t('login.errPassword');
+  if (msg.includes('auth/invalid-email')) return t('login.errEmail');
+  if (msg.includes('auth/email-already-in-use')) return t('login.errEmailUsed');
+  if (msg.includes('auth/weak-password')) return t('login.errWeakPw');
+  if (msg.includes('auth/invalid-credential')) return t('login.errCredential');
+  if (msg.includes('auth/popup-closed-by-user')) return t('login.errCancelled');
+  if (msg.includes('auth/too-many-requests')) return t('login.errTooMany');
   // Return cleaned message
-  return msg.replace('Firebase: ', '').replace(/\(auth\/.*\)/, '').trim() || 'Authentication failed.';
+  return msg.replace('Firebase: ', '').replace(/\(auth\/.*\)/, '').trim() || t('login.errFailed');
 }
 
 export default LoginPage;

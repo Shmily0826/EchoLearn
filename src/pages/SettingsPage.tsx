@@ -1,5 +1,6 @@
 import { useState, useEffect, useCallback } from 'react';
 import { useAuth } from '../contexts/AuthContext';
+import { useI18n } from '../i18n/I18nContext';
 import {
   syncWithCloud,
   uploadToCloud,
@@ -51,6 +52,7 @@ function useLocalDataSize() {
 const SettingsPage: React.FC = () => {
   const dataSize = useLocalDataSize();
   const { user, logOut } = useAuth();
+  const { t } = useI18n();
 
   // ── Firebase sync state ──────────────────────────────────
   const [fbSyncAction, setFbSyncAction] = useState<'idle' | 'syncing' | 'uploading'>('idle');
@@ -292,10 +294,10 @@ const SettingsPage: React.FC = () => {
   return (
     <div className="max-w-2xl mx-auto px-4 sm:px-6 py-6 sm:py-10">
       <h1 className="text-2xl sm:text-3xl font-bold text-gray-900 dark:text-gray-100 tracking-tight mb-2">
-        Settings
+        {t('settings.title')}
       </h1>
       <p className="text-gray-500 dark:text-gray-400 text-sm mb-8">
-        Manage your account, data sync and export preferences.
+        {t('settings.subtitle')}
       </p>
 
       {/* ── Account Section ──────────────────────────────────── */}
@@ -308,16 +310,16 @@ const SettingsPage: React.FC = () => {
               </svg>
             </div>
             <div>
-              <h2 className="text-base font-semibold text-gray-800 dark:text-gray-200">Account</h2>
+              <h2 className="text-base font-semibold text-gray-800 dark:text-gray-200">{t('settings.account')}</h2>
               <p className="text-xs text-gray-400 dark:text-gray-500">
-                {user.displayName || user.email || 'Signed in'}
+                {user.displayName || user.email || t('settings.signedIn')}
               </p>
             </div>
             <button
               onClick={handleSignOut}
               className="ml-auto px-3 py-1.5 text-xs text-red-500 border border-red-200 dark:border-red-800 rounded-lg hover:bg-red-50 dark:hover:bg-red-950 transition-colors cursor-pointer whitespace-nowrap"
             >
-              Sign Out
+              {t('settings.signOut')}
             </button>
           </div>
 
@@ -343,7 +345,7 @@ const SettingsPage: React.FC = () => {
               )}
               <p className="text-gray-400 dark:text-gray-500">{user.email}</p>
               {user.providerData[0]?.providerId === 'google.com' && (
-                <p className="text-xs text-gray-400 dark:text-gray-500 mt-0.5">Signed in with Google</p>
+                <p className="text-xs text-gray-400 dark:text-gray-500 mt-0.5">{t('settings.signedInGoogle')}</p>
               )}
             </div>
           </div>
@@ -356,20 +358,19 @@ const SettingsPage: React.FC = () => {
                   <path strokeLinecap="round" strokeLinejoin="round" d="M12 6v6h4.5m4.5 0a9 9 0 11-18 0 9 9 0 0118 0z" />
                 </svg>
                 <span className="text-gray-400 dark:text-gray-500">
-                  Last sync: <span className="text-gray-600 dark:text-gray-300">{formatLastSync(lastSync)}</span>
+                  {t('settings.lastSync')} <span className="text-gray-600 dark:text-gray-300">{formatLastSync(lastSync)}</span>
                 </span>
               </div>
               {fbSyncAction !== 'idle' && (
                 <span className="flex items-center gap-1.5 text-xs text-indigo-500">
                   <Spinner />
-                  {fbSyncAction === 'syncing' ? 'Syncing...' : 'Uploading...'}
+                  {fbSyncAction === 'syncing' ? t('settings.syncing') : t('settings.uploading')}
                 </span>
               )}
             </div>
 
             <p className="text-[11px] text-gray-400 dark:text-gray-500 mb-3">
-              Your vocabulary, sentences, study sessions and daily plan are synced automatically via Firebase.
-              Data merges across devices — no data is lost.
+              {t('settings.syncHint')}
             </p>
 
             <div className="flex flex-wrap gap-2">
@@ -381,14 +382,14 @@ const SettingsPage: React.FC = () => {
                 {fbSyncAction === 'syncing' ? (
                   <>
                     <Spinner />
-                    Syncing...
+                    {t('settings.syncing')}
                   </>
                 ) : (
                   <>
                     <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.5}>
                       <path strokeLinecap="round" strokeLinejoin="round" d="M16.023 9.348h4.992v-.001M2.985 19.644v-4.992m0 0h4.992m-4.993 0l3.181 3.183a8.25 8.25 0 0013.803-3.7M4.031 9.865a8.25 8.25 0 0113.803-3.7l3.181 3.182M2.985 19.644l3.181-3.183" />
                     </svg>
-                    Sync Now
+                    {t('settings.syncNow')}
                   </>
                 )}
               </button>
@@ -401,14 +402,14 @@ const SettingsPage: React.FC = () => {
                 {fbSyncAction === 'uploading' ? (
                   <>
                     <Spinner />
-                    Uploading...
+                    {t('settings.uploading')}
                   </>
                 ) : (
                   <>
                     <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.5}>
                       <path strokeLinecap="round" strokeLinejoin="round" d="M3 16.5v2.25A2.25 2.25 0 005.25 21h13.5A2.25 2.25 0 0021 18.75V16.5m-13.5-9L12 3m0 0l4.5 4.5M12 3v13.5" />
                     </svg>
-                    Upload Local
+                    {t('settings.uploadLocal')}
                   </>
                 )}
               </button>
@@ -436,8 +437,8 @@ const SettingsPage: React.FC = () => {
             </svg>
           </div>
           <div>
-            <h2 className="text-base font-semibold text-gray-800 dark:text-gray-200">Local YouTube Proxy</h2>
-            <p className="text-xs text-gray-400 dark:text-gray-500">Route subtitle requests through your residential IP</p>
+            <h2 className="text-base font-semibold text-gray-800 dark:text-gray-200">{t('settings.proxy')}</h2>
+            <p className="text-xs text-gray-400 dark:text-gray-500">{t('settings.proxyHint')}</p>
           </div>
           <span className={`ml-auto flex items-center gap-1.5 text-xs font-medium ${
             proxyStatus === 'online' ? 'text-green-600 dark:text-green-400' :
@@ -451,22 +452,21 @@ const SettingsPage: React.FC = () => {
               proxyStatus === 'checking' ? 'bg-amber-500 animate-pulse' :
               'bg-gray-400'
             }`} />
-            {proxyStatus === 'online' ? 'Online' :
-             proxyStatus === 'offline' ? 'Offline' :
-             proxyStatus === 'checking' ? 'Checking...' :
-             'Unknown'}
+            {proxyStatus === 'online' ? t('settings.online') :
+             proxyStatus === 'offline' ? t('settings.offline') :
+             proxyStatus === 'checking' ? t('settings.checking') :
+             t('settings.unknown')}
           </span>
         </div>
 
         <p className="text-[11px] text-gray-400 dark:text-gray-500 mb-3">
-          YouTube blocks datacenter IPs (Vercel, Cloudflare) from accessing subtitles.
-          Run the local proxy on your machine to use your residential IP instead.
+          {t('settings.proxyDesc')}
           See <code className="px-1 py-0.5 bg-gray-100 dark:bg-slate-700 rounded text-[10px]">local-proxy/</code> folder for setup instructions.
         </p>
 
         <div className="mb-3">
           <label className="block text-xs font-medium text-gray-500 dark:text-gray-400 mb-1.5 uppercase tracking-wider">
-            Proxy URL
+            {t('settings.proxyUrl')}
           </label>
           <div className="flex flex-wrap gap-2">
             <input
@@ -486,20 +486,20 @@ const SettingsPage: React.FC = () => {
               onClick={handleSaveProxyUrl}
               className="px-3 py-2 text-sm bg-emerald-600 text-white rounded-lg hover:bg-emerald-700 transition-colors cursor-pointer whitespace-nowrap"
             >
-              Save
+              {t('settings.save')}
             </button>
             <button
               onClick={handleCheckProxy}
               disabled={proxyStatus === 'checking'}
               className="px-3 py-2 text-sm text-gray-600 dark:text-gray-300 border border-gray-200 dark:border-slate-600 rounded-lg hover:bg-gray-50 dark:hover:bg-slate-700 transition-colors cursor-pointer whitespace-nowrap disabled:opacity-60"
             >
-              {proxyStatus === 'checking' ? '...' : 'Test'}
+              {proxyStatus === 'checking' ? '...' : t('settings.test')}
             </button>
             <button
               onClick={handleResetProxyUrl}
               className="px-3 py-2 text-xs text-gray-400 border border-gray-200 dark:border-slate-600 rounded-lg hover:bg-gray-50 dark:hover:bg-slate-700 transition-colors cursor-pointer whitespace-nowrap"
             >
-              Reset
+              {t('settings.reset')}
             </button>
           </div>
           {proxyMessage && (
@@ -520,7 +520,7 @@ const SettingsPage: React.FC = () => {
 
         <details className="text-xs text-gray-500 dark:text-gray-400">
           <summary className="cursor-pointer hover:text-gray-700 dark:hover:text-gray-300 transition-colors">
-            How to set up the local proxy?
+            {t('settings.howSetup')}
           </summary>
           <div className="mt-2 space-y-1.5 text-[11px] pl-3 border-l-2 border-gray-100 dark:border-slate-700">
             <p>1. Open a terminal in the <code className="px-1 py-0.5 bg-gray-100 dark:bg-slate-700 rounded">EchoLearn/local-proxy</code> folder</p>
@@ -544,15 +544,15 @@ const SettingsPage: React.FC = () => {
             </svg>
           </div>
           <div>
-            <h2 className="text-base font-semibold text-gray-800 dark:text-gray-200">Cloud Sync</h2>
-            <p className="text-xs text-gray-400 dark:text-gray-500">Backup and restore via GitHub Gist</p>
+            <h2 className="text-base font-semibold text-gray-800 dark:text-gray-200">{t('settings.cloudSync')}</h2>
+            <p className="text-xs text-gray-400 dark:text-gray-500">{t('settings.cloudHint')}</p>
           </div>
         </div>
 
         {/* PAT Input */}
         <div className="mb-5">
           <label className="block text-xs font-medium text-gray-500 dark:text-gray-400 mb-1.5 uppercase tracking-wider">
-            GitHub Personal Access Token
+            {t('settings.githubPat')}
           </label>
           <p className="text-[11px] text-gray-400 dark:text-gray-500 mb-2">
             Create one at{' '}
@@ -605,7 +605,7 @@ const SettingsPage: React.FC = () => {
                 onClick={handleRemovePat}
                 className="px-3 py-2 text-xs text-red-500 border border-red-200 dark:border-red-800 rounded-lg hover:bg-red-50 dark:hover:bg-red-950 transition-colors cursor-pointer whitespace-nowrap"
               >
-                Remove
+                {t('settings.remove')}
               </button>
             ) : (
               <button
@@ -613,7 +613,7 @@ const SettingsPage: React.FC = () => {
                 disabled={patStatus === 'validating'}
                 className="px-4 py-2 text-sm bg-indigo-600 text-white rounded-lg hover:bg-indigo-700 transition-colors cursor-pointer disabled:opacity-60 whitespace-nowrap"
               >
-                {patStatus === 'validating' ? '验证中...' : 'Save'}
+                {patStatus === 'validating' ? t('login.waiting') : t('settings.save')}
               </button>
             )}
           </div>
@@ -669,14 +669,14 @@ const SettingsPage: React.FC = () => {
                 {syncAction === 'saving' ? (
                   <>
                     <Spinner />
-                    上传中...
+                    {t('settings.uploading')}
                   </>
                 ) : (
                   <>
                     <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.5}>
                       <path strokeLinecap="round" strokeLinejoin="round" d="M3 16.5v2.25A2.25 2.25 0 005.25 21h13.5A2.25 2.25 0 0021 18.75V16.5m-13.5-9L12 3m0 0l4.5 4.5M12 3v13.5" />
                     </svg>
-                    保存到云端
+                    {t('settings.saveToCloud')}
                   </>
                 )}
               </button>
@@ -689,14 +689,14 @@ const SettingsPage: React.FC = () => {
                 {syncAction === 'loading' ? (
                   <>
                     <Spinner />
-                    下载中...
+                    {t('settings.syncing')}
                   </>
                 ) : (
                   <>
                     <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.5}>
                       <path strokeLinecap="round" strokeLinejoin="round" d="M3 16.5v2.25A2.25 2.25 0 005.25 21h13.5A2.25 2.25 0 0021 18.75V16.5M16.5 12L12 16.5m0 0L7.5 12m4.5 4.5V3" />
                     </svg>
-                    从云端恢复
+                    {t('settings.restoreCloud')}
                   </>
                 )}
               </button>
@@ -707,7 +707,7 @@ const SettingsPage: React.FC = () => {
                   disabled={syncAction !== 'idle'}
                   className="px-4 py-2.5 text-sm text-red-500 border border-red-200 dark:border-red-800 rounded-lg hover:bg-red-50 dark:hover:bg-red-950 transition-colors cursor-pointer disabled:opacity-60"
                 >
-                  {syncAction === 'deleting' ? '删除中...' : '删除云端备份'}
+                  {syncAction === 'deleting' ? t('settings.syncing') : t('settings.deleteCloud')}
                 </button>
               )}
             </div>
@@ -729,8 +729,8 @@ const SettingsPage: React.FC = () => {
             </svg>
           </div>
           <div>
-            <h2 className="text-base font-semibold text-gray-800 dark:text-gray-200">Data Export</h2>
-            <p className="text-xs text-gray-400 dark:text-gray-500">Download your learning data locally</p>
+            <h2 className="text-base font-semibold text-gray-800 dark:text-gray-200">{t('settings.dataExport')}</h2>
+            <p className="text-xs text-gray-400 dark:text-gray-500">{t('settings.exportHint')}</p>
           </div>
         </div>
 
@@ -754,7 +754,7 @@ const SettingsPage: React.FC = () => {
             className="px-4 py-2.5 text-sm text-gray-700 dark:text-gray-300 border border-gray-200 dark:border-slate-600 rounded-lg hover:bg-gray-50 dark:hover:bg-slate-700 transition-colors cursor-pointer text-left"
           >
             <span className="block font-medium">All Data (JSON)</span>
-            <span className="text-xs text-gray-400 dark:text-gray-500">Full backup</span>
+            <span className="text-xs text-gray-400 dark:text-gray-500">{t('settings.fullBackup')}</span>
           </button>
         </div>
       </section>
@@ -768,8 +768,8 @@ const SettingsPage: React.FC = () => {
             </svg>
           </div>
           <div>
-            <h2 className="text-base font-semibold text-gray-800 dark:text-gray-200">About EchoLearn</h2>
-            <p className="text-xs text-gray-400 dark:text-gray-500">YouTube-based English learning workspace</p>
+            <h2 className="text-base font-semibold text-gray-800 dark:text-gray-200">{t('settings.about')}</h2>
+            <p className="text-xs text-gray-400 dark:text-gray-500">{t('settings.aboutDesc')}</p>
           </div>
         </div>
         <div className="text-xs text-gray-500 dark:text-gray-400 space-y-1">

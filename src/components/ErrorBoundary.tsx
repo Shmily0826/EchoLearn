@@ -1,8 +1,10 @@
 import { Component } from 'react';
 import type { ReactNode, ErrorInfo } from 'react';
+import { useI18n } from '../i18n/I18nContext';
 
 interface Props {
   children: ReactNode;
+  t?: (key: string) => string;
 }
 
 interface State {
@@ -47,6 +49,7 @@ class ErrorBoundary extends Component<Props, State> {
       return this.props.children;
     }
 
+    const t = this.props.t || ((key: string) => key);
     const translateRelated = isTranslateError(this.state.error);
 
     return (
@@ -75,19 +78,19 @@ class ErrorBoundary extends Component<Props, State> {
                 </svg>
               </div>
               <h1 className="text-xl font-bold text-gray-800 dark:text-gray-200 mb-2">
-                Auto-Translate Conflict
+                {t('error.translateTitle')}
               </h1>
               <p className="text-sm text-gray-500 dark:text-gray-400 mb-2">
-                Your browser's auto-translate feature modified the page structure, which conflicts with how this app works.
+                {t('error.translateDesc')}
               </p>
               <div
                 className="text-left text-xs rounded-xl p-4 mb-5"
                 style={{ backgroundColor: '#fef3c7', color: '#92400e' }}
               >
-                <p className="font-semibold mb-2">How to fix:</p>
-                <p className="mb-1">• <strong>Chrome mobile:</strong> Tap the address bar → tap the translate icon → tap the three dots → select "Show original"</p>
-                <p className="mb-1">• <strong>Chrome desktop:</strong> Right-click the page → uncheck "Translate to [language]"</p>
-                <p>• Then tap <strong>Reload Page</strong> below</p>
+                <p className="font-semibold mb-2">{t('error.fixTitle')}</p>
+                <p className="mb-1" dangerouslySetInnerHTML={{ __html: '&bull; ' + t('error.fixChrome1').replace(/^(.*?):/, '<strong>$1:</strong>') }} />
+                <p className="mb-1" dangerouslySetInnerHTML={{ __html: '&bull; ' + t('error.fixChrome2').replace(/^(.*?):/, '<strong>$1:</strong>') }} />
+                <p>&bull; {t('error.fixReload')}</p>
               </div>
             </>
           ) : (
@@ -109,10 +112,10 @@ class ErrorBoundary extends Component<Props, State> {
                 </svg>
               </div>
               <h1 className="text-xl font-bold text-gray-800 dark:text-gray-200 mb-2">
-                Something went wrong
+                {t('error.somethingWrong')}
               </h1>
               <p className="text-sm text-gray-500 dark:text-gray-400 mb-4">
-                {this.state.error?.message || 'An unexpected error occurred.'}
+                {this.state.error?.message || t('error.somethingWrong')}
               </p>
             </>
           )}
@@ -122,7 +125,7 @@ class ErrorBoundary extends Component<Props, State> {
               onClick={() => window.location.reload()}
               className="px-6 py-2.5 text-sm font-semibold text-white bg-indigo-500 hover:bg-indigo-600 rounded-xl transition-colors cursor-pointer"
             >
-              Reload Page
+              {t('error.reload')}
             </button>
             <button
               onClick={() => {
@@ -132,7 +135,7 @@ class ErrorBoundary extends Component<Props, State> {
               }}
               className="px-6 py-2.5 text-sm text-red-500 border border-red-200 dark:border-red-800 rounded-xl hover:bg-red-50 dark:hover:bg-red-950 transition-colors cursor-pointer"
             >
-              Clear Data &amp; Reload
+              {t('error.clearReload')}
             </button>
           </div>
           <p className="text-xs text-gray-400 dark:text-gray-500 mt-6 break-all">
@@ -144,4 +147,9 @@ class ErrorBoundary extends Component<Props, State> {
   }
 }
 
-export default ErrorBoundary;
+function ErrorBoundaryWithI18n({ children }: { children: ReactNode }) {
+  const { t } = useI18n();
+  return <ErrorBoundary t={t}>{children}</ErrorBoundary>;
+}
+
+export default ErrorBoundaryWithI18n;

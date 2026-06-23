@@ -11,6 +11,7 @@ import { analyzeTranscript } from '../services/aiAnalysis';
 import { fetchYouTubeTranscript } from '../services/youtubeTranscript';
 import { translateWord, translateSentence } from '../services/translationService';
 import { CEFR_LEVELS, type CEFRLevel } from '../services/cefrWordList';
+import { useI18n } from '../i18n/I18nContext';
 import { getVideoTitle } from '../services/youtubeApi';
 import {
   loadVocabulary,
@@ -36,6 +37,8 @@ import type {
 type DisplayMode = 'sentence' | 'caption';
 
 const StudyPage: React.FC = () => {
+  const { t } = useI18n();
+
   // ── Session state ──────────────────────────────────────────
   const [session, setSession] = useState<VideoStudySession | null>(null);
 
@@ -482,12 +485,12 @@ const StudyPage: React.FC = () => {
   }, []);
 
   const handleRemoveVocabulary = useCallback((id: string) => {
-    if (!window.confirm('确定要删除这个词汇吗？')) return;
+    if (!window.confirm(t('study.deleteWord'))) return;
     setVocabulary(removeVocabularyItem(id));
   }, []);
 
   const handleRemoveSentence = useCallback((id: string) => {
-    if (!window.confirm('确定要删除这个句子吗？')) return;
+    if (!window.confirm(t('study.deleteSent'))) return;
     setSentences(removeSentenceItem(id));
   }, []);
 
@@ -510,7 +513,7 @@ const StudyPage: React.FC = () => {
                   }
                 }}
                 className="px-2 py-0.5 text-sm text-gray-600 dark:text-gray-400 border border-transparent hover:border-gray-300 dark:hover:border-gray-600 focus:border-indigo-400 focus:outline-none rounded transition-colors w-full sm:w-[420px] dark:bg-slate-800"
-                placeholder="Session title..."
+                placeholder={t('study.sessionTitlePh')}
               />
             )}
           </div>
@@ -521,21 +524,21 @@ const StudyPage: React.FC = () => {
               value={urlInput}
               onChange={(e) => setUrlInput(e.target.value)}
               onKeyDown={(e) => e.key === 'Enter' && handleLoadVideo()}
-              placeholder="Paste YouTube URL here..."
+              placeholder={t('study.urlPh')}
               className="flex-1 sm:w-80 px-3 py-1.5 text-sm border border-gray-300 dark:border-slate-700 rounded-lg focus:outline-none focus:ring-2 focus:ring-indigo-400 focus:border-transparent dark:bg-slate-800 dark:text-gray-200 min-w-0"
             />
             <button
               onClick={handleLoadVideo}
               className="px-3 sm:px-4 py-1.5 text-sm bg-indigo-600 text-white rounded-lg hover:bg-indigo-700 transition-colors font-medium cursor-pointer whitespace-nowrap"
             >
-              Load Video
+              {t('study.loadVideo')}
             </button>
             {session && (
               <button
                 onClick={handleClearSession}
                 className="px-3 sm:px-4 py-1.5 text-sm bg-white dark:bg-slate-800 border border-red-200 dark:border-red-800 text-red-600 rounded-lg hover:bg-red-50 dark:hover:bg-red-950/30 transition-colors font-medium cursor-pointer whitespace-nowrap"
               >
-                Clear
+                {t('study.clear')}
               </button>
             )}
           </div>
@@ -571,7 +574,7 @@ const StudyPage: React.FC = () => {
                       d="M21 12a9 9 0 11-18 0 9 9 0 0118 0z"
                     />
                   </svg>
-                  <p className="text-gray-400 dark:text-gray-500 text-sm">Paste a YouTube URL above to start</p>
+                  <p className="text-gray-400 dark:text-gray-500 text-sm">{t('study.pasteStart')}</p>
                 </div>
               </div>
             )}
@@ -600,7 +603,7 @@ const StudyPage: React.FC = () => {
               <div translate="no" className="notranslate lg:hidden mt-3 bg-white dark:bg-slate-800 rounded-xl border border-gray-200 dark:border-slate-700 shadow-sm overflow-hidden">
                 <div className="flex items-center justify-between px-3 py-2 border-b border-gray-100 dark:border-slate-700">
                   <span className="text-[10px] font-semibold text-gray-500 dark:text-gray-400 uppercase tracking-wider">
-                    Subtitles
+                    {t('study.subtitles')}
                   </span>
                   {fetchingCaption && (
                     <span className="flex items-center gap-1 text-[10px] text-amber-500">
@@ -608,7 +611,7 @@ const StudyPage: React.FC = () => {
                         <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
                         <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z" />
                       </svg>
-                      Fetching...
+                      {t('study.fetchingShort')}
                     </span>
                   )}
                 </div>
@@ -626,7 +629,7 @@ const StudyPage: React.FC = () => {
             {/* Toolbar — fixed, never scrolls */}
             <div className="flex items-center justify-between mb-3 flex-shrink-0 flex-wrap gap-1.5 sm:gap-2">
               <h2 className="text-sm font-semibold text-gray-600 dark:text-gray-400 uppercase tracking-wider">
-                Transcript
+                {t('study.transcript')}
               </h2>
               <div className="flex items-center gap-1.5 sm:gap-3 flex-wrap">
                 {/* Caption fetch status */}
@@ -636,7 +639,7 @@ const StudyPage: React.FC = () => {
                       <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
                       <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z" />
                     </svg>
-                    Fetching captions...
+                    {t('study.fetchingCaption')}
                   </span>
                 )}
                 {/* Count selectors + CEFR + Analyze (only when transcript loaded) */}
@@ -644,7 +647,7 @@ const StudyPage: React.FC = () => {
                   <>
                     {/* Vocab / Sentence count */}
                     <div className="flex items-center gap-1 text-[11px]">
-                      <span className="text-gray-400 dark:text-gray-500">Words:</span>
+                      <span className="text-gray-400 dark:text-gray-500">{t('study.words')}</span>
                       <select
                         value={vocabCount}
                         onChange={(e) => setVocabCount(Number(e.target.value))}
@@ -654,7 +657,7 @@ const StudyPage: React.FC = () => {
                           <option key={n} value={n}>{n}</option>
                         ))}
                       </select>
-                      <span className="text-gray-300 dark:text-gray-500 ml-1">Sents:</span>
+                      <span className="text-gray-300 dark:text-gray-500 ml-1">{t('study.sents')}</span>
                       <select
                         value={sentenceCount}
                         onChange={(e) => setSentenceCount(Number(e.target.value))}
@@ -667,7 +670,7 @@ const StudyPage: React.FC = () => {
                     </div>
                     {/* CEFR level range selector */}
                     <div className="flex items-center gap-1 text-[11px]">
-                      <span className="text-gray-400 dark:text-gray-500 mr-0.5">Level:</span>
+                      <span className="text-gray-400 dark:text-gray-500 mr-0.5">{t('study.level')}</span>
                       <select
                         value={cefrMin}
                         onChange={(e) => {
@@ -715,14 +718,14 @@ const StudyPage: React.FC = () => {
                           <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
                           <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z" />
                         </svg>
-                        {streamChars > 0 ? `${streamChars} chars` : 'Analyzing...'}
+                        {streamChars > 0 ? `${streamChars} ${t('study.chars')}` : t('study.analyzing')}
                       </>
                     ) : (
                       <>
                         <svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.5}>
                           <path strokeLinecap="round" strokeLinejoin="round" d="M9.813 15.904L9 18.75l-.813-2.846a4.5 4.5 0 00-3.09-3.09L2.25 12l2.846-.813a4.5 4.5 0 003.09-3.09L9 5.25l.813 2.846a4.5 4.5 0 003.09 3.09L15.75 12l-2.846.813a4.5 4.5 0 00-3.09 3.09z" />
                         </svg>
-                        {analysis ? 'Re-analyze' : 'Analyze'}
+                        {analysis ? t('study.reAnalyze') : t('study.analyze')}
                       </>
                     )}
                   </button>
@@ -738,7 +741,7 @@ const StudyPage: React.FC = () => {
                           : 'text-gray-500 dark:text-gray-400 hover:text-gray-700 dark:hover:text-gray-200'
                       }`}
                     >
-                      Sentence
+                      {t('study.sentence')}
                     </button>
                     <button
                       onClick={() => setDisplayMode('caption')}
@@ -748,7 +751,7 @@ const StudyPage: React.FC = () => {
                           : 'text-gray-500 dark:text-gray-400 hover:text-gray-700 dark:hover:text-gray-200'
                       }`}
                     >
-                      Caption
+                      {t('study.caption')}
                     </button>
                   </div>
                 )}
@@ -757,8 +760,8 @@ const StudyPage: React.FC = () => {
                 )}
                 <span className="text-xs text-gray-400 dark:text-gray-500">
                   {displayMode === 'sentence'
-                    ? `${sentenceLines.length} sentences`
-                    : `${rawBlocks.length} blocks`}
+                    ? `${sentenceLines.length} ${t('study.sentences')}`
+                    : `${rawBlocks.length} ${t('study.blocks')}`}
                 </span>
               </div>
             </div>
@@ -783,8 +786,8 @@ const StudyPage: React.FC = () => {
                   <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
                   <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z" />
                 </svg>
-                <p className="text-sm">Fetching captions from YouTube...</p>
-                <p className="text-xs mt-1 text-gray-300 dark:text-gray-500">This may take a few seconds</p>
+                <p className="text-sm">{t('study.fetchingFull')}</p>
+                <p className="text-xs mt-1 text-gray-300 dark:text-gray-500">{t('study.mayTake')}</p>
               </div>
             ) : captionError ? (
               <div className="flex flex-col items-center justify-center py-12">
@@ -792,9 +795,9 @@ const StudyPage: React.FC = () => {
                   <svg className="w-8 h-8 text-red-400 mx-auto mb-2" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.5}>
                     <path strokeLinecap="round" strokeLinejoin="round" d="M12 9v3.75m9-.75a9 9 0 11-18 0 9 9 0 0118 0zm-9 3.75h.008v.008H12v-.008z" />
                   </svg>
-                  <p className="text-sm text-red-600 dark:text-red-400 font-medium mb-1">Caption auto-fetch failed</p>
+                  <p className="text-sm text-red-600 dark:text-red-400 font-medium mb-1">{t('study.fetchFailed')}</p>
                   <p className="text-xs text-red-500/70 dark:text-red-400/60 mb-3 whitespace-pre-line">{captionError}</p>
-                  <p className="text-xs text-gray-500 dark:text-gray-400">You can paste or upload the transcript manually below.</p>
+                  <p className="text-xs text-gray-500 dark:text-gray-400">{t('study.pasteManual')}</p>
                 </div>
                 <div className="flex gap-3 mt-3">
                   <button
@@ -823,14 +826,14 @@ const StudyPage: React.FC = () => {
                     }}
                     className="text-xs text-indigo-500 hover:text-indigo-700 dark:hover:text-indigo-300 cursor-pointer"
                   >
-                    Retry
+                    {t('study.retry')}
                   </button>
                   <span className="text-gray-300 dark:text-gray-600">|</span>
                   <button
                     onClick={() => setCaptionError(null)}
                     className="text-xs text-indigo-500 hover:text-indigo-700 dark:hover:text-indigo-300 cursor-pointer"
                   >
-                    Dismiss & use manual import
+                    {t('study.dismiss')}
                   </button>
                 </div>
               </div>
@@ -838,8 +841,8 @@ const StudyPage: React.FC = () => {
               <TranscriptImporter onImport={handleImportTranscript} />
             ) : (
               <div className="text-center py-12 text-gray-400 dark:text-gray-500 text-sm">
-                <p>No video loaded yet.</p>
-                <p className="mt-1">Load a YouTube video to get started.</p>
+                <p>{t('study.noVideo')}</p>
+                <p className="mt-1">{t('study.loadToStart')}</p>
               </div>
             )}
             </div>
@@ -873,7 +876,7 @@ const StudyPage: React.FC = () => {
                   : 'text-gray-500 dark:text-gray-400 hover:text-gray-700 dark:hover:text-gray-200'
               }`}
             >
-              Vocabulary ({filteredVocabulary.length})
+              {`${t('study.vocabTab')} (${filteredVocabulary.length})`}
             </button>
             <button
               onClick={() => setActiveTab('sentences')}
@@ -883,7 +886,7 @@ const StudyPage: React.FC = () => {
                   : 'text-gray-500 dark:text-gray-400 hover:text-gray-700 dark:hover:text-gray-200'
               }`}
             >
-              Key Sentences ({filteredSentences.length})
+              {`${t('study.sentTab')} (${filteredSentences.length})`}
             </button>
           </div>
 
@@ -921,6 +924,7 @@ const VocabularyList: React.FC<{
   items: VocabularyItem[];
   onRemove: (id: string) => void;
 }> = ({ items, onRemove }) => {
+  const { t } = useI18n();
   const [dictPopup, setDictPopup] = useState<DictPopupState | null>(null);
 
   const handleWordClick = (word: string, e: React.MouseEvent) => {
@@ -932,7 +936,7 @@ const VocabularyList: React.FC<{
   if (items.length === 0) {
     return (
       <p className="text-center text-gray-400 dark:text-gray-500 text-sm py-6">
-        Click any word in the transcript to add it to your vocabulary.
+        {t('study.clickWord')}
       </p>
     );
   }
@@ -965,7 +969,7 @@ const VocabularyList: React.FC<{
                 onClick={() => onRemove(item.id)}
                 className="text-gray-400 dark:text-gray-500 hover:text-red-500 opacity-100 md:opacity-0 md:group-hover:opacity-100 transition-opacity text-xs cursor-pointer"
               >
-                Remove
+                {t('study.remove')}
               </button>
             </div>
             <p className="text-xs text-gray-500 dark:text-gray-400 mt-1 line-clamp-2">"{item.context}"</p>
@@ -991,10 +995,11 @@ const SentenceList: React.FC<{
   onRemove: (id: string) => void;
   onSeek?: (seconds: number) => void;
 }> = ({ items, onRemove, onSeek }) => {
+  const { t } = useI18n();
   if (items.length === 0) {
     return (
       <p className="text-center text-gray-400 dark:text-gray-500 text-sm py-6">
-        Click any sentence in the transcript to save it as a key sentence.
+        {t('study.clickSent')}
       </p>
     );
   }
@@ -1012,7 +1017,7 @@ const SentenceList: React.FC<{
               onClick={() => onRemove(item.id)}
               className="text-gray-400 dark:text-gray-500 hover:text-red-500 opacity-100 md:opacity-0 md:group-hover:opacity-100 transition-opacity text-xs whitespace-nowrap cursor-pointer"
             >
-              Remove
+              {t('study.remove')}
             </button>
           </div>
           <div className="flex items-center gap-2 mt-2">
@@ -1049,6 +1054,7 @@ const MobileTranscriptPanel: React.FC<{
   activeLineIndex: number;
   onSeekTo: (seconds: number) => void;
 }> = ({ lines, activeLineIndex, onSeekTo }) => {
+  const { t } = useI18n();
   const containerRef = useRef<HTMLDivElement>(null);
   const activeRef = useRef<HTMLDivElement>(null);
   const userScrolled = useRef(false);
@@ -1083,7 +1089,7 @@ const MobileTranscriptPanel: React.FC<{
   if (lines.length === 0) {
     return (
       <div className="px-3 py-4 text-center text-xs text-gray-400 dark:text-gray-500">
-        No subtitles available
+        {t('study.noSubtitles')}
       </div>
     );
   }

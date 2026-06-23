@@ -1,5 +1,6 @@
 import { BrowserRouter, useLocation } from 'react-router-dom'
 import { AuthProvider, useAuth } from './contexts/AuthContext'
+import { I18nProvider, useI18n } from './i18n/I18nContext'
 import { useAntiTranslate } from './hooks/useAntiTranslate'
 import ErrorBoundary from './components/ErrorBoundary'
 import Layout from './components/Layout'
@@ -19,6 +20,7 @@ import SettingsPage from './pages/SettingsPage'
 function AppContent() {
   const { pathname } = useLocation();
   const { translateDetected, dismissWarning } = useAntiTranslate();
+  const { t } = useI18n();
 
   return (
     <Layout>
@@ -30,13 +32,13 @@ function AppContent() {
           translate="no"
         >
           <span>
-            Auto-translate detected — this may break the app. Please disable it in your browser settings.
+            {t('banner.translateWarn')}
           </span>
           <button
             onClick={dismissWarning}
             className="ml-3 font-semibold underline cursor-pointer"
           >
-            Dismiss
+            {t('banner.dismiss')}
           </button>
         </div>
       )}
@@ -69,6 +71,7 @@ function AppContent() {
  */
 function AuthGate() {
   const { user, loading } = useAuth();
+  const { t } = useI18n();
 
   if (loading) {
     // Initial auth state check — show a minimal loader
@@ -91,7 +94,7 @@ function AuthGate() {
               d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z"
             />
           </svg>
-          <span className="text-sm text-gray-400 dark:text-gray-500">Loading...</span>
+          <span className="text-sm text-gray-400 dark:text-gray-500">{t('common.loading')}</span>
         </div>
       </div>
     );
@@ -108,9 +111,11 @@ function App() {
   return (
     <ErrorBoundary>
       <BrowserRouter>
-        <AuthProvider>
-          <AuthGate />
-        </AuthProvider>
+        <I18nProvider>
+          <AuthProvider>
+            <AuthGate />
+          </AuthProvider>
+        </I18nProvider>
       </BrowserRouter>
     </ErrorBoundary>
   );

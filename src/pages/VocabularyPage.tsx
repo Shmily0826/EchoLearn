@@ -1,5 +1,6 @@
 import React, { useEffect, useState, useCallback, useMemo } from 'react';
 import { useNavigate } from 'react-router-dom';
+import { useI18n } from '../i18n/I18nContext';
 import {
   loadVocabulary,
   removeVocabularyItem,
@@ -21,19 +22,20 @@ interface DictPopupState {
 }
 
 /** Format a nextReviewAt timestamp as a short label. */
-function reviewLabel(nextReviewAt: number, mastered: boolean): { text: string; color: string } {
-  if (mastered) return { text: 'Mastered', color: 'text-green-600' };
-  if (nextReviewAt === 0) return { text: 'Mastered', color: 'text-green-600' };
+function reviewLabel(nextReviewAt: number, mastered: boolean, t: (key: string, vars?: Record<string, string | number>) => string): { text: string; color: string } {
+  if (mastered) return { text: t('reviewLabel.mastered'), color: 'text-green-600' };
+  if (nextReviewAt === 0) return { text: t('reviewLabel.mastered'), color: 'text-green-600' };
   const now = Date.now();
-  if (nextReviewAt <= now) return { text: 'Due now', color: 'text-red-500' };
+  if (nextReviewAt <= now) return { text: t('reviewLabel.dueNow'), color: 'text-red-500' };
   const days = Math.ceil((nextReviewAt - now) / (24 * 60 * 60 * 1000));
-  if (days === 1) return { text: 'Due tomorrow', color: 'text-amber-500' };
-  if (days <= 7) return { text: `Due in ${days}d`, color: 'text-amber-500' };
-  return { text: `Due in ${days}d`, color: 'text-gray-400' };
+  if (days === 1) return { text: t('reviewLabel.dueTomorrow'), color: 'text-amber-500' };
+  if (days <= 7) return { text: t('reviewLabel.dueIn', { n: days }), color: 'text-amber-500' };
+  return { text: t('reviewLabel.dueIn', { n: days }), color: 'text-gray-400' };
 }
 
 const VocabularyPage: React.FC = () => {
   const navigate = useNavigate();
+  const { t } = useI18n();
   const [vocabulary, setVocabulary] = useState<VocabularyItem[]>([]);
   const [sessions, setSessions] = useState<VideoStudySession[]>([]);
   const [search, setSearch] = useState('');
@@ -63,9 +65,9 @@ const VocabularyPage: React.FC = () => {
     item.sourceVideoTitle || titleMap.get(item.sourceVideoId) || item.sourceVideoId;
 
   const handleRemove = useCallback((id: string) => {
-    if (!window.confirm('确定要删除这个词汇吗？')) return;
+    if (!window.confirm(t('vocab.deleteConfirm'))) return;
     setVocabulary(removeVocabularyItem(id));
-  }, []);
+  }, [t]);
 
   const handleToggleMastered = useCallback((item: VocabularyItem) => {
     setVocabulary(updateVocabularyItem(item.id, { mastered: !item.mastered }));
@@ -173,10 +175,10 @@ const VocabularyPage: React.FC = () => {
       {/* Header */}
       <div className="flex flex-col sm:flex-row sm:items-end justify-between mb-4 sm:mb-6 gap-3">
         <div>
-          <h1 className="text-xl sm:text-2xl font-bold text-gray-900 dark:text-gray-100 tracking-tight">Vocabulary</h1>
+          <h1 className="text-xl sm:text-2xl font-bold text-gray-900 dark:text-gray-100 tracking-tight">{t('vocab.title')}</h1>
           <p className="text-sm text-gray-500 dark:text-gray-400 mt-1">
-            {vocabulary.length} words &middot; {masteredCount} mastered
-            {dueCount > 0 && <span className="text-amber-500"> &middot; {dueCount} due</span>}
+            {`${vocabulary.length} ${t('vocab.words')}`} &middot; {`${masteredCount} ${t('vocab.mastered')}`}
+            {dueCount > 0 && <span className="text-amber-500"> &middot; {`${dueCount} ${t('vocab.due')}`}</span>}
           </p>
         </div>
         <div className="flex items-center gap-2 sm:gap-3 flex-wrap">
@@ -184,14 +186,14 @@ const VocabularyPage: React.FC = () => {
             type="text"
             value={search}
             onChange={(e) => setSearch(e.target.value)}
-            placeholder="Search word / meaning..."
+            placeholder={t('vocab.searchPh')}
             className="w-full sm:w-52 px-3 py-1.5 text-sm border border-gray-300 dark:border-slate-600 rounded-lg focus:outline-none focus:ring-2 focus:ring-indigo-400 focus:border-transparent dark:bg-slate-800 dark:text-gray-200"
           />
           <button
             onClick={() => navigate('/review')}
             className="px-4 py-1.5 text-sm bg-indigo-600 text-white rounded-lg hover:bg-indigo-700 transition-colors font-medium cursor-pointer"
           >
-            Review{dueCount > 0 ? ` (${dueCount})` : ''}
+            {t('vocab.review')}{dueCount > 0 ? ` (${dueCount})` : ''}
           </button>
           {/* Backfill translations */}
           {vocabulary.some((v) => !v.meaningCn) && (
@@ -200,7 +202,7 @@ const VocabularyPage: React.FC = () => {
               disabled={backfilling}
               className="px-3 py-1.5 text-sm text-amber-700 bg-amber-50 dark:bg-amber-950/30 border border-amber-200 dark:border-amber-800 rounded-lg hover:bg-amber-100 dark:hover:bg-amber-900/40 transition-colors font-medium cursor-pointer disabled:opacity-60"
             >
-              {backfilling ? 'Translating...' : 'Auto Translate'}
+              {backfilling ? t('vocab.translating') : t('vocab.autoTranslate')}
             </button>
           )}
           {/* Export dropdown */}
@@ -209,7 +211,7 @@ const VocabularyPage: React.FC = () => {
               onClick={() => setShowExport(!showExport)}
               className="px-3 py-1.5 text-sm text-gray-600 dark:text-gray-400 bg-white dark:bg-slate-800 border border-gray-300 dark:border-slate-600 rounded-lg hover:bg-gray-50 dark:hover:bg-slate-700 transition-colors font-medium cursor-pointer"
             >
-              Export
+              {t('vocab.export')}
             </button>
             {showExport && vocabulary.length > 0 && (
               <div className="absolute right-0 mt-1 w-36 bg-white dark:bg-slate-800 border border-gray-200 dark:border-slate-700 rounded-lg shadow-lg z-10 py-1">
@@ -217,13 +219,13 @@ const VocabularyPage: React.FC = () => {
                   onClick={() => { exportVocabularyCSV(filtered); setShowExport(false); }}
                   className="w-full text-left px-3 py-1.5 text-sm text-gray-700 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-slate-700 cursor-pointer"
                 >
-                  Export CSV
+                  {t('vocab.exportCSV')}
                 </button>
                 <button
                   onClick={() => { exportVocabularyPDF(filtered); setShowExport(false); }}
                   className="w-full text-left px-3 py-1.5 text-sm text-gray-700 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-slate-700 cursor-pointer"
                 >
-                  Export PDF
+                  {t('vocab.exportPDF')}
                 </button>
               </div>
             )}
@@ -244,7 +246,7 @@ const VocabularyPage: React.FC = () => {
                   : 'text-gray-500 dark:text-gray-400 hover:text-gray-700 hover:bg-gray-50 dark:hover:bg-slate-900'
               }`}
             >
-              {f === 'all' ? 'All' : f === 'mastered' ? 'Mastered' : 'Unmastered'}
+              {f === 'all' ? t('vocab.all') : f === 'mastered' ? t('vocab.mastered') : t('vocab.unmastered')}
             </button>
           ))}
         </div>
@@ -253,10 +255,10 @@ const VocabularyPage: React.FC = () => {
           onChange={(e) => setSort(e.target.value as SortMode)}
           className="text-xs text-gray-500 dark:text-gray-400 border border-gray-200 dark:border-slate-700 rounded-lg px-2 py-1.5 focus:outline-none focus:ring-1 focus:ring-indigo-400 cursor-pointer dark:bg-slate-800"
         >
-          <option value="newest">Newest first</option>
-          <option value="az">A - Z</option>
-          <option value="review">Review soonest</option>
-          <option value="most-reviewed">Most reviewed</option>
+          <option value="newest">{t('vocab.newest')}</option>
+          <option value="az">{t('vocab.az')}</option>
+          <option value="review">{t('vocab.reviewSoonest')}</option>
+          <option value="most-reviewed">{t('vocab.mostReviewed')}</option>
         </select>
       </div>
 
@@ -265,8 +267,8 @@ const VocabularyPage: React.FC = () => {
         <div className="bg-white dark:bg-slate-800 rounded-xl border border-gray-200 dark:border-slate-700 shadow-sm p-10 text-center">
           <p className="text-gray-400 dark:text-gray-500 text-sm">
             {vocabulary.length === 0
-              ? 'No words saved yet. Click any word in a transcript to add it.'
-              : 'No matching words.'}
+              ? t('vocab.noWords')
+              : t('vocab.noMatch')}
           </p>
         </div>
       ) : (
@@ -308,7 +310,7 @@ const VocabularyPage: React.FC = () => {
                   )}
                   {item.mastered && (
                     <span className="shrink-0 px-1.5 py-0.5 text-[10px] font-medium bg-green-100 dark:bg-green-900/40 text-green-700 rounded">
-                      mastered
+                      {t('vocab.masteredBadge')}
                     </span>
                   )}
                 </div>
@@ -316,7 +318,7 @@ const VocabularyPage: React.FC = () => {
                   onClick={() => handleRemove(item.id)}
                   className="shrink-0 text-gray-400 hover:text-red-500 opacity-100 md:opacity-0 md:group-hover:opacity-100 transition-opacity text-xs cursor-pointer"
                 >
-                  Delete
+                  {t('vocab.delete')}
                 </button>
               </div>
 
@@ -344,14 +346,14 @@ const VocabularyPage: React.FC = () => {
                       if (e.key === 'Escape') handleCancelEdit();
                     }}
                     autoFocus
-                    placeholder="输入中文释义..."
+                    placeholder={t('vocab.editMeaningPh')}
                     className="flex-1 px-2 py-1 text-sm border border-indigo-300 rounded focus:outline-none focus:ring-1 focus:ring-indigo-400"
                   />
                   <button
                     onClick={() => handleSaveMeaning(item.id)}
                     className="px-2 py-1 text-xs bg-indigo-600 text-white rounded hover:bg-indigo-700 cursor-pointer"
                   >
-                    Save
+                    {t('vocab.save')}
                   </button>
                 </div>
               ) : (
@@ -362,7 +364,7 @@ const VocabularyPage: React.FC = () => {
                 >
                   {item.meaningCn || (
                     <span className="text-gray-400 italic text-xs">
-                      Click to add meaning...
+                      {t('vocab.clickAdd')}
                     </span>
                   )}
                 </p>
@@ -384,8 +386,8 @@ const VocabularyPage: React.FC = () => {
                   </span>
                 </div>
                 <div className="flex items-center justify-between">
-                  <span className={`text-[10px] font-medium ${reviewLabel(item.nextReviewAt, item.mastered).color}`}>
-                    {reviewLabel(item.nextReviewAt, item.mastered).text}
+                  <span className={`text-[10px] font-medium ${reviewLabel(item.nextReviewAt, item.mastered, t).color}`}>
+                    {reviewLabel(item.nextReviewAt, item.mastered, t).text}
                   </span>
                   <button
                     onClick={() => handleToggleMastered(item)}
@@ -395,7 +397,7 @@ const VocabularyPage: React.FC = () => {
                         : 'text-gray-400 hover:text-indigo-600'
                     }`}
                   >
-                    {item.mastered ? 'Unmark' : 'Mark mastered'}
+                    {item.mastered ? t('vocab.unmark') : t('vocab.markMastered')}
                   </button>
                 </div>
               </div>

@@ -21,6 +21,7 @@ import {
   saveCurrentSession,
 } from '../utils/storage';
 import { getRecentVideosFromChannel, hasApiKey } from '../services/youtubeApi';
+import { useI18n } from '../i18n/I18nContext';
 import { TARGET_CHANNEL } from '../config/targetChannel';
 import type {
   VocabularyItem,
@@ -60,6 +61,7 @@ const DashboardPage: React.FC = () => {
   const [dailyPlan, setDailyPlan] = useState<DailyPlanItem[]>([]);
   const [checkLoading, setCheckLoading] = useState(false);
   const [checkMessage, setCheckMessage] = useState<string | null>(null);
+  const [checkSuccess, setCheckSuccess] = useState(false);
 
   // Editable channel prefs
   const [channelPrefs, setChannelPrefs] = useState<ChannelPrefs>(loadChannelPrefs);
@@ -71,6 +73,8 @@ const DashboardPage: React.FC = () => {
     setCurrentSession(loadCurrentSession());
     setDailyPlan(loadDailyPlan());
   }, []);
+
+  const { t } = useI18n();
 
   const handleChannelChange = (field: keyof ChannelPrefs, value: string) => {
     const updated = { ...channelPrefs, [field]: value };
@@ -149,7 +153,7 @@ const DashboardPage: React.FC = () => {
   };
 
   const handleDeleteSession = (id: string) => {
-    if (!window.confirm('确定要删除这个学习记录吗？')) return;
+    if (!window.confirm(t('dash.deleteSession'))) return;
     deleteSession(id);
     setSessions(loadAllSessions());
     if (currentSession?.id === id) {
@@ -160,7 +164,8 @@ const DashboardPage: React.FC = () => {
   // ── Fetch recent videos from configured channel ───────────
   const handleCheckLatest = useCallback(async () => {
     if (!hasApiKey()) {
-      setCheckMessage('Please configure VITE_YOUTUBE_API_KEY in .env.local to check latest videos.');
+      setCheckMessage(t('dash.apiKeyMsg'));
+      setCheckSuccess(false);
       return;
     }
 
@@ -171,7 +176,8 @@ const DashboardPage: React.FC = () => {
       const videos = await getRecentVideosFromChannel(channelPrefs.input, 10);
 
       if (videos.length === 0) {
-        setCheckMessage('Could not fetch videos. Check the channel handle or API key.');
+        setCheckMessage(t('dash.noVideos'));
+        setCheckSuccess(false);
         return;
       }
 
@@ -179,7 +185,8 @@ const DashboardPage: React.FC = () => {
       const newVideos = videos.filter((v) => !planHasVideoId(v.videoId));
 
       if (newVideos.length === 0) {
-        setCheckMessage('All recent videos are already in your plan. Try again later.');
+        setCheckMessage(t('dash.allInPlan'));
+        setCheckSuccess(true);
         return;
       }
 
@@ -202,9 +209,11 @@ const DashboardPage: React.FC = () => {
       }
 
       setDailyPlan(loadDailyPlan());
-      setCheckMessage(`Added ${added} new video${added > 1 ? 's' : ''} to your plan.`);
+      setCheckMessage(t('dash.addedN', { n: added }));
+      setCheckSuccess(true);
     } catch {
-      setCheckMessage('An error occurred while fetching videos.');
+      setCheckMessage(t('dash.fetchError'));
+      setCheckSuccess(false);
     } finally {
       setCheckLoading(false);
     }
@@ -243,7 +252,7 @@ const DashboardPage: React.FC = () => {
 
   // ── Remove a plan item ────────────────────────────────────
   const handleDeletePlanItem = useCallback((id: string) => {
-    if (!window.confirm('确定要从计划中移除这个视频吗？')) return;
+    if (!window.confirm(t('dash.deletePlanItem'))) return;
     const updated = removeDailyPlanItem(id);
     setDailyPlan(updated);
   }, []);
@@ -253,18 +262,17 @@ const DashboardPage: React.FC = () => {
       {/* Hero */}
       <div className="mb-6 sm:mb-10">
         <h1 className="text-2xl sm:text-3xl font-bold text-gray-900 dark:text-gray-100 tracking-tight">
-          Welcome back
+          {t('dash.welcome')}
         </h1>
         <p className="mt-2 text-gray-500 dark:text-gray-400 max-w-2xl leading-relaxed text-sm sm:text-base">
-          A focused YouTube-based English learning workspace with transcript
-          notes, vocabulary, and review.
+          {t('dash.subtitle')}
         </p>
       </div>
 
       {/* Stat cards */}
       <div className="grid grid-cols-2 lg:grid-cols-4 gap-3 sm:gap-4 mb-6 sm:mb-10">
         <StatCard
-          label="Saved Words"
+          label={t('dash.savedWords')}
           value={vocabulary.length}
           color="amber"
           icon={
@@ -274,7 +282,7 @@ const DashboardPage: React.FC = () => {
           }
         />
         <StatCard
-          label="Saved Sentences"
+          label={t('dash.savedSentences')}
           value={sentences.length}
           color="violet"
           icon={
@@ -284,7 +292,7 @@ const DashboardPage: React.FC = () => {
           }
         />
         <StatCard
-          label="Study Sessions"
+          label={t('dash.studySessions')}
           value={sessions.length}
           color="blue"
           icon={
@@ -295,7 +303,7 @@ const DashboardPage: React.FC = () => {
           }
         />
         <StatCard
-          label="Today's Review"
+          label={t('dash.todayReview')}
           value={todayCount}
           color="green"
           onClick={() => navigate('/review')}
@@ -312,23 +320,23 @@ const DashboardPage: React.FC = () => {
         {/* Check Latest Video card */}
         <div className="lg:col-span-2 bg-white dark:bg-slate-800 rounded-xl border border-gray-200 dark:border-slate-700 shadow-sm p-5 flex flex-col">
           <p className="text-xs text-gray-400 dark:text-gray-500 uppercase tracking-wider mb-2">
-            Single Channel
+            {t('dash.singleChannel')}
           </p>
           <input
             type="text"
             value={channelPrefs.topic}
             onChange={(e) => handleChannelChange('topic', e.target.value)}
             className="text-base font-semibold text-gray-800 dark:text-gray-200 mb-1 w-full px-1 py-0.5 border border-transparent hover:border-gray-300 dark:hover:border-slate-600 focus:border-indigo-400 focus:outline-none rounded transition-colors bg-transparent"
-            placeholder="Topic keyword (e.g. English Podcast)"
+            placeholder={t('dash.topicPh')}
           />
           <div className="flex items-center gap-1.5 mb-2">
-            <span className="text-xs text-gray-500">Channel:</span>
+            <span className="text-xs text-gray-500">{t('dash.channel')}</span>
             <input
               type="text"
               value={channelPrefs.input}
               onChange={(e) => handleChannelChange('input', e.target.value)}
               className="text-xs font-mono text-indigo-500 flex-1 px-1 py-0.5 border border-transparent hover:border-gray-300 dark:hover:border-slate-600 focus:border-indigo-400 focus:outline-none rounded transition-colors bg-transparent"
-              placeholder="@ChannelHandle (e.g. @EnglishClass101)"
+              placeholder={t('dash.channelPh')}
             />
             {TARGET_CHANNEL.preferredLevel && (
               <span className="px-1.5 py-0.5 bg-indigo-50 dark:bg-indigo-950 text-indigo-600 rounded text-[10px] font-medium">
@@ -338,7 +346,7 @@ const DashboardPage: React.FC = () => {
           </div>
 
           <p className="text-[10px] text-gray-400 dark:text-gray-500 mb-3">
-            Fetches up to 10 recent videos from the channel. Duplicates are skipped automatically.
+            {t('dash.fetchHint')}
           </p>
 
           <button
@@ -352,16 +360,16 @@ const DashboardPage: React.FC = () => {
                   <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
                   <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z" />
                 </svg>
-                Checking...
+                {t('dash.fetching')}
               </>
             ) : (
-              'Fetch Latest Videos'
+              t('dash.fetchBtn')
             )}
           </button>
 
           {checkMessage && (
             <p className={`text-xs mt-3 ${
-              checkMessage.startsWith('Added') || checkMessage.startsWith('All recent')
+              checkSuccess
                 ? 'text-green-600'
                 : 'text-amber-600'
             }`}>
@@ -374,21 +382,21 @@ const DashboardPage: React.FC = () => {
         <div className="lg:col-span-3 bg-white dark:bg-slate-800 rounded-xl border border-gray-200 dark:border-slate-700 shadow-sm p-5">
           <div className="flex items-center justify-between mb-3">
             <p className="text-xs text-gray-400 dark:text-gray-500 uppercase tracking-wider">
-              Today's Plan
+              {t('dash.todayPlan')}
             </p>
             <div className="flex items-center gap-2">
-              <span className="text-xs text-gray-400 dark:text-gray-500">{dailyPlan.length} items</span>
+              <span className="text-xs text-gray-400 dark:text-gray-500">{dailyPlan.length} {t('dash.items')}</span>
               {dailyPlan.length > 0 && (
                 <button
                   onClick={() => {
-                    if (window.confirm('Clear all items from today\'s plan?')) {
+                    if (window.confirm(t('dash.clearConfirm'))) {
                       setDailyPlan(clearDailyPlan());
                     }
                   }}
                   className="text-xs text-gray-400 hover:text-red-500 transition-colors cursor-pointer"
                   title="Clear all plan items"
                 >
-                  Clear
+                  {t('dash.clear')}
                 </button>
               )}
             </div>
@@ -396,9 +404,9 @@ const DashboardPage: React.FC = () => {
 
           {dailyPlan.length === 0 ? (
             <div className="py-8 text-center">
-              <p className="text-gray-400 dark:text-gray-500 text-sm">No videos in your plan yet.</p>
+              <p className="text-gray-400 dark:text-gray-500 text-sm">{t('dash.noPlan')}</p>
               <p className="text-gray-400 dark:text-gray-500 text-xs mt-1">
-                Click "Fetch Latest Videos" to add some.
+                {t('dash.addPlan')}
               </p>
             </div>
           ) : (
@@ -470,7 +478,7 @@ const DashboardPage: React.FC = () => {
           {/* Weekly Activity Bar Chart */}
           <div className="bg-white dark:bg-slate-800 rounded-xl border border-gray-200 dark:border-slate-700 shadow-sm p-5">
             <p className="text-xs text-gray-400 dark:text-gray-500 uppercase tracking-wider mb-4">
-              Weekly Activity
+              {t('dash.weeklyActivity')}
             </p>
             <ResponsiveContainer width="100%" height={200}>
               <BarChart data={weeklyActivityData} barGap={2}>
@@ -503,7 +511,7 @@ const DashboardPage: React.FC = () => {
           {/* Vocabulary Mastery Pie Chart */}
           <div className="bg-white dark:bg-slate-800 rounded-xl border border-gray-200 dark:border-slate-700 shadow-sm p-5">
             <p className="text-xs text-gray-400 dark:text-gray-500 uppercase tracking-wider mb-4">
-              Vocabulary Mastery
+              {t('dash.mastery')}
             </p>
             {masteryData.length > 0 ? (
               <div className="flex items-center">
@@ -551,7 +559,7 @@ const DashboardPage: React.FC = () => {
               </div>
             ) : (
               <div className="flex items-center justify-center h-[200px] text-sm text-gray-400 dark:text-gray-500">
-                No vocabulary data yet
+                {t('dash.noVocabData')}
               </div>
             )}
           </div>
@@ -559,7 +567,7 @@ const DashboardPage: React.FC = () => {
           {/* Cumulative Learning Progress Area Chart */}
           <div className="lg:col-span-2 bg-white dark:bg-slate-800 rounded-xl border border-gray-200 dark:border-slate-700 shadow-sm p-5">
             <p className="text-xs text-gray-400 dark:text-gray-500 uppercase tracking-wider mb-4">
-              Learning Progress (30 Days)
+              {t('dash.learning30d')}
             </p>
             <ResponsiveContainer width="100%" height={220}>
               <AreaChart data={cumulativeData}>
@@ -624,22 +632,22 @@ const DashboardPage: React.FC = () => {
           <div className="flex items-center justify-between">
             <div>
               <p className="text-xs text-gray-400 dark:text-gray-500 uppercase tracking-wider mb-1">
-                Continue Last Session
+                {t('dash.continueSession')}
               </p>
               <p className="text-base font-medium text-gray-800 dark:text-gray-200 truncate max-w-md">
                 {currentSession.title || currentSession.youtubeUrl}
               </p>
               <p className="text-xs text-gray-400 dark:text-gray-500 mt-1">
-                {currentSession.transcriptLines.length} lines &middot;{' '}
+                {currentSession.transcriptLines.length} {t('dash.lines')} &middot;{' '}
                 {currentSession.status} &middot;{' '}
-                updated {new Date(currentSession.updatedAt).toLocaleDateString()}
+                {t('dash.updated')} {new Date(currentSession.updatedAt).toLocaleDateString()}
               </p>
             </div>
             <button
               onClick={handleContinueSession}
               className="px-5 py-2 text-sm bg-indigo-600 text-white rounded-lg hover:bg-indigo-700 transition-colors font-medium cursor-pointer"
             >
-              Continue
+              {t('dash.continue')}
             </button>
           </div>
         </div>
@@ -649,16 +657,16 @@ const DashboardPage: React.FC = () => {
       <div>
         <div className="flex items-center justify-between mb-4">
           <h2 className="text-sm font-semibold text-gray-600 dark:text-gray-400 uppercase tracking-wider">
-            Recent Sessions
+            {t('dash.recentSessions')}
           </h2>
-          <span className="text-xs text-gray-400 dark:text-gray-500">{sessions.length} total</span>
+          <span className="text-xs text-gray-400 dark:text-gray-500">{sessions.length} {t('dash.total')}</span>
         </div>
 
         {sessions.length === 0 ? (
           <div className="bg-white dark:bg-slate-800 rounded-xl border border-gray-200 dark:border-slate-700 shadow-sm p-10 text-center">
-            <p className="text-gray-400 dark:text-gray-500 text-sm">No study sessions yet.</p>
+            <p className="text-gray-400 dark:text-gray-500 text-sm">{t('dash.noSessions')}</p>
             <p className="text-gray-400 dark:text-gray-500 text-xs mt-1">
-              Head to <span className="text-indigo-500">Study</span> to start your first session.
+              {t('dash.startFirst')}
             </p>
           </div>
         ) : (
@@ -680,7 +688,7 @@ const DashboardPage: React.FC = () => {
                       {s.youtubeId}
                     </span>
                     <span className="text-[11px] text-gray-400 dark:text-gray-500">
-                      {s.transcriptLines.length} lines
+                      {s.transcriptLines.length} {t('dash.lines')}
                     </span>
                     <span className={`px-1.5 py-0.5 rounded text-[10px] font-medium ${
                       s.status === 'studying'
@@ -702,13 +710,13 @@ const DashboardPage: React.FC = () => {
                     onClick={() => handleOpenSession(s)}
                     className="px-3 py-1.5 text-xs text-indigo-600 bg-indigo-50 dark:bg-indigo-950 rounded-lg hover:bg-indigo-100 transition-colors font-medium cursor-pointer"
                   >
-                    Open
+                    {t('dash.open')}
                   </button>
                   <button
                     onClick={() => handleDeleteSession(s.id)}
                     className="px-3 py-1.5 text-xs text-gray-400 hover:text-red-500 rounded-lg hover:bg-red-50 transition-colors opacity-100 md:opacity-0 md:group-hover:opacity-100 cursor-pointer"
                   >
-                    Delete
+                    {t('dash.delete')}
                   </button>
                 </div>
               </div>
