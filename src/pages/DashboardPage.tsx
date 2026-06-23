@@ -381,7 +381,9 @@ const DashboardPage: React.FC = () => {
               {dailyPlan.length > 0 && (
                 <button
                   onClick={() => {
-                    setDailyPlan(clearDailyPlan());
+                    if (window.confirm('Clear all items from today\'s plan?')) {
+                      setDailyPlan(clearDailyPlan());
+                    }
                   }}
                   className="text-xs text-gray-400 hover:text-red-500 transition-colors cursor-pointer"
                   title="Clear all plan items"
