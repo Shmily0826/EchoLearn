@@ -1,4 +1,11 @@
 import { useState, useEffect, useCallback } from 'react';
+import { useAuth } from '../contexts/AuthContext';
+import {
+  syncWithCloud,
+  uploadToCloud,
+  getLastSyncTime,
+  formatLastSync,
+} from '../services/firestoreSync';
 import {
   savePat,
   loadPat,
@@ -43,6 +50,12 @@ function useLocalDataSize() {
 
 const SettingsPage: React.FC = () => {
   const dataSize = useLocalDataSize();
+  const { user, logOut } = useAuth();
+
+  // ── Firebase sync state ──────────────────────────────────
+  const [fbSyncAction, setFbSyncAction] = useState<'idle' | 'syncing' | 'uploading'>('idle');
+  const [fbSyncMessage, setFbSyncMessage] = useState<{ type: 'success' | 'error' | 'info'; text: string } | null>(null);
+  const [lastSync, setLastSync] = useState<number | null>(getLastSyncTime());
 
   // ── PAT state ─────────────────────────────────────────────
   const [patInput, setPatInput] = useState('');
@@ -76,7 +89,61 @@ const SettingsPage: React.FC = () => {
       setProxyStatus(result.ok ? 'online' : 'offline');
       setProxyMessage(result.ok ? 'Proxy is running' : (result.error || 'Not reachable'));
     });
-  }, []);
+
+    // Auto-sync with cloud on mount (if user is logged in)
+    if (user?.uid) {
+      setFbSyncAction('syncing');
+      syncWithCloud(user.uid).then((result) => {
+        setFbSyncAction('idle');
+        if (result.ok) {
+          setLastSync(getLastSyncTime());
+        }
+      });
+    }
+  }, [user?.uid]);
+
+  // ── Firebase sync now ─────────────────────────────────────
+  const handleSyncNow = useCallback(async () => {
+    if (!user?.uid) return;
+    setFbSyncAction('syncing');
+    setFbSyncMessage({ type: 'info', text: 'Syncing with cloud...' });
+    const result = await syncWithCloud(user.uid);
+    setFbSyncAction('idle');
+    if (result.ok) {
+      const parts: string[] = [];
+      if (result.counts) {
+        if (result.counts.vocabulary) parts.push(`${result.counts.vocabulary} words`);
+        if (result.counts.sentences) parts.push(`${result.counts.sentences} sentences`);
+        if (result.counts.sessions) parts.push(`${result.counts.sessions} sessions`);
+        if (result.counts.dailyPlan) parts.push(`${result.counts.dailyPlan} plan items`);
+      }
+      const detail = parts.length > 0 ? ` (${parts.join(', ')})` : '';
+      setFbSyncMessage({ type: 'success', text: `Sync complete${detail}.` });
+      setLastSync(getLastSyncTime());
+    } else {
+      setFbSyncMessage({ type: 'error', text: result.error || 'Sync failed.' });
+    }
+  }, [user?.uid]);
+
+  // ── Firebase upload only ──────────────────────────────────
+  const handleUploadOnly = useCallback(async () => {
+    if (!user?.uid) return;
+    setFbSyncAction('uploading');
+    setFbSyncMessage({ type: 'info', text: 'Uploading local data to cloud...' });
+    const result = await uploadToCloud(user.uid);
+    setFbSyncAction('idle');
+    if (result.ok) {
+      setFbSyncMessage({ type: 'success', text: 'Local data uploaded to cloud.' });
+      setLastSync(getLastSyncTime());
+    } else {
+      setFbSyncMessage({ type: 'error', text: result.error || 'Upload failed.' });
+    }
+  }, [user?.uid]);
+
+  // ── Handle sign out ───────────────────────────────────────
+  const handleSignOut = useCallback(async () => {
+    await logOut();
+  }, [logOut]);
 
   // ── Check proxy status ────────────────────────────────────
   const handleCheckProxy = useCallback(async () => {
@@ -228,8 +295,137 @@ const SettingsPage: React.FC = () => {
         Settings
       </h1>
       <p className="text-gray-500 dark:text-gray-400 text-sm mb-8">
-        Manage your data sync and export preferences.
+        Manage your account, data sync and export preferences.
       </p>
+
+      {/* ── Account Section ──────────────────────────────────── */}
+      {user && (
+        <section className="bg-white dark:bg-slate-800 rounded-xl border border-gray-200 dark:border-slate-700 shadow-sm p-5 sm:p-6 mb-6">
+          <div className="flex items-center gap-3 mb-5">
+            <div className="p-2 bg-violet-100 dark:bg-violet-950 rounded-lg">
+              <svg className="w-5 h-5 text-violet-600 dark:text-violet-400" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.5}>
+                <path strokeLinecap="round" strokeLinejoin="round" d="M15.75 6a3.75 3.75 0 11-7.5 0 3.75 3.75 0 017.5 0zM4.501 20.118a7.5 7.5 0 0114.998 0A17.933 17.933 0 0112 21.75c-2.676 0-5.216-.584-7.499-1.632z" />
+              </svg>
+            </div>
+            <div>
+              <h2 className="text-base font-semibold text-gray-800 dark:text-gray-200">Account</h2>
+              <p className="text-xs text-gray-400 dark:text-gray-500">
+                {user.displayName || user.email || 'Signed in'}
+              </p>
+            </div>
+            <button
+              onClick={handleSignOut}
+              className="ml-auto px-3 py-1.5 text-xs text-red-500 border border-red-200 dark:border-red-800 rounded-lg hover:bg-red-50 dark:hover:bg-red-950 transition-colors cursor-pointer whitespace-nowrap"
+            >
+              Sign Out
+            </button>
+          </div>
+
+          {/* User info */}
+          <div className="flex items-center gap-4 mb-4">
+            {user.photoURL ? (
+              <img
+                src={user.photoURL}
+                alt={user.displayName || 'User'}
+                className="w-12 h-12 rounded-full border-2 border-violet-200 dark:border-violet-800"
+                referrerPolicy="no-referrer"
+              />
+            ) : (
+              <div className="w-12 h-12 rounded-full bg-violet-100 dark:bg-violet-900 flex items-center justify-center">
+                <span className="text-violet-600 dark:text-violet-300 font-semibold text-lg">
+                  {(user.displayName || user.email || 'U')[0].toUpperCase()}
+                </span>
+              </div>
+            )}
+            <div className="text-sm">
+              {user.displayName && (
+                <p className="font-medium text-gray-800 dark:text-gray-200">{user.displayName}</p>
+              )}
+              <p className="text-gray-400 dark:text-gray-500">{user.email}</p>
+              {user.providerData[0]?.providerId === 'google.com' && (
+                <p className="text-xs text-gray-400 dark:text-gray-500 mt-0.5">Signed in with Google</p>
+              )}
+            </div>
+          </div>
+
+          {/* Cloud sync status & actions */}
+          <div className="border-t border-gray-100 dark:border-slate-700 pt-4">
+            <div className="flex items-center justify-between mb-3">
+              <div className="flex items-center gap-2 text-xs">
+                <svg className="w-3.5 h-3.5 text-gray-400" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.5}>
+                  <path strokeLinecap="round" strokeLinejoin="round" d="M12 6v6h4.5m4.5 0a9 9 0 11-18 0 9 9 0 0118 0z" />
+                </svg>
+                <span className="text-gray-400 dark:text-gray-500">
+                  Last sync: <span className="text-gray-600 dark:text-gray-300">{formatLastSync(lastSync)}</span>
+                </span>
+              </div>
+              {fbSyncAction !== 'idle' && (
+                <span className="flex items-center gap-1.5 text-xs text-indigo-500">
+                  <Spinner />
+                  {fbSyncAction === 'syncing' ? 'Syncing...' : 'Uploading...'}
+                </span>
+              )}
+            </div>
+
+            <p className="text-[11px] text-gray-400 dark:text-gray-500 mb-3">
+              Your vocabulary, sentences, study sessions and daily plan are synced automatically via Firebase.
+              Data merges across devices — no data is lost.
+            </p>
+
+            <div className="flex flex-wrap gap-2">
+              <button
+                onClick={handleSyncNow}
+                disabled={fbSyncAction !== 'idle'}
+                className="flex-1 min-w-[120px] px-4 py-2.5 text-sm bg-violet-600 text-white rounded-lg hover:bg-violet-700 transition-colors cursor-pointer disabled:opacity-60 disabled:cursor-not-allowed flex items-center justify-center gap-2"
+              >
+                {fbSyncAction === 'syncing' ? (
+                  <>
+                    <Spinner />
+                    Syncing...
+                  </>
+                ) : (
+                  <>
+                    <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.5}>
+                      <path strokeLinecap="round" strokeLinejoin="round" d="M16.023 9.348h4.992v-.001M2.985 19.644v-4.992m0 0h4.992m-4.993 0l3.181 3.183a8.25 8.25 0 0013.803-3.7M4.031 9.865a8.25 8.25 0 0113.803-3.7l3.181 3.182M2.985 19.644l3.181-3.183" />
+                    </svg>
+                    Sync Now
+                  </>
+                )}
+              </button>
+
+              <button
+                onClick={handleUploadOnly}
+                disabled={fbSyncAction !== 'idle'}
+                className="px-4 py-2.5 text-sm text-gray-600 dark:text-gray-300 border border-gray-200 dark:border-slate-600 rounded-lg hover:bg-gray-50 dark:hover:bg-slate-700 transition-colors cursor-pointer disabled:opacity-60 flex items-center gap-2"
+              >
+                {fbSyncAction === 'uploading' ? (
+                  <>
+                    <Spinner />
+                    Uploading...
+                  </>
+                ) : (
+                  <>
+                    <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.5}>
+                      <path strokeLinecap="round" strokeLinejoin="round" d="M3 16.5v2.25A2.25 2.25 0 005.25 21h13.5A2.25 2.25 0 0021 18.75V16.5m-13.5-9L12 3m0 0l4.5 4.5M12 3v13.5" />
+                    </svg>
+                    Upload Local
+                  </>
+                )}
+              </button>
+            </div>
+
+            {fbSyncMessage && (
+              <p className={`text-xs mt-3 ${
+                fbSyncMessage.type === 'success' ? 'text-green-600 dark:text-green-400' :
+                fbSyncMessage.type === 'error' ? 'text-red-500' :
+                'text-gray-500'
+              }`}>
+                {fbSyncMessage.text}
+              </p>
+            )}
+          </div>
+        </section>
+      )}
 
       {/* ── Local Proxy Section ──────────────────────────────── */}
       <section className="bg-white dark:bg-slate-800 rounded-xl border border-gray-200 dark:border-slate-700 shadow-sm p-5 sm:p-6 mb-6">

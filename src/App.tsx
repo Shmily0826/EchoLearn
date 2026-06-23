@@ -1,6 +1,7 @@
 import { BrowserRouter, useLocation } from 'react-router-dom'
+import { AuthProvider, useAuth } from './contexts/AuthContext'
 import Layout from './components/Layout'
-import AuthGuard from './components/AuthGuard'
+import LoginPage from './pages/LoginPage'
 import DashboardPage from './pages/DashboardPage'
 import StudyPage from './pages/StudyPage'
 import VocabularyPage from './pages/VocabularyPage'
@@ -40,12 +41,52 @@ function AppContent() {
   );
 }
 
+/**
+ * Auth gate — shows login page if not authenticated, otherwise renders the app.
+ * The old VITE_ACCESS_PASSWORD gate is deprecated in favour of Firebase Auth.
+ */
+function AuthGate() {
+  const { user, loading } = useAuth();
+
+  if (loading) {
+    // Initial auth state check — show a minimal loader
+    return (
+      <div
+        className="min-h-screen flex items-center justify-center"
+        style={{ backgroundColor: 'var(--color-bg)' }}
+      >
+        <div className="flex flex-col items-center gap-3">
+          <svg
+            className="animate-spin h-8 w-8 text-indigo-500"
+            viewBox="0 0 24 24"
+            fill="none"
+          >
+            <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
+            <path
+              className="opacity-75"
+              fill="currentColor"
+              d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z"
+            />
+          </svg>
+          <span className="text-sm text-gray-400 dark:text-gray-500">Loading...</span>
+        </div>
+      </div>
+    );
+  }
+
+  if (!user) {
+    return <LoginPage />;
+  }
+
+  return <AppContent />;
+}
+
 function App() {
   return (
     <BrowserRouter>
-      <AuthGuard>
-        <AppContent />
-      </AuthGuard>
+      <AuthProvider>
+        <AuthGate />
+      </AuthProvider>
     </BrowserRouter>
   );
 }

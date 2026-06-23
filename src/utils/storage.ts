@@ -140,6 +140,11 @@ export function deleteSession(id: string): void {
   }
 }
 
+/** Replace the entire sessions list (used by cloud sync). */
+export function saveAllSessions(sessions: VideoStudySession[]): void {
+  localStorage.setItem(SESSIONS_LIST_KEY, JSON.stringify(sessions));
+}
+
 // ─── Vocabulary ──────────────────────────────────────────────
 
 export function loadVocabulary(): VocabularyItem[] {
