@@ -94,6 +94,7 @@ const YouTubeEmbed = forwardRef<PlayerHandle, YouTubeEmbedProps>(
           playerVars: {
             modestbranding: 1,
             rel: 0,
+            cc_load_policy: 0,
             ...(startTime !== undefined ? { start: startTime } : {}),
           },
           events: {

@@ -1083,17 +1083,21 @@ const MobileTranscriptPanel: React.FC<{
     }, 3000);
   }, []);
 
-  // Auto-scroll to active line
+  // Auto-scroll to active line — only scrolls the container, never the page
   useEffect(() => {
-    if (!userScrolled.current && activeRef.current && containerRef.current) {
-      const container = containerRef.current;
-      const el = activeRef.current;
-      const containerHeight = container.clientHeight;
-      const elTop = el.offsetTop - container.offsetTop;
-      const elHeight = el.offsetHeight;
-      const targetScroll = elTop - containerHeight / 2 + elHeight / 2;
-      container.scrollTo({ top: targetScroll, behavior: 'smooth' });
-    }
+    if (userScrolled.current || !activeRef.current || !containerRef.current) return;
+    const container = containerRef.current;
+    const el = activeRef.current;
+    // Use getBoundingClientRect for accurate relative positioning
+    const containerRect = container.getBoundingClientRect();
+    const elRect = el.getBoundingClientRect();
+    const targetScroll =
+      container.scrollTop +
+      (elRect.top - containerRect.top) -
+      container.clientHeight / 2 +
+      elRect.height / 2;
+    // Use 'instant' to avoid smooth scroll affecting the page
+    container.scrollTo({ top: Math.max(0, targetScroll), behavior: 'instant' as ScrollBehavior });
   }, [activeLineIndex]);
 
   if (lines.length === 0) {
@@ -1109,6 +1113,7 @@ const MobileTranscriptPanel: React.FC<{
       ref={containerRef}
       onScroll={handleScroll}
       className="overflow-y-auto max-h-[35vh] px-2 py-1"
+      style={{ overscrollBehavior: 'contain', overflowAnchor: 'none' }}
     >
       {lines.map((line, idx) => {
         const isActive = idx === activeLineIndex;
