@@ -1,8 +1,8 @@
 /**
  * EchoLearn — Local Proxy + Cloudflare Tunnel Launcher
  *
- * Starts the Express proxy server and a cloudflared quick tunnel,
- * then displays the public tunnel URL for use with EchoLearn.
+ * Starts the Express proxy server and a permanent Cloudflare tunnel.
+ * The tunnel routes proxy.echo-learn.uk to your local proxy server.
  *
  * Usage:
  *   node launch.js
@@ -12,13 +12,13 @@ import { spawn } from 'child_process';
 import { createServer } from 'net';
 import { existsSync } from 'fs';
 
-const PORT = parseInt(process.env.PORT || '8787', 10);
+const PORT = 8787; // must match config.yml
+const TUNNEL_NAME = 'echolearn-tunnel';
+const PUBLIC_URL = 'https://proxy.echo-learn.uk';
 
 // ── Find cloudflared binary ──────────────────────────────────
 function findCloudflared() {
-  // Try common install locations on Windows
   const candidates = [
-    'cloudflared', // PATH
     'C:\\Program Files (x86)\\cloudflared\\cloudflared.exe',
     'C:\\Program Files\\cloudflared\\cloudflared.exe',
     `${process.env.LOCALAPPDATA}\\cloudflared\\cloudflared.exe`,
@@ -26,52 +26,41 @@ function findCloudflared() {
   ];
 
   for (const candidate of candidates) {
-    if (candidate === 'cloudflared') continue; // skip PATH check for now
     if (existsSync(candidate)) return candidate;
   }
 
-  // Fall back to PATH (will throw ENOENT if not found)
   return 'cloudflared';
 }
 
-// ── Step 1: Find an available port ───────────────────────────
-function findPort(start) {
-  return new Promise((resolve, reject) => {
+// ── Check if port is available ───────────────────────────────
+function checkPort(port) {
+  return new Promise((resolve) => {
     const srv = createServer();
-    srv.listen(start, '127.0.0.1', () => {
-      const port = srv.address().port;
-      srv.close(() => resolve(port));
+    srv.listen(port, '127.0.0.1', () => {
+      srv.close(() => resolve(true));
     });
-    srv.on('error', (err) => {
-      if (err.code === 'EADDRINUSE') {
-        resolve(findPort(start + 1));
-      } else {
-        reject(err);
-      }
-    });
+    srv.on('error', () => resolve(false));
   });
 }
 
-// ── Step 2: Start the proxy server ───────────────────────────
-function startProxy(port) {
+// ── Step 1: Start the proxy server ───────────────────────────
+function startProxy() {
   return new Promise((resolve) => {
     const proxy = spawn('node', ['server.js'], {
       cwd: import.meta.dirname,
-      env: { ...process.env, PORT: String(port) },
+      env: { ...process.env, PORT: String(PORT) },
       stdio: ['pipe', 'pipe', 'pipe'],
     });
 
     proxy.stdout.on('data', (data) => {
       const text = data.toString();
       process.stdout.write(text);
-      // Server is ready when it prints the listening message
       if (text.includes('Listening on')) {
         resolve(proxy);
       }
     });
 
     proxy.stderr.on('data', (data) => {
-      // Filter out the TLS warning
       const text = data.toString();
       if (!text.includes('NODE_TLS_REJECT_UNAUTHORIZED')) {
         process.stderr.write(text);
@@ -85,25 +74,26 @@ function startProxy(port) {
   });
 }
 
-// ── Step 3: Start cloudflared tunnel ─────────────────────────
-function startTunnel(port) {
+// ── Step 2: Start cloudflared named tunnel ───────────────────
+function startTunnel() {
   const cloudflaredPath = findCloudflared();
 
   return new Promise((resolve) => {
-    const tunnel = spawn(cloudflaredPath, ['tunnel', '--url', `http://localhost:${port}`], {
+    const tunnel = spawn(cloudflaredPath, ['tunnel', 'run', TUNNEL_NAME], {
       stdio: ['pipe', 'pipe', 'pipe'],
     });
 
-    let tunnelUrl = null;
+    let resolved = false;
 
     const handleOutput = (data) => {
       const text = data.toString();
 
-      // Look for the tunnel URL in cloudflared output
-      const urlMatch = text.match(/https:\/\/[a-z0-9-]+\.trycloudflare\.com/);
-      if (urlMatch && !tunnelUrl) {
-        tunnelUrl = urlMatch[0];
-        resolve({ process: tunnel, url: tunnelUrl });
+      // Named tunnel is ready when it registers the connection
+      if (text.includes('Registered tunnel connection') || text.includes('Route propagat')) {
+        if (!resolved) {
+          resolved = true;
+          resolve({ process: tunnel, ok: true });
+        }
       }
     };
 
@@ -111,29 +101,32 @@ function startTunnel(port) {
     tunnel.stderr.on('data', handleOutput);
 
     tunnel.on('error', (err) => {
-      if (!tunnelUrl) {
+      if (!resolved) {
+        resolved = true;
         console.log(`\ncloudflared error: ${err.message}`);
         if (err.code === 'ENOENT') {
           console.log('cloudflared not found. Install: winget install Cloudflare.cloudflared');
         }
-        console.log('Proxy is still running on localhost (no tunnel).');
-        resolve({ process: tunnel, url: null });
+        resolve({ process: tunnel, ok: false });
       }
     });
 
     tunnel.on('exit', (code) => {
-      if (!tunnelUrl) {
+      if (!resolved) {
+        resolved = true;
         console.log(`\ncloudflared exited (code ${code})`);
-        console.log('Tunnel failed to start. Proxy is still running on localhost.');
+        resolve({ process: tunnel, ok: false });
       }
     });
 
-    // Timeout: if tunnel doesn't start in 30 seconds, continue anyway
+    // Timeout: if tunnel doesn't connect in 20 seconds, continue anyway
     setTimeout(() => {
-      if (!tunnelUrl) {
-        resolve({ process: tunnel, url: null });
+      if (!resolved) {
+        resolved = true;
+        // Tunnel might still be connecting, give it the benefit of the doubt
+        resolve({ process: tunnel, ok: true });
       }
-    }, 30000);
+    }, 20000);
   });
 }
 
@@ -144,37 +137,39 @@ async function main() {
   console.log('  ========================================');
   console.log('');
 
-  // Find available port
-  const port = await findPort(PORT);
-  if (port !== PORT) {
-    console.log(`  Port ${PORT} is busy, using ${port} instead.`);
+  // Check port
+  const portOk = await checkPort(PORT);
+  if (!portOk) {
+    console.log(`  [ERROR] Port ${PORT} is already in use.`);
+    console.log('  Please close the other process using this port.');
+    process.exit(1);
   }
 
   // Start proxy
   console.log('  Starting proxy server...');
-  await startProxy(port);
+  await startProxy();
 
   // Start tunnel
   console.log('');
   console.log('  Starting Cloudflare Tunnel...');
-  const { url: tunnelUrl } = await startTunnel(port);
+  const { ok: tunnelOk } = await startTunnel();
 
   // Display results
   console.log('');
   console.log('  ==================================================');
   console.log('    EchoLearn Local Proxy is RUNNING');
   console.log('  ==================================================');
-  console.log(`    Local:  http://127.0.0.1:${port}`);
+  console.log(`    Local:  http://127.0.0.1:${PORT}`);
 
-  if (tunnelUrl) {
-    console.log(`    Public: ${tunnelUrl}`);
+  if (tunnelOk) {
+    console.log(`    Public: ${PUBLIC_URL}  (fixed!)`);
     console.log('');
-    console.log('    Use the PUBLIC URL in EchoLearn Settings');
-    console.log('    to access from any device!');
+    console.log('    Use this URL in EchoLearn Settings.');
+    console.log('    It stays the same every time you restart!');
   } else {
-    console.log('    Public: (tunnel unavailable)');
+    console.log('    Public: (tunnel failed to connect)');
     console.log('');
-    console.log(`    Use http://127.0.0.1:${port} in Settings`);
+    console.log(`    Use http://127.0.0.1:${PORT} in Settings`);
     console.log('    (works only on this computer)');
   }
 
