@@ -71,10 +71,11 @@ function AppContent() {
  */
 function AuthGate() {
   const { user, loading } = useAuth();
-  const { t } = useI18n();
 
   if (loading) {
     // Initial auth state check — show a minimal loader
+    // NOTE: intentionally no useI18n here because this may render
+    // before I18nProvider's children are fully initialised.
     return (
       <div
         className="min-h-screen flex items-center justify-center notranslate"
@@ -94,7 +95,7 @@ function AuthGate() {
               d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z"
             />
           </svg>
-          <span className="text-sm text-gray-400 dark:text-gray-500">{t('common.loading')}</span>
+          <span className="text-sm text-gray-400 dark:text-gray-500">Loading…</span>
         </div>
       </div>
     );
@@ -109,15 +110,15 @@ function AuthGate() {
 
 function App() {
   return (
-    <ErrorBoundary>
-      <BrowserRouter>
-        <I18nProvider>
+    <BrowserRouter>
+      <I18nProvider>
+        <ErrorBoundary>
           <AuthProvider>
             <AuthGate />
           </AuthProvider>
-        </I18nProvider>
-      </BrowserRouter>
-    </ErrorBoundary>
+        </ErrorBoundary>
+      </I18nProvider>
+    </BrowserRouter>
   );
 }
 
