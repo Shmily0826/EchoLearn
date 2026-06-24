@@ -629,8 +629,8 @@ const DashboardPage: React.FC = () => {
       {/* Continue last session */}
       {currentSession && (
         <div className="bg-white dark:bg-slate-800 rounded-xl border border-gray-200 dark:border-slate-700 shadow-sm p-4 sm:p-5 mb-6 sm:mb-10">
-          <div className="flex items-center justify-between">
-            <div>
+          <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
+            <div className="min-w-0">
               <p className="text-xs text-gray-400 dark:text-gray-500 uppercase tracking-wider mb-1">
                 {t('dash.continueSession')}
               </p>
@@ -645,7 +645,7 @@ const DashboardPage: React.FC = () => {
             </div>
             <button
               onClick={handleContinueSession}
-              className="px-5 py-2 text-sm bg-indigo-600 text-white rounded-lg hover:bg-indigo-700 transition-colors font-medium cursor-pointer"
+              className="w-full sm:w-auto px-5 py-2 text-sm bg-indigo-600 text-white rounded-lg hover:bg-indigo-700 transition-colors font-medium cursor-pointer shrink-0"
             >
               {t('dash.continue')}
             </button>
@@ -674,7 +674,7 @@ const DashboardPage: React.FC = () => {
             {sessions.map((s) => (
               <div
                 key={s.id}
-                className="bg-white dark:bg-slate-800 rounded-xl border border-gray-200 dark:border-slate-700 shadow-sm px-5 py-4 flex items-center justify-between group hover:border-gray-300 dark:hover:border-slate-600 transition-colors"
+                className="bg-white dark:bg-slate-800 rounded-xl border border-gray-200 dark:border-slate-700 shadow-sm px-5 py-4 flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3 group hover:border-gray-300 dark:hover:border-slate-600 transition-colors"
               >
                 <div
                   className="flex-1 min-w-0 cursor-pointer"
@@ -683,7 +683,7 @@ const DashboardPage: React.FC = () => {
                   <p className="text-sm font-medium text-gray-800 dark:text-gray-200 truncate">
                     {s.title || s.youtubeUrl}
                   </p>
-                  <div className="flex items-center gap-3 mt-1">
+                  <div className="flex items-center gap-3 mt-1 flex-wrap">
                     <span className="text-[11px] font-mono text-gray-400 dark:text-gray-500">
                       {s.youtubeId}
                     </span>
@@ -705,7 +705,7 @@ const DashboardPage: React.FC = () => {
                   </div>
                 </div>
 
-                <div className="flex items-center gap-2 ml-4">
+                <div className="flex items-center gap-2 sm:ml-4">
                   <button
                     onClick={() => handleOpenSession(s)}
                     className="px-3 py-1.5 text-xs text-indigo-600 bg-indigo-50 dark:bg-indigo-950 rounded-lg hover:bg-indigo-100 transition-colors font-medium cursor-pointer"
