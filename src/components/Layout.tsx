@@ -121,14 +121,36 @@ const Layout: React.FC<{ children: ReactNode }> = ({ children }) => {
               ))}
             </nav>
 
-            {/* Language toggle */}
+            {/* Language toggle — dual-label pill showing current language */}
             <button
               onClick={toggleLang}
-              className="px-2 py-1 rounded-lg text-xs font-bold transition-colors cursor-pointer hover:bg-gray-100 dark:hover:bg-gray-700"
-              style={{ color: 'var(--color-text-muted)', minWidth: '36px' }}
+              className="flex items-center rounded-lg text-xs font-semibold overflow-hidden transition-colors cursor-pointer"
+              style={{
+                border: '1.5px solid var(--color-border)',
+                backgroundColor: 'var(--color-surface)',
+              }}
               title={lang === 'en' ? '切换中文' : 'Switch to English'}
             >
-              {lang === 'en' ? '中文' : 'EN'}
+              <span
+                className="px-2 py-1 transition-colors"
+                style={
+                  lang === 'en'
+                    ? { backgroundColor: '#6366f1', color: '#fff' }
+                    : { color: 'var(--color-text-muted)' }
+                }
+              >
+                EN
+              </span>
+              <span
+                className="px-2 py-1 transition-colors"
+                style={
+                  lang === 'zh'
+                    ? { backgroundColor: '#6366f1', color: '#fff' }
+                    : { color: 'var(--color-text-muted)' }
+                }
+              >
+                中
+              </span>
             </button>
 
             {/* Dark mode toggle */}
