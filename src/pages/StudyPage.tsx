@@ -305,6 +305,10 @@ const StudyPage: React.FC = () => {
     () => new Set(filteredSentences.map((s) => s.text)),
     [filteredSentences],
   );
+  const savedSentenceIds = useMemo(
+    () => new Map(filteredSentences.map((s) => [s.text, s.id])),
+    [filteredSentences],
+  );
 
   // ── Persist session helper ─────────────────────────────────
   const persistSession = useCallback(
@@ -496,6 +500,11 @@ const StudyPage: React.FC = () => {
     setSentences(removeSentenceItem(id));
   }, []);
 
+  // Silent toggle — no confirm dialog (used by bookmark button)
+  const handleToggleSentenceOff = useCallback((id: string) => {
+    setSentences(removeSentenceItem(id));
+  }, []);
+
   // ── Render ─────────────────────────────────────────────────
   return (
     <div>
@@ -624,8 +633,10 @@ const StudyPage: React.FC = () => {
                   videoTitle={sessionTitle}
                   savedWords={savedWords}
                   savedSentences={savedSentencesSet}
+                  savedSentenceIds={savedSentenceIds}
                   onAddVocabulary={handleAddVocabulary}
                   onAddSentence={handleAddSentence}
+                  onRemoveSentence={handleToggleSentenceOff}
                   onSeekTo={(seconds) => playerRef.current?.seekTo(seconds)}
                 />
               </div>
@@ -783,8 +794,10 @@ const StudyPage: React.FC = () => {
                 videoTitle={sessionTitle}
                 onAddVocabulary={handleAddVocabulary}
                 onAddSentence={handleAddSentence}
+                onRemoveSentence={handleToggleSentenceOff}
                 savedWords={savedWords}
                 savedSentences={savedSentencesSet}
+                savedSentenceIds={savedSentenceIds}
                 activeLineIndex={activeLineIndex}
                 onSeekTo={handleSeekTo}
               />
@@ -1072,10 +1085,12 @@ const MobileTranscriptPanel: React.FC<{
   videoTitle: string;
   savedWords: Set<string>;
   savedSentences: Set<string>;
+  savedSentenceIds: Map<string, string>;
   onAddVocabulary: (item: VocabularyItem) => void;
   onAddSentence: (item: SentenceItem) => void;
+  onRemoveSentence: (id: string) => void;
   onSeekTo: (seconds: number) => void;
-}> = ({ lines, activeLineIndex, videoId, videoTitle, savedWords, savedSentences, onAddVocabulary, onAddSentence, onSeekTo }) => {
+}> = ({ lines, activeLineIndex, videoId, videoTitle, savedWords, savedSentences, savedSentenceIds, onAddVocabulary, onAddSentence, onRemoveSentence, onSeekTo }) => {
   const { t } = useI18n();
   const containerRef = useRef<HTMLDivElement>(null);
   const activeRef = useRef<HTMLDivElement>(null);
@@ -1343,11 +1358,16 @@ const MobileTranscriptPanel: React.FC<{
                     );
                   })}
                 </div>
-                {/* Sentence bookmark button */}
+                {/* Sentence bookmark button — toggle */}
                 <button
                   onClick={(e) => {
                     e.stopPropagation();
-                    handleAddSentence(line);
+                    if (sentenceSaved) {
+                      const id = savedSentenceIds.get(line.text);
+                      if (id) onRemoveSentence(id);
+                    } else {
+                      handleAddSentence(line);
+                    }
                   }}
                   className={`flex-shrink-0 p-1.5 rounded transition-colors cursor-pointer ${
                     sentenceSaved

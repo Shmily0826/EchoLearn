@@ -9,8 +9,10 @@ interface TranscriptViewerProps {
   videoTitle?: string;
   onAddVocabulary: (item: VocabularyItem) => void;
   onAddSentence: (item: SentenceItem) => void;
+  onRemoveSentence?: (id: string) => void;
   savedWords: Set<string>;
   savedSentences: Set<string>;
+  savedSentenceIds?: Map<string, string>;
   activeLineIndex: number;
   onSeekTo: (seconds: number) => void;
 }
@@ -30,8 +32,10 @@ const TranscriptViewer: React.FC<TranscriptViewerProps> = ({
   videoTitle,
   onAddVocabulary,
   onAddSentence,
+  onRemoveSentence,
   savedWords,
   savedSentences,
+  savedSentenceIds,
   activeLineIndex,
   onSeekTo,
 }) => {
@@ -421,13 +425,18 @@ const TranscriptViewer: React.FC<TranscriptViewerProps> = ({
                   </span>
                 </div>
 
-                {/* Bookmark button — save / unsave sentence */}
+                {/* Bookmark button — toggle save / unsave sentence */}
                 <button
                   onClick={(e) => {
                     e.stopPropagation();
-                    handleAddSentence(line);
+                    if (sentenceSaved && onRemoveSentence && savedSentenceIds) {
+                      const id = savedSentenceIds.get(line.text);
+                      if (id) onRemoveSentence(id);
+                    } else {
+                      handleAddSentence(line);
+                    }
                   }}
-                  title={sentenceSaved ? '已收藏' : '收藏此句'}
+                  title={sentenceSaved ? 'Remove bookmark' : 'Save sentence'}
                   className={`flex-shrink-0 p-1.5 md:p-1 rounded transition-colors cursor-pointer ${
                     sentenceSaved
                       ? 'text-violet-500 hover:text-violet-700'

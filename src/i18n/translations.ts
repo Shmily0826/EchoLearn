@@ -8,6 +8,7 @@ const translations: Record<string, Record<Lang, string>> = {
   'nav.sentences':       { en: 'Sentences',  zh: '句子' },
   'nav.review':          { en: 'Review',     zh: '复习' },
   'nav.settings':        { en: 'Settings',   zh: '设置' },
+  'nav.install':         { en: 'Install',    zh: '安装' },
   'darkMode.on':         { en: 'Switch to dark mode',  zh: '切换深色模式' },
   'darkMode.off':        { en: 'Switch to light mode', zh: '切换浅色模式' },
 
