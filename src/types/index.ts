@@ -1,6 +1,9 @@
 /** Possible states for a study session */
 export type SessionStatus = 'draft' | 'studying' | 'completed';
 
+/** Supported video platforms */
+export type VideoPlatform = 'youtube' | 'bilibili';
+
 /** A single line in the transcript */
 export interface TranscriptLine {
   start: number;            // start time in seconds
@@ -72,11 +75,12 @@ export interface SentenceItem {
   nextReviewAt: number;      // unix ms of next scheduled review
 }
 
-/** A study session tied to a single YouTube video */
+/** A study session tied to a video */
 export interface VideoStudySession {
   id: string;                        // unique id (timestamp-based)
-  youtubeUrl: string;                // the original URL the user pasted
-  youtubeId: string;                 // extracted 11-char video ID
+  youtubeUrl: string;                // the original URL the user pasted (also used for bilibili)
+  youtubeId: string;                 // extracted video ID (11-char for YT, BV ID for Bilibili)
+  platform?: VideoPlatform;          // defaults to 'youtube' if undefined (backward compat)
   title: string;                     // user-editable title (defaults to URL)
   transcriptLines: TranscriptLine[]; // the parsed transcript for this video (legacy)
   transcriptData?: TranscriptData;   // normalized data (rawBlocks + sentenceLines)

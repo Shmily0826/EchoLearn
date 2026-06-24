@@ -1,14 +1,17 @@
 import React, { useState, useEffect, useCallback, useMemo, useRef } from 'react';
 import { useLocation } from 'react-router-dom';
 import YouTubeEmbed, { type PlayerHandle } from '../components/YouTubeEmbed';
+import BilibiliEmbed from '../components/BilibiliEmbed';
 import TranscriptViewer from '../components/TranscriptViewer';
 import TranscriptImporter from '../components/TranscriptImporter';
 import AIAnalysisPanel from '../components/AIAnalysisPanel';
 import WordDictionaryPopup from '../components/WordDictionaryPopup';
 import { parseYouTubeId, parseStartTime } from '../utils/youtube';
+import { detectPlatform, parseBilibiliId, parseBilibiliStartTime, parseBilibiliPage } from '../utils/bilibili';
 import { normalizeTranscriptToSentences } from '../utils/transcriptNormalizer';
 import { analyzeTranscript } from '../services/aiAnalysis';
 import { fetchYouTubeTranscript } from '../services/youtubeTranscript';
+import { fetchBilibiliTranscript, getBilibiliVideoTitle } from '../services/bilibiliTranscript';
 import { translateWord, translateSentence } from '../services/translationService';
 import { lookupWord } from '../services/dictionaryService';
 import { CEFR_LEVELS, type CEFRLevel } from '../services/cefrWordList';
@@ -34,6 +37,7 @@ import type {
   SentenceItem,
   VideoStudySession,
   AIAnalysisResult,
+  VideoPlatform,
 } from '../types';
 
 type DisplayMode = 'sentence' | 'caption';
@@ -49,6 +53,8 @@ const StudyPage: React.FC = () => {
   const [videoId, setVideoId] = useState<string | null>(null);
   const [startTime, setStartTime] = useState<number | undefined>(undefined);
   const [sessionTitle, setSessionTitle] = useState('');
+  const [platform, setPlatform] = useState<VideoPlatform>('youtube');
+  const [biliPage, setBiliPage] = useState<number | undefined>(undefined);
 
   // Transcript state — raw caption blocks + sentence-level lines
   const [rawBlocks, setRawBlocks] = useState<TranscriptLine[]>([]);
@@ -112,9 +118,11 @@ const StudyPage: React.FC = () => {
       loadedSessionIdRef.current = saved.id;
       setSession(saved);
       setVideoId(saved.youtubeId);
+      setPlatform(saved.platform || 'youtube');
       setUrlInput(saved.youtubeUrl);
       setSessionTitle(saved.title);
       setStartTime(undefined); // Don't auto-jump on restore
+      setBiliPage(undefined);
 
       // If title looks like a URL, try fetching the real title
       if (saved.title.startsWith('http') || saved.title === saved.youtubeUrl) {
@@ -145,7 +153,10 @@ const StudyPage: React.FC = () => {
       if (saved.youtubeId && !hasTranscript) {
         setFetchingCaption(true);
         setCaptionError(null);
-        fetchYouTubeTranscript(saved.youtubeId)
+        const fetcher = (saved.platform === 'bilibili')
+          ? fetchBilibiliTranscript(saved.youtubeId)
+          : fetchYouTubeTranscript(saved.youtubeId);
+        fetcher
           .then(({ lines }) => {
             if (lines.length > 0) {
               const sLines = normalizeTranscriptToSentences(lines);
@@ -192,9 +203,11 @@ const StudyPage: React.FC = () => {
     loadedSessionIdRef.current = saved.id;
     setSession(saved);
     setVideoId(saved.youtubeId);
+    setPlatform(saved.platform || 'youtube');
     setUrlInput(saved.youtubeUrl);
     setSessionTitle(saved.title);
     setStartTime(undefined);
+    setBiliPage(undefined);
     setAnalysis(null);
     setStreamChars(0);
     setCaptionError(null);
@@ -229,7 +242,10 @@ const StudyPage: React.FC = () => {
     if (saved.youtubeId && !hasTranscript) {
       setFetchingCaption(true);
       setCaptionError(null);
-      fetchYouTubeTranscript(saved.youtubeId)
+      const fetcher = (saved.platform === 'bilibili')
+        ? fetchBilibiliTranscript(saved.youtubeId)
+        : fetchYouTubeTranscript(saved.youtubeId);
+      fetcher
         .then(({ lines }) => {
           if (lines.length > 0) {
             const sLines = normalizeTranscriptToSentences(lines);
@@ -325,6 +341,7 @@ const StudyPage: React.FC = () => {
         id: session?.id || `session_${now}`,
         youtubeUrl: yUrl,
         youtubeId: yId,
+        platform,
         title,
         transcriptLines: raw, // legacy compat
         transcriptData: { rawBlocks: raw, sentenceLines: sLines },
@@ -335,7 +352,7 @@ const StudyPage: React.FC = () => {
       saveCurrentSession(updated);
       setSession(updated);
     },
-    [session],
+    [session, platform],
   );
 
   // ── Shared: import raw blocks → normalize → persist ────────
@@ -359,44 +376,74 @@ const StudyPage: React.FC = () => {
 
   // ── Load video ─────────────────────────────────────────────
   const handleLoadVideo = useCallback(() => {
-    const id = parseYouTubeId(urlInput);
-    if (!id) return;
+    const detected = detectPlatform(urlInput);
+    if (!detected) return;
 
-    const st = parseStartTime(urlInput);
-    setVideoId(id);
-    setStartTime(st);
+    setPlatform(detected);
 
-    // If no title yet, fetch from YouTube oEmbed (no API key needed)
-    if (!sessionTitle) {
-      setSessionTitle(urlInput.trim()); // temporary fallback
-      getVideoTitle(urlInput).then((info) => {
-        if (info?.title) {
-          setSessionTitle(info.title);
-        }
-      });
+    if (detected === 'bilibili') {
+      const id = parseBilibiliId(urlInput);
+      if (!id) return;
+      const st = parseBilibiliStartTime(urlInput);
+      const pg = parseBilibiliPage(urlInput);
+      setVideoId(id);
+      setStartTime(st);
+      setBiliPage(pg);
+
+      if (!sessionTitle) {
+        setSessionTitle(urlInput.trim());
+        getBilibiliVideoTitle(id).then((info) => {
+          if (info?.title) setSessionTitle(info.title);
+        });
+      }
+
+      if (rawBlocks.length > 0) {
+        persistSession(id, urlInput.trim(), rawBlocks, sentenceLines, sessionTitle || urlInput.trim());
+        return;
+      }
+
+      setFetchingCaption(true);
+      setCaptionError(null);
+      fetchBilibiliTranscript(id)
+        .then(({ lines }) => {
+          if (lines.length > 0) importTranscript(lines);
+        })
+        .catch((err) => {
+          setCaptionError(err instanceof Error ? err.message : 'Unknown error fetching captions');
+        })
+        .finally(() => setFetchingCaption(false));
+    } else {
+      // YouTube (existing logic)
+      const id = parseYouTubeId(urlInput);
+      if (!id) return;
+      const st = parseStartTime(urlInput);
+      setVideoId(id);
+      setStartTime(st);
+      setBiliPage(undefined);
+
+      if (!sessionTitle) {
+        setSessionTitle(urlInput.trim());
+        getVideoTitle(urlInput).then((info) => {
+          if (info?.title) setSessionTitle(info.title);
+        });
+      }
+
+      if (rawBlocks.length > 0) {
+        persistSession(id, urlInput.trim(), rawBlocks, sentenceLines, sessionTitle || urlInput.trim());
+        return;
+      }
+
+      setFetchingCaption(true);
+      setCaptionError(null);
+      fetchYouTubeTranscript(id)
+        .then(({ lines }) => {
+          if (lines.length > 0) importTranscript(lines);
+        })
+        .catch((err) => {
+          setCaptionError(err instanceof Error ? err.message : 'Unknown error fetching captions');
+        })
+        .finally(() => setFetchingCaption(false));
     }
-
-    // If transcript already loaded, save session immediately
-    if (rawBlocks.length > 0) {
-      persistSession(id, urlInput.trim(), rawBlocks, sentenceLines, sessionTitle || urlInput.trim());
-      return;
-    }
-
-    // Auto-fetch captions from YouTube
-    setFetchingCaption(true);
-    setCaptionError(null);
-    fetchYouTubeTranscript(id)
-      .then(({ lines }) => {
-        if (lines.length > 0) {
-          importTranscript(lines);
-        }
-      })
-      .catch((err) => {
-        setCaptionError(
-          err instanceof Error ? err.message : 'Unknown error fetching captions',
-        );
-      })
-      .finally(() => setFetchingCaption(false));
   }, [urlInput, rawBlocks, sentenceLines, sessionTitle, persistSession, importTranscript]);
 
   // ── Import transcript (from TranscriptImporter) ─────────────
@@ -419,6 +466,8 @@ const StudyPage: React.FC = () => {
     setSentenceLines([]);
     setAnalysis(null);
     setCaptionError(null);
+    setPlatform('youtube');
+    setBiliPage(undefined);
   }, []);
 
   // ── Persist AI analysis to current session ─────────────────
@@ -562,7 +611,11 @@ const StudyPage: React.FC = () => {
           {/* Left: video — always visible (mobile: above transcript, desktop: left column) */}
           <div className="w-full lg:w-[55%] flex-shrink-0">
             {videoId ? (
-              <YouTubeEmbed ref={playerRef} youtubeId={videoId} startTime={startTime} />
+              platform === 'bilibili' ? (
+                <BilibiliEmbed ref={playerRef} bvid={videoId} page={biliPage} startTime={startTime} />
+              ) : (
+                <YouTubeEmbed ref={playerRef} youtubeId={videoId} startTime={startTime} />
+              )
             ) : (
               <div className="w-full aspect-video rounded-xl bg-gray-100 dark:bg-slate-800 border-2 border-dashed border-gray-300 dark:border-slate-600 flex items-center justify-center">
                 <div className="text-center">
@@ -593,7 +646,7 @@ const StudyPage: React.FC = () => {
             {/* Quick info */}
             {videoId && (
               <div className="mt-3 flex items-center gap-3 text-xs text-gray-400 dark:text-gray-500">
-                <span>Video ID: {videoId}</span>
+                <span>{platform === 'bilibili' ? 'Bilibili' : 'YouTube'}: {videoId}</span>
                 {startTime !== undefined && <span>Start: {startTime}s</span>}
                 {session && (
                   <span className={`px-1.5 py-0.5 rounded text-[10px] font-medium ${
@@ -826,7 +879,10 @@ const StudyPage: React.FC = () => {
                       if (videoId) {
                         setCaptionError(null);
                         setFetchingCaption(true);
-                        fetchYouTubeTranscript(videoId)
+                        const retryFetcher = (platform === 'bilibili')
+                          ? fetchBilibiliTranscript(videoId)
+                          : fetchYouTubeTranscript(videoId);
+                        retryFetcher
                           .then(({ lines }) => {
                             if (lines.length > 0) {
                               const sLines = normalizeTranscriptToSentences(lines);

@@ -81,7 +81,7 @@ const translations: Record<string, Record<Lang, string>> = {
 
   // ── Study ────────────────────────────────────────────────
   'study.sessionTitlePh':{ en: 'Session title...', zh: '学习标题...' },
-  'study.urlPh':         { en: 'Paste YouTube URL here...', zh: '粘贴 YouTube 链接...' },
+  'study.urlPh':         { en: 'Paste YouTube or Bilibili URL...', zh: '粘贴 YouTube 或 Bilibili 链接...' },
   'study.loadVideo':     { en: 'Load Video', zh: '加载视频' },
   'study.clear':         { en: 'Clear', zh: '清空' },
   'study.pasteStart':    { en: 'Paste a YouTube URL above to start', zh: '在上方粘贴 YouTube 链接开始' },
