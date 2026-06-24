@@ -13,6 +13,8 @@ export interface PlayerHandle {
   pauseVideo(): void;
   seekTo(seconds: number): void;
   getCurrentTime(): number;
+  setPlaybackRate(rate: number): void;
+  getPlaybackRate(): number;
 }
 
 interface YouTubeEmbedProps {
@@ -76,6 +78,12 @@ const YouTubeEmbed = forwardRef<PlayerHandle, YouTubeEmbedProps>(
         pauseVideo: () => playerRef.current?.pauseVideo(),
         seekTo: (seconds: number) => playerRef.current?.seekTo(seconds, true),
         getCurrentTime: () => playerRef.current?.getCurrentTime() ?? 0,
+        setPlaybackRate: (rate: number) => {
+          try { (playerRef.current as any)?.setPlaybackRate(rate); } catch { /* noop */ }
+        },
+        getPlaybackRate: () => {
+          try { return (playerRef.current as any)?.getPlaybackRate() ?? 1; } catch { return 1; }
+        },
       }),
       [],
     );

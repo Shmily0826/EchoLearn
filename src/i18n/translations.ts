@@ -118,6 +118,8 @@ const translations: Record<string, Record<Lang, string>> = {
   'study.deleteSent':    { en: 'Delete this sentence?', zh: '确定要删除这个句子吗？' },
   'study.alreadySaved':  { en: 'Already in vocabulary', zh: '已在生词本中' },
   'study.addToVocab':    { en: 'Add to vocabulary', zh: '加入生词本' },
+  'study.speed':         { en: 'Speed', zh: '倍速' },
+  'study.speedCustom':   { en: 'Custom speed', zh: '自定义倍速' },
 
   // ── Vocabulary ───────────────────────────────────────────
   'vocab.title':         { en: 'Vocabulary', zh: '词汇' },

@@ -83,6 +83,12 @@ const BilibiliEmbed = forwardRef<PlayerHandle, BilibiliEmbedProps>(
       getCurrentTime() {
         return currentTime;
       },
+      setPlaybackRate(_rate: number) {
+        // Bilibili iframe embed does not support programmatic playback rate control
+      },
+      getPlaybackRate() {
+        return 1;
+      },
     }), [currentTime, buildEmbedUrl]);
 
     return (

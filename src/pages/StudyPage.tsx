@@ -42,6 +42,8 @@ import type {
 
 type DisplayMode = 'sentence' | 'caption';
 
+const SPEED_PRESETS = [0.5, 0.75, 1, 1.25, 1.5, 1.75, 2];
+
 const StudyPage: React.FC = () => {
   const { t } = useI18n();
 
@@ -104,6 +106,9 @@ const StudyPage: React.FC = () => {
   // YouTube player ref & playback time
   const playerRef = useRef<PlayerHandle>(null);
   const [currentTime, setCurrentTime] = useState(0);
+  const [playbackRate, setPlaybackRate] = useState(
+    () => Number(localStorage.getItem('echolearn_playback_rate')) || 1,
+  );
 
   // The lines currently shown in TranscriptViewer (depends on display mode)
   const displayLines = displayMode === 'sentence' ? sentenceLines : rawBlocks;
@@ -283,6 +288,14 @@ const StudyPage: React.FC = () => {
     }, 100);
     return () => clearInterval(id);
   }, [videoId]);
+
+  // ── Apply playback rate to player whenever it changes ───────
+  useEffect(() => {
+    if (playerRef.current) {
+      playerRef.current.setPlaybackRate(playbackRate);
+    }
+    localStorage.setItem('echolearn_playback_rate', String(playbackRate));
+  }, [playbackRate]);
 
   // ── Compute which transcript line is currently active ──────
   const activeLineIndex = useMemo(() => {
@@ -645,20 +658,57 @@ const StudyPage: React.FC = () => {
 
             {/* Quick info */}
             {videoId && (
-              <div className="mt-3 flex items-center gap-3 text-xs text-gray-400 dark:text-gray-500">
-                <span>{platform === 'bilibili' ? 'Bilibili' : 'YouTube'}: {videoId}</span>
-                {startTime !== undefined && <span>Start: {startTime}s</span>}
-                {session && (
-                  <span className={`px-1.5 py-0.5 rounded text-[10px] font-medium ${
-                    session.status === 'studying'
-                      ? 'bg-blue-100 text-blue-600 dark:bg-blue-900/30 dark:text-blue-400'
-                      : session.status === 'completed'
-                        ? 'bg-green-100 text-green-600 dark:bg-green-900/30 dark:text-green-400'
-                        : 'bg-gray-100 text-gray-500 dark:bg-slate-700 dark:text-gray-400'
-                  }`}>
-                    {session.status}
+              <div className="mt-3 flex flex-col gap-2">
+                {/* Playback speed control */}
+                <div className="flex items-center gap-2 flex-wrap">
+                  <span className="text-xs text-gray-400 dark:text-gray-500 font-medium shrink-0">
+                    {t('study.speed')}:
                   </span>
-                )}
+                  <div className="flex items-center gap-0.5">
+                    {SPEED_PRESETS.map((rate) => (
+                      <button
+                        key={rate}
+                        onClick={() => setPlaybackRate(rate)}
+                        className={`px-1.5 py-0.5 text-[11px] rounded transition-colors cursor-pointer ${
+                          playbackRate === rate
+                            ? 'bg-indigo-100 dark:bg-indigo-900/40 text-indigo-700 dark:text-indigo-300 font-semibold'
+                            : 'text-gray-500 dark:text-gray-400 hover:bg-gray-100 dark:hover:bg-slate-700'
+                        }`}
+                      >
+                        {rate}x
+                      </button>
+                    ))}
+                  </div>
+                  <div className="flex items-center gap-1.5">
+                    <input
+                      type="range"
+                      min={0.25}
+                      max={3}
+                      step={0.05}
+                      value={playbackRate}
+                      onChange={(e) => setPlaybackRate(parseFloat(e.target.value))}
+                      className="w-20 h-1 accent-indigo-500 cursor-pointer"
+                    />
+                    <span className="text-[11px] text-gray-500 dark:text-gray-400 font-mono w-10 tabular-nums">
+                      {playbackRate.toFixed(2)}x
+                    </span>
+                  </div>
+                </div>
+                <div className="flex items-center gap-3 text-xs text-gray-400 dark:text-gray-500">
+                  <span>{platform === 'bilibili' ? 'Bilibili' : 'YouTube'}: {videoId}</span>
+                  {startTime !== undefined && <span>Start: {startTime}s</span>}
+                  {session && (
+                    <span className={`px-1.5 py-0.5 rounded text-[10px] font-medium ${
+                      session.status === 'studying'
+                        ? 'bg-blue-100 text-blue-600 dark:bg-blue-900/30 dark:text-blue-400'
+                        : session.status === 'completed'
+                          ? 'bg-green-100 text-green-600 dark:bg-green-900/30 dark:text-green-400'
+                          : 'bg-gray-100 text-gray-500 dark:bg-slate-700 dark:text-gray-400'
+                    }`}>
+                      {session.status}
+                    </span>
+                  )}
+                </div>
               </div>
             )}
 
