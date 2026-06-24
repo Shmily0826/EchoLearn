@@ -10,6 +10,7 @@ import { normalizeTranscriptToSentences } from '../utils/transcriptNormalizer';
 import { analyzeTranscript } from '../services/aiAnalysis';
 import { fetchYouTubeTranscript } from '../services/youtubeTranscript';
 import { translateWord, translateSentence } from '../services/translationService';
+import { lookupWord } from '../services/dictionaryService';
 import { CEFR_LEVELS, type CEFRLevel } from '../services/cefrWordList';
 import { useI18n } from '../i18n/I18nContext';
 import { getVideoTitle } from '../services/youtubeApi';
@@ -25,6 +26,7 @@ import {
   loadCurrentSession,
   saveCurrentSession,
   clearCurrentSession,
+  tomorrowMs,
 } from '../utils/storage';
 import type {
   TranscriptLine,
@@ -618,6 +620,12 @@ const StudyPage: React.FC = () => {
                 <MobileTranscriptPanel
                   lines={displayLines}
                   activeLineIndex={activeLineIndex}
+                  videoId={videoId || 'unknown'}
+                  videoTitle={sessionTitle}
+                  savedWords={savedWords}
+                  savedSentences={savedSentencesSet}
+                  onAddVocabulary={handleAddVocabulary}
+                  onAddSentence={handleAddSentence}
                   onSeekTo={(seconds) => playerRef.current?.seekTo(seconds)}
                 />
               </div>
@@ -1049,16 +1057,37 @@ function formatTime(seconds: number): string {
 
 // ─── Mobile Transcript Panel (inline below video) ────────────
 
+interface MobileWordPopup {
+  word: string;
+  context: string;
+  startTime: number;
+  x: number;
+  y: number;
+}
+
 const MobileTranscriptPanel: React.FC<{
   lines: TranscriptLine[];
   activeLineIndex: number;
+  videoId: string;
+  videoTitle: string;
+  savedWords: Set<string>;
+  savedSentences: Set<string>;
+  onAddVocabulary: (item: VocabularyItem) => void;
+  onAddSentence: (item: SentenceItem) => void;
   onSeekTo: (seconds: number) => void;
-}> = ({ lines, activeLineIndex, onSeekTo }) => {
+}> = ({ lines, activeLineIndex, videoId, videoTitle, savedWords, savedSentences, onAddVocabulary, onAddSentence, onSeekTo }) => {
   const { t } = useI18n();
   const containerRef = useRef<HTMLDivElement>(null);
   const activeRef = useRef<HTMLDivElement>(null);
   const userScrolled = useRef(false);
   const scrollTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const popupRef = useRef<HTMLDivElement>(null);
+
+  // Word popup state
+  const [popup, setPopup] = useState<MobileWordPopup | null>(null);
+  const [dictEntry, setDictEntry] = useState<import('../types').DictionaryEntry | null>(null);
+  const [dictLoading, setDictLoading] = useState(false);
+  const [dictError, setDictError] = useState(false);
 
   // Detect user scrolling
   const handleScroll = useCallback(() => {
@@ -1069,12 +1098,11 @@ const MobileTranscriptPanel: React.FC<{
     }, 3000);
   }, []);
 
-  // Auto-scroll to active line — only scrolls the container, never the page
+  // Auto-scroll to active line — container-relative, never scrolls the page
   useEffect(() => {
     if (userScrolled.current || !activeRef.current || !containerRef.current) return;
     const container = containerRef.current;
     const el = activeRef.current;
-    // Use getBoundingClientRect for accurate relative positioning
     const containerRect = container.getBoundingClientRect();
     const elRect = el.getBoundingClientRect();
     const targetScroll =
@@ -1082,9 +1110,115 @@ const MobileTranscriptPanel: React.FC<{
       (elRect.top - containerRect.top) -
       container.clientHeight / 2 +
       elRect.height / 2;
-    // CSS handles smooth animation; JS just sets the target
     container.scrollTop = Math.max(0, targetScroll);
   }, [activeLineIndex]);
+
+  // Close popup on outside click
+  useEffect(() => {
+    if (!popup) return;
+    const handler = (e: MouseEvent | TouchEvent) => {
+      if (popupRef.current && !popupRef.current.contains(e.target as Node)) {
+        setPopup(null);
+      }
+    };
+    document.addEventListener('mousedown', handler);
+    document.addEventListener('touchstart', handler);
+    return () => {
+      document.removeEventListener('mousedown', handler);
+      document.removeEventListener('touchstart', handler);
+    };
+  }, [popup]);
+
+  // Dictionary lookup when popup opens
+  useEffect(() => {
+    if (!popup) return;
+    setDictEntry(null);
+    setDictLoading(true);
+    setDictError(false);
+    let cancelled = false;
+    lookupWord(popup.word).then((entry) => {
+      if (cancelled) return;
+      if (entry) setDictEntry(entry);
+      else setDictError(true);
+      setDictLoading(false);
+    });
+    return () => { cancelled = true; };
+  }, [popup]);
+
+  const handleWordClick = useCallback((word: string, context: string, lineStart: number, e: React.MouseEvent | React.TouchEvent) => {
+    e.stopPropagation();
+    e.preventDefault();
+    const rect = (e.target as HTMLElement).getBoundingClientRect();
+    setPopup({
+      word,
+      context,
+      startTime: lineStart,
+      x: rect.left + rect.width / 2,
+      y: rect.top - 8,
+    });
+  }, []);
+
+  const handleAddWord = useCallback(() => {
+    if (!popup) return;
+    const item: VocabularyItem = {
+      id: `vocab_${Date.now()}`,
+      word: popup.word,
+      meaningCn: dictEntry?.definitionEn || '',
+      context: popup.context,
+      sourceVideoId: videoId,
+      sourceVideoTitle: videoTitle,
+      sourceTimestamp: popup.startTime,
+      addedAt: Date.now(),
+      mastered: false,
+      reviewCount: 0,
+      lastReviewedAt: 0,
+      nextReviewAt: tomorrowMs(),
+      phonetic: dictEntry?.phonetic || '',
+      audioUrl: dictEntry?.audioUrl || '',
+      partOfSpeech: dictEntry?.partOfSpeech || '',
+      definitionEn: dictEntry?.definitionEn || '',
+      example: dictEntry?.example || '',
+      synonyms: dictEntry?.synonyms || [],
+      antonyms: dictEntry?.antonyms || [],
+      dictionaryProvider: dictEntry?.provider || '',
+    };
+    onAddVocabulary(item);
+    setPopup(null);
+  }, [popup, dictEntry, videoId, videoTitle, onAddVocabulary]);
+
+  const handleAddSentence = useCallback((line: TranscriptLine) => {
+    const item: SentenceItem = {
+      id: `sent_${Date.now()}`,
+      text: line.text,
+      meaningCn: '',
+      sourceVideoId: videoId,
+      sourceVideoTitle: videoTitle,
+      startTime: line.start,
+      addedAt: Date.now(),
+      myOwnSentence: '',
+      mastered: false,
+      reviewCount: 0,
+      lastReviewedAt: 0,
+      nextReviewAt: tomorrowMs(),
+    };
+    onAddSentence(item);
+  }, [videoId, videoTitle, onAddSentence]);
+
+  const handlePlayAudio = useCallback((e: React.MouseEvent) => {
+    e.stopPropagation();
+    if (dictEntry?.audioUrl) {
+      new Audio(dictEntry.audioUrl).play().catch(() => {});
+    }
+  }, [dictEntry]);
+
+  const splitIntoWords = (text: string) => {
+    return text.match(/[\w']+|[^\w\s]+|\s+/g) || [];
+  };
+
+  const isWordSaved = (word: string) => savedWords.has(word.toLowerCase());
+  const isSentenceSaved = (text: string) => savedSentences.has(text);
+
+  const shouldFlip = popup ? popup.y < 280 : false;
 
   if (lines.length === 0) {
     return (
@@ -1095,32 +1229,147 @@ const MobileTranscriptPanel: React.FC<{
   }
 
   return (
-    <div
-      ref={containerRef}
-      onScroll={handleScroll}
-      className="overflow-y-auto max-h-[35vh] px-2 py-1"
-      style={{ overscrollBehavior: 'contain', overflowAnchor: 'none', scrollBehavior: 'smooth' }}
-    >
-      {lines.map((line, idx) => {
-        const isActive = idx === activeLineIndex;
-        return (
-          <div
-            key={line.id}
-            ref={isActive ? activeRef : null}
-            onClick={() => onSeekTo(line.start)}
-            className={`px-2 py-1.5 rounded-lg text-sm leading-relaxed cursor-pointer transition-colors ${
-              isActive
-                ? 'bg-indigo-50 dark:bg-indigo-950/40 text-indigo-900 dark:text-indigo-100 font-medium'
-                : 'text-gray-600 dark:text-gray-400 hover:bg-gray-50 dark:hover:bg-slate-700/50'
-            }`}
-          >
-            <span className="text-[10px] font-mono text-gray-400 dark:text-gray-500 mr-1.5 select-none">
-              {formatTime(line.start)}
-            </span>
-            {line.text}
+    <div className="relative">
+      {/* Word dictionary popup (mobile) */}
+      {popup && (
+        <div
+          ref={popupRef}
+          className={`fixed z-50 transform -translate-x-1/2 ${shouldFlip ? '' : '-translate-y-full'}`}
+          style={{ left: Math.min(Math.max(popup.x, 170), window.innerWidth - 170), top: shouldFlip ? popup.y + 24 : popup.y }}
+        >
+          <div className="bg-white dark:bg-slate-800 rounded-xl shadow-xl border border-gray-200 dark:border-slate-700 p-4 min-w-[260px] max-w-[min(340px,90vw)] max-h-[70vh] overflow-y-auto">
+            <button
+              onClick={() => setPopup(null)}
+              className="absolute top-2 right-2 p-1.5 rounded-full hover:bg-gray-100 dark:hover:bg-slate-700 text-gray-400 hover:text-gray-600 transition-colors cursor-pointer"
+            >
+              <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                <path strokeLinecap="round" strokeLinejoin="round" d="M6 18L18 6M6 6l12 12" />
+              </svg>
+            </button>
+            <div className="flex items-center gap-2 mb-1">
+              <span className="text-lg font-bold text-gray-800 dark:text-gray-200">{popup.word}</span>
+              {dictEntry?.phonetic && <span className="text-sm text-gray-400 font-mono">{dictEntry.phonetic}</span>}
+              {dictEntry?.audioUrl && (
+                <button onClick={handlePlayAudio} className="p-1 text-indigo-500 rounded-full cursor-pointer">
+                  <svg className="w-4 h-4" fill="currentColor" viewBox="0 0 24 24"><path d="M11.5 3.75a.75.75 0 011.085-.674l6.75 3.5a.75.75 0 010 1.348l-6.75 3.5a.75.75 0 01-1.085-.674V3.75z" /></svg>
+                </button>
+              )}
+            </div>
+            {dictEntry?.partOfSpeech && (
+              <span className="inline-block text-[11px] px-2 py-0.5 bg-indigo-50 dark:bg-indigo-950 text-indigo-600 rounded-full font-medium mb-2">{dictEntry.partOfSpeech}</span>
+            )}
+            {dictLoading && (
+              <div className="flex items-center gap-2 py-2 text-xs text-gray-400">
+                <svg className="animate-spin w-3.5 h-3.5" fill="none" viewBox="0 0 24 24"><circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" /><path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z" /></svg>
+                Looking up...
+              </div>
+            )}
+            {dictEntry && !dictLoading && (
+              <div className="mb-3">
+                {dictEntry.definitionEn && <p className="text-sm text-gray-700 dark:text-gray-300 leading-relaxed">{dictEntry.definitionEn}</p>}
+                {dictEntry.example && <p className="text-xs text-gray-400 mt-1.5 italic">&ldquo;{dictEntry.example}&rdquo;</p>}
+                {dictEntry.synonyms.length > 0 && (
+                  <div className="mt-2 flex items-start gap-1 flex-wrap">
+                    <span className="text-[10px] text-gray-400 font-medium mt-px">syn:</span>
+                    {dictEntry.synonyms.slice(0, 5).map((s) => (
+                      <span key={s} className="text-[10px] px-1.5 py-0.5 bg-gray-100 dark:bg-slate-700 text-gray-600 dark:text-gray-400 rounded">{s}</span>
+                    ))}
+                  </div>
+                )}
+              </div>
+            )}
+            {dictError && !dictLoading && <p className="text-xs text-gray-400 mb-3">Dictionary entry not found.</p>}
+            <p className="text-[11px] text-gray-400 mb-3 line-clamp-2">&ldquo;{popup.context}&rdquo;</p>
+            {isWordSaved(popup.word) ? (
+              <span className="text-xs text-amber-600 font-medium">{t('study.alreadySaved')}</span>
+            ) : (
+              <button onClick={handleAddWord} className="w-full px-3 py-2 text-sm bg-amber-50 dark:bg-amber-950/30 text-amber-700 rounded-lg hover:bg-amber-100 font-medium cursor-pointer">
+                + {t('study.addToVocab')}
+              </button>
+            )}
           </div>
-        );
-      })}
+        </div>
+      )}
+
+      {/* Transcript lines */}
+      <div
+        ref={containerRef}
+        onScroll={handleScroll}
+        className="overflow-y-auto max-h-[35vh] px-2 py-1"
+        style={{ overscrollBehavior: 'contain', overflowAnchor: 'none', scrollBehavior: 'smooth' }}
+      >
+        {lines.map((line, idx) => {
+          const isActive = idx === activeLineIndex;
+          const sentenceSaved = isSentenceSaved(line.text);
+
+          return (
+            <div
+              key={line.id || idx}
+              ref={isActive ? activeRef : null}
+              className={`px-2 py-1.5 rounded-lg text-sm leading-relaxed transition-colors ${
+                isActive
+                  ? 'bg-indigo-50 dark:bg-indigo-950/40 text-indigo-900 dark:text-indigo-100 font-medium'
+                  : sentenceSaved
+                    ? 'bg-violet-50 dark:bg-violet-950/20 text-gray-600 dark:text-gray-400'
+                    : 'text-gray-600 dark:text-gray-400'
+              }`}
+            >
+              <div className="flex items-start gap-1.5">
+                <div className="flex-1 min-w-0" onClick={() => onSeekTo(line.start)}>
+                  <span
+                    className="text-[10px] font-mono mr-1.5 select-none cursor-pointer hover:text-indigo-600"
+                    style={{ color: isActive ? '#6366f1' : undefined }}
+                    onClick={(e) => { e.stopPropagation(); onSeekTo(line.start); }}
+                  >
+                    {formatTime(line.start)}
+                  </span>
+                  {/* Clickable words */}
+                  {splitIntoWords(line.text).map((token, i) => {
+                    if (/^\s+$/.test(token)) return <span key={i}>{token}</span>;
+                    if (/^[^\w']+$/.test(token)) return <span key={i} className="text-gray-400">{token}</span>;
+                    const saved = isWordSaved(token.toLowerCase());
+                    return (
+                      <span
+                        key={i}
+                        onClick={(e) => handleWordClick(token, line.text, line.start, e)}
+                        className={`inline-block mx-[1px] px-1 py-0.5 rounded cursor-pointer transition-colors ${
+                          saved
+                            ? 'bg-amber-100 dark:bg-amber-950/30 text-amber-800'
+                            : 'active:bg-indigo-100'
+                        }`}
+                      >
+                        {token}
+                      </span>
+                    );
+                  })}
+                </div>
+                {/* Sentence bookmark button */}
+                <button
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    handleAddSentence(line);
+                  }}
+                  className={`flex-shrink-0 p-1.5 rounded transition-colors cursor-pointer ${
+                    sentenceSaved
+                      ? 'text-violet-500'
+                      : 'text-gray-300 active:text-violet-400'
+                  }`}
+                >
+                  {sentenceSaved ? (
+                    <svg className="w-4 h-4" viewBox="0 0 24 24" fill="currentColor">
+                      <path d="M5 2h14a1 1 0 011 1v19.143a.5.5 0 01-.766.424L12 18.03l-7.234 4.536A.5.5 0 014 22.143V3a1 1 0 011-1z" />
+                    </svg>
+                  ) : (
+                    <svg className="w-4 h-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={1.5}>
+                      <path strokeLinecap="round" strokeLinejoin="round" d="M17.593 3.322c1.1.128 1.907 1.077 1.907 2.185V21L12 17.25 4.5 21V5.507c0-1.108.806-2.057 1.907-2.185a48.507 48.507 0 0111.186 0z" />
+                    </svg>
+                  )}
+                </button>
+              </div>
+            </div>
+          );
+        })}
+      </div>
     </div>
   );
 };

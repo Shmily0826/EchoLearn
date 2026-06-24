@@ -81,14 +81,21 @@ const TranscriptViewer: React.FC<TranscriptViewerProps> = ({
     };
   }, [popup]);
 
-  // Auto-scroll to the active line (only if user hasn't manually scrolled)
+  // Auto-scroll to the active line using container-relative positioning
+  // (avoids scrollIntoView which can scroll the entire page)
   useEffect(() => {
-    if (activeLineIndex >= 0 && activeLineRef.current && !userScrolledRef.current) {
-      activeLineRef.current.scrollIntoView({
-        behavior: 'smooth',
-        block: 'center',
-      });
-    }
+    if (activeLineIndex < 0 || !activeLineRef.current || userScrolledRef.current) return;
+    const el = activeLineRef.current;
+    const container = el.closest('.overflow-y-auto') as HTMLElement | null;
+    if (!container) return;
+    const containerRect = container.getBoundingClientRect();
+    const elRect = el.getBoundingClientRect();
+    const targetScroll =
+      container.scrollTop +
+      (elRect.top - containerRect.top) -
+      container.clientHeight / 2 +
+      elRect.height / 2;
+    container.scrollTo({ top: Math.max(0, targetScroll), behavior: 'smooth' });
   }, [activeLineIndex]);
 
   // Trigger dictionary lookup when popup opens

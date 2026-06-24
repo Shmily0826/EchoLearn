@@ -115,6 +115,8 @@ const translations: Record<string, Record<Lang, string>> = {
   'study.noSubtitles':   { en: 'No subtitles available', zh: '暂无字幕' },
   'study.deleteWord':    { en: 'Delete this word?', zh: '确定要删除这个词汇吗？' },
   'study.deleteSent':    { en: 'Delete this sentence?', zh: '确定要删除这个句子吗？' },
+  'study.alreadySaved':  { en: 'Already in vocabulary', zh: '已在生词本中' },
+  'study.addToVocab':    { en: 'Add to vocabulary', zh: '加入生词本' },
 
   // ── Vocabulary ───────────────────────────────────────────
   'vocab.title':         { en: 'Vocabulary', zh: '词汇' },
