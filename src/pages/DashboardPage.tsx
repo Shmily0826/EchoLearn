@@ -404,11 +404,6 @@ const DashboardPage: React.FC = () => {
             }`}>
               {channelPrefs.input.startsWith('@') ? t('dash.handleBadge') : t('dash.idBadge')}
             </span>
-            {TARGET_CHANNEL.preferredLevel && (
-              <span className="px-1.5 py-0.5 bg-indigo-50 dark:bg-indigo-950 text-indigo-600 rounded text-[10px] font-medium">
-                {TARGET_CHANNEL.preferredLevel}
-              </span>
-            )}
           </div>
 
           <p className="text-[10px] text-gray-400 dark:text-gray-500 mb-3">
