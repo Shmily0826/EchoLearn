@@ -1,4 +1,4 @@
-import React from 'react';
+import React, { useState } from 'react';
 import type {
   AIAnalysisResult,
   VocabularySuggestion,
@@ -34,10 +34,13 @@ const AIAnalysisPanel: React.FC<AIAnalysisPanelProps> = ({
   savedSentences,
   onClose,
 }) => {
+  const [collapsed, setCollapsed] = useState(false);
+
   const handleAddVocab = (sug: VocabularySuggestion) => {
     const item: VocabularyItem = {
       id: `vocab_${Date.now()}_${Math.random().toString(36).slice(2, 6)}`,
       word: sug.word,
+      lemma: sug.word,
       meaningCn: sug.meaningCn,
       context: sug.context,
       sourceVideoId: videoId,
@@ -71,13 +74,22 @@ const AIAnalysisPanel: React.FC<AIAnalysisPanelProps> = ({
     <div className="mt-6 bg-white dark:bg-slate-800 rounded-xl border border-gray-200 dark:border-slate-700 shadow-sm overflow-hidden">
       {/* Header */}
       <div className="flex items-center justify-between px-5 py-4 border-b border-gray-100 dark:border-slate-700 bg-gradient-to-r from-indigo-50 dark:from-indigo-950 to-white dark:to-slate-800">
-        <div className="flex items-center gap-2">
-          <svg className="w-5 h-5 text-indigo-500" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.5}>
+        <button
+          onClick={() => setCollapsed((v) => !v)}
+          className="flex items-center gap-2 cursor-pointer flex-1 min-w-0"
+        >
+          <svg className="w-5 h-5 text-indigo-500 shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.5}>
             <path strokeLinecap="round" strokeLinejoin="round" d="M9.813 15.904L9 18.75l-.813-2.846a4.5 4.5 0 00-3.09-3.09L2.25 12l2.846-.813a4.5 4.5 0 003.09-3.09L9 5.25l.813 2.846a4.5 4.5 0 003.09 3.09L15.75 12l-2.846.813a4.5 4.5 0 00-3.09 3.09z" />
           </svg>
           <h3 className="text-base font-semibold text-gray-800 dark:text-gray-200">AI Analysis</h3>
           <span className="text-[10px] px-1.5 py-0.5 bg-emerald-100 text-emerald-600 rounded-full font-medium">DeepSeek</span>
-        </div>
+          <svg
+            className={`w-4 h-4 text-gray-400 transition-transform duration-200 ${collapsed ? '' : 'rotate-180'}`}
+            fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}
+          >
+            <path strokeLinecap="round" strokeLinejoin="round" d="M19.5 8.25l-7.5 7.5-7.5-7.5" />
+          </svg>
+        </button>
         <button
           onClick={onClose}
           className="p-1 text-gray-400 dark:text-gray-500 hover:text-gray-600 rounded hover:bg-gray-100 dark:hover:bg-slate-700 transition-colors cursor-pointer"
@@ -89,7 +101,8 @@ const AIAnalysisPanel: React.FC<AIAnalysisPanelProps> = ({
         </button>
       </div>
 
-      <div className="p-5 space-y-6">
+      {!collapsed && (
+        <div className="p-5 space-y-6">
         {/* Summaries */}
         <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
           <div className="bg-gray-50 dark:bg-slate-900 rounded-lg p-4">
@@ -197,6 +210,7 @@ const AIAnalysisPanel: React.FC<AIAnalysisPanelProps> = ({
           </div>
         )}
       </div>
+      )}
     </div>
   );
 };
