@@ -1,6 +1,7 @@
 import React, { useState, useRef, useEffect, useCallback } from 'react';
 import type { TranscriptLine, VocabularyItem, SentenceItem, DictionaryEntry } from '../types';
 import { tomorrowMs } from '../utils/storage';
+import { lemmatize } from '../utils/lemmatizer';
 import { lookupWord } from '../services/dictionaryService';
 
 interface TranscriptViewerProps {
@@ -142,9 +143,11 @@ const TranscriptViewer: React.FC<TranscriptViewerProps> = ({
 
   const handleAddWord = () => {
     if (!popup) return;
+    const lemma = lemmatize(popup.word);
     const item: VocabularyItem = {
       id: `vocab_${Date.now()}`,
-      word: popup.word,
+      word: lemma,
+      lemma,
       meaningCn: dictEntry?.definitionEn || '',
       context: popup.context,
       sourceVideoId: videoId,
@@ -204,7 +207,7 @@ const TranscriptViewer: React.FC<TranscriptViewerProps> = ({
     onSeekTo(line.start);
   };
 
-  const isWordSaved = (word: string) => savedWords.has(word.toLowerCase());
+  const isWordSaved = (word: string) => savedWords.has(lemmatize(word).toLowerCase());
   const isSentenceSaved = (text: string) => savedSentences.has(text);
 
   /** Strip punctuation from a word for display but keep it for reference */

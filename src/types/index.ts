@@ -37,7 +37,8 @@ export interface DictionaryEntry {
 /** A vocabulary item saved by the user */
 export interface VocabularyItem {
   id: string;                // unique id (timestamp-based)
-  word: string;              // the word itself
+  word: string;              // the word itself (new entries store lemma/base form)
+  lemma?: string;            // dictionary base form, e.g. "run" for original "running"
   meaningCn: string;         // Chinese meaning / translation
   context: string;           // the full sentence where the word appeared
   sourceVideoId: string;     // YouTube video ID this word was learned from

@@ -13,6 +13,8 @@
  *   C2 – Mastery (rare, archaic, highly specialised vocabulary)
  */
 
+import { lemmatize } from '../utils/lemmatizer';
+
 export type CEFRLevel = 'A1' | 'A2' | 'B1' | 'B2' | 'C1' | 'C2';
 
 export const CEFR_LEVELS: CEFRLevel[] = ['A1', 'A2', 'B1', 'B2', 'C1', 'C2'];
@@ -313,10 +315,11 @@ export function extractWordsByLevel(
 
   for (const w of raw) {
     const lower = w.toLowerCase();
-    if (lower.length < 3 || seen.has(lower)) continue;
-    seen.add(lower);
+    const lemma = lemmatize(lower);
+    if (lemma.length < 3 || seen.has(lemma)) continue;
+    seen.add(lemma);
 
-    const level = classifyWordCEFR(lower);
+    const level = classifyWordCEFR(lemma);
     const levelIdx = CEFR_LEVELS.indexOf(level);
 
     if (levelIdx >= minIdx && levelIdx <= maxIdx) {
@@ -324,7 +327,7 @@ export function extractWordsByLevel(
       const ctx = sentences.find((s) => s.toLowerCase().includes(lower)) || text.slice(0, 120);
       const cleanCtx = ctx.trim();
       results.push({
-        word: lower,
+        word: lemma,
         level,
         context: cleanCtx.endsWith('.') || cleanCtx.endsWith('!') || cleanCtx.endsWith('?')
           ? cleanCtx

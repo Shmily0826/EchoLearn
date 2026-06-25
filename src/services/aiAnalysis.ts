@@ -69,7 +69,7 @@ function buildUserPrompt(
 }
 
 Requirements:
-- "vocabularySuggestions": exactly ${vocabCount} words at CEFR level ${minLevel}–${maxLevel}. Focus on words a learner at this level might not know. Each "word" must appear in the transcript.
+- "vocabularySuggestions": exactly ${vocabCount} words at CEFR level ${minLevel}–${maxLevel}. Focus on words a learner at this level might not know. Each "word" must be the dictionary base form (lemma) of a word found in the transcript — for example, if the transcript contains "running", use "run"; if it contains "went", use "go".
 - "sentenceSuggestions": exactly ${sentenceCount} sentences that showcase useful grammar, collocations, or expressions. Each "text" must be an exact quote.
 - "learningTasks": exactly 4 tasks, one each for types: "listening", "speaking", "writing", "reading". Reference specific content from the transcript.
 - "keyTakeaways": exactly 3 key points in English.

@@ -168,9 +168,10 @@ export function saveVocabulary(items: VocabularyItem[]): void {
 
 export function addVocabularyItem(item: VocabularyItem): VocabularyItem[] {
   const items = loadVocabulary();
+  const itemKey = (item.lemma || item.word).toLowerCase();
   const exists = items.some(
     (v) =>
-      v.word.toLowerCase() === item.word.toLowerCase() &&
+      (v.lemma || v.word).toLowerCase() === itemKey &&
       v.sourceVideoId === item.sourceVideoId,
   );
   if (exists) return items;

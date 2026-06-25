@@ -9,6 +9,7 @@ import WordDictionaryPopup from '../components/WordDictionaryPopup';
 import { parseYouTubeId, parseStartTime } from '../utils/youtube';
 import { detectPlatform, parseBilibiliId, parseBilibiliStartTime, parseBilibiliPage } from '../utils/bilibili';
 import { normalizeTranscriptToSentences } from '../utils/transcriptNormalizer';
+import { lemmatize } from '../utils/lemmatizer';
 import { analyzeTranscript } from '../services/aiAnalysis';
 import { fetchYouTubeTranscript } from '../services/youtubeTranscript';
 import { fetchBilibiliTranscript, getBilibiliVideoTitle } from '../services/bilibiliTranscript';
@@ -331,7 +332,7 @@ const StudyPage: React.FC = () => {
 
   // Derived sets for quick lookup
   const savedWords = useMemo(
-    () => new Set(filteredVocabulary.map((v) => v.word.toLowerCase())),
+    () => new Set(filteredVocabulary.map((v) => (v.lemma || lemmatize(v.word)).toLowerCase())),
     [filteredVocabulary],
   );
   const savedSentencesSet = useMemo(
@@ -1406,9 +1407,11 @@ const MobileTranscriptPanel: React.FC<{
 
   const handleAddWord = useCallback(() => {
     if (!popup) return;
+    const lemma = lemmatize(popup.word);
     const item: VocabularyItem = {
       id: `vocab_${Date.now()}`,
-      word: popup.word,
+      word: lemma,
+      lemma,
       meaningCn: dictEntry?.definitionEn || '',
       context: popup.context,
       sourceVideoId: videoId,
@@ -1461,7 +1464,7 @@ const MobileTranscriptPanel: React.FC<{
     return text.match(/[\w']+|[^\w\s]+|\s+/g) || [];
   };
 
-  const isWordSaved = (word: string) => savedWords.has(word.toLowerCase());
+  const isWordSaved = (word: string) => savedWords.has(lemmatize(word).toLowerCase());
   const isSentenceSaved = (text: string) => savedSentences.has(text);
 
   const shouldFlip = popup ? popup.y < 280 : false;

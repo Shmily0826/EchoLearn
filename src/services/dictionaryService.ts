@@ -1,4 +1,5 @@
 import type { DictionaryEntry } from '../types';
+import { lemmatize } from '../utils/lemmatizer';
 
 const CACHE_KEY = 'echolearn_dictionary_cache';
 const API_BASE = 'https://api.dictionaryapi.dev/api/v2/entries/en';
@@ -69,37 +70,65 @@ interface ApiEntry {
  * Returns a DictionaryEntry on success, or null if the word was not found
  * or the API request failed.
  *
+ * When the word is an inflected form (e.g. "running"), the lemma ("run")
+ * is tried first for better hit rates and deduplication.
+ *
  * Results are cached in localStorage to avoid repeated requests.
  */
-export async function lookupWord(word: string): Promise<DictionaryEntry | null> {
+export async function lookupWord(word: string): Promise<(DictionaryEntry & { lemma?: string }) | null> {
   const cleaned = cleanWord(word);
   if (!cleaned) return null;
 
-  // Check cache first
+  const lemma = lemmatize(cleaned);
+
+  // If lemma differs from the cleaned word, try lemma first
+  if (lemma !== cleaned) {
+    const lemmaResult = await fetchEntry(lemma);
+    if (lemmaResult) {
+      return { ...lemmaResult, lemma };
+    }
+  }
+
+  // Fall back to the original cleaned word
+  const result = await fetchEntry(cleaned);
+  if (result) {
+    // If the API returned a different canonical form, use that as lemma
+    const apiLemma = result.word.toLowerCase();
+    if (apiLemma !== cleaned && apiLemma !== lemma) {
+      return { ...result, lemma: apiLemma };
+    }
+    return lemma !== cleaned ? { ...result, lemma } : result;
+  }
+
+  return null;
+}
+
+/** Fetch a single entry from cache or API. Returns null on miss. */
+async function fetchEntry(word: string): Promise<DictionaryEntry | null> {
   const cache = loadCache();
-  if (cleaned in cache) {
-    return cache[cleaned]; // may be null (known miss)
+  if (word in cache) {
+    return cache[word]; // may be null (known miss)
   }
 
   try {
-    const response = await fetch(`${API_BASE}/${encodeURIComponent(cleaned)}`);
+    const response = await fetch(`${API_BASE}/${encodeURIComponent(word)}`);
 
     if (!response.ok) {
       // 404 = word not found, other = API error
-      cache[cleaned] = null;
+      cache[word] = null;
       saveCache(cache);
       return null;
     }
 
     const data: ApiEntry[] = await response.json();
     if (!Array.isArray(data) || data.length === 0) {
-      cache[cleaned] = null;
+      cache[word] = null;
       saveCache(cache);
       return null;
     }
 
     const entry = parseApiEntry(data[0]);
-    cache[cleaned] = entry;
+    cache[word] = entry;
     saveCache(cache);
     return entry;
   } catch {
