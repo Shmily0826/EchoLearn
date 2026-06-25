@@ -49,7 +49,7 @@ const IRREGULARS: Record<string, string> = {
   // ── become ──
   becomes: 'become', became: 'become', becoming: 'become',
   // ── leave ──
-  leaves: 'leave', left: 'leave', leaving: 'leave',
+  left: 'leave', leaving: 'leave',
   // ── feel ──
   feels: 'feel', felt: 'feel', feeling: 'feel',
   // ── bring ──
@@ -315,7 +315,6 @@ function tryVerbForm(word: string): string | null {
     }
     // making → make (add -e)
     if (stem.length >= 2 && !stem.endsWith('e')) {
-      const withE = stem + 'e';
       // Check if the stem + e looks like a real word (heuristic: not ending in double consonant)
       if (!hasCVCEnding(stem)) {
         return stem + 'e';
