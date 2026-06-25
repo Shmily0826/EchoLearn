@@ -55,7 +55,51 @@ export async function getChannelByHandleOrId(
   if (!res.ok) return null;
 
   const data = await res.json();
-  const channel = data.items?.[0];
+  let channel = data.items?.[0];
+
+  // If not found and input doesn't start with @, try prepending @
+  if (!channel && !isHandle) {
+    const retryParams = new URLSearchParams({
+      part: 'contentDetails,snippet',
+      key,
+      forHandle: `@${input}`,
+    });
+    const retryRes = await fetch(`${BASE}/channels?${retryParams}`);
+    if (retryRes.ok) {
+      const retryData = await retryRes.json();
+      channel = retryData.items?.[0];
+    }
+  }
+
+  // If still not found, try search API as last resort
+  if (!channel) {
+    const searchParams = new URLSearchParams({
+      part: 'snippet',
+      q: input.replace(/^@/, ''),
+      type: 'channel',
+      maxResults: '1',
+      key,
+    });
+    const searchRes = await fetch(`${BASE}/search?${searchParams}`);
+    if (searchRes.ok) {
+      const searchData = await searchRes.json();
+      const searchChannelId = searchData.items?.[0]?.snippet?.channelId;
+      if (searchChannelId) {
+        // Fetch full channel details with the found ID
+        const detailParams = new URLSearchParams({
+          part: 'contentDetails,snippet',
+          id: searchChannelId,
+          key,
+        });
+        const detailRes = await fetch(`${BASE}/channels?${detailParams}`);
+        if (detailRes.ok) {
+          const detailData = await detailRes.json();
+          channel = detailData.items?.[0];
+        }
+      }
+    }
+  }
+
   if (!channel) return null;
 
   return {

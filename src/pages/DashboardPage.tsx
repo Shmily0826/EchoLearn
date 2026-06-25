@@ -179,8 +179,25 @@ const DashboardPage: React.FC = () => {
     setCheckLoading(true);
     setCheckMessage(null);
 
+    // Sanitize input: trim whitespace, extract handle from URL if needed
+    let input = channelPrefs.input.trim();
+    if (input.startsWith('http')) {
+      // Extract handle or channel ID from YouTube URL
+      const match = input.match(/youtube\.com\/(@[\w.-]+|channel\/([\w-]+))/);
+      if (match) {
+        input = match[2] ? match[2] : match[1];
+      }
+    }
+
+    if (!input) {
+      setCheckMessage(t('dash.noVideos'));
+      setCheckSuccess(false);
+      setCheckLoading(false);
+      return;
+    }
+
     try {
-      const videos = await getRecentVideosFromChannel(channelPrefs.input, 10);
+      const videos = await getRecentVideosFromChannel(input, 10);
 
       if (videos.length === 0) {
         setCheckMessage(t('dash.noVideos'));
@@ -216,7 +233,8 @@ const DashboardPage: React.FC = () => {
       }
 
       setDailyPlan(loadDailyPlan());
-      setCheckMessage(t('dash.addedN', { n: added }));
+      const channelName = newVideos[0]?.channelTitle || input;
+      setCheckMessage(t('dash.addedNFrom', { n: added, channel: channelName }));
       setCheckSuccess(true);
     } catch {
       setCheckMessage(t('dash.fetchError'));
@@ -224,7 +242,7 @@ const DashboardPage: React.FC = () => {
     } finally {
       setCheckLoading(false);
     }
-  }, []);
+  }, [channelPrefs.input, t]);
 
   // ── Open a daily plan item in StudyPage ────────────────────
   const handleOpenPlanItem = useCallback(
