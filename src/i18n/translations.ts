@@ -138,6 +138,9 @@ const translations: Record<string, Record<Lang, string>> = {
   'study.addToVocab':    { en: 'Add to vocabulary', zh: '加入生词本' },
   'study.speed':         { en: 'Speed', zh: '倍速' },
   'study.speedCustom':   { en: 'Custom speed', zh: '自定义倍速' },
+  'study.markComplete':  { en: 'Mark Complete', zh: '标记完成' },
+  'study.completed':     { en: 'Completed', zh: '已完成' },
+  'study.resumeStudying':{ en: 'Resume', zh: '继续学习' },
 
   // ── Vocabulary ───────────────────────────────────────────
   'vocab.title':         { en: 'Vocabulary', zh: '词汇' },

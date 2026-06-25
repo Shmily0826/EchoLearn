@@ -487,6 +487,15 @@ const StudyPage: React.FC = () => {
     setBiliPage(undefined);
   }, []);
 
+  // ── Toggle session completion status ───────────────────────
+  const handleToggleComplete = useCallback(() => {
+    if (!session) return;
+    const newStatus = session.status === 'completed' ? 'studying' : 'completed';
+    const updated: VideoStudySession = { ...session, status: newStatus, updatedAt: Date.now() };
+    saveCurrentSession(updated);
+    setSession(updated);
+  }, [session]);
+
   // ── Persist AI analysis to current session ─────────────────
   const persistAnalysis = useCallback(
     (result: AIAnalysisResult) => {
@@ -612,6 +621,33 @@ const StudyPage: React.FC = () => {
             </button>
             {session && (
               <button
+                onClick={handleToggleComplete}
+                className={`px-3 py-1.5 text-sm rounded-lg font-medium cursor-pointer whitespace-nowrap transition-colors ${
+                  session.status === 'completed'
+                    ? 'bg-green-100 dark:bg-green-900/40 text-green-700 dark:text-green-400 border border-green-300 dark:border-green-700 hover:bg-green-200 dark:hover:bg-green-900/60'
+                    : 'bg-white dark:bg-slate-800 border border-green-300 dark:border-green-700 text-green-600 dark:text-green-400 hover:bg-green-50 dark:hover:bg-green-950/30'
+                }`}
+                title={session.status === 'completed' ? t('study.resumeStudying') : t('study.markComplete')}
+              >
+                {session.status === 'completed' ? (
+                  <span className="flex items-center gap-1">
+                    <svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                      <path strokeLinecap="round" strokeLinejoin="round" d="M9 12.75L11.25 15 15 9.75M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
+                    </svg>
+                    {t('study.completed')}
+                  </span>
+                ) : (
+                  <span className="flex items-center gap-1">
+                    <svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                      <path strokeLinecap="round" strokeLinejoin="round" d="M9 12.75L11.25 15 15 9.75M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
+                    </svg>
+                    {t('study.markComplete')}
+                  </span>
+                )}
+              </button>
+            )}
+            {session && (
+              <button
                 onClick={handleClearSession}
                 className="px-3 sm:px-4 py-1.5 text-sm bg-white dark:bg-slate-800 border border-red-200 dark:border-red-800 text-red-600 rounded-lg hover:bg-red-50 dark:hover:bg-red-950/30 transition-colors font-medium cursor-pointer whitespace-nowrap"
               >
@@ -709,7 +745,7 @@ const StudyPage: React.FC = () => {
                           ? 'bg-green-100 text-green-600 dark:bg-green-900/30 dark:text-green-400'
                           : 'bg-gray-100 text-gray-500 dark:bg-slate-700 dark:text-gray-400'
                     }`}>
-                      {session.status}
+                      {session.status === 'completed' ? t('study.completed') : session.status === 'studying' ? t('study.resumeStudying') : t('dash.statusDraft')}
                     </span>
                   )}
                 </div>
