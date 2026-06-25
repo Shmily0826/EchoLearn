@@ -733,6 +733,85 @@ const StudyPage: React.FC = () => {
                     </span>
                   )}
                 </div>
+                {/* Mobile analysis controls */}
+                {displayLines.length > 0 && (
+                  <div className="flex items-center gap-2 px-3 py-2 border-b border-gray-100 dark:border-slate-700 flex-wrap">
+                    <div className="flex items-center gap-1 text-[10px]">
+                      <span className="text-gray-400">{t('study.words')}</span>
+                      <select
+                        value={vocabCount}
+                        onChange={(e) => setVocabCount(Number(e.target.value))}
+                        className="px-1 py-0.5 border border-gray-200 dark:border-slate-700 rounded text-[10px] bg-white dark:bg-slate-800 text-gray-600 dark:text-gray-400 focus:outline-none cursor-pointer"
+                      >
+                        {[4, 6, 8, 10, 12, 15, 20].map((n) => (
+                          <option key={n} value={n}>{n}</option>
+                        ))}
+                      </select>
+                      <span className="text-gray-300 ml-0.5">{t('study.sents')}</span>
+                      <select
+                        value={sentenceCount}
+                        onChange={(e) => setSentenceCount(Number(e.target.value))}
+                        className="px-1 py-0.5 border border-gray-200 dark:border-slate-700 rounded text-[10px] bg-white dark:bg-slate-800 text-gray-600 dark:text-gray-400 focus:outline-none cursor-pointer"
+                      >
+                        {[2, 3, 4, 5, 6, 8, 10].map((n) => (
+                          <option key={n} value={n}>{n}</option>
+                        ))}
+                      </select>
+                    </div>
+                    <div className="flex items-center gap-1 text-[10px]">
+                      <span className="text-gray-400">{t('study.level')}</span>
+                      <select
+                        value={cefrMin}
+                        onChange={(e) => {
+                          const v = e.target.value as CEFRLevel;
+                          setCefrMin(v);
+                          if (CEFR_LEVELS.indexOf(v) > CEFR_LEVELS.indexOf(cefrMax)) setCefrMax(v);
+                        }}
+                        className="px-1 py-0.5 border border-gray-200 dark:border-slate-700 rounded text-[10px] bg-white dark:bg-slate-800 text-gray-600 dark:text-gray-400 focus:outline-none cursor-pointer"
+                      >
+                        {CEFR_LEVELS.map((l) => (
+                          <option key={l} value={l}>{l}</option>
+                        ))}
+                      </select>
+                      <span className="text-gray-300">–</span>
+                      <select
+                        value={cefrMax}
+                        onChange={(e) => {
+                          const v = e.target.value as CEFRLevel;
+                          setCefrMax(v);
+                          if (CEFR_LEVELS.indexOf(v) < CEFR_LEVELS.indexOf(cefrMin)) setCefrMin(v);
+                        }}
+                        className="px-1 py-0.5 border border-gray-200 dark:border-slate-700 rounded text-[10px] bg-white dark:bg-slate-800 text-gray-600 dark:text-gray-400 focus:outline-none cursor-pointer"
+                      >
+                        {CEFR_LEVELS.map((l) => (
+                          <option key={l} value={l}>{l}</option>
+                        ))}
+                      </select>
+                    </div>
+                    <button
+                      onClick={handleAnalyze}
+                      disabled={analyzing}
+                      className="flex items-center gap-1 px-2.5 py-1 text-[10px] font-medium bg-indigo-50 dark:bg-indigo-950 text-indigo-600 dark:text-indigo-400 rounded-lg hover:bg-indigo-100 dark:hover:bg-indigo-900 transition-colors cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed ml-auto"
+                    >
+                      {analyzing ? (
+                        <>
+                          <svg className="animate-spin w-3 h-3" fill="none" viewBox="0 0 24 24">
+                            <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
+                            <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z" />
+                          </svg>
+                          {streamChars > 0 ? `${streamChars} ${t('study.chars')}` : t('study.analyzing')}
+                        </>
+                      ) : (
+                        <>
+                          <svg className="w-3 h-3" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.5}>
+                            <path strokeLinecap="round" strokeLinejoin="round" d="M9.813 15.904L9 18.75l-.813-2.846a4.5 4.5 0 00-3.09-3.09L2.25 12l2.846-.813a4.5 4.5 0 003.09-3.09L9 5.25l.813 2.846a4.5 4.5 0 003.09 3.09L15.75 12l-2.846.813a4.5 4.5 0 00-3.09 3.09z" />
+                          </svg>
+                          {analysis ? t('study.reAnalyze') : t('study.analyze')}
+                        </>
+                      )}
+                    </button>
+                  </div>
+                )}
                 <MobileTranscriptPanel
                   lines={displayLines}
                   activeLineIndex={activeLineIndex}
