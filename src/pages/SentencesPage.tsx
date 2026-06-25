@@ -362,24 +362,24 @@ const SentencesPage: React.FC = () => {
               </div>
 
               {/* Footer */}
-              <div className="flex items-center justify-between">
-                <div className="flex items-center gap-3">
-                  <span className="text-[10px] font-mono text-gray-400">
+              <div className="flex items-center justify-between gap-2">
+                <div className="flex items-center gap-2 sm:gap-3 min-w-0">
+                  <span className="shrink-0 text-[10px] font-mono text-gray-400">
                     @{formatTime(item.startTime)}
                   </span>
-                  <span className="text-[10px] font-mono text-gray-400 truncate max-w-[200px]" title={getVideoTitle(item)}>
+                  <span className="text-[10px] font-mono text-gray-400 truncate max-w-[120px] sm:max-w-[200px]" title={getVideoTitle(item)}>
                     {getVideoTitle(item)}
                   </span>
-                  <span className="text-[10px] text-gray-400">
+                  <span className="shrink-0 text-[10px] text-gray-400 hidden sm:inline">
                     {new Date(item.addedAt).toLocaleDateString()}
                   </span>
                 </div>
-                <div className="flex items-center gap-2">
-                  <span className={`text-[10px] font-medium ${reviewLabel(item.nextReviewAt, item.mastered, t).color}`}>
+                <div className="shrink-0 flex items-center gap-2">
+                  <span className={`text-[10px] font-medium whitespace-nowrap ${reviewLabel(item.nextReviewAt, item.mastered, t).color}`}>
                     {reviewLabel(item.nextReviewAt, item.mastered, t).text}
                   </span>
                   {!item.mastered && (
-                    <span className="text-[9px] text-gray-400">{item.reviewCount}/5</span>
+                    <span className="text-[9px] text-gray-400 whitespace-nowrap">{item.reviewCount}/5</span>
                   )}
                 </div>
               </div>

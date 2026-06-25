@@ -190,8 +190,8 @@ const Layout: React.FC<{ children: ReactNode }> = ({ children }) => {
         </div>
       </header>
 
-      {/* Page content — add bottom padding on mobile for bottom nav */}
-      <main className="flex-1 pb-20 md:pb-0">
+      {/* Page content — add bottom padding on mobile for bottom nav + contact bar */}
+      <main className="flex-1 mobile-safe-bottom md:pb-0">
         {children}
       </main>
 

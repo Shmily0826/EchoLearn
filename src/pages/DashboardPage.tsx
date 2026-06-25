@@ -331,13 +331,54 @@ const DashboardPage: React.FC = () => {
           />
           <div className="flex items-center gap-1.5 mb-2">
             <span className="text-xs text-gray-500">{t('dash.channel')}</span>
+            {/* Channel type toggle */}
+            <div className="flex rounded-md border border-gray-200 dark:border-slate-600 overflow-hidden shrink-0">
+              <button
+                type="button"
+                onClick={() => {
+                  if (!channelPrefs.input.startsWith('@')) {
+                    handleChannelChange('input', '@' + channelPrefs.input);
+                  }
+                }}
+                className={`px-2 py-0.5 text-[11px] font-medium cursor-pointer transition-colors ${
+                  channelPrefs.input.startsWith('@')
+                    ? 'bg-indigo-100 dark:bg-indigo-900/50 text-indigo-700 dark:text-indigo-300'
+                    : 'text-gray-400 hover:text-gray-600 dark:hover:text-gray-300'
+                }`}
+              >
+                @handle
+              </button>
+              <button
+                type="button"
+                onClick={() => {
+                  if (channelPrefs.input.startsWith('@')) {
+                    handleChannelChange('input', channelPrefs.input.slice(1));
+                  }
+                }}
+                className={`px-2 py-0.5 text-[11px] font-medium cursor-pointer transition-colors border-l border-gray-200 dark:border-slate-600 ${
+                  !channelPrefs.input.startsWith('@')
+                    ? 'bg-indigo-100 dark:bg-indigo-900/50 text-indigo-700 dark:text-indigo-300'
+                    : 'text-gray-400 hover:text-gray-600 dark:hover:text-gray-300'
+                }`}
+              >
+                Channel ID
+              </button>
+            </div>
             <input
               type="text"
               value={channelPrefs.input}
               onChange={(e) => handleChannelChange('input', e.target.value)}
-              className="text-xs font-mono text-indigo-500 flex-1 px-1 py-0.5 border border-transparent hover:border-gray-300 dark:hover:border-slate-600 focus:border-indigo-400 focus:outline-none rounded transition-colors bg-transparent"
-              placeholder={t('dash.channelPh')}
+              className="text-xs font-mono text-indigo-500 flex-1 px-1 py-0.5 border border-transparent hover:border-gray-300 dark:hover:border-slate-600 focus:border-indigo-400 focus:outline-none rounded transition-colors bg-transparent min-w-0"
+              placeholder={channelPrefs.input.startsWith('@') ? '@channel_name' : 'UCxxxxxxxxxxxxxxxxxx'}
             />
+            {/* Auto-detected type badge */}
+            <span className={`shrink-0 px-1.5 py-0.5 rounded text-[10px] font-medium ${
+              channelPrefs.input.startsWith('@')
+                ? 'bg-teal-50 dark:bg-teal-900/30 text-teal-600 dark:text-teal-400'
+                : 'bg-orange-50 dark:bg-orange-900/30 text-orange-600 dark:text-orange-400'
+            }`}>
+              {channelPrefs.input.startsWith('@') ? 'Handle' : 'ID'}
+            </span>
             {TARGET_CHANNEL.preferredLevel && (
               <span className="px-1.5 py-0.5 bg-indigo-50 dark:bg-indigo-950 text-indigo-600 rounded text-[10px] font-medium">
                 {TARGET_CHANNEL.preferredLevel}

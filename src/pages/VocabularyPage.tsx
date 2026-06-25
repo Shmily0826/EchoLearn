@@ -385,13 +385,13 @@ const VocabularyPage: React.FC = () => {
                     {new Date(item.addedAt).toLocaleDateString()}
                   </span>
                 </div>
-                <div className="flex items-center justify-between">
-                  <span className={`text-[10px] font-medium ${reviewLabel(item.nextReviewAt, item.mastered, t).color}`}>
+                <div className="flex items-center justify-between gap-2">
+                  <span className={`text-[10px] font-medium whitespace-nowrap ${reviewLabel(item.nextReviewAt, item.mastered, t).color}`}>
                     {reviewLabel(item.nextReviewAt, item.mastered, t).text}
                   </span>
                   <button
                     onClick={() => handleToggleMastered(item)}
-                    className={`text-[10px] font-medium cursor-pointer transition-colors ${
+                    className={`text-[10px] font-medium cursor-pointer transition-colors shrink-0 ${
                       item.mastered
                         ? 'text-green-600 hover:text-green-700'
                         : 'text-gray-400 hover:text-indigo-600'

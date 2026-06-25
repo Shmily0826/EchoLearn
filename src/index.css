@@ -63,6 +63,11 @@ header, main, div, section, button, input, select, textarea {
   padding-bottom: env(safe-area-inset-bottom, 0px);
 }
 
+/* Mobile bottom safe padding: accounts for fixed nav bar (56px) + contact bar (~26px) + gap + device safe area */
+.mobile-safe-bottom {
+  padding-bottom: calc(6.5rem + env(safe-area-inset-bottom, 0px));
+}
+
 /* Prevent text selection on mobile tap for nav items */
 nav a, nav button {
   -webkit-tap-highlight-color: transparent;

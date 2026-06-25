@@ -23,29 +23,27 @@ interface YouTubeEmbedProps {
 }
 
 // ── YouTube IFrame API singleton loader ─────────────────────
-let apiState: 'unloaded' | 'loading' | 'ready' | 'error' = 'unloaded';
-const waiters: Array<() => void> = [];
+let apiReady = false;
+let apiLoading = false;
+let apiLoadAttempts = 0;
+const apiWaiters: Array<() => void> = [];
 
 function loadYouTubeAPI(onReady: () => void): void {
-  if (apiState === 'ready') {
-    onReady();
-    return;
-  }
-  if (apiState === 'error') {
-    apiState = 'unloaded';
-  }
+  if (apiReady) { onReady(); return; }
+  apiWaiters.push(onReady);
+  if (apiLoading) return;
 
-  waiters.push(onReady);
-  if (apiState === 'loading') return;
-
-  apiState = 'loading';
+  apiLoading = true;
+  apiLoadAttempts++;
 
   window.onYouTubeIframeAPIReady = () => {
-    apiState = 'ready';
-    const cbs = waiters.splice(0);
+    apiReady = true;
+    apiLoading = false;
+    const cbs = apiWaiters.splice(0);
     cbs.forEach((cb) => cb());
   };
 
+  // Remove any stale script tags
   document
     .querySelectorAll('script[src*="youtube.com/iframe_api"]')
     .forEach((el) => el.remove());
@@ -53,13 +51,31 @@ function loadYouTubeAPI(onReady: () => void): void {
   const tag = document.createElement('script');
   tag.src = 'https://www.youtube.com/iframe_api';
   tag.async = true;
+
+  tag.onerror = () => {
+    apiLoading = false;
+    if (apiLoadAttempts < 3) {
+      setTimeout(() => {
+        const cbs = apiWaiters.splice(0);
+        cbs.forEach((cb) => loadYouTubeAPI(cb));
+      }, 2000 * apiLoadAttempts);
+    }
+  };
+
   document.head.appendChild(tag);
 
+  // Safety timeout — if API never calls onYouTubeIframeAPIReady
   setTimeout(() => {
-    if (apiState === 'loading') {
-      apiState = 'error';
+    if (!apiReady && apiLoading) {
+      apiLoading = false;
+      if (apiLoadAttempts < 3) {
+        setTimeout(() => {
+          const cbs = apiWaiters.splice(0);
+          cbs.forEach((cb) => loadYouTubeAPI(cb));
+        }, 2000 * apiLoadAttempts);
+      }
     }
-  }, 12_000);
+  }, 15_000);
 }
 
 // ── Component ──────────────────────────────────────────────
@@ -68,27 +84,31 @@ const YouTubeEmbed = forwardRef<PlayerHandle, YouTubeEmbedProps>(
     const containerId = useRef(`yt-${Math.random().toString(36).slice(2, 9)}`);
     const playerRef = useRef<YT.Player | null>(null);
     const [status, setStatus] = useState<'loading' | 'ready' | 'error'>('loading');
+    const statusRef = useRef(status);
+    statusRef.current = status;
+    const startTimeRef = useRef(startTime);
+    startTimeRef.current = startTime;
     const retryCount = useRef(0);
     const retryTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
 
     useImperativeHandle(
       ref,
       () => ({
-        playVideo: () => playerRef.current?.playVideo(),
-        pauseVideo: () => playerRef.current?.pauseVideo(),
-        seekTo: (seconds: number) => playerRef.current?.seekTo(seconds, true),
-        getCurrentTime: () => playerRef.current?.getCurrentTime() ?? 0,
+        playVideo: () => { try { playerRef.current?.playVideo(); } catch { /* noop */ } },
+        pauseVideo: () => { try { playerRef.current?.pauseVideo(); } catch { /* noop */ } },
+        seekTo: (seconds: number) => { try { playerRef.current?.seekTo(seconds, true); } catch { /* noop */ } },
+        getCurrentTime: () => { try { return playerRef.current?.getCurrentTime?.() ?? 0; } catch { return 0; } },
         setPlaybackRate: (rate: number) => {
-          try { (playerRef.current as any)?.setPlaybackRate(rate); } catch { /* noop */ }
+          try { (playerRef.current as any)?.setPlaybackRate?.(rate); } catch { /* noop */ }
         },
         getPlaybackRate: () => {
-          try { return (playerRef.current as any)?.getPlaybackRate() ?? 1; } catch { return 1; }
+          try { return (playerRef.current as any)?.getPlaybackRate?.() ?? 1; } catch { return 1; }
         },
       }),
       [],
     );
 
-    // Create the player
+    // Create the player — only depends on youtubeId (startTime read from ref)
     const initPlayer = useCallback(() => {
       if (playerRef.current) return;
       const el = document.getElementById(containerId.current);
@@ -103,24 +123,28 @@ const YouTubeEmbed = forwardRef<PlayerHandle, YouTubeEmbedProps>(
             modestbranding: 1,
             rel: 0,
             cc_load_policy: 0,
-            ...(startTime !== undefined ? { start: startTime } : {}),
+            ...(startTimeRef.current !== undefined ? { start: startTimeRef.current } : {}),
           },
           events: {
             onReady: () => {
+              // If we already gave up, destroy this late-arriving player
+              if (statusRef.current === 'error') {
+                try { playerRef.current?.destroy(); } catch { /* ignore */ }
+                playerRef.current = null;
+                return;
+              }
               retryCount.current = 0;
               setStatus('ready');
             },
             onError: (e: { data: number }) => {
               // Error codes:
-              //   2 = invalid videoId
-              //   5 = HTML5 player error
-              //   100 = video not found
-              //   101/150 = embed not allowed
-              // For transient errors (5), auto-retry.
-              // For permanent errors (2, 100, 101, 150), show error UI.
-              if (e.data === 5 && retryCount.current < 3) {
+              //   2   = invalid videoId (usually permanent)
+              //   5   = HTML5 player error (transient)
+              //   100 = video not found (permanent)
+              //   101/150 = embed not allowed (permanent)
+              const isPermanent = [2, 100, 101, 150].includes(e.data);
+              if (!isPermanent && retryCount.current < 3) {
                 retryCount.current++;
-                // Destroy the broken player and re-create after a short delay
                 if (playerRef.current) {
                   try { playerRef.current.destroy(); } catch { /* ignore */ }
                   playerRef.current = null;
@@ -129,6 +153,11 @@ const YouTubeEmbed = forwardRef<PlayerHandle, YouTubeEmbedProps>(
                   initPlayer();
                 }, 2000 * retryCount.current);
               } else {
+                // Give up — make sure the player is destroyed so iframe stops
+                if (playerRef.current) {
+                  try { playerRef.current.destroy(); } catch { /* ignore */ }
+                  playerRef.current = null;
+                }
                 setStatus('error');
               }
             },
@@ -137,7 +166,7 @@ const YouTubeEmbed = forwardRef<PlayerHandle, YouTubeEmbedProps>(
       } catch {
         setStatus('error');
       }
-    }, [youtubeId, startTime]);
+    }, [youtubeId]);
 
     // Mount: load API → create player
     useEffect(() => {
@@ -148,19 +177,23 @@ const YouTubeEmbed = forwardRef<PlayerHandle, YouTubeEmbedProps>(
         initPlayer();
       });
 
-      // Fallback: if still not ready after 15s, show error
+      // Fallback: use ref to avoid stale closure — checks REAL current status
       const timer = setTimeout(() => {
-        if (!cancelled && status === 'loading') {
+        if (!cancelled && statusRef.current === 'loading') {
           setStatus('error');
         }
-      }, 15_000);
+      }, 30_000);
 
       return () => {
         cancelled = true;
         clearTimeout(timer);
         if (retryTimer.current) clearTimeout(retryTimer.current);
+        // Destroy old player so initPlayer() can create a new one on re-mount
+        if (playerRef.current) {
+          try { playerRef.current.destroy(); } catch { /* ignore */ }
+          playerRef.current = null;
+        }
       };
-    // eslint-disable-next-line react-hooks/exhaustive-deps
     }, [initPlayer]);
 
     // ── Visibility change recovery ─────────────────────────────

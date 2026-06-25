@@ -283,7 +283,11 @@ const StudyPage: React.FC = () => {
     if (!videoId || !playerRef.current) return;
     const id = setInterval(() => {
       if (playerRef.current) {
-        setCurrentTime(playerRef.current.getCurrentTime());
+        try {
+          setCurrentTime(playerRef.current.getCurrentTime());
+        } catch {
+          // Player in broken state — skip this tick silently
+        }
       }
     }, 100);
     return () => clearInterval(id);
