@@ -12,7 +12,7 @@ const DEEPSEEK_ENDPOINT = 'https://api.deepseek.com/chat/completions';
 const DEEPSEEK_MODEL = 'deepseek-v4-flash';
 
 /** Max characters of transcript to send (keeps tokens reasonable). */
-const MAX_TRANSCRIPT_CHARS = 8000;
+const MAX_TRANSCRIPT_CHARS = 15000;
 
 // ── Helpers ────────────────────────────────────────────────────
 
@@ -24,7 +24,7 @@ function truncateText(text: string, max = MAX_TRANSCRIPT_CHARS): string {
 // ── System prompt ─────────────────────────────────────────────
 
 function buildSystemPrompt(): string {
-  return `You are an expert English-language learning assistant.
+  return `You are an expert English-language learning assistant with deep knowledge of CEFR proficiency levels.
 Your job is to analyze YouTube video transcripts and produce structured learning materials for a Chinese-speaking English learner.
 
 Rules:
@@ -32,7 +32,15 @@ Rules:
 2. Vocabulary words must be actual words found in the transcript — never invent words.
 3. Sentences must be exact quotes from the transcript — never fabricate.
 4. Learning tasks should be specific, actionable, and reference actual content from the transcript.
-5. Always respond with valid JSON only — no markdown fences, no explanation outside JSON.`;
+5. Always respond with valid JSON only — no markdown fences, no explanation outside JSON.
+
+CEFR Level Calibration — follow strictly:
+- A1: Basic function words, greetings, numbers (the, is, have, go, good, big)
+- A2: Common everyday words, basic verbs (beautiful, remember, important, decide, kitchen)
+- B1: Less common words, some abstract concepts, phrasal verbs (struggle, overcome, eventually, rely on, meanwhile)
+- B2: Academic, professional, nuanced vocabulary (substantial, controversy, implement, perceive, inevitable)
+- C1: Sophisticated, formal, literary vocabulary (ubiquitous, juxtaposition, pragmatic, exacerbate)
+- C2: Rare, archaic, highly specialised vocabulary (esoteric, obfuscate, paradigmatic)`;
 }
 
 function buildUserPrompt(
@@ -69,8 +77,15 @@ function buildUserPrompt(
 }
 
 Requirements:
-- "vocabularySuggestions": exactly ${vocabCount} words at CEFR level ${minLevel}–${maxLevel}. Focus on words a learner at this level might not know. Each "word" must be the dictionary base form (lemma) of a word found in the transcript — for example, if the transcript contains "running", use "run"; if it contains "went", use "go".
-- "sentenceSuggestions": exactly ${sentenceCount} sentences that showcase useful grammar, collocations, or expressions. Each "text" must be an exact quote.
+- "vocabularySuggestions": exactly ${vocabCount} words STRICTLY at CEFR level ${minLevel}–${maxLevel}.
+  CRITICAL word selection rules:
+  1. SKIP all basic/common words (e.g. make, take, give, come, think, know, want, need, use, find, tell, ask, work, seem, feel, try, leave, call, good, great, big, small, new, old, long, high, different). These are A1-A2 level and the learner already knows them.
+  2. Choose words that a learner at ${minLevel}–${maxLevel} level would find CHALLENGING — words they likely cannot use confidently in their own writing or speech.
+  3. Prefer topic-specific vocabulary (domain terms, academic words, nuanced expressions) over generic high-frequency words.
+  4. Spread your selection across the ENTIRE transcript — do not only pick words from the beginning. Include words from the middle and end sections too.
+  5. Each "word" must be the dictionary base form (lemma) — e.g. "running" → "run", "went" → "go", "children" → "child".
+  6. "meaningCn" must be the precise Chinese meaning of the word itself (not a sentence translation).
+- "sentenceSuggestions": exactly ${sentenceCount} sentences that showcase useful grammar, collocations, or expressions. Each "text" must be an exact quote. Prefer sentences from different parts of the transcript.
 - "learningTasks": exactly 4 tasks, one each for types: "listening", "speaking", "writing", "reading". Reference specific content from the transcript.
 - "keyTakeaways": exactly 3 key points in English.
 
