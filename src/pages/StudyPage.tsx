@@ -679,7 +679,7 @@ const StudyPage: React.FC = () => {
                       </button>
                     ))}
                   </div>
-                  <div className="flex items-center gap-1.5">
+                  <div className="flex items-center gap-1.5 flex-1 min-w-[140px]">
                     <input
                       type="range"
                       min={0.25}
@@ -687,9 +687,9 @@ const StudyPage: React.FC = () => {
                       step={0.05}
                       value={playbackRate}
                       onChange={(e) => setPlaybackRate(parseFloat(e.target.value))}
-                      className="w-20 h-1 accent-indigo-500 cursor-pointer"
+                      className="flex-1 h-1 accent-indigo-500 cursor-pointer"
                     />
-                    <span className="text-[11px] text-gray-500 dark:text-gray-400 font-mono w-10 tabular-nums">
+                    <span className="text-[11px] text-gray-500 dark:text-gray-400 font-mono w-10 tabular-nums shrink-0">
                       {playbackRate.toFixed(2)}x
                     </span>
                   </div>
@@ -1099,6 +1099,9 @@ const VocabularyList: React.FC<{
                 {t('study.remove')}
               </button>
             </div>
+            {item.meaningCn && (
+              <p className="text-xs text-amber-600 dark:text-amber-400 mt-0.5">{item.meaningCn}</p>
+            )}
             <p className="text-xs text-gray-500 dark:text-gray-400 mt-1 line-clamp-2">"{item.context}"</p>
             <div className="flex items-center gap-2 mt-1.5">
               <span className="text-[10px] text-gray-400 dark:text-gray-500 truncate max-w-[200px]" title={item.sourceVideoTitle || item.sourceVideoId}>
@@ -1147,6 +1150,9 @@ const SentenceList: React.FC<{
               {t('study.remove')}
             </button>
           </div>
+          {item.meaningCn && (
+            <p className="text-xs text-violet-500 dark:text-violet-400 mt-1 leading-relaxed">{item.meaningCn}</p>
+          )}
           <div className="flex items-center gap-2 mt-2">
             <button
               onClick={() => onSeek?.(item.startTime)}

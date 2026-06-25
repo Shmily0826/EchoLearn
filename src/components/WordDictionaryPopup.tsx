@@ -1,6 +1,7 @@
 import { useState, useEffect, useRef } from 'react';
 import type { DictionaryEntry } from '../types';
 import { lookupWord } from '../services/dictionaryService';
+import { translateWord } from '../services/translationService';
 
 interface WordDictionaryPopupProps {
   /** The word to look up */
@@ -28,6 +29,7 @@ const WordDictionaryPopup: React.FC<WordDictionaryPopupProps> = ({
   const [entry, setEntry] = useState<DictionaryEntry | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(false);
+  const [definitionCn, setDefinitionCn] = useState('');
   const popupRef = useRef<HTMLDivElement>(null);
 
   // Close on outside click
@@ -45,17 +47,26 @@ const WordDictionaryPopup: React.FC<WordDictionaryPopupProps> = ({
     };
   }, [onClose]);
 
-  // Fetch dictionary data
+  // Fetch dictionary data + Chinese translation
   useEffect(() => {
     let cancelled = false;
     setLoading(true);
     setError(false);
+    setDefinitionCn('');
     lookupWord(word).then((result) => {
       if (cancelled) return;
       if (result) {
         setEntry(result);
+        // Fetch Chinese translation in background
+        translateWord(word, result.definitionEn).then((cn) => {
+          if (!cancelled && cn) setDefinitionCn(cn);
+        }).catch(() => { /* silent */ });
       } else {
         setError(true);
+        // Still try to translate the word itself
+        translateWord(word).then((cn) => {
+          if (!cancelled && cn) setDefinitionCn(cn);
+        }).catch(() => { /* silent */ });
       }
       setLoading(false);
     });
@@ -133,6 +144,9 @@ const WordDictionaryPopup: React.FC<WordDictionaryPopupProps> = ({
             {entry.definitionEn && (
               <p className="text-sm text-gray-700 dark:text-gray-300 leading-relaxed">{entry.definitionEn}</p>
             )}
+            {definitionCn && (
+              <p className="text-sm text-indigo-600 dark:text-indigo-400 leading-relaxed mt-1">{definitionCn}</p>
+            )}
             {entry.example && (
               <p className="text-xs text-gray-400 dark:text-gray-500 mt-1.5 italic leading-relaxed">
                 &ldquo;{entry.example}&rdquo;
@@ -159,7 +173,12 @@ const WordDictionaryPopup: React.FC<WordDictionaryPopupProps> = ({
 
         {/* Error */}
         {error && !loading && (
-          <p className="text-xs text-gray-400 mb-3">Dictionary entry not found.</p>
+          <div className="mb-3">
+            <p className="text-xs text-gray-400">Dictionary entry not found.</p>
+            {definitionCn && (
+              <p className="text-sm text-indigo-600 dark:text-indigo-400 leading-relaxed mt-1">{definitionCn}</p>
+            )}
+          </div>
         )}
 
         {/* Actions slot */}
