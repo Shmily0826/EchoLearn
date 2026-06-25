@@ -74,7 +74,12 @@ const DashboardPage: React.FC = () => {
     setDailyPlan(loadDailyPlan());
   }, []);
 
-  const { t } = useI18n();
+  const { t, lang } = useI18n();
+
+  const statusLabel = (status: string) => {
+    const key = `dash.status${status.charAt(0).toUpperCase() + status.slice(1)}`;
+    return t(key);
+  };
 
   const handleChannelChange = (field: keyof ChannelPrefs, value: string) => {
     const updated = { ...channelPrefs, [field]: value };
@@ -92,6 +97,7 @@ const DashboardPage: React.FC = () => {
 
   // ── Chart data ──────────────────────────────────────────────
   const weeklyActivityData = useMemo(() => {
+    const locale = lang === 'zh' ? 'zh-CN' : 'en';
     const days: Array<{ day: string; words: number; sentences: number }> = [];
     for (let i = 6; i >= 0; i--) {
       const d = new Date();
@@ -99,7 +105,7 @@ const DashboardPage: React.FC = () => {
       d.setHours(0, 0, 0, 0);
       const dayStart = d.getTime();
       const dayEnd = dayStart + 24 * 60 * 60 * 1000;
-      const dayLabel = d.toLocaleDateString('en', { weekday: 'short' });
+      const dayLabel = d.toLocaleDateString(locale, { weekday: 'short' });
       days.push({
         day: dayLabel,
         words: vocabulary.filter((v) => v.addedAt >= dayStart && v.addedAt < dayEnd).length,
@@ -107,20 +113,21 @@ const DashboardPage: React.FC = () => {
       });
     }
     return days;
-  }, [vocabulary, sentences]);
+  }, [vocabulary, sentences, lang]);
 
   const masteryData = useMemo(() => {
     const mastered = vocabulary.filter((v) => v.mastered).length;
     const reviewed = vocabulary.filter((v) => !v.mastered && v.reviewCount > 0).length;
     const newWords = vocabulary.filter((v) => !v.mastered && v.reviewCount === 0).length;
     return [
-      { name: 'Mastered', value: mastered, color: '#10b981' },
-      { name: 'Reviewing', value: reviewed, color: '#f59e0b' },
-      { name: 'New', value: newWords, color: '#6366f1' },
+      { name: t('dash.pieMastered'), value: mastered, color: '#10b981' },
+      { name: t('dash.pieReviewing'), value: reviewed, color: '#f59e0b' },
+      { name: t('dash.pieNew'), value: newWords, color: '#6366f1' },
     ].filter((d) => d.value > 0);
-  }, [vocabulary]);
+  }, [vocabulary, t]);
 
   const cumulativeData = useMemo(() => {
+    const locale = lang === 'zh' ? 'zh-CN' : 'en';
     const points: Array<{ date: string; words: number; sentences: number; total: number }> = [];
     const now = new Date();
     for (let i = 29; i >= 0; i--) {
@@ -131,14 +138,14 @@ const DashboardPage: React.FC = () => {
       const wCount = vocabulary.filter((v) => v.addedAt <= cutoff).length;
       const sCount = sentences.filter((s) => s.addedAt <= cutoff).length;
       points.push({
-        date: d.toLocaleDateString('en', { month: 'short', day: 'numeric' }),
+        date: d.toLocaleDateString(locale, { month: 'short', day: 'numeric' }),
         words: wCount,
         sentences: sCount,
         total: wCount + sCount,
       });
     }
     return points;
-  }, [vocabulary, sentences]);
+  }, [vocabulary, sentences, lang]);
 
   const hasChartData = vocabulary.length > 0 || sentences.length > 0;
 
@@ -346,7 +353,7 @@ const DashboardPage: React.FC = () => {
                     : 'text-gray-400 hover:text-gray-600 dark:hover:text-gray-300'
                 }`}
               >
-                @handle
+                {t('dash.handleBtn')}
               </button>
               <button
                 type="button"
@@ -361,7 +368,7 @@ const DashboardPage: React.FC = () => {
                     : 'text-gray-400 hover:text-gray-600 dark:hover:text-gray-300'
                 }`}
               >
-                Channel ID
+                {t('dash.channelIdBtn')}
               </button>
             </div>
             <input
@@ -369,7 +376,7 @@ const DashboardPage: React.FC = () => {
               value={channelPrefs.input}
               onChange={(e) => handleChannelChange('input', e.target.value)}
               className="text-xs font-mono text-indigo-500 flex-1 px-1 py-0.5 border border-transparent hover:border-gray-300 dark:hover:border-slate-600 focus:border-indigo-400 focus:outline-none rounded transition-colors bg-transparent min-w-0"
-              placeholder={channelPrefs.input.startsWith('@') ? '@channel_name' : 'UCxxxxxxxxxxxxxxxxxx'}
+              placeholder={channelPrefs.input.startsWith('@') ? t('dash.handlePh') : t('dash.channelIdPh')}
             />
             {/* Auto-detected type badge */}
             <span className={`shrink-0 px-1.5 py-0.5 rounded text-[10px] font-medium ${
@@ -377,7 +384,7 @@ const DashboardPage: React.FC = () => {
                 ? 'bg-teal-50 dark:bg-teal-900/30 text-teal-600 dark:text-teal-400'
                 : 'bg-orange-50 dark:bg-orange-900/30 text-orange-600 dark:text-orange-400'
             }`}>
-              {channelPrefs.input.startsWith('@') ? 'Handle' : 'ID'}
+              {channelPrefs.input.startsWith('@') ? t('dash.handleBadge') : t('dash.idBadge')}
             </span>
             {TARGET_CHANNEL.preferredLevel && (
               <span className="px-1.5 py-0.5 bg-indigo-50 dark:bg-indigo-950 text-indigo-600 rounded text-[10px] font-medium">
@@ -435,7 +442,7 @@ const DashboardPage: React.FC = () => {
                     }
                   }}
                   className="text-xs text-gray-400 hover:text-red-500 transition-colors cursor-pointer"
-                  title="Clear all plan items"
+                  title={t('dash.clearAllTitle')}
                 >
                   {t('dash.clear')}
                 </button>
@@ -490,7 +497,7 @@ const DashboardPage: React.FC = () => {
                           ? 'bg-green-400'
                           : 'bg-gray-300'
                     }`}
-                    title={item.status}
+                    title={statusLabel(item.status)}
                   />
 
                   {/* Delete button */}
@@ -500,7 +507,7 @@ const DashboardPage: React.FC = () => {
                       handleDeletePlanItem(item.id);
                     }}
                     className="text-gray-300 hover:text-red-500 opacity-100 md:opacity-0 md:group-hover:opacity-100 transition-opacity flex-shrink-0 cursor-pointer"
-                    title="Remove from plan"
+                    title={t('dash.removeTitle')}
                   >
                     <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
                       <path strokeLinecap="round" strokeLinejoin="round" d="M6 18L18 6M6 6l12 12" />
@@ -543,8 +550,8 @@ const DashboardPage: React.FC = () => {
                     boxShadow: '0 2px 8px rgba(0,0,0,0.08)',
                   }}
                 />
-                <Bar dataKey="words" fill="#f59e0b" radius={[3, 3, 0, 0]} name="Words" />
-                <Bar dataKey="sentences" fill="#8b5cf6" radius={[3, 3, 0, 0]} name="Sentences" />
+                <Bar dataKey="words" fill="#f59e0b" radius={[3, 3, 0, 0]} name={t('dash.chartWords')} />
+                <Bar dataKey="sentences" fill="#8b5cf6" radius={[3, 3, 0, 0]} name={t('dash.chartSentences')} />
               </BarChart>
             </ResponsiveContainer>
           </div>
@@ -650,7 +657,7 @@ const DashboardPage: React.FC = () => {
                   strokeWidth={2}
                   fillOpacity={1}
                   fill="url(#colorWords)"
-                  name="Words"
+                  name={t('dash.chartWords')}
                 />
                 <Area
                   type="monotone"
@@ -659,7 +666,7 @@ const DashboardPage: React.FC = () => {
                   strokeWidth={2}
                   fillOpacity={1}
                   fill="url(#colorSentences)"
-                  name="Sentences"
+                  name={t('dash.chartSentences')}
                 />
               </AreaChart>
             </ResponsiveContainer>
@@ -680,7 +687,7 @@ const DashboardPage: React.FC = () => {
               </p>
               <p className="text-xs text-gray-400 dark:text-gray-500 mt-1">
                 {currentSession.transcriptLines.length} {t('dash.lines')} &middot;{' '}
-                {currentSession.status} &middot;{' '}
+                {statusLabel(currentSession.status)} &middot;{' '}
                 {t('dash.updated')} {new Date(currentSession.updatedAt).toLocaleDateString()}
               </p>
             </div>
@@ -738,7 +745,7 @@ const DashboardPage: React.FC = () => {
                           ? 'bg-green-100 dark:bg-green-900/40 text-green-600'
                           : 'bg-gray-100 dark:bg-slate-700 text-gray-500'
                     }`}>
-                      {s.status}
+                      {statusLabel(s.status)}
                     </span>
                     <span className="text-[11px] text-gray-400 dark:text-gray-500">
                       {new Date(s.updatedAt).toLocaleDateString()}
