@@ -115,6 +115,16 @@ const AIAnalysisPanel: React.FC<AIAnalysisPanelProps> = ({
           </div>
         </div>
 
+        {/* Note banner — shown when AI couldn't find enough qualifying words */}
+        {analysis.note && (
+          <div className="flex items-start gap-2 bg-amber-50 dark:bg-amber-950/30 border border-amber-200 dark:border-amber-800 rounded-lg px-4 py-3">
+            <svg className="w-4 h-4 text-amber-500 shrink-0 mt-0.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+              <path strokeLinecap="round" strokeLinejoin="round" d="M12 9v3.75m9-.75a9 9 0 11-18 0 9 9 0 0118 0zm-9 3.75h.008v.008H12v-.008z" />
+            </svg>
+            <p className="text-sm text-amber-700 dark:text-amber-400 leading-relaxed">{analysis.note}</p>
+          </div>
+        )}
+
         {/* Key Takeaways */}
         {analysis.keyTakeaways.length > 0 && (
           <div>
@@ -186,6 +196,14 @@ const AIAnalysisPanel: React.FC<AIAnalysisPanelProps> = ({
                       )}
                     </div>
                     <p className="text-[10px] text-gray-400 dark:text-gray-500 mt-1">{sug.reason}</p>
+                    {sug.grammarNotes && (
+                      <div className="mt-2 pt-2 border-t border-violet-100 dark:border-violet-900/50">
+                        <p className="text-[11px] text-gray-600 dark:text-gray-400 leading-relaxed">
+                          <span className="font-semibold text-violet-600 dark:text-violet-400">解析: </span>
+                          {sug.grammarNotes}
+                        </p>
+                      </div>
+                    )}
                   </div>
                 );
               })}

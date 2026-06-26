@@ -775,25 +775,23 @@ const StudyPage: React.FC = () => {
                   <div className="flex items-center gap-2 px-3 py-2 border-b border-gray-100 dark:border-slate-700 flex-wrap">
                     <div className="flex items-center gap-1 text-[10px]">
                       <span className="text-gray-400">{t('study.words')}</span>
-                      <select
+                      <input
+                        type="number"
+                        min={1}
+                        max={50}
                         value={vocabCount}
-                        onChange={(e) => setVocabCount(Number(e.target.value))}
-                        className="px-1 py-0.5 border border-gray-200 dark:border-slate-700 rounded text-[10px] bg-white dark:bg-slate-800 text-gray-600 dark:text-gray-400 focus:outline-none cursor-pointer"
-                      >
-                        {[4, 6, 8, 10, 12, 15, 20].map((n) => (
-                          <option key={n} value={n}>{n}</option>
-                        ))}
-                      </select>
+                        onChange={(e) => setVocabCount(Math.max(1, Math.min(50, Number(e.target.value) || 1)))}
+                        className="w-10 px-1 py-0.5 border border-gray-200 dark:border-slate-700 rounded text-[10px] bg-white dark:bg-slate-800 text-gray-600 dark:text-gray-400 focus:outline-none text-center"
+                      />
                       <span className="text-gray-300 ml-0.5">{t('study.sents')}</span>
-                      <select
+                      <input
+                        type="number"
+                        min={1}
+                        max={30}
                         value={sentenceCount}
-                        onChange={(e) => setSentenceCount(Number(e.target.value))}
-                        className="px-1 py-0.5 border border-gray-200 dark:border-slate-700 rounded text-[10px] bg-white dark:bg-slate-800 text-gray-600 dark:text-gray-400 focus:outline-none cursor-pointer"
-                      >
-                        {[2, 3, 4, 5, 6, 8, 10].map((n) => (
-                          <option key={n} value={n}>{n}</option>
-                        ))}
-                      </select>
+                        onChange={(e) => setSentenceCount(Math.max(1, Math.min(30, Number(e.target.value) || 1)))}
+                        className="w-10 px-1 py-0.5 border border-gray-200 dark:border-slate-700 rounded text-[10px] bg-white dark:bg-slate-800 text-gray-600 dark:text-gray-400 focus:outline-none text-center"
+                      />
                     </div>
                     <div className="flex items-center gap-1 text-[10px]">
                       <span className="text-gray-400">{t('study.level')}</span>
@@ -890,25 +888,23 @@ const StudyPage: React.FC = () => {
                     {/* Vocab / Sentence count */}
                     <div className="flex items-center gap-1 text-[11px]">
                       <span className="text-gray-400 dark:text-gray-500">{t('study.words')}</span>
-                      <select
+                      <input
+                        type="number"
+                        min={1}
+                        max={50}
                         value={vocabCount}
-                        onChange={(e) => setVocabCount(Number(e.target.value))}
-                        className="px-1 py-1 border border-gray-200 dark:border-slate-700 rounded text-[11px] bg-white dark:bg-slate-800 text-gray-600 dark:text-gray-400 focus:outline-none focus:ring-1 focus:ring-indigo-300 cursor-pointer"
-                      >
-                        {[4, 6, 8, 10, 12, 15, 20].map((n) => (
-                          <option key={n} value={n}>{n}</option>
-                        ))}
-                      </select>
+                        onChange={(e) => setVocabCount(Math.max(1, Math.min(50, Number(e.target.value) || 1)))}
+                        className="w-12 px-1 py-1 border border-gray-200 dark:border-slate-700 rounded text-[11px] bg-white dark:bg-slate-800 text-gray-600 dark:text-gray-400 focus:outline-none focus:ring-1 focus:ring-indigo-300 text-center"
+                      />
                       <span className="text-gray-300 dark:text-gray-500 ml-1">{t('study.sents')}</span>
-                      <select
+                      <input
+                        type="number"
+                        min={1}
+                        max={30}
                         value={sentenceCount}
-                        onChange={(e) => setSentenceCount(Number(e.target.value))}
-                        className="px-1 py-1 border border-gray-200 dark:border-slate-700 rounded text-[11px] bg-white dark:bg-slate-800 text-gray-600 dark:text-gray-400 focus:outline-none focus:ring-1 focus:ring-indigo-300 cursor-pointer"
-                      >
-                        {[2, 3, 4, 5, 6, 8, 10].map((n) => (
-                          <option key={n} value={n}>{n}</option>
-                        ))}
-                      </select>
+                        onChange={(e) => setSentenceCount(Math.max(1, Math.min(30, Number(e.target.value) || 1)))}
+                        className="w-12 px-1 py-1 border border-gray-200 dark:border-slate-700 rounded text-[11px] bg-white dark:bg-slate-800 text-gray-600 dark:text-gray-400 focus:outline-none focus:ring-1 focus:ring-indigo-300 text-center"
+                      />
                     </div>
                     {/* CEFR level range selector */}
                     <div className="flex items-center gap-1 text-[11px]">

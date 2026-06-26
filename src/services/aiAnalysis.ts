@@ -50,7 +50,11 @@ function buildUserPrompt(
   vocabCount: number,
   sentenceCount: number,
 ): string {
-  return `Analyze the following English transcript and return a JSON object with this exact schema:
+  return `You are analyzing an English video transcript for a Chinese-speaking English learner.
+
+IMPORTANT WORKFLOW: First, read and understand the ENTIRE transcript thoroughly. Only after you have a complete understanding of the content, select the best vocabulary and sentences that match the requirements below. Do NOT stop reading early or pick items only from the beginning.
+
+Return a JSON object with this exact schema:
 
 {
   "summaryEn": "2-3 sentence English summary of the content",
@@ -58,7 +62,7 @@ function buildUserPrompt(
   "keyTakeaways": ["takeaway 1", "takeaway 2", "takeaway 3"],
   "vocabularySuggestions": [
     {
-      "word": "the word",
+      "word": "the word (base form / lemma)",
       "context": "the exact sentence from transcript where this word appears",
       "meaningCn": "准确的中文释义",
       "reason": "brief reason why this word is worth learning at this level"
@@ -68,16 +72,18 @@ function buildUserPrompt(
     {
       "text": "exact sentence from transcript",
       "meaningCn": "准确的中文翻译",
-      "reason": "why this sentence is useful for learning"
+      "reason": "why this sentence is useful for learning",
+      "grammarNotes": "用中文简要解析该句的语法结构、重点短语或表达技巧（2-3句话）"
     }
   ],
   "learningTasks": [
     { "task": "specific actionable task", "type": "listening" }
-  ]
+  ],
+  "note": "optional — only include this field if you could not find enough words at the requested CEFR level"
 }
 
 Requirements:
-- "vocabularySuggestions": exactly ${vocabCount} words STRICTLY at CEFR level ${minLevel}–${maxLevel}.
+- "vocabularySuggestions": up to ${vocabCount} words STRICTLY at CEFR level ${minLevel}–${maxLevel}.
   CRITICAL word selection rules:
   1. SKIP all basic/common words (e.g. make, take, give, come, think, know, want, need, use, find, tell, ask, work, seem, feel, try, leave, call, good, great, big, small, new, old, long, high, different). These are A1-A2 level and the learner already knows them.
   2. Choose words that a learner at ${minLevel}–${maxLevel} level would find CHALLENGING — words they likely cannot use confidently in their own writing or speech.
@@ -85,9 +91,14 @@ Requirements:
   4. Spread your selection across the ENTIRE transcript — do not only pick words from the beginning. Include words from the middle and end sections too.
   5. Each "word" must be the dictionary base form (lemma) — e.g. "running" → "run", "went" → "go", "children" → "child".
   6. "meaningCn" must be the precise Chinese meaning of the word itself (not a sentence translation).
-- "sentenceSuggestions": exactly ${sentenceCount} sentences that showcase useful grammar, collocations, or expressions. Each "text" must be an exact quote. Prefer sentences from different parts of the transcript.
+  7. If fewer than ${vocabCount} words at the ${minLevel}–${maxLevel} level exist in the transcript, return ALL qualifying words you can find (do NOT pad with easier words). Set "note" to explain: e.g. "该字幕中 ${minLevel}–${maxLevel} 级别词汇有限，共找到 N 个符合条件的词。"
+- "sentenceSuggestions": exactly ${sentenceCount} sentences that showcase useful grammar, collocations, or expressions.
+  - Each "text" must be an exact quote.
+  - "grammarNotes" must be a brief Chinese analysis of the sentence: identify key grammar structures (e.g. 虚拟语气, 定语从句, 被动语态), useful collocations, or expression techniques. Keep it to 2-3 sentences.
+  - Prefer sentences from different parts of the transcript.
 - "learningTasks": exactly 4 tasks, one each for types: "listening", "speaking", "writing", "reading". Reference specific content from the transcript.
 - "keyTakeaways": exactly 3 key points in English.
+- "note": omit this field entirely if you found enough words. Only include it when the vocabulary count is less than requested.
 
 Transcript:
 ---
@@ -213,6 +224,7 @@ function validateResult(parsed: Record<string, unknown>): AIAnalysisResult {
             text: String(s.text),
             meaningCn: String(s.meaningCn ?? ''),
             reason: String(s.reason ?? ''),
+            grammarNotes: s.grammarNotes ? String(s.grammarNotes) : undefined,
           }))
       : [],
     learningTasks: Array.isArray(parsed.learningTasks)
@@ -223,6 +235,7 @@ function validateResult(parsed: Record<string, unknown>): AIAnalysisResult {
             type: String(t.type),
           }))
       : [],
+    note: parsed.note ? String(parsed.note) : undefined,
   };
 }
 

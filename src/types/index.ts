@@ -104,8 +104,9 @@ export interface VocabularySuggestion {
 /** A sentence suggested by AI analysis */
 export interface SentenceSuggestion {
   text: string;
-  meaningCn: string;   // mock Chinese translation
-  reason: string;      // why this sentence is useful
+  meaningCn: string;      // Chinese translation
+  reason: string;          // why this sentence is useful
+  grammarNotes?: string;   // brief grammar/expression analysis in Chinese
 }
 
 /** A learning task suggested by AI */
@@ -122,6 +123,7 @@ export interface AIAnalysisResult {
   vocabularySuggestions: VocabularySuggestion[];
   sentenceSuggestions: SentenceSuggestion[];
   learningTasks: LearningTask[];
+  note?: string;  // optional message, e.g. "only found N words at this level"
 }
 
 // ── Channel & Daily Plan ────────────────────────────────────
