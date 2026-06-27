@@ -299,7 +299,7 @@ const SentencesPage: React.FC = () => {
                 <p
                   className="text-sm text-gray-500 dark:text-gray-400 mb-3 cursor-pointer hover:text-indigo-600 transition-colors"
                   onClick={() => handleStartEditMeaning(item)}
-                  title="Click to edit translation"
+                  title={t('sent.editTransTitle')}
                 >
                   {item.meaningCn || (
                     <span className="text-gray-400 italic text-xs">

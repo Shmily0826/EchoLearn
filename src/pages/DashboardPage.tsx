@@ -424,7 +424,7 @@ const DashboardPage: React.FC = () => {
             className="text-base font-semibold text-gray-800 dark:text-gray-200 mb-1 w-full px-1 py-0.5 border border-transparent hover:border-gray-300 dark:hover:border-slate-600 focus:border-indigo-400 focus:outline-none rounded transition-colors bg-transparent"
             placeholder={t('dash.topicPh')}
           />
-          <div className="flex items-center gap-1.5 mb-2">
+          <div className="flex items-center gap-1.5 mb-2 flex-wrap">
             <span className="text-xs text-gray-500">{t('dash.channel')}</span>
             {/* Channel type toggle */}
             <div className="flex rounded-md border border-gray-200 dark:border-slate-600 overflow-hidden shrink-0">
@@ -435,6 +435,7 @@ const DashboardPage: React.FC = () => {
                     handleChannelChange('input', '@' + channelPrefs.input);
                   }
                 }}
+                title={t('dash.handleHint')}
                 className={`px-2 py-0.5 text-[11px] font-medium cursor-pointer transition-colors ${
                   channelPrefs.input.startsWith('@')
                     ? 'bg-indigo-100 dark:bg-indigo-900/50 text-indigo-700 dark:text-indigo-300'
@@ -450,6 +451,7 @@ const DashboardPage: React.FC = () => {
                     handleChannelChange('input', channelPrefs.input.slice(1));
                   }
                 }}
+                title={t('dash.channelIdHint')}
                 className={`px-2 py-0.5 text-[11px] font-medium cursor-pointer transition-colors border-l border-gray-200 dark:border-slate-600 ${
                   !channelPrefs.input.startsWith('@')
                     ? 'bg-indigo-100 dark:bg-indigo-900/50 text-indigo-700 dark:text-indigo-300'
@@ -463,7 +465,7 @@ const DashboardPage: React.FC = () => {
               type="text"
               value={channelPrefs.input}
               onChange={(e) => handleChannelChange('input', e.target.value)}
-              className="text-xs font-mono text-indigo-500 flex-1 px-1 py-0.5 border border-transparent hover:border-gray-300 dark:hover:border-slate-600 focus:border-indigo-400 focus:outline-none rounded transition-colors bg-transparent min-w-0"
+              className="text-sm font-mono text-indigo-500 flex-1 min-w-[160px] px-1.5 py-0.5 border border-transparent hover:border-gray-300 dark:hover:border-slate-600 focus:border-indigo-400 focus:outline-none rounded transition-colors bg-transparent"
               placeholder={channelPrefs.input.startsWith('@') ? t('dash.handlePh') : t('dash.channelIdPh')}
             />
             {/* Auto-detected type badge */}
