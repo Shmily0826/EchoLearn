@@ -348,13 +348,13 @@ const TranscriptViewer: React.FC<TranscriptViewerProps> = ({
 
             {/* Action button */}
             {isWordSaved(popup.word) ? (
-              <span className="text-xs text-amber-600 font-medium">
+              <span className="text-xs text-amber-600 dark:text-amber-400 font-medium">
                 {t('transcript.wordSaved')}
               </span>
             ) : (
               <button
                 onClick={handleAddWord}
-                className="w-full px-3 py-2 text-sm bg-amber-50 dark:bg-amber-950/30 text-amber-700 rounded-lg hover:bg-amber-100 transition-colors font-medium cursor-pointer"
+                className="w-full px-3 py-2 text-sm bg-amber-50 dark:bg-amber-900/50 text-amber-700 dark:text-amber-300 rounded-lg hover:bg-amber-100 dark:hover:bg-amber-800 transition-colors font-medium cursor-pointer"
               >
                 {t('transcript.addWord')}
               </button>
@@ -419,8 +419,8 @@ const TranscriptViewer: React.FC<TranscriptViewerProps> = ({
                           onClick={(e) => handleWordClick(token, line.text, line.start, e)}
                           className={`inline-block mx-[1px] px-1 md:px-0.5 py-0.5 md:py-0 rounded cursor-pointer transition-colors ${
                             saved
-                              ? 'bg-amber-100 dark:bg-amber-950/30 text-amber-800 hover:bg-amber-200'
-                              : 'hover:bg-indigo-100 hover:text-indigo-700'
+                              ? 'bg-amber-100 dark:bg-amber-900/50 text-amber-800 dark:text-amber-300 hover:bg-amber-200 dark:hover:bg-amber-800'
+                              : 'hover:bg-indigo-100 dark:hover:bg-indigo-900/40 hover:text-indigo-700 dark:hover:text-indigo-300'
                           }`}
                         >
                           {token}
@@ -444,7 +444,7 @@ const TranscriptViewer: React.FC<TranscriptViewerProps> = ({
                   title={sentenceSaved ? 'Remove bookmark' : 'Save sentence'}
                   className={`flex-shrink-0 p-1.5 md:p-1 rounded transition-colors cursor-pointer ${
                     sentenceSaved
-                      ? 'text-violet-500 hover:text-violet-700'
+                      ? 'text-violet-500 dark:text-violet-400 hover:text-violet-700 dark:hover:text-violet-300'
                       : 'text-gray-300 hover:text-violet-400'
                   }`}
                 >

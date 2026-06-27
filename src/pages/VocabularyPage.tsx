@@ -23,10 +23,10 @@ interface DictPopupState {
 
 /** Format a nextReviewAt timestamp as a short label. */
 function reviewLabel(nextReviewAt: number, mastered: boolean, t: (key: string, vars?: Record<string, string | number>) => string): { text: string; color: string } {
-  if (mastered) return { text: t('reviewLabel.mastered'), color: 'text-green-600' };
-  if (nextReviewAt === 0) return { text: t('reviewLabel.mastered'), color: 'text-green-600' };
+  if (mastered) return { text: t('reviewLabel.mastered'), color: 'text-green-600 dark:text-green-400' };
+  if (nextReviewAt === 0) return { text: t('reviewLabel.mastered'), color: 'text-green-600 dark:text-green-400' };
   const now = Date.now();
-  if (nextReviewAt <= now) return { text: t('reviewLabel.dueNow'), color: 'text-red-500' };
+  if (nextReviewAt <= now) return { text: t('reviewLabel.dueNow'), color: 'text-red-500 dark:text-red-400' };
   const days = Math.ceil((nextReviewAt - now) / (24 * 60 * 60 * 1000));
   if (days === 1) return { text: t('reviewLabel.dueTomorrow'), color: 'text-amber-500' };
   if (days <= 7) return { text: t('reviewLabel.dueIn', { n: days }), color: 'text-amber-500' };
@@ -200,7 +200,7 @@ const VocabularyPage: React.FC = () => {
             <button
               onClick={handleBackfillTranslations}
               disabled={backfilling}
-              className="px-3 py-1.5 text-sm text-amber-700 bg-amber-50 dark:bg-amber-950/30 border border-amber-200 dark:border-amber-800 rounded-lg hover:bg-amber-100 dark:hover:bg-amber-900/40 transition-colors font-medium cursor-pointer disabled:opacity-60"
+              className="px-3 py-1.5 text-sm text-amber-700 dark:text-amber-400 bg-amber-50 dark:bg-amber-950/30 border border-amber-200 dark:border-amber-800 rounded-lg hover:bg-amber-100 dark:hover:bg-amber-900/40 transition-colors font-medium cursor-pointer disabled:opacity-60"
             >
               {backfilling ? t('vocab.translating') : t('vocab.autoTranslate')}
             </button>
@@ -393,7 +393,7 @@ const VocabularyPage: React.FC = () => {
                     onClick={() => handleToggleMastered(item)}
                     className={`text-[10px] font-medium cursor-pointer transition-colors shrink-0 ${
                       item.mastered
-                        ? 'text-green-600 hover:text-green-700'
+                        ? 'text-green-600 dark:text-green-400 hover:text-green-700'
                         : 'text-gray-400 hover:text-indigo-600'
                     }`}
                   >

@@ -662,7 +662,7 @@ const StudyPage: React.FC = () => {
             {session && (
               <button
                 onClick={handleClearSession}
-                className="px-3 sm:px-4 py-1.5 text-sm bg-white dark:bg-slate-800 border border-red-200 dark:border-red-800 text-red-600 rounded-lg hover:bg-red-50 dark:hover:bg-red-950/30 transition-colors font-medium cursor-pointer whitespace-nowrap"
+                className="px-3 sm:px-4 py-1.5 text-sm bg-white dark:bg-slate-800 border border-red-200 dark:border-red-800 text-red-600 dark:text-red-400 rounded-lg hover:bg-red-50 dark:hover:bg-red-950/30 transition-colors font-medium cursor-pointer whitespace-nowrap"
               >
                 {t('study.clear')}
               </button>
@@ -1107,11 +1107,11 @@ const StudyPage: React.FC = () => {
         {/* Analysis error banner */}
         {analysisError && (
           <div className="mt-4 flex items-center gap-2 bg-red-50 dark:bg-red-950/30 border border-red-200 dark:border-red-800 rounded-lg px-4 py-3">
-            <svg className="w-4 h-4 text-red-500 shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+            <svg className="w-4 h-4 text-red-500 dark:text-red-400 shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
               <path strokeLinecap="round" strokeLinejoin="round" d="M12 9v3.75m9-.75a9 9 0 11-18 0 9 9 0 0118 0zm-9 3.75h.008v.008H12v-.008z" />
             </svg>
             <p className="text-sm text-red-600 dark:text-red-400 flex-1">{analysisError}</p>
-            <button onClick={() => setAnalysisError(null)} className="text-red-400 hover:text-red-600 cursor-pointer">
+            <button onClick={() => setAnalysisError(null)} className="text-red-400 dark:text-red-500 hover:text-red-600 dark:hover:text-red-300 cursor-pointer">
               <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
                 <path strokeLinecap="round" strokeLinejoin="round" d="M6 18L18 6M6 6l12 12" />
               </svg>
@@ -1237,7 +1237,7 @@ const VocabularyList: React.FC<{
               </span>
               <button
                 onClick={() => onRemove(item.id)}
-                className="text-gray-400 dark:text-gray-500 hover:text-red-500 transition-colors text-xs cursor-pointer"
+                className="text-gray-400 dark:text-gray-500 hover:text-red-500 dark:hover:text-red-400 transition-colors text-xs cursor-pointer"
               >
                 {t('study.remove')}
               </button>
@@ -1288,7 +1288,7 @@ const SentenceList: React.FC<{
             <p className="text-sm text-violet-800 dark:text-indigo-200 leading-relaxed">{item.text}</p>
             <button
               onClick={() => onRemove(item.id)}
-              className="text-gray-400 dark:text-gray-500 hover:text-red-500 transition-colors text-xs whitespace-nowrap cursor-pointer"
+              className="text-gray-400 dark:text-gray-500 hover:text-red-500 dark:hover:text-red-400 transition-colors text-xs whitespace-nowrap cursor-pointer"
             >
               {t('study.remove')}
             </button>
@@ -1528,7 +1528,7 @@ const MobileTranscriptPanel: React.FC<{
               )}
             </div>
             {dictEntry?.partOfSpeech && (
-              <span className="inline-block text-[11px] px-2 py-0.5 bg-indigo-50 dark:bg-indigo-950 text-indigo-600 rounded-full font-medium mb-2">{dictEntry.partOfSpeech}</span>
+              <span className="inline-block text-[11px] px-2 py-0.5 bg-indigo-50 dark:bg-indigo-950 text-indigo-600 dark:text-indigo-400 rounded-full font-medium mb-2">{dictEntry.partOfSpeech}</span>
             )}
             {dictLoading && (
               <div className="flex items-center gap-2 py-2 text-xs text-gray-400">
@@ -1553,9 +1553,9 @@ const MobileTranscriptPanel: React.FC<{
             {dictError && !dictLoading && <p className="text-xs text-gray-400 mb-3">Dictionary entry not found.</p>}
             <p className="text-[11px] text-gray-400 mb-3 line-clamp-2">&ldquo;{popup.context}&rdquo;</p>
             {isWordSaved(popup.word) ? (
-              <span className="text-xs text-amber-600 font-medium">{t('study.alreadySaved')}</span>
+              <span className="text-xs text-amber-600 dark:text-amber-400 font-medium">{t('study.alreadySaved')}</span>
             ) : (
-              <button onClick={handleAddWord} className="w-full px-3 py-2 text-sm bg-amber-50 dark:bg-amber-950/30 text-amber-700 rounded-lg hover:bg-amber-100 font-medium cursor-pointer">
+              <button onClick={handleAddWord} className="w-full px-3 py-2 text-sm bg-amber-50 dark:bg-amber-950/30 text-amber-700 dark:text-amber-400 rounded-lg hover:bg-amber-100 dark:hover:bg-amber-900/50 font-medium cursor-pointer">
                 + {t('study.addToVocab')}
               </button>
             )}
@@ -1606,7 +1606,7 @@ const MobileTranscriptPanel: React.FC<{
                         onClick={(e) => handleWordClick(token, line.text, line.start, e)}
                         className={`inline-block mx-[1px] px-1 py-0.5 rounded cursor-pointer transition-colors ${
                           saved
-                            ? 'bg-amber-100 dark:bg-amber-950/30 text-amber-800'
+                            ? 'bg-amber-100 dark:bg-amber-900/50 text-amber-800 dark:text-amber-300'
                             : 'active:bg-indigo-100'
                         }`}
                       >

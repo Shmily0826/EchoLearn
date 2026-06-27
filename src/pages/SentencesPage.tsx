@@ -28,10 +28,10 @@ function splitTokens(text: string): string[] {
 
 /** Format a nextReviewAt timestamp as a short label. */
 function reviewLabel(nextReviewAt: number, mastered: boolean, t: (key: string, vars?: Record<string, string | number>) => string): { text: string; color: string } {
-  if (mastered) return { text: t('reviewLabel.mastered'), color: 'text-green-600' };
-  if (nextReviewAt === 0) return { text: t('reviewLabel.mastered'), color: 'text-green-600' };
+  if (mastered) return { text: t('reviewLabel.mastered'), color: 'text-green-600 dark:text-green-400' };
+  if (nextReviewAt === 0) return { text: t('reviewLabel.mastered'), color: 'text-green-600 dark:text-green-400' };
   const now = Date.now();
-  if (nextReviewAt <= now) return { text: t('reviewLabel.dueNow'), color: 'text-red-500' };
+  if (nextReviewAt <= now) return { text: t('reviewLabel.dueNow'), color: 'text-red-500 dark:text-red-400' };
   const days = Math.ceil((nextReviewAt - now) / (24 * 60 * 60 * 1000));
   if (days === 1) return { text: t('reviewLabel.dueTomorrow'), color: 'text-amber-500' };
   if (days <= 7) return { text: t('reviewLabel.dueIn', { n: days }), color: 'text-amber-500' };
@@ -207,7 +207,7 @@ const SentencesPage: React.FC = () => {
               <button
                 onClick={handleBackfillTranslations}
                 disabled={backfilling}
-                className="px-3 py-1.5 text-sm text-amber-700 bg-amber-50 dark:bg-amber-950/30 border border-amber-200 dark:border-amber-800 rounded-lg hover:bg-amber-100 dark:hover:bg-amber-900/40 transition-colors font-medium cursor-pointer disabled:opacity-60"
+                className="px-3 py-1.5 text-sm text-amber-700 dark:text-amber-400 bg-amber-50 dark:bg-amber-950/30 border border-amber-200 dark:border-amber-800 rounded-lg hover:bg-amber-100 dark:hover:bg-amber-900/40 transition-colors font-medium cursor-pointer disabled:opacity-60"
               >
                 {backfilling ? t('sent.translating') : t('sent.autoTranslate')}
               </button>
@@ -362,7 +362,7 @@ const SentencesPage: React.FC = () => {
                       </button>
                       <button
                         onClick={handleCancelOwn}
-                        className="px-2 py-1 text-xs text-gray-500 hover:text-gray-700 cursor-pointer"
+                        className="px-2 py-1 text-xs text-gray-500 dark:text-gray-400 hover:text-gray-700 cursor-pointer"
                       >
                         {t('sent.cancel')}
                       </button>

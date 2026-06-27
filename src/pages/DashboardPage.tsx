@@ -425,7 +425,7 @@ const DashboardPage: React.FC = () => {
             placeholder={t('dash.topicPh')}
           />
           <div className="flex items-center gap-1.5 mb-2 flex-wrap">
-            <span className="text-xs text-gray-500">{t('dash.channel')}</span>
+            <span className="text-xs text-gray-500 dark:text-gray-400">{t('dash.channel')}</span>
             {/* Channel type toggle */}
             <div className="flex rounded-md border border-gray-200 dark:border-slate-600 overflow-hidden shrink-0">
               <button
@@ -503,8 +503,8 @@ const DashboardPage: React.FC = () => {
           {checkMessage && (
             <p className={`text-xs mt-3 ${
               checkSuccess
-                ? 'text-green-600'
-                : 'text-amber-600'
+                ? 'text-green-600 dark:text-green-400'
+                : 'text-amber-600 dark:text-amber-400'
             }`}>
               {checkMessage}
             </p>
@@ -842,7 +842,7 @@ const DashboardPage: React.FC = () => {
                               <span className={`px-1.5 py-0.5 rounded text-[10px] font-medium ${
                                 s.status === 'studying'
                                   ? 'bg-blue-100 dark:bg-blue-900/40 text-blue-600'
-                                  : 'bg-gray-100 dark:bg-slate-700 text-gray-500'
+                                  : 'bg-gray-100 dark:bg-slate-700 text-gray-500 dark:text-gray-400'
                               }`}>
                                 {statusLabel(s.status)}
                               </span>
@@ -855,7 +855,7 @@ const DashboardPage: React.FC = () => {
                           <div className="flex items-center gap-2 sm:ml-4">
                             <button
                               onClick={() => handleOpenSession(s)}
-                              className="px-3 py-1.5 text-xs text-indigo-600 bg-indigo-50 dark:bg-indigo-950 rounded-lg hover:bg-indigo-100 transition-colors font-medium cursor-pointer"
+                              className="px-3 py-1.5 text-xs text-indigo-600 dark:text-indigo-400 bg-indigo-50 dark:bg-indigo-950 rounded-lg hover:bg-indigo-100 transition-colors font-medium cursor-pointer"
                             >
                               {t('dash.open')}
                             </button>
@@ -933,7 +933,7 @@ const DashboardPage: React.FC = () => {
                                 <div className="flex items-center gap-2 sm:ml-4">
                                   <button
                                     onClick={() => handleOpenSession(s)}
-                                    className="px-3 py-1 text-[11px] text-gray-500 bg-gray-100 dark:bg-slate-700 rounded-lg hover:bg-gray-200 dark:hover:bg-slate-600 transition-colors font-medium cursor-pointer"
+                                    className="px-3 py-1 text-[11px] text-gray-500 dark:text-gray-400 bg-gray-100 dark:bg-slate-700 rounded-lg hover:bg-gray-200 dark:hover:bg-slate-600 transition-colors font-medium cursor-pointer"
                                   >
                                     {t('dash.review')}
                                   </button>

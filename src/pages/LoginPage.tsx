@@ -179,7 +179,7 @@ const LoginPage: React.FC = () => {
           </div>
 
           {error && (
-            <p className="text-red-500 text-xs flex items-center gap-1.5">
+            <p className="text-red-500 dark:text-red-400 text-xs flex items-center gap-1.5">
               <svg
                 className="w-3.5 h-3.5 flex-shrink-0"
                 fill="none"

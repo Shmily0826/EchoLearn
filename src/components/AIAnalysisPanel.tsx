@@ -77,7 +77,7 @@ const AIAnalysisPanel: React.FC<AIAnalysisPanelProps> = ({
             <path strokeLinecap="round" strokeLinejoin="round" d="M9.813 15.904L9 18.75l-.813-2.846a4.5 4.5 0 00-3.09-3.09L2.25 12l2.846-.813a4.5 4.5 0 003.09-3.09L9 5.25l.813 2.846a4.5 4.5 0 003.09 3.09L15.75 12l-2.846.813a4.5 4.5 0 00-3.09 3.09z" />
           </svg>
           <h3 className="text-base font-semibold text-gray-800 dark:text-gray-200">{t('ai.title')}</h3>
-          <span className="text-[10px] px-1.5 py-0.5 bg-emerald-100 text-emerald-600 rounded-full font-medium">DeepSeek</span>
+          <span className="text-[10px] px-1.5 py-0.5 bg-emerald-100 dark:bg-emerald-900/50 text-emerald-600 dark:text-emerald-400 rounded-full font-medium">DeepSeek</span>
           <svg
             className={`w-4 h-4 text-gray-400 transition-transform duration-200 ${collapsed ? '' : 'rotate-180'}`}
             fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}
@@ -149,13 +149,13 @@ const AIAnalysisPanel: React.FC<AIAnalysisPanelProps> = ({
                 return (
                   <div key={sug.word} className="bg-amber-50 dark:bg-amber-950/30 border border-amber-200 dark:border-amber-800 rounded-lg p-3">
                     <div className="flex items-start justify-between mb-1">
-                      <span className="text-base font-semibold text-amber-800">{sug.word}</span>
+                      <span className="text-base font-semibold text-amber-800 dark:text-amber-300">{sug.word}</span>
                       {saved ? (
-                        <span className="text-[10px] text-amber-600 font-medium">{t('ai.saved')}</span>
+                        <span className="text-[10px] text-amber-600 dark:text-amber-400 font-medium">{t('ai.saved')}</span>
                       ) : (
                         <button
                           onClick={() => handleAddVocab(sug)}
-                          className="text-[10px] px-2 py-0.5 bg-amber-100 text-amber-700 rounded hover:bg-amber-200 transition-colors font-medium cursor-pointer"
+                          className="text-[10px] px-2 py-0.5 bg-amber-100 dark:bg-amber-900/50 text-amber-700 dark:text-amber-300 rounded hover:bg-amber-200 dark:hover:bg-amber-800 transition-colors font-medium cursor-pointer"
                         >
                           {t('ai.add')}
                         </button>

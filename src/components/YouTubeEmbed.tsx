@@ -26,10 +26,12 @@ interface YouTubeEmbedProps {
 let apiReady = false;
 let apiLoading = false;
 let apiLoadAttempts = 0;
-const apiWaiters: Array<() => void> = [];
+let apiFailed = false;
+const apiWaiters: Array<(ok: boolean) => void> = [];
 
-function loadYouTubeAPI(onReady: () => void): void {
-  if (apiReady) { onReady(); return; }
+function loadYouTubeAPI(onReady: (ok: boolean) => void): void {
+  if (apiReady) { onReady(true); return; }
+  if (apiFailed) { onReady(false); return; }
   apiWaiters.push(onReady);
   if (apiLoading) return;
 
@@ -40,7 +42,7 @@ function loadYouTubeAPI(onReady: () => void): void {
     apiReady = true;
     apiLoading = false;
     const cbs = apiWaiters.splice(0);
-    cbs.forEach((cb) => cb());
+    cbs.forEach((cb) => cb(true));
   };
 
   // Remove any stale script tags
@@ -52,30 +54,38 @@ function loadYouTubeAPI(onReady: () => void): void {
   tag.src = 'https://www.youtube.com/iframe_api';
   tag.async = true;
 
-  tag.onerror = () => {
+  const failWaiters = () => {
     apiLoading = false;
-    if (apiLoadAttempts < 3) {
-      setTimeout(() => {
-        const cbs = apiWaiters.splice(0);
-        cbs.forEach((cb) => loadYouTubeAPI(cb));
-      }, 2000 * apiLoadAttempts);
+    if (apiLoadAttempts >= 3) {
+      apiFailed = true;
+      const cbs = apiWaiters.splice(0);
+      cbs.forEach((cb) => cb(false));
+      return;
     }
+    setTimeout(() => {
+      const cbs = apiWaiters.splice(0);
+      cbs.forEach((cb) => loadYouTubeAPI(cb));
+    }, 2000 * apiLoadAttempts);
   };
+
+  tag.onerror = () => failWaiters();
 
   document.head.appendChild(tag);
 
   // Safety timeout — if API never calls onYouTubeIframeAPIReady
   setTimeout(() => {
     if (!apiReady && apiLoading) {
-      apiLoading = false;
-      if (apiLoadAttempts < 3) {
-        setTimeout(() => {
-          const cbs = apiWaiters.splice(0);
-          cbs.forEach((cb) => loadYouTubeAPI(cb));
-        }, 2000 * apiLoadAttempts);
-      }
+      failWaiters();
     }
   }, 15_000);
+}
+
+// Reset API state for full retry
+function resetAPIState(): void {
+  apiReady = false;
+  apiLoading = false;
+  apiLoadAttempts = 0;
+  apiFailed = false;
 }
 
 // ── Component ──────────────────────────────────────────────
@@ -83,7 +93,7 @@ const YouTubeEmbed = forwardRef<PlayerHandle, YouTubeEmbedProps>(
   ({ youtubeId, startTime }, ref) => {
     const containerId = useRef(`yt-${Math.random().toString(36).slice(2, 9)}`);
     const playerRef = useRef<YT.Player | null>(null);
-    const [status, setStatus] = useState<'loading' | 'ready' | 'error'>('loading');
+    const [status, setStatus] = useState<'loading' | 'ready' | 'error' | 'fallback'>('loading');
     const statusRef = useRef(status);
     statusRef.current = status;
     const startTimeRef = useRef(startTime);
@@ -127,8 +137,7 @@ const YouTubeEmbed = forwardRef<PlayerHandle, YouTubeEmbedProps>(
           },
           events: {
             onReady: () => {
-              // If we already gave up, destroy this late-arriving player
-              if (statusRef.current === 'error') {
+              if (statusRef.current === 'error' || statusRef.current === 'fallback') {
                 try { playerRef.current?.destroy(); } catch { /* ignore */ }
                 playerRef.current = null;
                 return;
@@ -137,11 +146,6 @@ const YouTubeEmbed = forwardRef<PlayerHandle, YouTubeEmbedProps>(
               setStatus('ready');
             },
             onError: (e: { data: number }) => {
-              // Error codes:
-              //   2   = invalid videoId (usually permanent)
-              //   5   = HTML5 player error (transient)
-              //   100 = video not found (permanent)
-              //   101/150 = embed not allowed (permanent)
               const isPermanent = [2, 100, 101, 150].includes(e.data);
               if (!isPermanent && retryCount.current < 3) {
                 retryCount.current++;
@@ -153,34 +157,36 @@ const YouTubeEmbed = forwardRef<PlayerHandle, YouTubeEmbedProps>(
                   initPlayer();
                 }, 2000 * retryCount.current);
               } else {
-                // Give up — make sure the player is destroyed so iframe stops
                 if (playerRef.current) {
                   try { playerRef.current.destroy(); } catch { /* ignore */ }
                   playerRef.current = null;
                 }
-                setStatus('error');
+                setStatus('fallback');
               }
             },
           },
         });
       } catch {
-        setStatus('error');
+        setStatus('fallback');
       }
     }, [youtubeId]);
 
-    // Mount: load API → create player
+    // Mount: load API → create player or fallback
     useEffect(() => {
       let cancelled = false;
 
-      loadYouTubeAPI(() => {
+      loadYouTubeAPI((ok) => {
         if (cancelled) return;
-        initPlayer();
+        if (ok) {
+          initPlayer();
+        } else {
+          setStatus('fallback');
+        }
       });
 
-      // Fallback: use ref to avoid stale closure — checks REAL current status
       const timer = setTimeout(() => {
         if (!cancelled && statusRef.current === 'loading') {
-          setStatus('error');
+          setStatus('fallback');
         }
       }, 30_000);
 
@@ -206,23 +212,20 @@ const YouTubeEmbed = forwardRef<PlayerHandle, YouTubeEmbedProps>(
         if (status !== 'ready' || !playerRef.current) return;
 
         try {
-          // Probe the player — if it throws or returns undefined, it's dead
           const state = playerRef.current.getPlayerState?.();
           if (state === undefined || state === -1) {
-            // Player is dead — destroy and re-create
             try { playerRef.current.destroy(); } catch { /* ignore */ }
             playerRef.current = null;
             setStatus('loading');
             retryCount.current = 0;
-            loadYouTubeAPI(() => initPlayer());
+            loadYouTubeAPI((ok) => { if (ok) initPlayer(); else setStatus('fallback'); });
           }
         } catch {
-          // Player threw — it's broken
           try { playerRef.current?.destroy(); } catch { /* ignore */ }
           playerRef.current = null;
           setStatus('loading');
           retryCount.current = 0;
-          loadYouTubeAPI(() => initPlayer());
+          loadYouTubeAPI((ok) => { if (ok) initPlayer(); else setStatus('fallback'); });
         }
       };
 
@@ -256,18 +259,36 @@ const YouTubeEmbed = forwardRef<PlayerHandle, YouTubeEmbedProps>(
     }, []);
 
     const handleRetry = () => {
+      resetAPIState();
       setStatus('loading');
       retryCount.current = 0;
       if (playerRef.current) {
         try { playerRef.current.destroy(); } catch { /* ignore */ }
         playerRef.current = null;
       }
-      loadYouTubeAPI(() => initPlayer());
+      loadYouTubeAPI((ok) => { if (ok) initPlayer(); else setStatus('fallback'); });
     };
+
+    // Build fallback iframe URL
+    const fallbackSrc = `https://www.youtube.com/embed/${youtubeId}?autoplay=1&rel=0&modestbranding=1${
+      startTime !== undefined ? `&start=${Math.floor(startTime)}` : ''
+    }`;
 
     return (
       <div className="w-full aspect-video rounded-xl overflow-hidden shadow-md bg-black relative">
-        <div id={containerId.current} className="w-full h-full" />
+        {status !== 'fallback' && (
+          <div id={containerId.current} className="w-full h-full" />
+        )}
+
+        {status === 'fallback' && (
+          <iframe
+            src={fallbackSrc}
+            className="w-full h-full"
+            allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture"
+            allowFullScreen
+            title="YouTube video player"
+          />
+        )}
 
         {status === 'loading' && (
           <div className="absolute inset-0 flex flex-col items-center justify-center bg-black/70 gap-3">

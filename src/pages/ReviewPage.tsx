@@ -323,11 +323,11 @@ const ReviewPage: React.FC = () => {
             <p className="text-sm text-gray-500 dark:text-gray-400 mb-8">{t('review.keepItUp')}</p>
             <div className="grid grid-cols-3 gap-6 mb-8">
               <div>
-                <p className="text-3xl font-bold text-indigo-600">{doneIds.size}</p>
+                <p className="text-3xl font-bold text-indigo-600 dark:text-indigo-400">{doneIds.size}</p>
                 <p className="text-xs text-gray-400 dark:text-gray-500 mt-1">{t('review.reviewed')}</p>
               </div>
               <div>
-                <p className="text-3xl font-bold text-green-600">{accuracy}%</p>
+                <p className="text-3xl font-bold text-green-600 dark:text-green-400">{accuracy}%</p>
                 <p className="text-xs text-gray-400 dark:text-gray-500 mt-1">{t('review.accuracy')}</p>
               </div>
               <div>
@@ -429,12 +429,12 @@ const ReviewPage: React.FC = () => {
                 <p className="text-[10px] text-gray-300 dark:text-gray-500 mt-0.5">{dueWordCount}W / {dueSentenceCount}S</p>
               </div>
               <div className="bg-white dark:bg-slate-800 border border-gray-200 dark:border-slate-700 rounded-xl p-4 text-center">
-                <p className="text-2xl font-bold text-indigo-600">{unmasteredCount}</p>
+                <p className="text-2xl font-bold text-indigo-600 dark:text-indigo-400">{unmasteredCount}</p>
                 <p className="text-xs text-gray-400 dark:text-gray-500 mt-1">{t('review.unmastered')}</p>
                 <p className="text-[10px] text-gray-300 dark:text-gray-500 mt-0.5">{unmasteredWordCount}W / {unmasteredSentenceCount}S</p>
               </div>
               <div className="bg-white dark:bg-slate-800 border border-gray-200 dark:border-slate-700 rounded-xl p-4 text-center">
-                <p className="text-2xl font-bold text-green-600">{masteredCount}</p>
+                <p className="text-2xl font-bold text-green-600 dark:text-green-400">{masteredCount}</p>
                 <p className="text-xs text-gray-400 dark:text-gray-500 mt-1">{t('review.mastered')}</p>
               </div>
             </div>
@@ -451,7 +451,7 @@ const ReviewPage: React.FC = () => {
                   onClick={() => setTypeFilter(key)}
                   className={`px-3.5 py-1.5 text-sm font-medium rounded-lg transition-colors cursor-pointer ${
                     typeFilter === key
-                      ? 'bg-indigo-50 dark:bg-indigo-950 text-indigo-700'
+                      ? 'bg-indigo-50 dark:bg-indigo-950 text-indigo-700 dark:text-indigo-400'
                       : 'text-gray-500 dark:text-gray-400 hover:text-gray-700 hover:bg-gray-50 dark:hover:bg-slate-900'
                   }`}
                 >
@@ -526,8 +526,8 @@ const ReviewPage: React.FC = () => {
           {currentIdx + 1} / {total}
         </span>
         <div className="flex items-center gap-3 text-xs">
-          <span className="text-green-600">{stats.remembered} {t('review.remembered')}</span>
-          <span className="text-red-500">{stats.forgot} {t('review.forgot')}</span>
+          <span className="text-green-600 dark:text-green-400">{stats.remembered} {t('review.remembered')}</span>
+          <span className="text-red-500 dark:text-red-400">{stats.forgot} {t('review.forgot')}</span>
           <button
             onClick={() => setSessionActive(false)}
             className="text-gray-400 hover:text-gray-600 cursor-pointer"
@@ -582,7 +582,7 @@ const ReviewPage: React.FC = () => {
               </button>
             </div>
             {meaningCn && (
-              <p className="text-lg text-indigo-700 font-medium mb-4">{meaningCn}</p>
+              <p className="text-lg text-indigo-700 dark:text-indigo-400 font-medium mb-4">{meaningCn}</p>
             )}
             {currentCard.item.myOwnSentence && (
               <div className="bg-slate-50 dark:bg-slate-900 rounded-lg px-4 py-3 mb-4">
@@ -593,7 +593,7 @@ const ReviewPage: React.FC = () => {
             <div className="mt-auto pt-4 border-t border-gray-100 dark:border-slate-700">
               <button
                 onClick={handleSentenceRead}
-                className="w-full px-4 py-3 text-sm bg-indigo-50 dark:bg-indigo-950 text-indigo-600 border border-indigo-200 rounded-xl hover:bg-indigo-100 transition-colors font-medium cursor-pointer"
+                className="w-full px-4 py-3 text-sm bg-indigo-50 dark:bg-indigo-950 text-indigo-600 dark:text-indigo-400 border border-indigo-200 rounded-xl hover:bg-indigo-100 transition-colors font-medium cursor-pointer"
               >
                 {t('review.next')} <span className="hidden sm:inline text-[10px] text-indigo-400 ml-1">Space / Enter</span>
               </button>
@@ -622,7 +622,7 @@ const ReviewPage: React.FC = () => {
             {revealed ? (
               <div className="space-y-3 mb-6 animate-[fadeIn_0.2s_ease-out]">
                 {meaningCn && (
-                  <p className="text-xl text-indigo-700 font-medium">{meaningCn}</p>
+                  <p className="text-xl text-indigo-700 dark:text-indigo-400 font-medium">{meaningCn}</p>
                 )}
                 {context && (
                   <p className="text-sm text-gray-500 dark:text-gray-400 leading-relaxed">&ldquo;{context}&rdquo;</p>
@@ -636,7 +636,7 @@ const ReviewPage: React.FC = () => {
             ) : (
               <button
                 onClick={() => setRevealed(true)}
-                className="mb-6 px-6 py-3 text-sm text-indigo-600 bg-indigo-50 dark:bg-indigo-950 rounded-xl hover:bg-indigo-100 transition-colors font-medium cursor-pointer"
+                className="mb-6 px-6 py-3 text-sm text-indigo-600 dark:text-indigo-400 bg-indigo-50 dark:bg-indigo-950 rounded-xl hover:bg-indigo-100 transition-colors font-medium cursor-pointer"
               >
                 {t('review.showAnswer')} <span className="text-[10px] text-indigo-400 ml-1">R</span>
               </button>
@@ -647,13 +647,13 @@ const ReviewPage: React.FC = () => {
               <div className="mt-auto flex gap-3 pt-4 border-t border-gray-100 dark:border-slate-700">
                 <button
                   onClick={handleForgot}
-                  className="flex-1 px-4 py-3 text-sm bg-red-50 dark:bg-red-950/30 text-red-600 border border-red-200 rounded-xl hover:bg-red-100 transition-colors font-medium cursor-pointer"
+                  className="flex-1 px-4 py-3 text-sm bg-red-50 dark:bg-red-950/30 text-red-600 dark:text-red-400 border border-red-200 rounded-xl hover:bg-red-100 transition-colors font-medium cursor-pointer"
                 >
                   {t('review.forgotBtn')} <span className="hidden sm:inline text-[10px] text-red-400 ml-1">1</span>
                 </button>
                 <button
                   onClick={handleRemember}
-                  className="flex-1 px-4 py-3 text-sm bg-green-50 text-green-700 border border-green-200 rounded-xl hover:bg-green-100 transition-colors font-medium cursor-pointer"
+                  className="flex-1 px-4 py-3 text-sm bg-green-50 text-green-700 dark:text-green-400 border border-green-200 rounded-xl hover:bg-green-100 transition-colors font-medium cursor-pointer"
                 >
                   {t('review.rememberBtn')} <span className="hidden sm:inline text-[10px] text-green-400 ml-1">2</span>
                 </button>

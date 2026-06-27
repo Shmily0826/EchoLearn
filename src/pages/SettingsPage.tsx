@@ -418,7 +418,7 @@ const SettingsPage: React.FC = () => {
             {fbSyncMessage && (
               <p className={`text-xs mt-3 ${
                 fbSyncMessage.type === 'success' ? 'text-green-600 dark:text-green-400' :
-                fbSyncMessage.type === 'error' ? 'text-red-500' :
+                fbSyncMessage.type === 'error' ? 'text-red-500 dark:text-red-400' :
                 'text-gray-500'
               }`}>
                 {fbSyncMessage.text}
@@ -505,7 +505,7 @@ const SettingsPage: React.FC = () => {
           {proxyMessage && (
             <p className={`text-xs mt-2 ${
               proxyStatus === 'online' ? 'text-green-600 dark:text-green-400' :
-              proxyStatus === 'offline' ? 'text-red-500' :
+              proxyStatus === 'offline' ? 'text-red-500 dark:text-red-400' :
               'text-gray-500'
             }`}>
               {proxyStatus === 'online' && (
@@ -620,8 +620,8 @@ const SettingsPage: React.FC = () => {
 
           {patMessage && (
             <p className={`text-xs mt-2 ${
-              patStatus === 'valid' ? 'text-green-600' :
-              patStatus === 'invalid' ? 'text-red-500' :
+              patStatus === 'valid' ? 'text-green-600 dark:text-green-400' :
+              patStatus === 'invalid' ? 'text-red-500 dark:text-red-400' :
               'text-gray-500'
             }`}>
               {patStatus === 'valid' && (
@@ -806,7 +806,7 @@ const SettingsPage: React.FC = () => {
             syncMessage.type === 'success'
               ? 'bg-green-50 dark:bg-green-950 border-green-200 dark:border-green-800 text-green-700 dark:text-green-300'
               : syncMessage.type === 'error'
-                ? 'bg-red-50 dark:bg-red-950 border-red-200 dark:border-red-800 text-red-600 dark:text-red-300'
+                ? 'bg-red-50 dark:bg-red-950 border-red-200 dark:border-red-800 text-red-600 dark:text-red-400'
                 : 'bg-blue-50 dark:bg-blue-950 border-blue-200 dark:border-blue-800 text-blue-600 dark:text-blue-300'
           }`}
         >
