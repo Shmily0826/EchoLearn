@@ -99,15 +99,17 @@ const AIAnalysisPanel: React.FC<AIAnalysisPanelProps> = ({
       {!collapsed && (
         <div className="p-5 space-y-6">
         {/* Summaries */}
-        <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+        <div className={lang === 'zh' ? 'grid grid-cols-1 md:grid-cols-2 gap-4' : ''}>
           <div className="bg-gray-50 dark:bg-slate-900 rounded-lg p-4">
             <h4 className="text-xs font-semibold text-gray-500 dark:text-gray-400 uppercase tracking-wider mb-2">{t('ai.summaryEn')}</h4>
             <p className="text-sm text-gray-700 dark:text-gray-300 leading-relaxed">{analysis.summaryEn}</p>
           </div>
+          {lang === 'zh' && (
           <div className="bg-gray-50 dark:bg-slate-900 rounded-lg p-4">
             <h4 className="text-xs font-semibold text-gray-500 dark:text-gray-400 uppercase tracking-wider mb-2">{t('ai.summaryCn')}</h4>
             <p className="text-sm text-gray-700 dark:text-gray-300 leading-relaxed">{analysis.summaryCn}</p>
           </div>
+          )}
         </div>
 
         {/* Note banner — shown when AI couldn't find enough qualifying words */}

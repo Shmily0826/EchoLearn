@@ -65,8 +65,7 @@ Return a JSON object with this exact schema:
 
 {
   "summaryEn": "2-3 sentence English summary of the content",
-  "summaryCn": "同样内容的2-3句中文摘要",
-  "keyTakeaways": ["takeaway 1", "takeaway 2", "takeaway 3"],
+${lang === 'zh' ? '  "summaryCn": "同样内容的2-3句中文摘要",\n' : ''}  "keyTakeaways": ["takeaway 1", "takeaway 2", "takeaway 3"],
   "vocabularySuggestions": [
     {
       "word": "the word (base form / lemma)",
