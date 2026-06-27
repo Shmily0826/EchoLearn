@@ -3,8 +3,9 @@
  *
  * Data structure:
  *   users/{uid}/data/{collection}
- *     where collection is: vocabulary | sentences | sessions | dailyPlan
+ *     where collection is: vocabulary | sentences | sessions
  *     each document: { items: [...], updatedAt: <timestamp ms> }
+ *     (dailyPlan is intentionally excluded from sync — it is local-only)
  *
  * Merge strategy:
  *   - Compare local + cloud items by id
@@ -31,14 +32,11 @@ import {
   saveAllSessions,
   loadCurrentSession,
   saveCurrentSession,
-  loadDailyPlan,
-  saveDailyPlan,
 } from '../utils/storage';
 import type {
   VocabularyItem,
   SentenceItem,
   VideoStudySession,
-  DailyPlanItem,
 } from '../types';
 
 // ── Types ──────────────────────────────────────────────────────
@@ -136,7 +134,6 @@ interface AllLocalData {
   vocabulary: VocabularyItem[];
   sentences: SentenceItem[];
   sessions: VideoStudySession[];
-  dailyPlan: DailyPlanItem[];
 }
 
 function collectLocalData(): AllLocalData {
@@ -144,7 +141,6 @@ function collectLocalData(): AllLocalData {
     vocabulary: loadVocabulary(),
     sentences: loadSentences(),
     sessions: loadAllSessions(),
-    dailyPlan: loadDailyPlan(),
   };
 }
 
@@ -174,7 +170,6 @@ export async function uploadToCloud(uid: string): Promise<SyncResult> {
       uploadCollection(uid, 'vocabulary', data.vocabulary),
       uploadCollection(uid, 'sentences', data.sentences),
       uploadCollection(uid, 'sessions', data.sessions),
-      uploadCollection(uid, 'dailyPlan', data.dailyPlan),
     ]);
 
     localStorage.setItem(LAST_SYNC_KEY, String(Date.now()));
@@ -186,7 +181,6 @@ export async function uploadToCloud(uid: string): Promise<SyncResult> {
         vocabulary: data.vocabulary.length,
         sentences: data.sentences.length,
         sessions: data.sessions.length,
-        dailyPlan: data.dailyPlan.length,
       },
     };
   } catch (err) {
@@ -218,24 +212,21 @@ export async function syncWithCloud(uid: string): Promise<SyncResult> {
   try {
     const local = collectLocalData();
 
-    // Download all cloud collections in parallel
-    const [cloudVocab, cloudSentences, cloudSessions, cloudPlan] = await Promise.all([
+    // Download all cloud collections in parallel (dailyPlan excluded — local only)
+    const [cloudVocab, cloudSentences, cloudSessions] = await Promise.all([
       downloadCollection<VocabularyItem>(uid, 'vocabulary'),
       downloadCollection<SentenceItem>(uid, 'sentences'),
       downloadCollection<VideoStudySession>(uid, 'sessions'),
-      downloadCollection<DailyPlanItem>(uid, 'dailyPlan'),
     ]);
 
     // Merge each collection
     const mergedVocab = mergeById(local.vocabulary, cloudVocab);
     const mergedSentences = mergeById(local.sentences, cloudSentences);
     const mergedSessions = mergeSessions(local.sessions, cloudSessions);
-    const mergedPlan = mergeById(local.dailyPlan, cloudPlan);
 
-    // Save merged data to localStorage
+    // Save merged data to localStorage (dailyPlan stays as-is locally)
     saveVocabulary(mergedVocab);
     saveSentences(mergedSentences);
-    saveDailyPlan(mergedPlan);
     saveAllSessions(mergedSessions);
 
     // Restore current session from merged list (the most recent one)
@@ -255,7 +246,6 @@ export async function syncWithCloud(uid: string): Promise<SyncResult> {
       uploadCollection(uid, 'vocabulary', mergedVocab),
       uploadCollection(uid, 'sentences', mergedSentences),
       uploadCollection(uid, 'sessions', mergedSessions),
-      uploadCollection(uid, 'dailyPlan', mergedPlan),
     ]);
 
     localStorage.setItem(LAST_SYNC_KEY, String(Date.now()));
@@ -265,7 +255,6 @@ export async function syncWithCloud(uid: string): Promise<SyncResult> {
       vocabulary: mergedVocab.length,
       sentences: mergedSentences.length,
       sessions: mergedSessions.length,
-      dailyPlan: mergedPlan.length,
     };
 
     return { ok: true, counts };
