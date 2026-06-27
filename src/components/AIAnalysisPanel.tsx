@@ -178,21 +178,21 @@ const AIAnalysisPanel: React.FC<AIAnalysisPanelProps> = ({
               {analysis.sentenceSuggestions.map((sug) => {
                 const saved = savedSentences.has(sug.text);
                 return (
-                  <div key={sug.text} className="bg-violet-50 dark:bg-violet-950/30 border border-violet-200 dark:border-violet-800 rounded-lg p-3">
+                  <div key={sug.text} className="bg-violet-50 dark:bg-indigo-950/40 border border-violet-200 dark:border-indigo-700 rounded-lg p-3">
                     <div className="flex items-start justify-between gap-3">
-                      <p className="text-sm text-violet-800 leading-relaxed flex-1">{sug.text}</p>
+                      <p className="text-sm text-violet-800 dark:text-indigo-200 leading-relaxed flex-1">{sug.text}</p>
                       {saved ? (
-                        <span className="text-[10px] text-violet-600 font-medium whitespace-nowrap">{t('ai.saved')}</span>
+                        <span className="text-[10px] text-violet-600 dark:text-indigo-400 font-medium whitespace-nowrap">{t('ai.saved')}</span>
                       ) : (
                         <button
                           onClick={() => handleAddSentence(sug)}
-                          className="text-[10px] px-2 py-0.5 bg-violet-100 text-violet-700 rounded hover:bg-violet-200 transition-colors font-medium cursor-pointer whitespace-nowrap"
+                          className="text-[10px] px-2 py-0.5 bg-violet-100 dark:bg-indigo-900 text-violet-700 dark:text-indigo-300 rounded hover:bg-violet-200 dark:hover:bg-indigo-800 transition-colors font-medium cursor-pointer whitespace-nowrap"
                         >
                           {t('ai.add')}
                         </button>
                       )}
                     </div>
-                    <p className="text-[10px] text-gray-400 dark:text-gray-500 mt-1">{sug.reason}</p>
+                    <p className="text-[10px] text-gray-400 dark:text-gray-400 mt-1">{sug.reason}</p>
                     {sug.grammarNotes && (
                       <div className="mt-2 pt-2 border-t border-violet-100 dark:border-slate-700">
                         <p className="text-[11px] text-gray-600 dark:text-gray-300 leading-relaxed">

@@ -964,10 +964,10 @@ const DashboardPage: React.FC = () => {
 // ─── Stat Card ──────────────────────────────────────────────
 
 const colorMap: Record<string, { bg: string; text: string; iconBg: string }> = {
-  amber:  { bg: 'bg-amber-50 dark:bg-amber-950/30',  text: 'text-amber-700',  iconBg: 'bg-amber-100' },
-  violet: { bg: 'bg-violet-50 dark:bg-violet-950/30', text: 'text-violet-700', iconBg: 'bg-violet-100' },
-  blue:   { bg: 'bg-blue-50 dark:bg-blue-900/40',   text: 'text-blue-700',   iconBg: 'bg-blue-100' },
-  green:  { bg: 'bg-green-50 dark:bg-green-900/40',  text: 'text-green-700',  iconBg: 'bg-green-100' },
+  amber:  { bg: 'bg-amber-50 dark:bg-amber-950/30',  text: 'text-amber-700 dark:text-amber-300',  iconBg: 'bg-amber-100 dark:bg-amber-900/50' },
+  violet: { bg: 'bg-violet-50 dark:bg-indigo-950/40', text: 'text-violet-700 dark:text-indigo-300', iconBg: 'bg-violet-100 dark:bg-indigo-900/50' },
+  blue:   { bg: 'bg-blue-50 dark:bg-blue-900/40',   text: 'text-blue-700 dark:text-blue-300',   iconBg: 'bg-blue-100 dark:bg-blue-900/50' },
+  green:  { bg: 'bg-green-50 dark:bg-green-900/40',  text: 'text-green-700 dark:text-green-300',  iconBg: 'bg-green-100 dark:bg-green-900/50' },
 };
 
 const StatCard: React.FC<{

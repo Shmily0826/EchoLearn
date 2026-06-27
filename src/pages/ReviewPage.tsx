@@ -550,8 +550,8 @@ const ReviewPage: React.FC = () => {
           <span
             className={`shrink-0 px-2 py-0.5 text-[10px] font-medium rounded-full ${
               currentCard.kind === 'word'
-                ? 'bg-amber-100 text-amber-700'
-                : 'bg-violet-100 text-violet-700'
+                ? 'bg-amber-100 dark:bg-amber-900/40 text-amber-700 dark:text-amber-300'
+                : 'bg-violet-100 dark:bg-indigo-900/40 text-violet-700 dark:text-indigo-300'
             }`}
           >
             {currentCard.kind === 'word' ? t('review.word') : t('review.sentence')}

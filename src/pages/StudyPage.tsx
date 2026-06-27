@@ -1282,10 +1282,10 @@ const SentenceList: React.FC<{
       {items.map((item) => (
         <div
           key={item.id}
-          className="bg-violet-50 dark:bg-violet-950/30 border border-violet-200 dark:border-violet-800 rounded-lg p-3 group"
+          className="bg-violet-50 dark:bg-indigo-950/40 border border-violet-200 dark:border-indigo-700 rounded-lg p-3 group"
         >
           <div className="flex items-start justify-between gap-3">
-            <p className="text-sm text-violet-800 dark:text-violet-300 leading-relaxed">{item.text}</p>
+            <p className="text-sm text-violet-800 dark:text-indigo-200 leading-relaxed">{item.text}</p>
             <button
               onClick={() => onRemove(item.id)}
               className="text-gray-400 dark:text-gray-500 hover:text-red-500 transition-colors text-xs whitespace-nowrap cursor-pointer"
@@ -1294,7 +1294,7 @@ const SentenceList: React.FC<{
             </button>
           </div>
           {item.meaningCn && (
-            <p className="text-xs text-violet-500 dark:text-violet-400 mt-1 leading-relaxed">{item.meaningCn}</p>
+            <p className="text-xs text-violet-500 dark:text-indigo-400 mt-1 leading-relaxed">{item.meaningCn}</p>
           )}
           <div className="flex items-center gap-2 mt-2">
             <button
@@ -1628,7 +1628,7 @@ const MobileTranscriptPanel: React.FC<{
                   }}
                   className={`flex-shrink-0 p-1.5 rounded transition-colors cursor-pointer ${
                     sentenceSaved
-                      ? 'text-violet-500'
+                      ? 'text-violet-500 dark:text-violet-400'
                       : 'text-gray-300 active:text-violet-400'
                   }`}
                 >
