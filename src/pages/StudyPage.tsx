@@ -13,7 +13,7 @@ import { lemmatize } from '../utils/lemmatizer';
 import { analyzeTranscript } from '../services/aiAnalysis';
 import { fetchYouTubeTranscript } from '../services/youtubeTranscript';
 import { fetchBilibiliTranscript, getBilibiliVideoTitle } from '../services/bilibiliTranscript';
-import { translateWord, translateSentence } from '../services/translationService';
+import { translateWord } from '../services/translationService';
 import { lookupWord } from '../services/dictionaryService';
 import { CEFR_LEVELS, type CEFRLevel } from '../services/cefrWordList';
 import { useI18n } from '../i18n/I18nContext';
@@ -26,10 +26,13 @@ import {
   loadSentences,
   addSentenceItem,
   removeSentenceItem,
-  updateSentenceItem,
   loadCurrentSession,
   saveCurrentSession,
   clearCurrentSession,
+  addCompletedVideoId,
+  removeCompletedVideoId,
+  loadDailyPlan,
+  updateDailyPlanItem,
   tomorrowMs,
 } from '../utils/storage';
 import type {
@@ -46,7 +49,7 @@ type DisplayMode = 'sentence' | 'caption';
 const SPEED_PRESETS = [0.5, 0.75, 1, 1.25, 1.5, 1.75, 2];
 
 const StudyPage: React.FC = () => {
-  const { t } = useI18n();
+  const { t, lang } = useI18n();
 
   // ── Session state ──────────────────────────────────────────
   const [session, setSession] = useState<VideoStudySession | null>(null);
@@ -97,6 +100,9 @@ const StudyPage: React.FC = () => {
   // Auto-fetch status
   const [fetchingCaption, setFetchingCaption] = useState(false);
   const [captionError, setCaptionError] = useState<string | null>(null);
+
+  // Analysis error state
+  const [analysisError, setAnalysisError] = useState<string | null>(null);
 
   // Ref to track if we've done the initial restore
   const restoredRef = useRef(false);
@@ -495,6 +501,18 @@ const StudyPage: React.FC = () => {
     const updated: VideoStudySession = { ...session, status: newStatus, updatedAt: Date.now() };
     saveCurrentSession(updated);
     setSession(updated);
+    // Track/untrack in global completed video list
+    if (newStatus === 'completed') {
+      addCompletedVideoId(session.youtubeId);
+    } else {
+      removeCompletedVideoId(session.youtubeId);
+    }
+    // Sync daily plan item status
+    const plan = loadDailyPlan();
+    const planItem = plan.find((p) => p.videoId === session.youtubeId);
+    if (planItem) {
+      updateDailyPlanItem(planItem.id, { status: newStatus === 'completed' ? 'completed' : 'studying' });
+    }
   }, [session]);
 
   // ── Persist AI analysis to current session ─────────────────
@@ -522,6 +540,7 @@ const StudyPage: React.FC = () => {
 
     setAnalyzing(true);
     setStreamChars(0);
+    setAnalysisError(null);
     try {
       const result = await analyzeTranscript(
         text,
@@ -530,16 +549,17 @@ const StudyPage: React.FC = () => {
         vocabCount,
         sentenceCount,
         (chunk) => setStreamChars((prev) => prev + chunk.length),
+        lang,
       );
       setAnalysis(result);
       persistAnalysis(result);
-    } catch {
-      // silently ignore
+    } catch (err) {
+      setAnalysisError(err instanceof Error ? err.message : 'Analysis failed');
     } finally {
       setAnalyzing(false);
       setStreamChars(0);
     }
-  }, [displayMode, sentenceLines, rawBlocks, cefrMin, cefrMax, vocabCount, sentenceCount, persistAnalysis]);
+  }, [displayMode, sentenceLines, rawBlocks, cefrMin, cefrMax, vocabCount, sentenceCount, persistAnalysis, lang]);
 
   // ── Vocab / sentence handlers ─────────────────────────────
   const handleAddVocabulary = useCallback((item: VocabularyItem) => {
@@ -556,14 +576,6 @@ const StudyPage: React.FC = () => {
 
   const handleAddSentence = useCallback((item: SentenceItem) => {
     setSentences(addSentenceItem(item));
-    // Auto-translate meaningCn if empty
-    if (!item.meaningCn) {
-      translateSentence(item.text).then((meaningCn) => {
-        if (meaningCn) {
-          setSentences(updateSentenceItem(item.id, { meaningCn }));
-        }
-      }).catch(() => { /* silent */ });
-    }
   }, []);
 
   const handleRemoveVocabulary = useCallback((id: string) => {
@@ -1055,7 +1067,7 @@ const StudyPage: React.FC = () => {
                               setRawBlocks(lines);
                               setSentenceLines(sLines);
                               if (session) {
-                                const updated = { ...session, transcriptLines: lines, transcriptData: undefined };
+                                const updated = { ...session, transcriptLines: lines, transcriptData: { rawBlocks: lines, sentenceLines: sLines } };
                                 saveCurrentSession(updated);
                                 setSession(updated);
                               }
@@ -1091,6 +1103,21 @@ const StudyPage: React.FC = () => {
             </div>
           </div>
         </div>
+
+        {/* Analysis error banner */}
+        {analysisError && (
+          <div className="mt-4 flex items-center gap-2 bg-red-50 dark:bg-red-950/30 border border-red-200 dark:border-red-800 rounded-lg px-4 py-3">
+            <svg className="w-4 h-4 text-red-500 shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+              <path strokeLinecap="round" strokeLinejoin="round" d="M12 9v3.75m9-.75a9 9 0 11-18 0 9 9 0 0118 0zm-9 3.75h.008v.008H12v-.008z" />
+            </svg>
+            <p className="text-sm text-red-600 dark:text-red-400 flex-1">{analysisError}</p>
+            <button onClick={() => setAnalysisError(null)} className="text-red-400 hover:text-red-600 cursor-pointer">
+              <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                <path strokeLinecap="round" strokeLinejoin="round" d="M6 18L18 6M6 6l12 12" />
+              </svg>
+            </button>
+          </div>
+        )}
 
         {/* AI Analysis Panel */}
         {analysis && (
@@ -1210,7 +1237,7 @@ const VocabularyList: React.FC<{
               </span>
               <button
                 onClick={() => onRemove(item.id)}
-                className="text-gray-400 dark:text-gray-500 hover:text-red-500 opacity-100 md:opacity-0 md:group-hover:opacity-100 transition-opacity text-xs cursor-pointer"
+                className="text-gray-400 dark:text-gray-500 hover:text-red-500 transition-colors text-xs cursor-pointer"
               >
                 {t('study.remove')}
               </button>
@@ -1261,7 +1288,7 @@ const SentenceList: React.FC<{
             <p className="text-sm text-violet-800 dark:text-violet-300 leading-relaxed">{item.text}</p>
             <button
               onClick={() => onRemove(item.id)}
-              className="text-gray-400 dark:text-gray-500 hover:text-red-500 opacity-100 md:opacity-0 md:group-hover:opacity-100 transition-opacity text-xs whitespace-nowrap cursor-pointer"
+              className="text-gray-400 dark:text-gray-500 hover:text-red-500 transition-colors text-xs whitespace-nowrap cursor-pointer"
             >
               {t('study.remove')}
             </button>

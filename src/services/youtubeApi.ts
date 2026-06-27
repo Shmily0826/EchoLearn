@@ -111,14 +111,17 @@ export async function getChannelByHandleOrId(
 
 /**
  * Fetch up to `count` recent public videos from the given channel (handle or id).
- * Returns an empty array when no videos can be found or the API key is missing.
+ * Supports pagination via `pageToken`. Returns both the videos and the nextPageToken
+ * for fetching the next page. Returns empty results when no videos can be found
+ * or the API key is missing.
  */
 export async function getRecentVideosFromChannel(
   input: string,
   count = 10,
-): Promise<ChannelVideo[]> {
+  pageToken?: string,
+): Promise<{ videos: ChannelVideo[]; nextPageToken?: string; channelId: string; channelTitle: string }> {
   const channel = await getChannelByHandleOrId(input);
-  if (!channel) return [];
+  if (!channel) return { videos: [], channelId: '', channelTitle: '' };
 
   const key = apiKey();
   const params = new URLSearchParams({
@@ -128,8 +131,12 @@ export async function getRecentVideosFromChannel(
     key,
   });
 
+  if (pageToken) {
+    params.set('pageToken', pageToken);
+  }
+
   const res = await fetch(`${BASE}/playlistItems?${params}`);
-  if (!res.ok) return [];
+  if (!res.ok) return { videos: [], channelId: channel.channelId, channelTitle: channel.title };
 
   const data = await res.json();
   const items: Array<{
@@ -141,7 +148,7 @@ export async function getRecentVideosFromChannel(
     };
   }> = data.items ?? [];
 
-  return items.map((item) => {
+  const videos = items.map((item) => {
     const videoId = item.snippet.resourceId.videoId;
     const thumbs = item.snippet.thumbnails;
     const thumbnailUrl =
@@ -156,6 +163,13 @@ export async function getRecentVideosFromChannel(
       youtubeUrl: `https://www.youtube.com/watch?v=${videoId}`,
     };
   });
+
+  return {
+    videos,
+    nextPageToken: data.nextPageToken || undefined,
+    channelId: channel.channelId,
+    channelTitle: channel.title,
+  };
 }
 
 /**
@@ -166,6 +180,6 @@ export async function getRecentVideosFromChannel(
 export async function getLatestVideoFromChannel(
   input: string,
 ): Promise<ChannelVideo | null> {
-  const videos = await getRecentVideosFromChannel(input, 1);
-  return videos[0] ?? null;
+  const result = await getRecentVideosFromChannel(input, 1);
+  return result.videos[0] ?? null;
 }

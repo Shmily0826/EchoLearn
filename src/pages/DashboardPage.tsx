@@ -19,6 +19,11 @@ import {
   clearDailyPlan,
   planHasVideoId,
   saveCurrentSession,
+  isVideoCompleted,
+  removeCompletedVideoId,
+  getPageToken,
+  savePageToken,
+  clearPageToken,
 } from '../utils/storage';
 import { getRecentVideosFromChannel, hasApiKey } from '../services/youtubeApi';
 import { useI18n } from '../i18n/I18nContext';
@@ -28,6 +33,7 @@ import type {
   SentenceItem,
   VideoStudySession,
   DailyPlanItem,
+  ChannelVideo,
 } from '../types';
 
 const CHANNEL_PREFS_KEY = 'echolearn_channel_prefs';
@@ -65,6 +71,9 @@ const DashboardPage: React.FC = () => {
 
   // Editable channel prefs
   const [channelPrefs, setChannelPrefs] = useState<ChannelPrefs>(loadChannelPrefs);
+
+  // Completed sessions collapse state
+  const [showCompleted, setShowCompleted] = useState(false);
 
   useEffect(() => {
     setVocabulary(loadVocabulary());
@@ -155,18 +164,92 @@ const DashboardPage: React.FC = () => {
 
   const handleOpenSession = (session: VideoStudySession) => {
     // Save it as the current session so StudyPage restores it
-    localStorage.setItem('echolearn_session', JSON.stringify(session));
+    saveCurrentSession(session);
     navigate('/study');
   };
 
   const handleDeleteSession = (id: string) => {
     if (!window.confirm(t('dash.deleteSession'))) return;
+    // Find session before deleting to revert plan item
+    const allSessions = loadAllSessions();
+    const sessionToDelete = allSessions.find((s) => s.id === id);
+    if (sessionToDelete) {
+      const plan = loadDailyPlan();
+      const planItem = plan.find((p) => p.videoId === sessionToDelete.youtubeId);
+      if (planItem && planItem.status !== 'planned') {
+        updateDailyPlanItem(planItem.id, { status: 'planned' });
+      }
+      removeCompletedVideoId(sessionToDelete.youtubeId);
+    }
     deleteSession(id);
     setSessions(loadAllSessions());
+    setDailyPlan(loadDailyPlan());
     if (currentSession?.id === id) {
       setCurrentSession(null);
     }
   };
+
+  // ── Helper to process fetched videos result ───────────────
+  const handleVideosResult = useCallback(
+    (
+      result: { videos: ChannelVideo[]; nextPageToken?: string },
+      channelKey: string,
+      input: string,
+    ) => {
+      // Save nextPageToken for next fetch
+      if (result.nextPageToken) {
+        savePageToken(channelKey, result.nextPageToken);
+      }
+
+      // Filter out: (1) already in plan, (2) globally completed
+      const newVideos: ChannelVideo[] = [];
+      let skippedCompleted = 0;
+      for (const v of result.videos) {
+        if (planHasVideoId(v.videoId)) continue;
+        if (isVideoCompleted(v.videoId)) {
+          skippedCompleted++;
+          continue;
+        }
+        newVideos.push(v);
+      }
+
+      if (newVideos.length === 0) {
+        const msg = skippedCompleted > 0
+          ? t('dash.allSkippedCompleted', { n: skippedCompleted })
+          : t('dash.allInPlan');
+        setCheckMessage(msg);
+        setCheckSuccess(true);
+        return;
+      }
+
+      const today = new Date().toISOString().slice(0, 10);
+      let added = 0;
+      for (const video of newVideos) {
+        const item: DailyPlanItem = {
+          id: `plan_${Date.now()}_${added}`,
+          date: today,
+          videoId: video.videoId,
+          youtubeUrl: video.youtubeUrl,
+          title: video.title,
+          channelTitle: video.channelTitle,
+          thumbnailUrl: video.thumbnailUrl,
+          status: 'planned',
+          createdAt: Date.now() + added,
+        };
+        addDailyPlanItem(item);
+        added++;
+      }
+
+      setDailyPlan(loadDailyPlan());
+      const channelName = newVideos[0]?.channelTitle || input;
+      const suffix = skippedCompleted > 0
+        ? ` (${t('dash.skippedCompleted', { n: skippedCompleted })})`
+        : '';
+      setCheckMessage(t('dash.addedNFrom', { n: added, channel: channelName }) + suffix);
+      setCheckSuccess(true);
+    },
+    [t],
+  );
 
   // ── Fetch recent videos from configured channel ───────────
   const handleCheckLatest = useCallback(async () => {
@@ -196,65 +279,52 @@ const DashboardPage: React.FC = () => {
       return;
     }
 
-    try {
-      const videos = await getRecentVideosFromChannel(input, 10);
+    // Normalize channel key for pageToken storage
+    const channelKey = input.toLowerCase().replace(/^@/, '');
 
-      if (videos.length === 0) {
+    try {
+      const pageToken = getPageToken(channelKey);
+      const result = await getRecentVideosFromChannel(input, 10, pageToken);
+
+      if (result.videos.length === 0) {
+        // If we got no results with a pageToken, the page may have expired — reset and retry
+        if (pageToken) {
+          clearPageToken(channelKey);
+          const retryResult = await getRecentVideosFromChannel(input, 10);
+          if (retryResult.videos.length === 0) {
+            setCheckMessage(t('dash.noVideos'));
+            setCheckSuccess(false);
+            return;
+          }
+          return handleVideosResult(retryResult, channelKey, input);
+        }
         setCheckMessage(t('dash.noVideos'));
         setCheckSuccess(false);
         return;
       }
 
-      // Filter out videos already in the plan
-      const newVideos = videos.filter((v) => !planHasVideoId(v.videoId));
-
-      if (newVideos.length === 0) {
-        setCheckMessage(t('dash.allInPlan'));
-        setCheckSuccess(true);
-        return;
-      }
-
-      const today = new Date().toISOString().slice(0, 10);
-      let added = 0;
-      for (const video of newVideos) {
-        const item: DailyPlanItem = {
-          id: `plan_${Date.now()}_${added}`,
-          date: today,
-          videoId: video.videoId,
-          youtubeUrl: video.youtubeUrl,
-          title: video.title,
-          channelTitle: video.channelTitle,
-          thumbnailUrl: video.thumbnailUrl,
-          status: 'planned',
-          createdAt: Date.now() + added,
-        };
-        addDailyPlanItem(item);
-        added++;
-      }
-
-      setDailyPlan(loadDailyPlan());
-      const channelName = newVideos[0]?.channelTitle || input;
-      setCheckMessage(t('dash.addedNFrom', { n: added, channel: channelName }));
-      setCheckSuccess(true);
+      handleVideosResult(result, channelKey, input);
     } catch {
       setCheckMessage(t('dash.fetchError'));
       setCheckSuccess(false);
     } finally {
       setCheckLoading(false);
     }
-  }, [channelPrefs.input, t]);
+  }, [channelPrefs.input, t, handleVideosResult]);
 
   // ── Open a daily plan item in StudyPage ────────────────────
   const handleOpenPlanItem = useCallback(
     (item: DailyPlanItem) => {
-      // Mark as studying
-      const updated = updateDailyPlanItem(item.id, { status: 'studying' });
-      setDailyPlan(updated);
+      // Mark as studying only if not already completed
+      if (item.status !== 'completed') {
+        const updated = updateDailyPlanItem(item.id, { status: 'studying' });
+        setDailyPlan(updated);
+      }
 
       // Create (or find) a session for this video and save it as current
       const existingSession = sessions.find((s) => s.youtubeId === item.videoId);
       if (existingSession) {
-        localStorage.setItem('echolearn_session', JSON.stringify(existingSession));
+        saveCurrentSession(existingSession);
       } else {
         const now = Date.now();
         const newSession: VideoStudySession = {
@@ -519,7 +589,7 @@ const DashboardPage: React.FC = () => {
                       e.stopPropagation();
                       handleDeletePlanItem(item.id);
                     }}
-                    className="text-gray-300 hover:text-red-500 opacity-100 md:opacity-0 md:group-hover:opacity-100 transition-opacity flex-shrink-0 cursor-pointer"
+                    className="text-gray-300 hover:text-red-500 transition-colors flex-shrink-0 cursor-pointer"
                     title={t('dash.removeTitle')}
                   >
                     <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
@@ -716,74 +786,174 @@ const DashboardPage: React.FC = () => {
 
       {/* Recent sessions */}
       <div>
-        <div className="flex items-center justify-between mb-4">
-          <h2 className="text-sm font-semibold text-gray-600 dark:text-gray-400 uppercase tracking-wider">
-            {t('dash.recentSessions')}
-          </h2>
-          <span className="text-xs text-gray-400 dark:text-gray-500">{sessions.length} {t('dash.total')}</span>
-        </div>
-
-        {sessions.length === 0 ? (
-          <div className="bg-white dark:bg-slate-800 rounded-xl border border-gray-200 dark:border-slate-700 shadow-sm p-10 text-center">
-            <p className="text-gray-400 dark:text-gray-500 text-sm">{t('dash.noSessions')}</p>
-            <p className="text-gray-400 dark:text-gray-500 text-xs mt-1">
-              {t('dash.startFirst')}
-            </p>
-          </div>
-        ) : (
-          <div className="space-y-2">
-            {sessions.map((s) => (
-              <div
-                key={s.id}
-                className="bg-white dark:bg-slate-800 rounded-xl border border-gray-200 dark:border-slate-700 shadow-sm px-5 py-4 flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3 group hover:border-gray-300 dark:hover:border-slate-600 transition-colors"
-              >
-                <div
-                  className="flex-1 min-w-0 cursor-pointer"
-                  onClick={() => handleOpenSession(s)}
-                >
-                  <p className="text-sm font-medium text-gray-800 dark:text-gray-200 truncate">
-                    {s.title || s.youtubeUrl}
-                  </p>
-                  <div className="flex items-center gap-3 mt-1 flex-wrap">
-                    <span className="text-[11px] font-mono text-gray-400 dark:text-gray-500">
-                      {s.youtubeId}
+        {(() => {
+          const activeSessions = sessions.filter((s) => s.status !== 'completed');
+          const completedSessions = sessions.filter((s) => s.status === 'completed');
+          return (
+            <>
+              {/* Active sessions */}
+              <div className="flex items-center justify-between mb-4">
+                <h2 className="text-sm font-semibold text-gray-600 dark:text-gray-400 uppercase tracking-wider">
+                  {t('dash.recentSessions')}
+                </h2>
+                <div className="flex items-center gap-3">
+                  {completedSessions.length > 0 && (
+                    <span className="text-xs text-green-500 dark:text-green-400">
+                      {completedSessions.length} {t('dash.statusCompleted')}
                     </span>
-                    <span className="text-[11px] text-gray-400 dark:text-gray-500">
-                      {s.transcriptLines.length} {t('dash.lines')}
-                    </span>
-                    <span className={`px-1.5 py-0.5 rounded text-[10px] font-medium ${
-                      s.status === 'studying'
-                        ? 'bg-blue-100 dark:bg-blue-900/40 text-blue-600'
-                        : s.status === 'completed'
-                          ? 'bg-green-100 dark:bg-green-900/40 text-green-600'
-                          : 'bg-gray-100 dark:bg-slate-700 text-gray-500'
-                    }`}>
-                      {statusLabel(s.status)}
-                    </span>
-                    <span className="text-[11px] text-gray-400 dark:text-gray-500">
-                      {new Date(s.updatedAt).toLocaleDateString()}
-                    </span>
-                  </div>
-                </div>
-
-                <div className="flex items-center gap-2 sm:ml-4">
-                  <button
-                    onClick={() => handleOpenSession(s)}
-                    className="px-3 py-1.5 text-xs text-indigo-600 bg-indigo-50 dark:bg-indigo-950 rounded-lg hover:bg-indigo-100 transition-colors font-medium cursor-pointer"
-                  >
-                    {t('dash.open')}
-                  </button>
-                  <button
-                    onClick={() => handleDeleteSession(s.id)}
-                    className="px-3 py-1.5 text-xs text-gray-400 hover:text-red-500 rounded-lg hover:bg-red-50 transition-colors opacity-100 md:opacity-0 md:group-hover:opacity-100 cursor-pointer"
-                  >
-                    {t('dash.delete')}
-                  </button>
+                  )}
+                  <span className="text-xs text-gray-400 dark:text-gray-500">{sessions.length} {t('dash.total')}</span>
                 </div>
               </div>
-            ))}
-          </div>
-        )}
+
+              {sessions.length === 0 ? (
+                <div className="bg-white dark:bg-slate-800 rounded-xl border border-gray-200 dark:border-slate-700 shadow-sm p-10 text-center">
+                  <p className="text-gray-400 dark:text-gray-500 text-sm">{t('dash.noSessions')}</p>
+                  <p className="text-gray-400 dark:text-gray-500 text-xs mt-1">
+                    {t('dash.startFirst')}
+                  </p>
+                </div>
+              ) : (
+                <>
+                  {/* Active sessions list */}
+                  {activeSessions.length > 0 && (
+                    <div className="space-y-2">
+                      {activeSessions.map((s) => (
+                        <div
+                          key={s.id}
+                          className="bg-white dark:bg-slate-800 rounded-xl border border-gray-200 dark:border-slate-700 shadow-sm px-5 py-4 flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3 group hover:border-gray-300 dark:hover:border-slate-600 transition-colors"
+                        >
+                          <div
+                            className="flex-1 min-w-0 cursor-pointer"
+                            onClick={() => handleOpenSession(s)}
+                          >
+                            <p className="text-sm font-medium text-gray-800 dark:text-gray-200 truncate">
+                              {s.title || s.youtubeUrl}
+                            </p>
+                            <div className="flex items-center gap-3 mt-1 flex-wrap">
+                              <span className="text-[11px] font-mono text-gray-400 dark:text-gray-500">
+                                {s.youtubeId}
+                              </span>
+                              <span className="text-[11px] text-gray-400 dark:text-gray-500">
+                                {s.transcriptLines.length} {t('dash.lines')}
+                              </span>
+                              <span className={`px-1.5 py-0.5 rounded text-[10px] font-medium ${
+                                s.status === 'studying'
+                                  ? 'bg-blue-100 dark:bg-blue-900/40 text-blue-600'
+                                  : 'bg-gray-100 dark:bg-slate-700 text-gray-500'
+                              }`}>
+                                {statusLabel(s.status)}
+                              </span>
+                              <span className="text-[11px] text-gray-400 dark:text-gray-500">
+                                {new Date(s.updatedAt).toLocaleDateString()}
+                              </span>
+                            </div>
+                          </div>
+
+                          <div className="flex items-center gap-2 sm:ml-4">
+                            <button
+                              onClick={() => handleOpenSession(s)}
+                              className="px-3 py-1.5 text-xs text-indigo-600 bg-indigo-50 dark:bg-indigo-950 rounded-lg hover:bg-indigo-100 transition-colors font-medium cursor-pointer"
+                            >
+                              {t('dash.open')}
+                            </button>
+                            <button
+                              onClick={() => handleDeleteSession(s.id)}
+                              className="px-3 py-1.5 text-xs text-gray-400 hover:text-red-500 rounded-lg hover:bg-red-50 transition-colors cursor-pointer"
+                            >
+                              {t('dash.delete')}
+                            </button>
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                  )}
+
+                  {/* Completed sessions — collapsible */}
+                  {completedSessions.length > 0 && (
+                    <div className="mt-4">
+                      <button
+                        onClick={() => setShowCompleted(!showCompleted)}
+                        className="flex items-center gap-2 text-xs text-gray-400 dark:text-gray-500 hover:text-gray-600 dark:hover:text-gray-300 transition-colors cursor-pointer mb-2"
+                      >
+                        <svg
+                          className={`w-3.5 h-3.5 transition-transform ${showCompleted ? 'rotate-90' : ''}`}
+                          fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}
+                        >
+                          <path strokeLinecap="round" strokeLinejoin="round" d="M8.25 4.5l7.5 7.5-7.5 7.5" />
+                        </svg>
+                        {t('dash.completedSessions')} ({completedSessions.length})
+                      </button>
+
+                      {showCompleted && (
+                        <div className="space-y-1.5">
+                          {completedSessions.map((s) => {
+                            // Count vocab and sentences for this video
+                            const vocabCount = vocabulary.filter((v) => v.sourceVideoId === s.youtubeId).length;
+                            const sentCount = sentences.filter((sent) => sent.sourceVideoId === s.youtubeId).length;
+                            return (
+                              <div
+                                key={s.id}
+                                className="bg-gray-50 dark:bg-slate-800/60 rounded-xl border border-gray-100 dark:border-slate-700/60 px-5 py-3 flex flex-col sm:flex-row sm:items-center sm:justify-between gap-2 group opacity-75 hover:opacity-100 transition-opacity"
+                              >
+                                <div
+                                  className="flex-1 min-w-0 cursor-pointer"
+                                  onClick={() => handleOpenSession(s)}
+                                >
+                                  <div className="flex items-center gap-2">
+                                    <svg className="w-3.5 h-3.5 text-green-500 shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                                      <path strokeLinecap="round" strokeLinejoin="round" d="M9 12.75L11.25 15 15 9.75M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
+                                    </svg>
+                                    <p className="text-sm text-gray-500 dark:text-gray-400 truncate">
+                                      {s.title || s.youtubeUrl}
+                                    </p>
+                                  </div>
+                                  <div className="flex items-center gap-3 mt-1 flex-wrap ml-[1.375rem]">
+                                    <span className="text-[10px] text-gray-400 dark:text-gray-500">
+                                      {new Date(s.updatedAt).toLocaleDateString()}
+                                    </span>
+                                    {vocabCount > 0 && (
+                                      <span className="text-[10px] text-amber-500 dark:text-amber-400">
+                                        {vocabCount} {t('dash.chartWords')}
+                                      </span>
+                                    )}
+                                    {sentCount > 0 && (
+                                      <span className="text-[10px] text-violet-500 dark:text-violet-400">
+                                        {sentCount} {t('dash.chartSentences')}
+                                      </span>
+                                    )}
+                                    <span className="text-[10px] text-gray-400 dark:text-gray-500">
+                                      {s.transcriptLines.length} {t('dash.lines')}
+                                    </span>
+                                  </div>
+                                </div>
+
+                                <div className="flex items-center gap-2 sm:ml-4">
+                                  <button
+                                    onClick={() => handleOpenSession(s)}
+                                    className="px-3 py-1 text-[11px] text-gray-500 bg-gray-100 dark:bg-slate-700 rounded-lg hover:bg-gray-200 dark:hover:bg-slate-600 transition-colors font-medium cursor-pointer"
+                                  >
+                                    {t('dash.review')}
+                                  </button>
+                                  <button
+                                    onClick={() => handleDeleteSession(s.id)}
+                                    className="px-2 py-1 text-[11px] text-gray-400 hover:text-red-500 rounded-lg hover:bg-red-50 transition-colors cursor-pointer"
+                                  >
+                                    {t('dash.delete')}
+                                  </button>
+                                </div>
+                              </div>
+                            );
+                          })}
+                        </div>
+                      )}
+                    </div>
+                  )}
+                </>
+              )}
+            </>
+          );
+        })()}
       </div>
     </div>
   );

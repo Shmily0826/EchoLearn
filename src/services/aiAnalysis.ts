@@ -2,7 +2,6 @@ import type {
   AIAnalysisResult,
   VocabularySuggestion,
   SentenceSuggestion,
-  LearningTask,
 } from '../types';
 import { extractWordsByLevel, type CEFRLevel } from './cefrWordList';
 
@@ -31,8 +30,7 @@ Rules:
 1. All Chinese translations (meaningCn) must be natural, accurate, and concise.
 2. Vocabulary words must be actual words found in the transcript — never invent words.
 3. Sentences must be exact quotes from the transcript — never fabricate.
-4. Learning tasks should be specific, actionable, and reference actual content from the transcript.
-5. Always respond with valid JSON only — no markdown fences, no explanation outside JSON.
+4. Always respond with valid JSON only — no markdown fences, no explanation outside JSON.
 
 CEFR Level Calibration — follow strictly:
 - A1: Basic function words, greetings, numbers (the, is, have, go, good, big)
@@ -49,7 +47,16 @@ function buildUserPrompt(
   maxLevel: CEFRLevel,
   vocabCount: number,
   sentenceCount: number,
+  lang: 'en' | 'zh' = 'zh',
 ): string {
+  const grammarInstruction = lang === 'zh'
+    ? '用中文简要解析该句的语法结构、重点短语或表达技巧（2-3句话）'
+    : 'Briefly analyze the grammar structure, key phrases, or expression techniques of this sentence in English (2-3 sentences)';
+
+  const grammarFieldDesc = lang === 'zh'
+    ? '用中文写语法解析'
+    : 'write grammar analysis in English';
+
   return `You are analyzing an English video transcript for a Chinese-speaking English learner.
 
 IMPORTANT WORKFLOW: First, read and understand the ENTIRE transcript thoroughly. Only after you have a complete understanding of the content, select the best vocabulary and sentences that match the requirements below. Do NOT stop reading early or pick items only from the beginning.
@@ -73,11 +80,8 @@ Return a JSON object with this exact schema:
       "text": "exact sentence from transcript",
       "meaningCn": "准确的中文翻译",
       "reason": "why this sentence is useful for learning",
-      "grammarNotes": "用中文简要解析该句的语法结构、重点短语或表达技巧（2-3句话）"
+      "grammarNotes": "${grammarInstruction}"
     }
-  ],
-  "learningTasks": [
-    { "task": "specific actionable task", "type": "listening" }
   ],
   "note": "optional — only include this field if you could not find enough words at the requested CEFR level"
 }
@@ -94,9 +98,8 @@ Requirements:
   7. If fewer than ${vocabCount} words at the ${minLevel}–${maxLevel} level exist in the transcript, return ALL qualifying words you can find (do NOT pad with easier words). Set "note" to explain: e.g. "该字幕中 ${minLevel}–${maxLevel} 级别词汇有限，共找到 N 个符合条件的词。"
 - "sentenceSuggestions": exactly ${sentenceCount} sentences that showcase useful grammar, collocations, or expressions.
   - Each "text" must be an exact quote.
-  - "grammarNotes" must be a brief Chinese analysis of the sentence: identify key grammar structures (e.g. 虚拟语气, 定语从句, 被动语态), useful collocations, or expression techniques. Keep it to 2-3 sentences.
+  - "grammarNotes" must be a brief analysis of the sentence: identify key grammar structures (e.g. ${lang === 'zh' ? '虚拟语气, 定语从句, 被动语态' : 'subjunctive mood, relative clauses, passive voice'}), useful collocations, or expression techniques. Keep it to 2-3 sentences. ${grammarFieldDesc}.
   - Prefer sentences from different parts of the transcript.
-- "learningTasks": exactly 4 tasks, one each for types: "listening", "speaking", "writing", "reading". Reference specific content from the transcript.
 - "keyTakeaways": exactly 3 key points in English.
 - "note": omit this field entirely if you found enough words. Only include it when the vocabulary count is less than requested.
 
@@ -115,6 +118,7 @@ async function callDeepSeek(
   vocabCount: number,
   sentenceCount: number,
   onChunk?: (chunk: string) => void,
+  lang: 'en' | 'zh' = 'zh',
 ): Promise<AIAnalysisResult> {
   const apiKey = import.meta.env.VITE_DEEPSEEK_API_KEY as string | undefined;
   if (!apiKey) {
@@ -136,7 +140,7 @@ async function callDeepSeek(
         { role: 'system', content: buildSystemPrompt() },
         {
           role: 'user',
-          content: buildUserPrompt(transcript, minLevel, maxLevel, vocabCount, sentenceCount),
+          content: buildUserPrompt(transcript, minLevel, maxLevel, vocabCount, sentenceCount, lang),
         },
       ],
       temperature: 0.4,
@@ -227,14 +231,7 @@ function validateResult(parsed: Record<string, unknown>): AIAnalysisResult {
             grammarNotes: s.grammarNotes ? String(s.grammarNotes) : undefined,
           }))
       : [],
-    learningTasks: Array.isArray(parsed.learningTasks)
-      ? (parsed.learningTasks as LearningTask[])
-          .filter((t) => t.task && t.type)
-          .map((t) => ({
-            task: String(t.task),
-            type: String(t.type),
-          }))
-      : [],
+    learningTasks: [],
     note: parsed.note ? String(parsed.note) : undefined,
   };
 }
@@ -287,20 +284,13 @@ function localFallback(
       };
     });
 
-  const learningTasks: LearningTask[] = [
-    { task: 'Listen to the first 2 minutes without subtitles and write down key words.', type: 'listening' },
-    { task: 'Shadow-read one key takeaway sentence 3 times.', type: 'speaking' },
-    { task: 'Write a short paragraph (3-5 sentences) summarising the topic.', type: 'writing' },
-    { task: 'Re-read the transcript and underline collocations or phrasal verbs.', type: 'reading' },
-  ];
-
   return {
     summaryEn,
     summaryCn,
     keyTakeaways,
     vocabularySuggestions: vocabSuggestions,
     sentenceSuggestions: sentSuggestions,
-    learningTasks,
+    learningTasks: [],
   };
 }
 
@@ -323,9 +313,10 @@ export async function analyzeTranscript(
   vocabCount = 8,
   sentenceCount = 4,
   onChunk?: (chunk: string) => void,
+  lang: 'en' | 'zh' = 'zh',
 ): Promise<AIAnalysisResult> {
   try {
-    return await callDeepSeek(transcriptText, minLevel, maxLevel, vocabCount, sentenceCount, onChunk);
+    return await callDeepSeek(transcriptText, minLevel, maxLevel, vocabCount, sentenceCount, onChunk, lang);
   } catch (err) {
     console.warn('[aiAnalysis] DeepSeek API failed, falling back to local analysis:', err);
     return localFallback(transcriptText, minLevel, maxLevel, vocabCount, sentenceCount);

@@ -267,7 +267,7 @@ const SentencesPage: React.FC = () => {
                 </p>
                 <button
                   onClick={() => handleRemove(item.id)}
-                  className="shrink-0 text-gray-400 hover:text-red-500 opacity-100 md:opacity-0 md:group-hover:opacity-100 transition-opacity text-xs cursor-pointer"
+                  className="shrink-0 text-gray-400 hover:text-red-500 transition-colors text-xs cursor-pointer"
                 >
                   {t('sent.delete')}
                 </button>

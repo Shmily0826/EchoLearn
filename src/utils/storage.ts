@@ -299,6 +299,77 @@ export function planHasVideoId(videoId: string): boolean {
   return loadDailyPlan().some((i) => i.videoId === videoId);
 }
 
+// ─── Completed Video Tracking ─────────────────────────────────
+
+const COMPLETED_VIDEOS_KEY = 'echolearn_completed_videos';
+
+/** Load the set of permanently completed video IDs. */
+export function loadCompletedVideoIds(): Set<string> {
+  try {
+    const raw = localStorage.getItem(COMPLETED_VIDEOS_KEY);
+    return raw ? new Set(JSON.parse(raw) as string[]) : new Set();
+  } catch {
+    return new Set();
+  }
+}
+
+/** Record a video as permanently completed. */
+export function addCompletedVideoId(videoId: string): void {
+  const ids = loadCompletedVideoIds();
+  ids.add(videoId);
+  localStorage.setItem(COMPLETED_VIDEOS_KEY, JSON.stringify([...ids]));
+}
+
+/** Remove a video from the completed list (e.g. when user resumes studying). */
+export function removeCompletedVideoId(videoId: string): void {
+  const ids = loadCompletedVideoIds();
+  ids.delete(videoId);
+  localStorage.setItem(COMPLETED_VIDEOS_KEY, JSON.stringify([...ids]));
+}
+
+/** Check whether a video has been completed. */
+export function isVideoCompleted(videoId: string): boolean {
+  return loadCompletedVideoIds().has(videoId);
+}
+
+// ─── Page Token Storage (per channel) ──────────────────────────
+
+const PAGE_TOKEN_KEY = 'echolearn_page_tokens';
+
+type PageTokenMap = Record<string, string>;
+
+function loadPageTokens(): PageTokenMap {
+  try {
+    const raw = localStorage.getItem(PAGE_TOKEN_KEY);
+    return raw ? JSON.parse(raw) : {};
+  } catch {
+    return {};
+  }
+}
+
+function savePageTokens(map: PageTokenMap): void {
+  localStorage.setItem(PAGE_TOKEN_KEY, JSON.stringify(map));
+}
+
+/** Get the stored nextPageToken for a channel (normalized key). */
+export function getPageToken(channelKey: string): string | undefined {
+  return loadPageTokens()[channelKey];
+}
+
+/** Save a nextPageToken for a channel. */
+export function savePageToken(channelKey: string, token: string): void {
+  const map = loadPageTokens();
+  map[channelKey] = token;
+  savePageTokens(map);
+}
+
+/** Clear the pageToken for a channel (reset pagination). */
+export function clearPageToken(channelKey: string): void {
+  const map = loadPageTokens();
+  delete map[channelKey];
+  savePageTokens(map);
+}
+
 // ─── Local Proxy URL ──────────────────────────────────────────
 
 const PROXY_URL_KEY = 'echolearn_local_proxy_url';

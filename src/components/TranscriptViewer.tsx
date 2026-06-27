@@ -443,7 +443,7 @@ const TranscriptViewer: React.FC<TranscriptViewerProps> = ({
                   className={`flex-shrink-0 p-1.5 md:p-1 rounded transition-colors cursor-pointer ${
                     sentenceSaved
                       ? 'text-violet-500 hover:text-violet-700'
-                      : 'text-gray-300 hover:text-violet-400 opacity-100 md:opacity-0 md:group-hover:opacity-100'
+                      : 'text-gray-300 hover:text-violet-400'
                   }`}
                 >
                   {sentenceSaved ? (

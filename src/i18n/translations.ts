@@ -47,7 +47,7 @@ const translations: Record<string, Record<Lang, string>> = {
   'dash.topicPh':        { en: 'Topic keyword (e.g. English Podcast)', zh: '主题关键词（如 English Podcast）' },
   'dash.channel':        { en: 'Channel:', zh: '频道：' },
   'dash.channelPh':      { en: '@ChannelHandle (e.g. @EnglishClass101)', zh: '@频道名（如 @EnglishClass101）' },
-  'dash.fetchHint':      { en: 'Fetches up to 10 recent videos from the channel. Duplicates are skipped automatically.', zh: '获取频道最近10个视频，自动跳过重复。' },
+  'dash.fetchHint':      { en: 'Fetches 10 videos per click. Completed videos are skipped. Click again for the next batch.', zh: '每次获取10个视频，已完成的自动跳过。再次点击获取下一批。' },
   'dash.fetching':       { en: 'Checking...', zh: '检查中...' },
   'dash.fetchBtn':       { en: 'Fetch Latest Videos', zh: '获取最新视频' },
   'dash.apiKeyMsg':      { en: 'Please configure VITE_YOUTUBE_API_KEY in .env.local to check latest videos.', zh: '请在 .env.local 中配置 VITE_YOUTUBE_API_KEY 以获取最新视频。' },
@@ -96,6 +96,10 @@ const translations: Record<string, Record<Lang, string>> = {
   'dash.statusPlanned':  { en: 'planned', zh: '已计划' },
   'dash.statusStudying': { en: 'studying', zh: '学习中' },
   'dash.statusCompleted':{ en: 'completed', zh: '已完成' },
+  'dash.allSkippedCompleted': { en: 'All {n} video(s) already completed — skipped.', zh: '共 {n} 个视频已完成，已跳过。' },
+  'dash.skippedCompleted':   { en: 'skipped {n} completed', zh: '跳过 {n} 个已完成' },
+  'dash.completedSessions':  { en: 'Completed', zh: '已完成' },
+  'dash.review':             { en: 'Review', zh: '复习' },
 
   // ── Study ────────────────────────────────────────────────
   'study.sessionTitlePh':{ en: 'Session title...', zh: '学习标题...' },
@@ -296,6 +300,17 @@ const translations: Record<string, Record<Lang, string>> = {
   // ── Anti-translate banner ────────────────────────────────
   'banner.translateWarn':{ en: 'Auto-translate detected \u2014 this may break the app. Please disable it in your browser settings.', zh: '检测到自动翻译 \u2014 可能导致应用异常。请在浏览器设置中关闭。' },
   'banner.dismiss':      { en: 'Dismiss', zh: '关闭' },
+
+  // ── AI Analysis Panel ────────────────────────────────────
+  'ai.title':            { en: 'AI Analysis', zh: 'AI 分析' },
+  'ai.closePanel':       { en: 'Close panel', zh: '关闭面板' },
+  'ai.summaryEn':        { en: 'English Summary', zh: 'English Summary' },
+  'ai.summaryCn':        { en: '中文摘要', zh: '中文摘要' },
+  'ai.takeaways':        { en: 'Key Takeaways', zh: '要点总结' },
+  'ai.vocab':            { en: 'Vocabulary Suggestions', zh: '词汇推荐' },
+  'ai.sentences':        { en: 'Useful Sentences', zh: '实用句子' },
+  'ai.saved':            { en: 'Saved', zh: '已保存' },
+  'ai.add':              { en: '+ Add', zh: '+ 添加' },
 
   // ── Common ───────────────────────────────────────────────
   'common.words':        { en: 'Words', zh: '词汇' },
