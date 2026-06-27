@@ -312,6 +312,37 @@ const translations: Record<string, Record<Lang, string>> = {
   'ai.saved':            { en: 'Saved', zh: '已保存' },
   'ai.add':              { en: '+ Add', zh: '+ 添加' },
 
+  // ── TranscriptViewer (word popup) ─────────────────────────
+  'transcript.wordSaved':  { en: 'Already in vocab', zh: '已在生词本中' },
+  'transcript.addWord':    { en: '+ Add to Vocab', zh: '+ 加入生词本' },
+
+  // ── Layout ─────────────────────────────────────────────────
+  'layout.switchLang':     { en: 'Switch to Chinese', zh: 'Switch to English' },
+
+  // ── Settings — PAT & Cloud Sync messages ───────────────────
+  'settings.patRequired':  { en: 'Please enter a GitHub PAT', zh: '请输入 GitHub PAT' },
+  'settings.patValidating':{ en: 'Validating...', zh: '正在验证...' },
+  'settings.patConnected': { en: 'Connected as {login}', zh: '已连接到 {login}' },
+  'settings.patFailed':    { en: 'Validation failed', zh: '验证失败' },
+  'settings.syncUploading':{ en: 'Uploading data to cloud...', zh: '正在上传数据到云端...' },
+  'settings.syncSaved':    { en: 'Data saved to cloud!', zh: '数据已保存到云端！' },
+  'settings.syncSaveFailed':{ en: 'Save failed', zh: '保存失败' },
+  'settings.syncDownloading':{ en: 'Downloading data from cloud...', zh: '正在从云端下载数据...' },
+  'settings.syncItemUnit': { en: 'items', zh: '条' },
+  'settings.syncRestored': { en: 'Data restored from cloud ({detail}). Refreshing in 2 seconds...', zh: '数据已从云端恢复（{detail}），2秒后自动刷新页面...' },
+  'settings.syncLoadFailed':{ en: 'Load failed', zh: '加载失败' },
+  'settings.syncDeleteConfirm':{ en: 'Are you sure you want to delete the cloud backup? This cannot be undone.', zh: '确定要删除云端备份吗？此操作不可撤销。' },
+  'settings.syncDeleting': { en: 'Deleting cloud backup...', zh: '正在删除云端备份...' },
+  'settings.syncDeleted':  { en: 'Cloud backup deleted.', zh: '云端备份已删除。' },
+  'settings.syncDeleteFailed':{ en: 'Delete failed', zh: '删除失败' },
+  'settings.exportNoVocab':{ en: 'No vocabulary data to export.', zh: '没有词汇数据可导出。' },
+  'settings.exportVocabOk':{ en: 'Exported {n} vocabulary items to CSV.', zh: '已导出 {n} 个词汇到 CSV。' },
+  'settings.exportNoSent': { en: 'No sentence data to export.', zh: '没有句子数据可导出。' },
+  'settings.exportSentOk': { en: 'Exported {n} sentences to CSV.', zh: '已导出 {n} 条句子到 CSV。' },
+  'settings.exportAllOk':  { en: 'All data exported as JSON.', zh: '已导出全部数据为 JSON 文件。' },
+  'settings.viewGist':     { en: 'View Gist', zh: '查看 Gist' },
+  'settings.syncWarning':  { en: 'Note: Restoring from cloud will overwrite local data. Save to cloud or export JSON first as a backup.', zh: '注意：从云端恢复会用云端数据覆盖本地数据。建议先"保存到云端"或"导出 JSON"做好备份。' },
+
   // ── Common ───────────────────────────────────────────────
   'common.words':        { en: 'Words', zh: '词汇' },
   'common.sentences':    { en: 'Sentences', zh: '句子' },

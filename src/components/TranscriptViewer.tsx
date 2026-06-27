@@ -1,4 +1,5 @@
 import React, { useState, useRef, useEffect, useCallback } from 'react';
+import { useI18n } from '../i18n/I18nContext';
 import type { TranscriptLine, VocabularyItem, SentenceItem, DictionaryEntry } from '../types';
 import { tomorrowMs } from '../utils/storage';
 import { lemmatize } from '../utils/lemmatizer';
@@ -40,6 +41,7 @@ const TranscriptViewer: React.FC<TranscriptViewerProps> = ({
   activeLineIndex,
   onSeekTo,
 }) => {
+  const { t } = useI18n();
   const [popup, setPopup] = useState<WordPopupState | null>(null);
   const [dictEntry, setDictEntry] = useState<DictionaryEntry | null>(null);
   const [dictLoading, setDictLoading] = useState(false);
@@ -347,14 +349,14 @@ const TranscriptViewer: React.FC<TranscriptViewerProps> = ({
             {/* Action button */}
             {isWordSaved(popup.word) ? (
               <span className="text-xs text-amber-600 font-medium">
-                已在生词本中
+                {t('transcript.wordSaved')}
               </span>
             ) : (
               <button
                 onClick={handleAddWord}
                 className="w-full px-3 py-2 text-sm bg-amber-50 dark:bg-amber-950/30 text-amber-700 rounded-lg hover:bg-amber-100 transition-colors font-medium cursor-pointer"
               >
-                + 加入生词本
+                {t('transcript.addWord')}
               </button>
             )}
           </div>

@@ -178,26 +178,26 @@ const SettingsPage: React.FC = () => {
   const handleSavePat = useCallback(async () => {
     const trimmed = patInput.trim();
     if (!trimmed) {
-      setPatMessage('请输入 GitHub PAT');
+      setPatMessage(t('settings.patRequired'));
       setPatStatus('invalid');
       return;
     }
 
     setPatStatus('validating');
-    setPatMessage('正在验证...');
+    setPatMessage(t('settings.patValidating'));
 
     const result = await validatePat(trimmed);
     if (result.ok) {
       savePat(trimmed);
       setSavedPat(trimmed);
       setPatStatus('valid');
-      setPatMessage(`已连接到 ${result.login}`);
+      setPatMessage(t('settings.patConnected', { login: result.login ?? '' }));
       setSyncStatus(getSyncStatus());
     } else {
       setPatStatus('invalid');
-      setPatMessage(result.error || '验证失败');
+      setPatMessage(result.error || t('settings.patFailed'));
     }
-  }, [patInput]);
+  }, [patInput, t]);
 
   // ── Remove PAT ────────────────────────────────────────────
   const handleRemovePat = useCallback(() => {
@@ -212,83 +212,83 @@ const SettingsPage: React.FC = () => {
   // ── Save to cloud ─────────────────────────────────────────
   const handleSaveToCloud = useCallback(async () => {
     setSyncAction('saving');
-    setSyncMessage({ type: 'info', text: '正在上传数据到云端...' });
+    setSyncMessage({ type: 'info', text: t('settings.syncUploading') });
 
     const result = await saveToCloud();
     if (result.ok) {
-      setSyncMessage({ type: 'success', text: '数据已保存到云端！' });
+      setSyncMessage({ type: 'success', text: t('settings.syncSaved') });
       setSyncStatus(getSyncStatus());
     } else {
-      setSyncMessage({ type: 'error', text: result.error || '保存失败' });
+      setSyncMessage({ type: 'error', text: result.error || t('settings.syncSaveFailed') });
     }
     setSyncAction('idle');
-  }, []);
+  }, [t]);
 
   // ── Load from cloud ───────────────────────────────────────
   const handleLoadFromCloud = useCallback(async () => {
     setSyncAction('loading');
-    setSyncMessage({ type: 'info', text: '正在从云端下载数据...' });
+    setSyncMessage({ type: 'info', text: t('settings.syncDownloading') });
 
     const result = await loadFromCloud();
     if (result.ok) {
       const parts: string[] = [];
       if (result.itemCounts) {
         for (const [key, count] of Object.entries(result.itemCounts)) {
-          parts.push(`${key} ${count} 条`);
+          parts.push(`${key} ${count} ${t('settings.syncItemUnit')}`);
         }
       }
-      const detail = parts.length > 0 ? `（${parts.join('、')}）` : '';
-      setSyncMessage({ type: 'success', text: `数据已从云端恢复${detail}，2秒后自动刷新页面...` });
+      const detail = parts.length > 0 ? parts.join(', ') : '';
+      setSyncMessage({ type: 'success', text: t('settings.syncRestored', { detail }) });
       setSyncStatus(getSyncStatus());
       setTimeout(() => window.location.reload(), 2000);
     } else {
-      setSyncMessage({ type: 'error', text: result.error || '加载失败' });
+      setSyncMessage({ type: 'error', text: result.error || t('settings.syncLoadFailed') });
     }
     setSyncAction('idle');
-  }, []);
+  }, [t]);
 
   // ── Delete cloud backup ───────────────────────────────────
   const handleDeleteCloud = useCallback(async () => {
-    if (!window.confirm('确定要删除云端备份吗？此操作不可撤销。')) return;
+    if (!window.confirm(t('settings.syncDeleteConfirm'))) return;
 
     setSyncAction('deleting');
-    setSyncMessage({ type: 'info', text: '正在删除云端备份...' });
+    setSyncMessage({ type: 'info', text: t('settings.syncDeleting') });
 
     const result = await deleteCloudBackup();
     if (result.ok) {
-      setSyncMessage({ type: 'success', text: '云端备份已删除。' });
+      setSyncMessage({ type: 'success', text: t('settings.syncDeleted') });
       setSyncStatus(getSyncStatus());
     } else {
-      setSyncMessage({ type: 'error', text: result.error || '删除失败' });
+      setSyncMessage({ type: 'error', text: result.error || t('settings.syncDeleteFailed') });
     }
     setSyncAction('idle');
-  }, []);
+  }, [t]);
 
   // ── Export helpers ─────────────────────────────────────────
   const handleExportVocabCSV = useCallback(() => {
     const items = loadVocabulary();
     if (items.length === 0) {
-      setSyncMessage({ type: 'error', text: '没有词汇数据可导出。' });
+      setSyncMessage({ type: 'error', text: t('settings.exportNoVocab') });
       return;
     }
     exportVocabularyCSV(items);
-    setSyncMessage({ type: 'success', text: `已导出 ${items.length} 个词汇到 CSV。` });
-  }, []);
+    setSyncMessage({ type: 'success', text: t('settings.exportVocabOk', { n: items.length }) });
+  }, [t]);
 
   const handleExportSentencesCSV = useCallback(() => {
     const items = loadSentences();
     if (items.length === 0) {
-      setSyncMessage({ type: 'error', text: '没有句子数据可导出。' });
+      setSyncMessage({ type: 'error', text: t('settings.exportNoSent') });
       return;
     }
     exportSentencesCSV(items);
-    setSyncMessage({ type: 'success', text: `已导出 ${items.length} 条句子到 CSV。` });
-  }, []);
+    setSyncMessage({ type: 'success', text: t('settings.exportSentOk', { n: items.length }) });
+  }, [t]);
 
   const handleExportAllJSON = useCallback(() => {
     exportAllDataJSON();
-    setSyncMessage({ type: 'success', text: '已导出全部数据为 JSON 文件。' });
-  }, []);
+    setSyncMessage({ type: 'success', text: t('settings.exportAllOk') });
+  }, [t]);
 
   // ── Render ────────────────────────────────────────────────
   return (
@@ -644,7 +644,7 @@ const SettingsPage: React.FC = () => {
                   <path strokeLinecap="round" strokeLinejoin="round" d="M12 6v6h4.5m4.5 0a9 9 0 11-18 0 9 9 0 0118 0z" />
                 </svg>
                 <span>
-                  上次同步: {new Date(syncStatus.lastSyncAt).toLocaleString()}
+                  {t('settings.lastSync')} {new Date(syncStatus.lastSyncAt).toLocaleString()}
                 </span>
                 {syncStatus.gistId && (
                   <a
@@ -653,7 +653,7 @@ const SettingsPage: React.FC = () => {
                     rel="noopener noreferrer"
                     className="text-indigo-500 hover:underline ml-1"
                   >
-                    查看 Gist
+                    {t('settings.viewGist')}
                   </a>
                 )}
               </div>
@@ -714,7 +714,7 @@ const SettingsPage: React.FC = () => {
 
             {/* Warning about load */}
             <p className="text-[11px] text-amber-500 dark:text-amber-400">
-              注意：从云端恢复会用云端数据覆盖本地数据。建议先"保存到云端"或"导出 JSON"做好备份。
+              {t('settings.syncWarning')}
             </p>
           </div>
         )}

@@ -131,7 +131,7 @@ const Layout: React.FC<{ children: ReactNode }> = ({ children }) => {
                 border: '1.5px solid var(--color-border)',
                 backgroundColor: 'var(--color-surface)',
               }}
-              title={lang === 'en' ? '切换中文' : 'Switch to English'}
+              title={t('layout.switchLang')}
             >
               <span
                 className="px-2 py-1 transition-colors"
