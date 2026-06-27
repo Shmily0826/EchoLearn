@@ -385,6 +385,20 @@ export function saveLocalProxyUrl(url: string): void {
   localStorage.setItem(PROXY_URL_KEY, url.replace(/\/+$/, '')); // trim trailing slashes
 }
 
+// ─── Translation Language Preference ──────────────────────────
+
+const TRANSLATE_LANG_KEY = 'echolearn_translate_lang';
+
+/** Get the user's preferred translation target language (default: 'zh'). */
+export function getTranslateLang(): string {
+  return localStorage.getItem(TRANSLATE_LANG_KEY) || 'zh';
+}
+
+/** Save the user's preferred translation target language. */
+export function saveTranslateLang(lang: string): void {
+  localStorage.setItem(TRANSLATE_LANG_KEY, lang);
+}
+
 /** Clear the custom proxy URL (reset to default). */
 export function clearLocalProxyUrl(): void {
   localStorage.removeItem(PROXY_URL_KEY);

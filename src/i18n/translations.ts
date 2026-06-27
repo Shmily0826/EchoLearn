@@ -186,6 +186,7 @@ const translations: Record<string, Record<Lang, string>> = {
   'sent.review':         { en: 'Review', zh: '复习' },
   'sent.translating':    { en: 'Translating...', zh: '翻译中...' },
   'sent.autoTranslate':  { en: 'Auto Translate', zh: '自动翻译' },
+  'sent.translateLang':  { en: 'Target language', zh: '目标语言' },
   'sent.export':         { en: 'Export', zh: '导出' },
   'sent.exportCSV':      { en: 'Export CSV', zh: '导出 CSV' },
   'sent.exportPDF':      { en: 'Export PDF', zh: '导出 PDF' },

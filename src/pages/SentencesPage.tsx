@@ -6,10 +6,13 @@ import {
   removeSentenceItem,
   updateSentenceItem,
   loadAllSessions,
+  getTranslateLang,
+  saveTranslateLang,
 } from '../utils/storage';
 import WordDictionaryPopup from '../components/WordDictionaryPopup';
 import { exportSentencesCSV, exportSentencesPDF } from '../services/exportService';
-import { translateSentences } from '../services/translationService';
+import { translateSentences, TRANSLATE_LANGS } from '../services/translationService';
+import type { TranslateLang } from '../services/translationService';
 import type { SentenceItem, VideoStudySession } from '../types';
 
 interface DictPopupState {
@@ -48,6 +51,7 @@ const SentencesPage: React.FC = () => {
   const [dictPopup, setDictPopup] = useState<DictPopupState | null>(null);
   const [showExport, setShowExport] = useState(false);
   const [backfilling, setBackfilling] = useState(false);
+  const [translateLang, setTranslateLang] = useState<TranslateLang>(() => getTranslateLang() as TranslateLang);
 
   useEffect(() => {
     setSentences(loadSentences());
@@ -121,6 +125,11 @@ const SentencesPage: React.FC = () => {
     setEditMeaning('');
   };
 
+  const handleLangChange = useCallback((lang: string) => {
+    setTranslateLang(lang as TranslateLang);
+    saveTranslateLang(lang);
+  }, []);
+
   const handleBackfillTranslations = useCallback(async () => {
     const empty = sentences.filter((s) => !s.meaningCn);
     if (empty.length === 0) return;
@@ -128,6 +137,7 @@ const SentencesPage: React.FC = () => {
     try {
       const translations = await translateSentences(
         empty.map((s) => ({ id: s.id, text: s.text })),
+        translateLang,
       );
       let updated = [...sentences];
       for (const [id, meaningCn] of Object.entries(translations)) {
@@ -137,7 +147,7 @@ const SentencesPage: React.FC = () => {
     } finally {
       setBackfilling(false);
     }
-  }, [sentences]);
+  }, [sentences, translateLang]);
 
   // Search
   const filtered = sentences.filter(
@@ -193,13 +203,25 @@ const SentencesPage: React.FC = () => {
           </button>
           {/* Backfill translations */}
           {sentences.some((s) => !s.meaningCn) && (
-            <button
-              onClick={handleBackfillTranslations}
-              disabled={backfilling}
-              className="px-3 py-1.5 text-sm text-amber-700 bg-amber-50 dark:bg-amber-950/30 border border-amber-200 dark:border-amber-800 rounded-lg hover:bg-amber-100 dark:hover:bg-amber-900/40 transition-colors font-medium cursor-pointer disabled:opacity-60"
-            >
-              {backfilling ? t('sent.translating') : t('sent.autoTranslate')}
-            </button>
+            <div className="flex items-center gap-1">
+              <button
+                onClick={handleBackfillTranslations}
+                disabled={backfilling}
+                className="px-3 py-1.5 text-sm text-amber-700 bg-amber-50 dark:bg-amber-950/30 border border-amber-200 dark:border-amber-800 rounded-lg hover:bg-amber-100 dark:hover:bg-amber-900/40 transition-colors font-medium cursor-pointer disabled:opacity-60"
+              >
+                {backfilling ? t('sent.translating') : t('sent.autoTranslate')}
+              </button>
+              <select
+                value={translateLang}
+                onChange={(e) => handleLangChange(e.target.value)}
+                className="px-2 py-1.5 text-xs border border-gray-300 dark:border-slate-600 rounded-lg bg-white dark:bg-slate-800 text-gray-700 dark:text-gray-300 focus:outline-none focus:ring-1 focus:ring-indigo-400 cursor-pointer"
+                title={t('sent.translateLang')}
+              >
+                {Object.entries(TRANSLATE_LANGS).map(([code, name]) => (
+                  <option key={code} value={code}>{name}</option>
+                ))}
+              </select>
+            </div>
           )}
           {/* Export dropdown */}
           <div className="relative">
