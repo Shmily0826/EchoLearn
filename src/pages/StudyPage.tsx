@@ -117,6 +117,14 @@ const StudyPage: React.FC = () => {
     () => Number(localStorage.getItem('echolearn_playback_rate')) || 1,
   );
 
+  // ── Playback position memory ───────────────────────────────
+  const lastPosSaveRef = useRef(0);
+
+  // ── Sleep timer ────────────────────────────────────────────
+  const [sleepMinutes, setSleepMinutes] = useState(0); // 0 = off
+  const [sleepRemaining, setSleepRemaining] = useState(0); // seconds
+  const [sleepToast, setSleepToast] = useState(false);
+
   // The lines currently shown in TranscriptViewer (depends on display mode)
   const displayLines = displayMode === 'sentence' ? sentenceLines : rawBlocks;
 
@@ -133,7 +141,7 @@ const StudyPage: React.FC = () => {
       setPlatform(saved.platform || 'youtube');
       setUrlInput(saved.youtubeUrl);
       setSessionTitle(saved.title);
-      setStartTime(undefined); // Don't auto-jump on restore
+      setStartTime(saved.lastPosition && saved.lastPosition > 10 ? saved.lastPosition : undefined);
       setBiliPage(undefined);
 
       // If title looks like a URL, try fetching the real title
@@ -218,7 +226,7 @@ const StudyPage: React.FC = () => {
     setPlatform(saved.platform || 'youtube');
     setUrlInput(saved.youtubeUrl);
     setSessionTitle(saved.title);
-    setStartTime(undefined);
+    setStartTime(saved.lastPosition && saved.lastPosition > 10 ? saved.lastPosition : undefined);
     setBiliPage(undefined);
     setAnalysis(null);
     setStreamChars(0);
@@ -285,13 +293,23 @@ const StudyPage: React.FC = () => {
     setSentences(loadSentences());
   }, [pathname]);
 
-  // ── Poll current playback time every 100ms ─────────────────
+  // ── Poll current playback time every 100ms + save position ──
   useEffect(() => {
     if (!videoId || !playerRef.current) return;
     const id = setInterval(() => {
       if (playerRef.current) {
         try {
-          setCurrentTime(playerRef.current.getCurrentTime());
+          const t = playerRef.current.getCurrentTime();
+          setCurrentTime(t);
+          // Save playback position every 5 seconds for resume
+          const now = Date.now();
+          if (now - lastPosSaveRef.current > 5000 && t > 0) {
+            lastPosSaveRef.current = now;
+            localStorage.setItem('echolearn_last_position', String(Math.floor(t)));
+            setSession((prev) =>
+              prev ? { ...prev, lastPosition: Math.floor(t) } : prev,
+            );
+          }
         } catch {
           // Player in broken state — skip this tick silently
         }
@@ -307,6 +325,32 @@ const StudyPage: React.FC = () => {
     }
     localStorage.setItem('echolearn_playback_rate', String(playbackRate));
   }, [playbackRate]);
+
+  // ── Sleep timer countdown ──────────────────────────────────
+  useEffect(() => {
+    if (sleepMinutes <= 0) return;
+    setSleepRemaining(sleepMinutes * 60);
+    setSleepToast(false);
+  }, [sleepMinutes]);
+
+  useEffect(() => {
+    if (sleepRemaining <= 0) return;
+    const id = setInterval(() => {
+      setSleepRemaining((prev) => {
+        if (prev <= 1) {
+          clearInterval(id);
+          // Timer expired — pause video
+          try { playerRef.current?.pauseVideo(); } catch { /* noop */ }
+          setSleepMinutes(0);
+          setSleepToast(true);
+          setTimeout(() => setSleepToast(false), 5000);
+          return 0;
+        }
+        return prev - 1;
+      });
+    }, 1000);
+    return () => clearInterval(id);
+  }, [sleepRemaining > 0]); // eslint-disable-line react-hooks/exhaustive-deps
 
   // ── Compute which transcript line is currently active ──────
   const activeLineIndex = useMemo(() => {
@@ -361,6 +405,8 @@ const StudyPage: React.FC = () => {
       status: VideoStudySession['status'] = 'studying',
     ) => {
       const now = Date.now();
+      let pos = session?.lastPosition ?? 0;
+      try { pos = Math.floor(playerRef.current?.getCurrentTime?.() ?? pos); } catch { /* noop */ }
       const updated: VideoStudySession = {
         id: session?.id || `session_${now}`,
         youtubeUrl: yUrl,
@@ -372,6 +418,7 @@ const StudyPage: React.FC = () => {
         createdAt: session?.createdAt || now,
         updatedAt: now,
         status,
+        lastPosition: pos,
       };
       saveCurrentSession(updated);
       setSession(updated);
@@ -709,6 +756,24 @@ const StudyPage: React.FC = () => {
               </div>
             )}
 
+            {/* Sleep timer toast */}
+            {sleepToast && (
+              <div className="mt-2 flex items-center gap-2 px-3 py-2 bg-amber-50 dark:bg-amber-950/40 border border-amber-200 dark:border-amber-800 rounded-lg text-sm text-amber-700 dark:text-amber-300">
+                <svg className="w-4 h-4 shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                  <path strokeLinecap="round" strokeLinejoin="round" d="M21.752 15.002A9.718 9.718 0 0118 15.75c-5.385 0-9.75-4.365-9.75-9.75 0-1.33.266-2.597.748-3.752A9.753 9.753 0 003 11.25C3 16.635 7.365 21 12.75 21a9.753 9.753 0 009.002-5.998z" />
+                </svg>
+                <span>{t('study.timerPaused')}</span>
+                <button
+                  onClick={() => setSleepToast(false)}
+                  className="ml-auto text-amber-400 hover:text-amber-600 dark:hover:text-amber-200 cursor-pointer"
+                >
+                  <svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                    <path strokeLinecap="round" strokeLinejoin="round" d="M6 18L18 6M6 6l12 12" />
+                  </svg>
+                </button>
+              </div>
+            )}
+
             {/* Quick info */}
             {videoId && (
               <div className="mt-3 flex flex-col gap-2">
@@ -746,6 +811,34 @@ const StudyPage: React.FC = () => {
                       {playbackRate.toFixed(2)}x
                     </span>
                   </div>
+                </div>
+                {/* Sleep timer */}
+                <div className="flex items-center gap-2 flex-wrap">
+                  <span className="text-xs text-gray-400 dark:text-gray-500 font-medium shrink-0">
+                    {t('study.timer')}:
+                  </span>
+                  <div className="flex items-center gap-0.5">
+                    {[0, 15, 30, 45, 60].map((min) => (
+                      <button
+                        key={min}
+                        onClick={() => setSleepMinutes(min)}
+                        className={`px-1.5 py-0.5 text-[11px] rounded transition-colors cursor-pointer ${
+                          sleepMinutes === min
+                            ? 'bg-indigo-100 dark:bg-indigo-900/40 text-indigo-700 dark:text-indigo-300 font-semibold'
+                            : 'text-gray-500 dark:text-gray-400 hover:bg-gray-100 dark:hover:bg-slate-700'
+                        }`}
+                      >
+                        {min === 0 ? t('study.timerOff') : t('study.timerMin', { n: min })}
+                      </button>
+                    ))}
+                  </div>
+                  {sleepRemaining > 0 && (
+                    <span className="text-[11px] text-amber-600 dark:text-amber-400 font-mono tabular-nums">
+                      {t('study.timerRemaining', {
+                        time: `${Math.floor(sleepRemaining / 60)}:${String(sleepRemaining % 60).padStart(2, '0')}`,
+                      })}
+                    </span>
+                  )}
                 </div>
                 <div className="flex items-center gap-3 text-xs text-gray-400 dark:text-gray-500">
                   <span>{platform === 'bilibili' ? 'Bilibili' : 'YouTube'}: {videoId}</span>

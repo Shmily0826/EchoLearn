@@ -89,6 +89,7 @@ export interface VideoStudySession {
   createdAt: number;                 // unix ms when session was created
   updatedAt: number;                 // unix ms when session was last modified
   status: SessionStatus;             // draft → studying → completed
+  lastPosition?: number;             // last playback position in seconds (for resume)
 }
 
 // ── AI Analysis ────────────────────────────────────────────

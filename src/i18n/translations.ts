@@ -347,6 +347,16 @@ const translations: Record<string, Record<Lang, string>> = {
   'settings.viewGist':     { en: 'View Gist', zh: '查看 Gist' },
   'settings.syncWarning':  { en: 'Note: Restoring from cloud will overwrite local data. Save to cloud or export JSON first as a backup.', zh: '注意：从云端恢复会用云端数据覆盖本地数据。建议先"保存到云端"或"导出 JSON"做好备份。' },
 
+  // ── Sleep Timer ──────────────────────────────────────────
+  'study.timer':         { en: 'Timer', zh: '定时' },
+  'study.timerOff':      { en: 'Off', zh: '关' },
+  'study.timerMin':      { en: '{n} min', zh: '{n} 分钟' },
+  'study.timerRemaining': { en: 'Sleep in {time}', zh: '{time} 后暂停' },
+  'study.timerPaused':   { en: 'Timer done — video paused', zh: '定时结束 — 视频已暂停' },
+
+  // ── Playback Resume ─────────────────────────────────────
+  'study.resumedAt':     { en: 'Resumed at {time}', zh: '已从 {time} 继续播放' },
+
   // ── Common ───────────────────────────────────────────────
   'common.words':        { en: 'Words', zh: '词汇' },
   'common.sentences':    { en: 'Sentences', zh: '句子' },
