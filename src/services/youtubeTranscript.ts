@@ -616,11 +616,16 @@ async function fetchViaLocalProxy(
   videoId: string,
   lang: string,
 ): Promise<TranscriptFetchResult | null> {
+  // Skip if proxy recently failed — avoid wasting time
+  if (wasLocalProxyRecentlyFailed()) {
+    return null;
+  }
+
   const baseUrl = getLocalProxyUrl();
 
   try {
     const controller = new AbortController();
-    const timeout = setTimeout(() => controller.abort(), 8000); // 8s timeout
+    const timeout = setTimeout(() => controller.abort(), 4000); // 4s timeout
     const res = await fetch(
       `${baseUrl}/api/transcript?videoId=${encodeURIComponent(videoId)}&lang=${encodeURIComponent(lang)}`,
       { signal: controller.signal },
@@ -630,6 +635,7 @@ async function fetchViaLocalProxy(
     if (res.ok) {
       const data = (await res.json()) as TranscriptFetchResult & { source?: string };
       if (data.lines && data.lines.length > 0) {
+        clearLocalProxyFailure(); // proxy is working, clear any cached failure
         console.log(
           `[EchoLearn] Local proxy: got ${data.lines.length} lines (${data.language})`,
         );
@@ -642,13 +648,14 @@ async function fetchViaLocalProxy(
     }
   } catch (err) {
     // AbortError = proxy not running (expected), other errors = unexpected
-    if (err instanceof Error && err.name !== 'AbortError') {
+    if (err instanceof Error && err.name === 'AbortError') {
+      markLocalProxyFailed(); // proxy not running, skip for next 5 minutes
+    } else if (err instanceof Error) {
       console.warn(
         '[EchoLearn] Local proxy error:',
         err.message,
       );
     }
-    // AbortError silently ignored — proxy not running
   }
 
   return null;
@@ -661,6 +668,27 @@ async function fetchViaLocalProxy(
  * CF IPs generally have better reputation with YouTube than Vercel/datacenter IPs.
  */
 const CF_WORKER_URL = 'https://yt-transcript-proxy.rng2018520.workers.dev';
+
+/**
+ * Cache local proxy failure so we skip it for 5 minutes after a failure.
+ * This avoids wasting 4 seconds on every fetch when the proxy isn't running.
+ */
+const LOCAL_PROXY_FAIL_KEY = 'echolearn_proxy_fail_at';
+const LOCAL_PROXY_SKIP_MS = 5 * 60 * 1000; // 5 minutes
+
+function wasLocalProxyRecentlyFailed(): boolean {
+  const failAt = localStorage.getItem(LOCAL_PROXY_FAIL_KEY);
+  if (!failAt) return false;
+  return Date.now() - Number(failAt) < LOCAL_PROXY_SKIP_MS;
+}
+
+function markLocalProxyFailed(): void {
+  localStorage.setItem(LOCAL_PROXY_FAIL_KEY, String(Date.now()));
+}
+
+function clearLocalProxyFailure(): void {
+  localStorage.removeItem(LOCAL_PROXY_FAIL_KEY);
+}
 
 /**
  * Calls server-side transcript APIs.
@@ -765,8 +793,8 @@ export interface TranscriptFetchResult {
  * Fetch the transcript/captions for a YouTube video.
  *
  * Tries multiple strategies in order:
- *   0. Local proxy (uses your residential IP — most reliable)
- *   1. Server-side transcript API (CF Worker → Vercel fallback)
+ *   0. Local proxy (residential IP — skipped if failed within 5 min)
+ *   1. CF Worker (10 Invidious + 6 Piped + 4 InnerTube clients) → Vercel fallback
  *   2. InnerTube API (ANDROID/WEB clients) via Edge Function proxy
  *   3. YouTube page HTML scraping via Edge Function proxy
  *   4. youtube-transcript npm package (client-side, last resort)

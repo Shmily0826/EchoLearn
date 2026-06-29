@@ -20,6 +20,9 @@ const BROWSER_UA =
 const ANDROID_UA =
   'com.google.android.youtube/20.10.38 (Linux; U; Android 14)';
 
+const IOS_UA =
+  'com.google.ios.youtube/20.10.3 (iPhone; CPU iPhone OS 17_4 like Mac OS X)';
+
 const INNERTUBE_API_URL =
   'https://www.youtube.com/youtubei/v1/player?prettyPrint=false';
 
@@ -108,13 +111,33 @@ async function handleTranscript(url) {
 
 // ── InnerTube player API strategy (multi-client) ─────────────
 
+/**
+ * Fetch with a timeout to avoid hanging on dead instances.
+ */
+async function fetchWithTimeout(url, init = {}, timeoutMs = 8000) {
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), timeoutMs);
+  try {
+    return await fetch(url, { ...init, signal: controller.signal });
+  } finally {
+    clearTimeout(timer);
+  }
+}
+
 async function fetchViaInnerTube(videoId, lang, log = console.log) {
-  // Try ANDROID first, then WEB, then TVHTML5_EMBEDDED
+  // Try ANDROID first (most reliable for captions), then IOS, then WEB, then TV
   const clients = [
     {
       name: 'ANDROID',
       clientVersion: '20.10.38',
       userAgent: ANDROID_UA,
+      apiKey: 'AIzaSyA8eiZmM1FaDVjRy-df2KTyQ_vz_yYM39w',
+    },
+    {
+      name: 'IOS',
+      clientVersion: '20.10.3',
+      userAgent: IOS_UA,
+      apiKey: 'AIzaSyB-63vPrdThhKuerbB2N_l7Kwwcxj6yUAc',
     },
     {
       name: 'WEB',
@@ -141,12 +164,19 @@ async function fetchViaInnerTube(videoId, lang, log = console.log) {
         clientContext.userAgent = BROWSER_UA;
       }
 
-      const resp = await fetch(INNERTUBE_API_URL, {
+      const apiUrl = client.apiKey
+        ? `${INNERTUBE_API_URL}&key=${client.apiKey}`
+        : INNERTUBE_API_URL;
+
+      const resp = await fetch(apiUrl, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
           'User-Agent': client.userAgent,
           'Cookie': CONSENT_COOKIE,
+          ...(client.apiKey && {
+            'X-Goog-Api-Key': client.apiKey,
+          }),
           ...(client.name === 'WEB' && {
             'X-YouTube-Client-Name': '1',
             'X-YouTube-Client-Version': client.clientVersion,
@@ -565,6 +595,11 @@ const INVIDIOUS_INSTANCES = [
   'https://yt.chocolatemoo53.com',
   'https://inv.thepixora.com',
   'https://invidious.nerdvpn.de',
+  'https://invidious.privacydev.net',
+  'https://yt.artemislena.eu',
+  'https://vid.puffyan.us',
+  'https://invidious.io.lol',
+  'https://yewtu.be',
 ];
 
 async function fetchViaInvidious(videoId, lang, log = console.log) {
@@ -572,9 +607,9 @@ async function fetchViaInvidious(videoId, lang, log = console.log) {
     try {
       // Invidious API: GET /api/v1/captions/:id
       const captionsUrl = `${instance}/api/v1/captions/${videoId}`;
-      const resp = await fetch(captionsUrl, {
+      const resp = await fetchWithTimeout(captionsUrl, {
         headers: { 'User-Agent': BROWSER_UA, 'Accept': 'application/json' },
-      });
+      }, 8000);
 
       if (!resp.ok) {
         log(`Invidious (${new URL(instance).hostname}): HTTP ${resp.status}`);
@@ -663,14 +698,17 @@ const PIPED_INSTANCES = [
   'https://pipedapi.kavin.rocks',
   'https://piped-api.lunar.icu',
   'https://api.piped.yt',
+  'https://pipedapi.r4fo.com',
+  'https://piped.adminforge.de',
+  'https://api.piped.privacydev.net',
 ];
 
 async function fetchViaPiped(videoId, lang, log = console.log) {
   for (const instance of PIPED_INSTANCES) {
     try {
-      const resp = await fetch(`${instance}/streams/${videoId}`, {
+      const resp = await fetchWithTimeout(`${instance}/streams/${videoId}`, {
         headers: { 'User-Agent': BROWSER_UA, 'Accept': 'application/json' },
-      });
+      }, 8000);
 
       if (!resp.ok) {
         log(`Piped (${new URL(instance).hostname}): HTTP ${resp.status}`);
