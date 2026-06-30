@@ -119,6 +119,7 @@ const StudyPage: React.FC = () => {
 
   // ── Playback position memory ───────────────────────────────
   const lastPosSaveRef = useRef(0);
+  const [resumeToast, setResumeToast] = useState<string | null>(null);
 
   // ── Sleep timer ────────────────────────────────────────────
   const [sleepMinutes, setSleepMinutes] = useState(0); // 0 = off
@@ -142,6 +143,12 @@ const StudyPage: React.FC = () => {
       setUrlInput(saved.youtubeUrl);
       setSessionTitle(saved.title);
       setStartTime(saved.lastPosition && saved.lastPosition > 10 ? saved.lastPosition : undefined);
+      if (saved.lastPosition && saved.lastPosition > 10) {
+        const mins = Math.floor(saved.lastPosition / 60);
+        const secs = saved.lastPosition % 60;
+        setResumeToast(t('study.resumedAt', { time: `${mins}:${String(secs).padStart(2, '0')}` }));
+        setTimeout(() => setResumeToast(null), 5000);
+      }
       setBiliPage(undefined);
 
       // If title looks like a URL, try fetching the real title
@@ -227,6 +234,12 @@ const StudyPage: React.FC = () => {
     setUrlInput(saved.youtubeUrl);
     setSessionTitle(saved.title);
     setStartTime(saved.lastPosition && saved.lastPosition > 10 ? saved.lastPosition : undefined);
+    if (saved.lastPosition && saved.lastPosition > 10) {
+      const mins = Math.floor(saved.lastPosition / 60);
+      const secs = saved.lastPosition % 60;
+      setResumeToast(t('study.resumedAt', { time: `${mins}:${String(secs).padStart(2, '0')}` }));
+      setTimeout(() => setResumeToast(null), 5000);
+    }
     setBiliPage(undefined);
     setAnalysis(null);
     setStreamChars(0);
@@ -766,6 +779,24 @@ const StudyPage: React.FC = () => {
                 <button
                   onClick={() => setSleepToast(false)}
                   className="ml-auto text-amber-400 hover:text-amber-600 dark:hover:text-amber-200 cursor-pointer"
+                >
+                  <svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                    <path strokeLinecap="round" strokeLinejoin="round" d="M6 18L18 6M6 6l12 12" />
+                  </svg>
+                </button>
+              </div>
+            )}
+
+            {/* Resume position toast */}
+            {resumeToast && (
+              <div className="mt-2 flex items-center gap-2 px-3 py-2 bg-blue-50 dark:bg-blue-950/40 border border-blue-200 dark:border-blue-800 rounded-lg text-sm text-blue-700 dark:text-blue-300">
+                <svg className="w-4 h-4 shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                  <path strokeLinecap="round" strokeLinejoin="round" d="M3 10h10a8 8 0 018 8v2M3 10l6 6m-6-6l6-6" />
+                </svg>
+                <span>{resumeToast}</span>
+                <button
+                  onClick={() => setResumeToast(null)}
+                  className="ml-auto text-blue-400 hover:text-blue-600 dark:hover:text-blue-200 cursor-pointer"
                 >
                   <svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
                     <path strokeLinecap="round" strokeLinejoin="round" d="M6 18L18 6M6 6l12 12" />
