@@ -20,6 +20,7 @@ export interface PlayerHandle {
 interface YouTubeEmbedProps {
   youtubeId: string;
   startTime?: number;
+  playbackRate?: number;
 }
 
 // ── YouTube IFrame API singleton loader ─────────────────────
@@ -90,7 +91,7 @@ function resetAPIState(): void {
 
 // ── Component ──────────────────────────────────────────────
 const YouTubeEmbed = forwardRef<PlayerHandle, YouTubeEmbedProps>(
-  ({ youtubeId, startTime }, ref) => {
+  ({ youtubeId, startTime, playbackRate }, ref) => {
     const containerId = useRef(`yt-${Math.random().toString(36).slice(2, 9)}`);
     const playerRef = useRef<YT.Player | null>(null);
     const [status, setStatus] = useState<'loading' | 'ready' | 'error' | 'fallback'>('loading');
@@ -98,6 +99,8 @@ const YouTubeEmbed = forwardRef<PlayerHandle, YouTubeEmbedProps>(
     statusRef.current = status;
     const startTimeRef = useRef(startTime);
     startTimeRef.current = startTime;
+    const playbackRateRef = useRef(playbackRate ?? 1);
+    playbackRateRef.current = playbackRate ?? 1;
     const retryCount = useRef(0);
     const retryTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
 
@@ -143,6 +146,13 @@ const YouTubeEmbed = forwardRef<PlayerHandle, YouTubeEmbedProps>(
                 return;
               }
               retryCount.current = 0;
+              // Apply saved playback rate now that the player is ready
+              try {
+                const rate = playbackRateRef.current;
+                if (rate !== 1) {
+                  (playerRef.current as any)?.setPlaybackRate?.(rate);
+                }
+              } catch { /* noop */ }
               setStatus('ready');
             },
             onError: (e: { data: number }) => {
@@ -244,6 +254,15 @@ const YouTubeEmbed = forwardRef<PlayerHandle, YouTubeEmbedProps>(
       } else {
         playerRef.current.loadVideoById(youtubeId);
       }
+      // Re-apply playback rate after loadVideoById (YouTube resets it)
+      setTimeout(() => {
+        try {
+          const rate = playbackRateRef.current;
+          if (rate !== 1) {
+            (playerRef.current as any)?.setPlaybackRate?.(rate);
+          }
+        } catch { /* noop */ }
+      }, 300);
     // eslint-disable-next-line react-hooks/exhaustive-deps
     }, [youtubeId]);
 

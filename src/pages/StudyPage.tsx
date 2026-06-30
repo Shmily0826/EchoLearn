@@ -740,7 +740,7 @@ const StudyPage: React.FC = () => {
               platform === 'bilibili' ? (
                 <BilibiliEmbed ref={playerRef} bvid={videoId} page={biliPage} startTime={startTime} />
               ) : (
-                <YouTubeEmbed ref={playerRef} youtubeId={videoId} startTime={startTime} />
+                <YouTubeEmbed ref={playerRef} youtubeId={videoId} startTime={startTime} playbackRate={playbackRate} />
               )
             ) : (
               <div className="w-full aspect-video rounded-xl bg-gray-100 dark:bg-slate-800 border-2 border-dashed border-gray-300 dark:border-slate-600 flex items-center justify-center">
