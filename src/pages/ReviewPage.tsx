@@ -1,6 +1,8 @@
 import { useEffect, useState, useCallback, useMemo, useRef } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useI18n } from '../i18n/I18nContext';
+import { useAuth } from '../contexts/AuthContext';
+import { pushItemsToCloud } from '../services/firestoreSync';
 import {
   loadVocabulary,
   loadSentences,
@@ -60,6 +62,16 @@ type TypeFilter = 'all' | 'words' | 'sentences';
 const ReviewPage: React.FC = () => {
   const navigate = useNavigate();
   const { t } = useI18n();
+  const { user } = useAuth();
+  const syncTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const triggerCloudSync = useCallback(() => {
+    if (!user?.uid) return;
+    if (syncTimerRef.current) clearTimeout(syncTimerRef.current);
+    syncTimerRef.current = setTimeout(() => {
+      pushItemsToCloud(user.uid).catch(() => { /* silent */ });
+    }, 2000);
+  }, [user?.uid]);
+
   const [vocabulary, setVocabulary] = useState<VocabularyItem[]>([]);
   const [sentences, setSentences] = useState<SentenceItem[]>([]);
   const [_mode, setMode] = useState<ReviewMode>('due');
@@ -165,7 +177,8 @@ const ReviewPage: React.FC = () => {
     setDoneIds((prev) => new Set(prev).add(currentCard.item.id));
     setStats((s) => ({ ...s, remembered: s.remembered + 1 }));
     advance();
-  }, [currentCard, advance]);
+    triggerCloudSync();
+  }, [currentCard, advance, triggerCloudSync]);
 
   const handleForgot = useCallback(() => {
     if (!currentCard) return;
@@ -184,7 +197,8 @@ const ReviewPage: React.FC = () => {
     setDoneIds((prev) => new Set(prev).add(currentCard.item.id));
     setStats((s) => ({ ...s, forgot: s.forgot + 1 }));
     advance();
-  }, [currentCard, advance]);
+    triggerCloudSync();
+  }, [currentCard, advance, triggerCloudSync]);
 
   const handleSkip = useCallback(() => {
     advance();
@@ -217,7 +231,8 @@ const ReviewPage: React.FC = () => {
     setDoneIds((prev) => new Set(prev).add(currentCard.item.id));
     setStats((s) => ({ ...s, remembered: s.remembered + 1 }));
     advance();
-  }, [currentCard, advance]);
+    triggerCloudSync();
+  }, [currentCard, advance, triggerCloudSync]);
 
   // ── Play pronunciation ─────────────────────────────────
   const playAudio = useCallback(() => {

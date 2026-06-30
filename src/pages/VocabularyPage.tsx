@@ -1,6 +1,8 @@
-import React, { useEffect, useState, useCallback, useMemo } from 'react';
+import React, { useEffect, useState, useCallback, useMemo, useRef } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useI18n } from '../i18n/I18nContext';
+import { useAuth } from '../contexts/AuthContext';
+import { pushItemsToCloud } from '../services/firestoreSync';
 import {
   loadVocabulary,
   removeVocabularyItem,
@@ -36,6 +38,16 @@ function reviewLabel(nextReviewAt: number, mastered: boolean, t: (key: string, v
 const VocabularyPage: React.FC = () => {
   const navigate = useNavigate();
   const { t } = useI18n();
+  const { user } = useAuth();
+  const syncTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const triggerCloudSync = useCallback(() => {
+    if (!user?.uid) return;
+    if (syncTimerRef.current) clearTimeout(syncTimerRef.current);
+    syncTimerRef.current = setTimeout(() => {
+      pushItemsToCloud(user.uid).catch(() => { /* silent */ });
+    }, 2000);
+  }, [user?.uid]);
+
   const [vocabulary, setVocabulary] = useState<VocabularyItem[]>([]);
   const [sessions, setSessions] = useState<VideoStudySession[]>([]);
   const [search, setSearch] = useState('');
@@ -67,11 +79,13 @@ const VocabularyPage: React.FC = () => {
   const handleRemove = useCallback((id: string) => {
     if (!window.confirm(t('vocab.deleteConfirm'))) return;
     setVocabulary(removeVocabularyItem(id));
-  }, [t]);
+    triggerCloudSync();
+  }, [t, triggerCloudSync]);
 
   const handleToggleMastered = useCallback((item: VocabularyItem) => {
     setVocabulary(updateVocabularyItem(item.id, { mastered: !item.mastered }));
-  }, []);
+    triggerCloudSync();
+  }, [triggerCloudSync]);
 
   const handleStartEdit = (item: VocabularyItem) => {
     setEditingId(item.id);
@@ -82,7 +96,8 @@ const VocabularyPage: React.FC = () => {
     setVocabulary(updateVocabularyItem(id, { meaningCn: editMeaning }));
     setEditingId(null);
     setEditMeaning('');
-  }, [editMeaning]);
+    triggerCloudSync();
+  }, [editMeaning, triggerCloudSync]);
 
   const handleCancelEdit = () => {
     setEditingId(null);
@@ -102,6 +117,7 @@ const VocabularyPage: React.FC = () => {
         updated = updateVocabularyItem(id, { meaningCn });
       }
       setVocabulary(updated);
+      triggerCloudSync();
     } finally {
       setBackfilling(false);
     }

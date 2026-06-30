@@ -1,6 +1,8 @@
-import React, { useEffect, useState, useCallback, useMemo } from 'react';
+import React, { useEffect, useState, useCallback, useMemo, useRef } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useI18n } from '../i18n/I18nContext';
+import { useAuth } from '../contexts/AuthContext';
+import { pushItemsToCloud } from '../services/firestoreSync';
 import {
   loadSentences,
   removeSentenceItem,
@@ -41,6 +43,16 @@ function reviewLabel(nextReviewAt: number, mastered: boolean, t: (key: string, v
 const SentencesPage: React.FC = () => {
   const navigate = useNavigate();
   const { t } = useI18n();
+  const { user } = useAuth();
+  const syncTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const triggerCloudSync = useCallback(() => {
+    if (!user?.uid) return;
+    if (syncTimerRef.current) clearTimeout(syncTimerRef.current);
+    syncTimerRef.current = setTimeout(() => {
+      pushItemsToCloud(user.uid).catch(() => { /* silent */ });
+    }, 2000);
+  }, [user?.uid]);
+
   const [sentences, setSentences] = useState<SentenceItem[]>([]);
   const [sessions, setSessions] = useState<VideoStudySession[]>([]);
   const [search, setSearch] = useState('');
@@ -73,7 +85,8 @@ const SentencesPage: React.FC = () => {
   const handleRemove = useCallback((id: string) => {
     if (!window.confirm(t('sent.deleteConfirm'))) return;
     setSentences(removeSentenceItem(id));
-  }, [t]);
+    triggerCloudSync();
+  }, [t, triggerCloudSync]);
 
   const handleWordClick = (word: string, e: React.MouseEvent) => {
     e.stopPropagation();
@@ -96,8 +109,9 @@ const SentencesPage: React.FC = () => {
       setSentences(updateSentenceItem(id, { myOwnSentence: editText }));
       setEditingId(null);
       setEditText('');
+      triggerCloudSync();
     },
-    [editText],
+    [editText, triggerCloudSync],
   );
 
   const handleCancelOwn = () => {
@@ -116,8 +130,9 @@ const SentencesPage: React.FC = () => {
       setSentences(updateSentenceItem(id, { meaningCn: editMeaning }));
       setEditingMeaningId(null);
       setEditMeaning('');
+      triggerCloudSync();
     },
-    [editMeaning],
+    [editMeaning, triggerCloudSync],
   );
 
   const handleCancelMeaning = () => {
@@ -144,10 +159,11 @@ const SentencesPage: React.FC = () => {
         updated = updateSentenceItem(id, { meaningCn });
       }
       setSentences(updated);
+      triggerCloudSync();
     } finally {
       setBackfilling(false);
     }
-  }, [sentences, translateLang]);
+  }, [sentences, translateLang, triggerCloudSync]);
 
   // Search
   const filtered = sentences.filter(

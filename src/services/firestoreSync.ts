@@ -268,6 +268,25 @@ export async function syncWithCloud(uid: string): Promise<SyncResult> {
 
 // ── Status ─────────────────────────────────────────────────────
 
+/**
+ * Lightweight push: upload only vocabulary and/or sentences to Firestore.
+ * Skips sessions (which are large) for quick sync after data changes.
+ */
+export async function pushItemsToCloud(
+  uid: string,
+  collections: Array<'vocabulary' | 'sentences'> = ['vocabulary', 'sentences'],
+): Promise<void> {
+  const promises: Promise<void>[] = [];
+  if (collections.includes('vocabulary')) {
+    promises.push(uploadCollection(uid, 'vocabulary', loadVocabulary()));
+  }
+  if (collections.includes('sentences')) {
+    promises.push(uploadCollection(uid, 'sentences', loadSentences()));
+  }
+  await Promise.all(promises);
+  localStorage.setItem(LAST_SYNC_KEY, String(Date.now()));
+}
+
 export function getLastSyncTime(): number | null {
   const val = localStorage.getItem(LAST_SYNC_KEY);
   return val ? Number(val) : null;

@@ -15,6 +15,8 @@ import { fetchYouTubeTranscript } from '../services/youtubeTranscript';
 import { fetchBilibiliTranscript, getBilibiliVideoTitle } from '../services/bilibiliTranscript';
 import { translateWord } from '../services/translationService';
 import { lookupWord } from '../services/dictionaryService';
+import { pushItemsToCloud } from '../services/firestoreSync';
+import { useAuth } from '../contexts/AuthContext';
 import { CEFR_LEVELS, type CEFRLevel } from '../services/cefrWordList';
 import { useI18n } from '../i18n/I18nContext';
 import { getVideoTitle } from '../services/youtubeApi';
@@ -50,6 +52,17 @@ const SPEED_PRESETS = [0.5, 0.75, 1, 1.25, 1.5, 1.75, 2];
 
 const StudyPage: React.FC = () => {
   const { t, lang } = useI18n();
+  const { user } = useAuth();
+
+  // Debounced cloud sync — pushes vocabulary/sentences 2s after last change
+  const syncTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const triggerCloudSync = useCallback(() => {
+    if (!user?.uid) return;
+    if (syncTimerRef.current) clearTimeout(syncTimerRef.current);
+    syncTimerRef.current = setTimeout(() => {
+      pushItemsToCloud(user.uid).catch(() => { /* silent */ });
+    }, 2000);
+  }, [user?.uid]);
 
   // ── Session state ──────────────────────────────────────────
   const [session, setSession] = useState<VideoStudySession | null>(null);
@@ -624,34 +637,40 @@ const StudyPage: React.FC = () => {
   // ── Vocab / sentence handlers ─────────────────────────────
   const handleAddVocabulary = useCallback((item: VocabularyItem) => {
     setVocabulary(addVocabularyItem(item));
+    triggerCloudSync();
     // Auto-translate meaningCn if empty
     if (!item.meaningCn) {
       translateWord(item.word, item.context).then((meaningCn) => {
         if (meaningCn) {
           setVocabulary(updateVocabularyItem(item.id, { meaningCn }));
+          triggerCloudSync();
         }
       }).catch(() => { /* silent */ });
     }
-  }, []);
+  }, [triggerCloudSync]);
 
   const handleAddSentence = useCallback((item: SentenceItem) => {
     setSentences(addSentenceItem(item));
-  }, []);
+    triggerCloudSync();
+  }, [triggerCloudSync]);
 
   const handleRemoveVocabulary = useCallback((id: string) => {
     if (!window.confirm(t('study.deleteWord'))) return;
     setVocabulary(removeVocabularyItem(id));
-  }, []);
+    triggerCloudSync();
+  }, [triggerCloudSync]);
 
   const handleRemoveSentence = useCallback((id: string) => {
     if (!window.confirm(t('study.deleteSent'))) return;
     setSentences(removeSentenceItem(id));
-  }, []);
+    triggerCloudSync();
+  }, [triggerCloudSync]);
 
   // Silent toggle — no confirm dialog (used by bookmark button)
   const handleToggleSentenceOff = useCallback((id: string) => {
     setSentences(removeSentenceItem(id));
-  }, []);
+    triggerCloudSync();
+  }, [triggerCloudSync]);
 
   // ── Render ─────────────────────────────────────────────────
   return (
