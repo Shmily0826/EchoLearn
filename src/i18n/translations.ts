@@ -315,6 +315,11 @@ const translations: Record<string, Record<Lang, string>> = {
   'ai.sentences':        { en: 'Useful Sentences', zh: '实用句子' },
   'ai.saved':            { en: 'Saved', zh: '已保存' },
   'ai.add':              { en: '+ Add', zh: '+ 添加' },
+  'ai.localSummary':     { en: 'This transcript contains approximately {wordCount} words across {sentenceCount} sentences. (AI API unavailable — showing local analysis.)', zh: '本字幕约 {wordCount} 词，共 {sentenceCount} 句。（AI 服务不可用，显示本地分析结果。）' },
+  'ai.localNoTranslation': { en: '(Local analysis — no translation)', zh: '(本地分析 — 无翻译)' },
+  'ai.localReasonVocab': { en: '{level}-level vocabulary.', zh: '{level} 级别词汇。' },
+  'ai.localReasonClause': { en: 'Contains useful clause structure.', zh: '包含有用的从句结构。' },
+  'ai.localReasonExample': { en: 'Good example sentence.', zh: '好的例句。' },
 
   // ── TranscriptViewer (word popup) ─────────────────────────
   'transcript.wordSaved':  { en: 'Already in vocab', zh: '已在生词本中' },
@@ -353,6 +358,7 @@ const translations: Record<string, Record<Lang, string>> = {
   'study.timerMin':      { en: '{n} min', zh: '{n} 分钟' },
   'study.timerRemaining': { en: 'Sleep in {time}', zh: '{time} 后暂停' },
   'study.timerPaused':   { en: 'Timer done — video paused', zh: '定时结束 — 视频已暂停' },
+  'study.timerCustom':   { en: 'Custom minutes (1-180)', zh: '自定义分钟数 (1-180)' },
 
   // ── Playback Resume ─────────────────────────────────────
   'study.resumedAt':     { en: 'Resumed at {time}', zh: '已从 {time} 继续播放' },

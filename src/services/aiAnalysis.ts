@@ -4,6 +4,7 @@ import type {
   SentenceSuggestion,
 } from '../types';
 import { extractWordsByLevel, type CEFRLevel } from './cefrWordList';
+import { t, type Lang } from '../i18n/translations';
 
 // ── DeepSeek API config ──────────────────────────────────────
 
@@ -243,6 +244,7 @@ function localFallback(
   maxLevel: CEFRLevel,
   vocabCount: number,
   sentenceCount: number,
+  lang: Lang = 'zh',
 ): AIAnalysisResult {
   const sentences = transcriptText
     .split(/(?<=[.!?])\s+/)
@@ -251,22 +253,23 @@ function localFallback(
 
   const wordCount = (transcriptText.match(/\b\w+\b/g) || []).length;
 
-  const summaryEn = `This transcript contains approximately ${wordCount} words across ${sentences.length} sentences. (AI API unavailable — showing local analysis.)`;
-  const summaryCn = `本字幕约 ${wordCount} 词，共 ${sentences.length} 句。（AI 服务不可用，显示本地分析结果。）`;
+  const summaryEn = t('ai.localSummary', 'en', { wordCount, sentenceCount: sentences.length });
+  const summaryCn = t('ai.localSummary', 'zh', { wordCount, sentenceCount: sentences.length });
 
   const sortedByLength = [...sentences].sort((a, b) => b.length - a.length);
   const keyTakeaways = sortedByLength.slice(0, 3).map((s) =>
     s.endsWith('.') || s.endsWith('!') || s.endsWith('?') ? s : s + '.',
   );
 
+  const noTranslation = t('ai.localNoTranslation', lang);
   const cefrWords = extractWordsByLevel(transcriptText, minLevel, maxLevel);
   const vocabSuggestions: VocabularySuggestion[] = cefrWords
     .slice(0, vocabCount)
     .map(({ word, level, context }) => ({
       word,
       context,
-      meaningCn: '(本地分析 — 无翻译)',
-      reason: `${level}-level vocabulary.`,
+      meaningCn: noTranslation,
+      reason: t('ai.localReasonVocab', lang, { level }),
     }));
 
   const sentSuggestions: SentenceSuggestion[] = sortedByLength
@@ -276,10 +279,10 @@ function localFallback(
       const clean = text.endsWith('.') || text.endsWith('!') || text.endsWith('?') ? text : text + '.';
       return {
         text: clean,
-        meaningCn: '(本地分析 — 无翻译)',
+        meaningCn: noTranslation,
         reason: clean.includes(',')
-          ? 'Contains useful clause structure.'
-          : 'Good example sentence.',
+          ? t('ai.localReasonClause', lang)
+          : t('ai.localReasonExample', lang),
       };
     });
 
@@ -318,6 +321,6 @@ export async function analyzeTranscript(
     return await callDeepSeek(transcriptText, minLevel, maxLevel, vocabCount, sentenceCount, onChunk, lang);
   } catch (err) {
     console.warn('[aiAnalysis] DeepSeek API failed, falling back to local analysis:', err);
-    return localFallback(transcriptText, minLevel, maxLevel, vocabCount, sentenceCount);
+    return localFallback(transcriptText, minLevel, maxLevel, vocabCount, sentenceCount, lang);
   }
 }

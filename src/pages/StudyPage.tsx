@@ -882,6 +882,21 @@ const StudyPage: React.FC = () => {
                         </button>
                       ))}
                     </div>
+                    {/* Manual minute input */}
+                    <input
+                      type="number"
+                      min={1}
+                      max={180}
+                      placeholder="min"
+                      value=""
+                      onChange={(e) => {
+                        const v = Math.max(0, Math.min(180, Number(e.target.value) || 0));
+                        if (v > 0) setSleepMinutes(v);
+                        e.target.value = '';
+                      }}
+                      className="w-10 px-1 py-0.5 text-[10px] border border-gray-200 dark:border-slate-700 rounded bg-white dark:bg-slate-800 text-gray-600 dark:text-gray-400 focus:outline-none text-center"
+                      title={t('study.timerCustom')}
+                    />
                   </div>
                 </div>
                 {sleepRemaining > 0 && (
@@ -1024,8 +1039,8 @@ const StudyPage: React.FC = () => {
           {/* Right: Transcript — always visible on desktop, tab-gated on mobile */}
           <div translate="no" className="notranslate hidden lg:flex flex-1 flex-col min-w-0 h-[calc(100vh-160px)]">
             {/* Toolbar — fixed, never scrolls */}
-            <div className="flex items-center justify-between mb-3 flex-shrink-0 flex-wrap gap-1.5 sm:gap-2">
-              <h2 className="text-sm font-semibold text-gray-600 dark:text-gray-400 uppercase tracking-wider">
+            <div className="flex items-center justify-between mb-1.5 flex-shrink-0 flex-wrap gap-1 sm:gap-2">
+              <h2 className="text-[11px] font-semibold text-gray-600 dark:text-gray-400 uppercase tracking-wider">
                 {t('study.transcript')}
               </h2>
               <div className="flex items-center gap-1.5 sm:gap-3 flex-wrap">
@@ -1153,7 +1168,7 @@ const StudyPage: React.FC = () => {
                 {videoId && sentenceLines.length === 0 && rawBlocks.length === 0 && (
                   <span />
                 )}
-                <span className="text-xs text-gray-400 dark:text-gray-500">
+                <span className="text-[10px] text-gray-400 dark:text-gray-500">
                   {displayMode === 'sentence'
                     ? `${sentenceLines.length} ${t('study.sentences')}`
                     : `${rawBlocks.length} ${t('study.blocks')}`}
