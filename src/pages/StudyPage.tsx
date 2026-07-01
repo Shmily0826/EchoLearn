@@ -133,6 +133,8 @@ const StudyPage: React.FC = () => {
   // ── Playback position memory ───────────────────────────────
   const lastPosSaveRef = useRef(0);
   const [resumeToast, setResumeToast] = useState<string | null>(null);
+  const [speedToast, setSpeedToast] = useState(false);
+  const speedToastTimer = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
 
   // ── Sleep timer ────────────────────────────────────────────
   const [sleepMinutes, setSleepMinutes] = useState(0); // 0 = off
@@ -331,10 +333,17 @@ const StudyPage: React.FC = () => {
           const now = Date.now();
           if (now - lastPosSaveRef.current > 5000 && t > 0) {
             lastPosSaveRef.current = now;
-            localStorage.setItem('echolearn_last_position', String(Math.floor(t)));
-            setSession((prev) =>
-              prev ? { ...prev, lastPosition: Math.floor(t) } : prev,
-            );
+            const pos = Math.floor(t);
+            localStorage.setItem('echolearn_last_position', String(pos));
+            setSession((prev) => {
+              if (!prev) return prev;
+              const updated = { ...prev, lastPosition: pos };
+              // Also persist to localStorage so position survives page reload
+              try {
+                localStorage.setItem('echolearn_session', JSON.stringify(updated));
+              } catch { /* quota exceeded — ignore */ }
+              return updated;
+            });
           }
         } catch {
           // Player in broken state — skip this tick silently
@@ -350,6 +359,10 @@ const StudyPage: React.FC = () => {
       playerRef.current.setPlaybackRate(playbackRate);
     }
     localStorage.setItem('echolearn_playback_rate', String(playbackRate));
+    // Show speed toast briefly on mobile
+    setSpeedToast(true);
+    clearTimeout(speedToastTimer.current);
+    speedToastTimer.current = setTimeout(() => setSpeedToast(false), 1200);
   }, [playbackRate]);
 
   // ── Sleep timer countdown ──────────────────────────────────
@@ -848,7 +861,7 @@ const StudyPage: React.FC = () => {
                     ))}
                   </div>
                   {/* Slider — compact on mobile, wider on desktop */}
-                  <div className="flex items-center gap-1 flex-1 min-w-[100px] sm:min-w-[140px]">
+                  <div className="flex items-center gap-1 flex-1 min-w-[100px] sm:min-w-[140px] relative">
                     <input
                       type="range"
                       min={0.25}
@@ -858,7 +871,11 @@ const StudyPage: React.FC = () => {
                       onChange={(e) => setPlaybackRate(parseFloat(e.target.value))}
                       className="flex-1 h-1 accent-indigo-500 cursor-pointer"
                     />
-                    <span className="hidden sm:inline text-[10px] text-gray-500 dark:text-gray-400 font-mono w-10 tabular-nums shrink-0">
+                    <span className={`text-[10px] font-mono w-10 tabular-nums shrink-0 transition-opacity duration-300 ${
+                      speedToast
+                        ? 'text-indigo-600 dark:text-indigo-400 font-semibold opacity-100'
+                        : 'text-gray-500 dark:text-gray-400 opacity-0 sm:opacity-100'
+                    }`}>
                       {playbackRate.toFixed(2)}x
                     </span>
                   </div>
@@ -1042,9 +1059,9 @@ const StudyPage: React.FC = () => {
           </div>
 
           {/* Right: Transcript — always visible on desktop, tab-gated on mobile */}
-          <div translate="no" className="notranslate hidden lg:flex flex-1 flex-col min-w-0 h-[calc(100vh-160px)] relative">
-            {/* Toolbar — overlaid at top with backdrop blur */}
-            <div className="absolute top-0 left-0 right-0 z-10 flex items-center justify-between px-2 py-1 backdrop-blur-md bg-white/70 dark:bg-slate-900/70 rounded-t-xl gap-1 sm:gap-2">
+          <div translate="no" className="notranslate hidden lg:flex flex-1 flex-col min-w-0 h-[calc(100vh-160px)]">
+            {/* Toolbar — footer below transcript content */}
+            <div className="flex-shrink-0 order-2 flex items-center justify-between px-2 py-1 border-t border-gray-200 dark:border-slate-700 gap-1 sm:gap-2">
               <h2 className="text-[10px] font-semibold text-gray-600 dark:text-gray-400 uppercase tracking-wider">
                 {t('study.transcript')}
               </h2>
@@ -1181,8 +1198,8 @@ const StudyPage: React.FC = () => {
               </div>
             </div>
 
-            {/* Scrollable content area — fills full height, toolbar overlaid */}
-            <div className="flex-1 overflow-y-auto min-h-0 pr-1 pt-7">
+            {/* Scrollable content area — fills full height from top */}
+            <div className="flex-1 overflow-y-auto min-h-0 pr-1 order-1">
             {displayLines.length > 0 ? (
               <TranscriptViewer
                 lines={displayLines}
