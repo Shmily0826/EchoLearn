@@ -3,6 +3,8 @@ import type { ReactNode } from 'react';
 import {
   onAuthStateChanged,
   signInWithPopup,
+  signInWithRedirect,
+  getRedirectResult,
   signInWithEmailAndPassword,
   createUserWithEmailAndPassword,
   signOut,
@@ -10,6 +12,7 @@ import {
 } from 'firebase/auth';
 import type { User } from 'firebase/auth';
 import { auth, googleProvider } from '../lib/firebase';
+import { isCapacitor } from '../utils/platform';
 
 // ── Types ──────────────────────────────────────────────────────
 
@@ -36,7 +39,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const [user, setUser] = useState<User | null>(null);
   const [loading, setLoading] = useState(true);
 
-  // Listen for auth state changes
+  // Listen for auth state changes + handle redirect result
   useEffect(() => {
     const unsub = onAuthStateChanged(
       auth,
@@ -51,11 +54,21 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         setLoading(false);
       },
     );
+
+    // Handle redirect result (Capacitor WebView OAuth flow)
+    getRedirectResult(auth).catch((err) => {
+      console.error('[Auth] redirect result error:', err);
+    });
+
     return unsub;
   }, []);
 
   const signInWithGoogle = useCallback(async () => {
-    await signInWithPopup(auth, googleProvider);
+    if (isCapacitor()) {
+      await signInWithRedirect(auth, googleProvider);
+    } else {
+      await signInWithPopup(auth, googleProvider);
+    }
   }, []);
 
   const signInWithEmail = useCallback(async (email: string, password: string) => {

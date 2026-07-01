@@ -25,3 +25,9 @@ dist-ssr
 API-key.txt
 
 .vercel
+
+# Capacitor / Android native build
+android/.gradle
+android/app/build
+android/app/release
+android/local.properties
