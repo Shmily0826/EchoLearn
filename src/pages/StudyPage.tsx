@@ -847,8 +847,8 @@ const StudyPage: React.FC = () => {
                       </button>
                     ))}
                   </div>
-                  {/* Slider — hidden on mobile, visible on desktop */}
-                  <div className="hidden sm:flex items-center gap-1.5 flex-1 min-w-[140px]">
+                  {/* Slider — compact on mobile, wider on desktop */}
+                  <div className="flex items-center gap-1 flex-1 min-w-[100px] sm:min-w-[140px]">
                     <input
                       type="range"
                       min={0.25}
@@ -858,7 +858,7 @@ const StudyPage: React.FC = () => {
                       onChange={(e) => setPlaybackRate(parseFloat(e.target.value))}
                       className="flex-1 h-1 accent-indigo-500 cursor-pointer"
                     />
-                    <span className="text-[10px] text-gray-500 dark:text-gray-400 font-mono w-10 tabular-nums shrink-0">
+                    <span className="hidden sm:inline text-[10px] text-gray-500 dark:text-gray-400 font-mono w-10 tabular-nums shrink-0">
                       {playbackRate.toFixed(2)}x
                     </span>
                   </div>
@@ -928,21 +928,48 @@ const StudyPage: React.FC = () => {
             {/* ── Mobile inline transcript — visible below video on small screens ── */}
             {videoId && displayLines.length > 0 && (
               <div translate="no" className="notranslate lg:hidden mt-2 bg-white dark:bg-slate-800 rounded-xl border border-gray-200 dark:border-slate-700 shadow-sm overflow-hidden">
+                {/* Header with Analyze button on same row */}
                 <div className="flex items-center justify-between px-3 py-1.5 border-b border-gray-100 dark:border-slate-700">
                   <span className="text-[10px] font-semibold text-gray-500 dark:text-gray-400 uppercase tracking-wider">
                     {t('study.subtitles')}
                   </span>
-                  {fetchingCaption && (
-                    <span className="flex items-center gap-1 text-[10px] text-amber-500">
-                      <svg className="animate-spin w-2.5 h-2.5" fill="none" viewBox="0 0 24 24">
-                        <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
-                        <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z" />
-                      </svg>
-                      {t('study.fetchingShort')}
-                    </span>
-                  )}
+                  <div className="flex items-center gap-2">
+                    {fetchingCaption && (
+                      <span className="flex items-center gap-1 text-[10px] text-amber-500">
+                        <svg className="animate-spin w-2.5 h-2.5" fill="none" viewBox="0 0 24 24">
+                          <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
+                          <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z" />
+                        </svg>
+                        {t('study.fetchingShort')}
+                      </span>
+                    )}
+                    {displayLines.length > 0 && (
+                      <button
+                        onClick={handleAnalyze}
+                        disabled={analyzing}
+                        className="flex items-center gap-1 px-2 py-0.5 text-[10px] font-medium bg-indigo-50 dark:bg-indigo-950 text-indigo-600 dark:text-indigo-400 rounded-lg hover:bg-indigo-100 dark:hover:bg-indigo-900 transition-colors cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed"
+                      >
+                        {analyzing ? (
+                          <>
+                            <svg className="animate-spin w-2.5 h-2.5" fill="none" viewBox="0 0 24 24">
+                              <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
+                              <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z" />
+                            </svg>
+                            {streamChars > 0 ? `${streamChars}` : t('study.analyzing')}
+                          </>
+                        ) : (
+                          <>
+                            <svg className="w-2.5 h-2.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.5}>
+                              <path strokeLinecap="round" strokeLinejoin="round" d="M9.813 15.904L9 18.75l-.813-2.846a4.5 4.5 0 00-3.09-3.09L2.25 12l2.846-.813a4.5 4.5 0 003.09-3.09L9 5.25l.813 2.846a4.5 4.5 0 003.09 3.09L15.75 12l-2.846.813a4.5 4.5 0 00-3.09 3.09z" />
+                            </svg>
+                            {analysis ? t('study.reAnalyze') : t('study.analyze')}
+                          </>
+                        )}
+                      </button>
+                    )}
+                  </div>
                 </div>
-                {/* Mobile analysis controls */}
+                {/* Mobile analysis controls — words/sents/level only */}
                 {displayLines.length > 0 && (
                   <div className="flex items-center gap-2 px-3 py-1.5 border-b border-gray-100 dark:border-slate-700 flex-wrap">
                     <div className="flex items-center gap-1 text-[10px]">
@@ -995,28 +1022,6 @@ const StudyPage: React.FC = () => {
                         ))}
                       </select>
                     </div>
-                    <button
-                      onClick={handleAnalyze}
-                      disabled={analyzing}
-                      className="flex items-center gap-1 px-2.5 py-1 text-[10px] font-medium bg-indigo-50 dark:bg-indigo-950 text-indigo-600 dark:text-indigo-400 rounded-lg hover:bg-indigo-100 dark:hover:bg-indigo-900 transition-colors cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed ml-auto"
-                    >
-                      {analyzing ? (
-                        <>
-                          <svg className="animate-spin w-3 h-3" fill="none" viewBox="0 0 24 24">
-                            <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
-                            <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z" />
-                          </svg>
-                          {streamChars > 0 ? `${streamChars} ${t('study.chars')}` : t('study.analyzing')}
-                        </>
-                      ) : (
-                        <>
-                          <svg className="w-3 h-3" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.5}>
-                            <path strokeLinecap="round" strokeLinejoin="round" d="M9.813 15.904L9 18.75l-.813-2.846a4.5 4.5 0 00-3.09-3.09L2.25 12l2.846-.813a4.5 4.5 0 003.09-3.09L9 5.25l.813 2.846a4.5 4.5 0 003.09 3.09L15.75 12l-2.846.813a4.5 4.5 0 00-3.09 3.09z" />
-                          </svg>
-                          {analysis ? t('study.reAnalyze') : t('study.analyze')}
-                        </>
-                      )}
-                    </button>
                   </div>
                 )}
                 <MobileTranscriptPanel
@@ -1037,10 +1042,10 @@ const StudyPage: React.FC = () => {
           </div>
 
           {/* Right: Transcript — always visible on desktop, tab-gated on mobile */}
-          <div translate="no" className="notranslate hidden lg:flex flex-1 flex-col min-w-0 h-[calc(100vh-160px)]">
-            {/* Toolbar — fixed, never scrolls */}
-            <div className="flex items-center justify-between mb-1.5 flex-shrink-0 flex-wrap gap-1 sm:gap-2">
-              <h2 className="text-[11px] font-semibold text-gray-600 dark:text-gray-400 uppercase tracking-wider">
+          <div translate="no" className="notranslate hidden lg:flex flex-1 flex-col min-w-0 h-[calc(100vh-160px)] relative">
+            {/* Toolbar — overlaid at top with backdrop blur */}
+            <div className="absolute top-0 left-0 right-0 z-10 flex items-center justify-between px-2 py-1 backdrop-blur-md bg-white/70 dark:bg-slate-900/70 rounded-t-xl gap-1 sm:gap-2">
+              <h2 className="text-[10px] font-semibold text-gray-600 dark:text-gray-400 uppercase tracking-wider">
                 {t('study.transcript')}
               </h2>
               <div className="flex items-center gap-1.5 sm:gap-3 flex-wrap">
@@ -1176,8 +1181,8 @@ const StudyPage: React.FC = () => {
               </div>
             </div>
 
-            {/* Scrollable content area — single scroll, no nesting */}
-            <div className="flex-1 overflow-y-auto min-h-0 pr-1">
+            {/* Scrollable content area — fills full height, toolbar overlaid */}
+            <div className="flex-1 overflow-y-auto min-h-0 pr-1 pt-7">
             {displayLines.length > 0 ? (
               <TranscriptViewer
                 lines={displayLines}
@@ -1727,7 +1732,7 @@ const MobileTranscriptPanel: React.FC<{
       <div
         ref={containerRef}
         onScroll={handleScroll}
-        className="overflow-y-auto max-h-[45vh] px-2 py-1"
+        className="overflow-y-auto max-h-[55vh] px-2 py-1"
         style={{ overscrollBehavior: 'contain', overflowAnchor: 'none', scrollBehavior: 'smooth' }}
       >
         {lines.map((line, idx) => {
