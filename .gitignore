@@ -32,6 +32,7 @@ android/app/build
 android/app/release
 android/local.properties
 android/app/*.keystore
+android/app/google-services.json
 
 # APK files (built artifacts)
 *.apk
