@@ -13,10 +13,10 @@ const translations: Record<string, Record<Lang, string>> = {
   'darkMode.off':        { en: 'Switch to light mode', zh: '切换浅色模式' },
 
   // ── Login ────────────────────────────────────────────────
-  'login.subtitle':      { en: 'Sign in to sync your learning data across devices', zh: '登录以跨设备同步学习数据' },
+  'login.subtitle':      { en: 'Sign in to sync your learning data across devices', zh: '登录后学习数据可跨设备同步' },
   'login.google':        { en: 'Continue with Google', zh: '使用 Google 登录' },
   'login.or':            { en: 'or', zh: '或' },
-  'login.displayName':   { en: 'Display name (optional)', zh: '显示名称（可选）' },
+  'login.displayName':   { en: 'Nickname (optional)', zh: '昵称（可选）' },
   'login.email':         { en: 'Email', zh: '邮箱' },
   'login.password':      { en: 'Password', zh: '密码' },
   'login.signIn':        { en: 'Sign In', zh: '登录' },

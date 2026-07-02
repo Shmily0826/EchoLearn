@@ -191,6 +191,8 @@ const LoginPage: React.FC = () => {
             onChange={(e) => { setPassword(e.target.value); setError(''); }}
             placeholder={t('login.password')}
             required
+            minLength={6}
+            maxLength={32}
             className={inputClass}
             style={{
               backgroundColor: 'var(--color-input-bg)',
@@ -228,6 +230,9 @@ const LoginPage: React.FC = () => {
               onChange={(e) => { setConfirmPw(e.target.value); setError(''); }}
               placeholder={t('login.confirmPassword')}
               required
+              minLength={6}
+              maxLength={32}
+              autoComplete="new-password"
               className={inputClass}
               style={{
                 backgroundColor: 'var(--color-input-bg)',

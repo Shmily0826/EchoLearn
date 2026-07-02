@@ -3,14 +3,13 @@ import type { ReactNode } from 'react';
 import {
   onAuthStateChanged,
   signInWithPopup,
-  signInWithRedirect,
-  getRedirectResult,
   signInWithEmailAndPassword,
   createUserWithEmailAndPassword,
   signOut,
   updateProfile,
 } from 'firebase/auth';
 import type { User } from 'firebase/auth';
+import { FirebaseAuthentication } from '@capacitor-firebase/authentication';
 import { auth, googleProvider } from '../lib/firebase';
 import { isCapacitor } from '../utils/platform';
 
@@ -39,7 +38,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const [user, setUser] = useState<User | null>(null);
   const [loading, setLoading] = useState(true);
 
-  // Listen for auth state changes + handle redirect result
+  // Listen for auth state changes
   useEffect(() => {
     const unsub = onAuthStateChanged(
       auth,
@@ -49,23 +48,17 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       },
       (error) => {
         console.error('[Auth] state change error:', error);
-        // On auth error, treat user as logged out rather than stuck in loading
         setUser(null);
         setLoading(false);
       },
     );
-
-    // Handle redirect result (Capacitor WebView OAuth flow)
-    getRedirectResult(auth).catch((err) => {
-      console.error('[Auth] redirect result error:', err);
-    });
-
     return unsub;
   }, []);
 
   const signInWithGoogle = useCallback(async () => {
     if (isCapacitor()) {
-      await signInWithRedirect(auth, googleProvider);
+      // Native Google Sign-In — shows device account picker
+      await FirebaseAuthentication.signInWithGoogle();
     } else {
       await signInWithPopup(auth, googleProvider);
     }

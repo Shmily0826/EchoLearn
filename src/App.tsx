@@ -1,16 +1,19 @@
-import { BrowserRouter, useLocation } from 'react-router-dom'
-import { AuthProvider, useAuth } from './contexts/AuthContext'
-import { I18nProvider, useI18n } from './i18n/I18nContext'
-import { useAntiTranslate } from './hooks/useAntiTranslate'
-import ErrorBoundary from './components/ErrorBoundary'
-import Layout from './components/Layout'
-import LoginPage from './pages/LoginPage'
-import DashboardPage from './pages/DashboardPage'
-import StudyPage from './pages/StudyPage'
-import VocabularyPage from './pages/VocabularyPage'
-import SentencesPage from './pages/SentencesPage'
-import ReviewPage from './pages/ReviewPage'
-import SettingsPage from './pages/SettingsPage'
+import { useEffect } from 'react';
+import { BrowserRouter, useLocation, useNavigate } from 'react-router-dom';
+import { App as CapApp } from '@capacitor/app';
+import { isCapacitor } from './utils/platform';
+import { AuthProvider, useAuth } from './contexts/AuthContext';
+import { I18nProvider, useI18n } from './i18n/I18nContext';
+import { useAntiTranslate } from './hooks/useAntiTranslate';
+import ErrorBoundary from './components/ErrorBoundary';
+import Layout from './components/Layout';
+import LoginPage from './pages/LoginPage';
+import DashboardPage from './pages/DashboardPage';
+import StudyPage from './pages/StudyPage';
+import VocabularyPage from './pages/VocabularyPage';
+import SentencesPage from './pages/SentencesPage';
+import ReviewPage from './pages/ReviewPage';
+import SettingsPage from './pages/SettingsPage';
 
 /**
  * All pages are always mounted (never unmounted on route change).
@@ -19,8 +22,24 @@ import SettingsPage from './pages/SettingsPage'
  */
 function AppContent() {
   const { pathname } = useLocation();
+  const navigate = useNavigate();
   const { translateDetected, dismissWarning } = useAntiTranslate();
   const { t } = useI18n();
+
+  // Handle Android back button in Capacitor
+  useEffect(() => {
+    if (!isCapacitor()) return;
+    const handler = CapApp.addListener('backButton', ({ canGoBack }) => {
+      if (pathname !== '/') {
+        navigate('/');
+      } else if (canGoBack) {
+        window.history.back();
+      } else {
+        CapApp.minimizeApp();
+      }
+    });
+    return () => { handler.then(h => h.remove()); };
+  }, [pathname, navigate]);
 
   return (
     <Layout>

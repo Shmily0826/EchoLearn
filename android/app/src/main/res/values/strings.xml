@@ -1,0 +1,7 @@
+<?xml version='1.0' encoding='utf-8'?>
+<resources>
+    <string name="app_name">EchoLearn</string>
+    <string name="title_activity_main">EchoLearn</string>
+    <string name="package_name">uk.echolearn.app</string>
+    <string name="custom_url_scheme">uk.echolearn.app</string>
+</resources>
