@@ -169,7 +169,13 @@ export async function uploadToCloud(uid: string): Promise<SyncResult> {
     await Promise.all([
       uploadCollection(uid, 'vocabulary', data.vocabulary),
       uploadCollection(uid, 'sentences', data.sentences),
-      uploadCollection(uid, 'sessions', data.sessions),
+      uploadCollection(uid, 'sessions', data.sessions.map(s => ({
+        ...s,
+        // Strip large fields to stay under Firestore 1MB document limit
+        transcriptData: undefined,
+        transcriptLines: [],
+        aiAnalysis: undefined,
+      }))),
     ]);
 
     localStorage.setItem(LAST_SYNC_KEY, String(Date.now()));
@@ -245,7 +251,12 @@ export async function syncWithCloud(uid: string): Promise<SyncResult> {
     await Promise.all([
       uploadCollection(uid, 'vocabulary', mergedVocab),
       uploadCollection(uid, 'sentences', mergedSentences),
-      uploadCollection(uid, 'sessions', mergedSessions),
+      uploadCollection(uid, 'sessions', mergedSessions.map(s => ({
+        ...s,
+        transcriptData: undefined,
+        transcriptLines: [],
+        aiAnalysis: undefined,
+      }))),
     ]);
 
     localStorage.setItem(LAST_SYNC_KEY, String(Date.now()));
