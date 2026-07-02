@@ -100,7 +100,7 @@ const TranscriptViewer: React.FC<TranscriptViewerProps> = ({
     const targetScroll =
       container.scrollTop +
       (elRect.top - containerRect.top) -
-      container.clientHeight / 2 +
+      container.clientHeight / 4 +
       elRect.height / 2;
     container.scrollTo({ top: Math.max(0, targetScroll), behavior: 'smooth' });
   }, [activeLineIndex]);

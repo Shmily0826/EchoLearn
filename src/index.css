@@ -87,3 +87,61 @@ nav a, nav button {
 button, a, select, input, [role="button"] {
   touch-action: manipulation;
 }
+
+/* ── Mobile landscape orientation ─────────────────────────── */
+@media (orientation: landscape) and (max-width: 1023px) {
+  /* Hide bottom nav & contact bar to save vertical space */
+  nav.md\:hidden.fixed.bottom-0,
+  .md\:hidden.fixed.bottom-14 {
+    display: none !important;
+  }
+
+  /* Reduce bottom padding since bottom nav is hidden */
+  .mobile-safe-bottom {
+    padding-bottom: 0.5rem;
+  }
+
+  /* Study page: video & transcript side-by-side */
+  .study-layout {
+    flex-direction: row !important;
+  }
+
+  .study-layout > :first-child {
+    width: 42% !important;
+    flex-shrink: 0;
+  }
+
+  .study-layout > :nth-child(2) {
+    display: flex !important;
+    flex: 1;
+    min-width: 0;
+  }
+
+  /* Compact study toolbar in landscape */
+  .study-main > .border-b {
+    padding-top: 0.375rem !important;
+    padding-bottom: 0.375rem !important;
+  }
+
+  /* Reduce main content padding */
+  .study-main > main {
+    padding-top: 0.5rem !important;
+    padding-bottom: 0.5rem !important;
+  }
+
+  /* Transcript panel: use more vertical space in landscape */
+  .max-h-\[55vh\] {
+    max-height: calc(100vh - 100px) !important;
+  }
+
+  /* Hide mobile transcript in landscape — desktop transcript (right column) is shown instead */
+  .study-layout > :first-child > .lg\:hidden {
+    display: none !important;
+  }
+
+  /* Ensure side-by-side columns fill viewport height */
+  .study-layout > :first-child,
+  .study-layout > :nth-child(2) {
+    align-self: stretch;
+  }
+}

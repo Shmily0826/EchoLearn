@@ -687,7 +687,7 @@ const StudyPage: React.FC = () => {
 
   // ── Render ─────────────────────────────────────────────────
   return (
-    <div>
+    <div className="study-main">
       {/* Study toolbar */}
       <div className="bg-white dark:bg-slate-800 border-b border-gray-200 dark:border-slate-700 px-4 sm:px-6 py-3">
         <div className="max-w-7xl mx-auto flex flex-col sm:flex-row items-stretch sm:items-center justify-between gap-2">
@@ -765,7 +765,7 @@ const StudyPage: React.FC = () => {
 
       {/* Main content */}
       <main className="max-w-7xl mx-auto px-4 sm:px-6 py-4 sm:py-6">
-        <div className="flex flex-col lg:flex-row gap-4 lg:gap-6">
+        <div className="study-layout flex flex-col lg:flex-row gap-4 lg:gap-6">
           {/* Left: video — always visible (mobile: above transcript, desktop: left column) */}
           <div className="w-full lg:w-[55%] flex-shrink-0">
             {videoId ? (
@@ -1560,7 +1560,7 @@ const MobileTranscriptPanel: React.FC<{
     const targetScroll =
       container.scrollTop +
       (elRect.top - containerRect.top) -
-      container.clientHeight / 2 +
+      container.clientHeight / 4 +
       elRect.height / 2;
     container.scrollTop = Math.max(0, targetScroll);
   }, [activeLineIndex]);
