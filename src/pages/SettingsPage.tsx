@@ -99,7 +99,15 @@ const SettingsPage: React.FC = () => {
         setFbSyncAction('idle');
         if (result.ok) {
           setLastSync(getLastSyncTime());
+          if (result.error) {
+            setFbSyncMessage({ type: 'info', text: `Sync complete (partial: ${result.error})` });
+          }
+        } else {
+          setFbSyncMessage({ type: 'error', text: result.error || 'Auto-sync failed.' });
         }
+      }).catch((err) => {
+        setFbSyncAction('idle');
+        setFbSyncMessage({ type: 'error', text: err instanceof Error ? err.message : 'Auto-sync error.' });
       });
     }
   }, [user?.uid]);
@@ -109,21 +117,29 @@ const SettingsPage: React.FC = () => {
     if (!user?.uid) return;
     setFbSyncAction('syncing');
     setFbSyncMessage({ type: 'info', text: 'Syncing with cloud...' });
-    const result = await syncWithCloud(user.uid);
-    setFbSyncAction('idle');
-    if (result.ok) {
-      const parts: string[] = [];
-      if (result.counts) {
-        if (result.counts.vocabulary) parts.push(`${result.counts.vocabulary} words`);
-        if (result.counts.sentences) parts.push(`${result.counts.sentences} sentences`);
-        if (result.counts.sessions) parts.push(`${result.counts.sessions} sessions`);
-        if (result.counts.dailyPlan) parts.push(`${result.counts.dailyPlan} plan items`);
+    try {
+      const result = await syncWithCloud(user.uid);
+      setFbSyncAction('idle');
+      if (result.ok) {
+        const parts: string[] = [];
+        if (result.counts) {
+          if (result.counts.vocabulary) parts.push(`${result.counts.vocabulary} words`);
+          if (result.counts.sentences) parts.push(`${result.counts.sentences} sentences`);
+          if (result.counts.sessions) parts.push(`${result.counts.sessions} sessions`);
+        }
+        const detail = parts.length > 0 ? ` (${parts.join(', ')})` : '';
+        if (result.error) {
+          setFbSyncMessage({ type: 'info', text: `Sync complete${detail}. Partial issues: ${result.error}` });
+        } else {
+          setFbSyncMessage({ type: 'success', text: `Sync complete${detail}.` });
+        }
+        setLastSync(getLastSyncTime());
+      } else {
+        setFbSyncMessage({ type: 'error', text: result.error || 'Sync failed.' });
       }
-      const detail = parts.length > 0 ? ` (${parts.join(', ')})` : '';
-      setFbSyncMessage({ type: 'success', text: `Sync complete${detail}.` });
-      setLastSync(getLastSyncTime());
-    } else {
-      setFbSyncMessage({ type: 'error', text: result.error || 'Sync failed.' });
+    } catch (err) {
+      setFbSyncAction('idle');
+      setFbSyncMessage({ type: 'error', text: err instanceof Error ? err.message : 'Sync error.' });
     }
   }, [user?.uid]);
 
@@ -132,13 +148,22 @@ const SettingsPage: React.FC = () => {
     if (!user?.uid) return;
     setFbSyncAction('uploading');
     setFbSyncMessage({ type: 'info', text: 'Uploading local data to cloud...' });
-    const result = await uploadToCloud(user.uid);
-    setFbSyncAction('idle');
-    if (result.ok) {
-      setFbSyncMessage({ type: 'success', text: 'Local data uploaded to cloud.' });
-      setLastSync(getLastSyncTime());
-    } else {
-      setFbSyncMessage({ type: 'error', text: result.error || 'Upload failed.' });
+    try {
+      const result = await uploadToCloud(user.uid);
+      setFbSyncAction('idle');
+      if (result.ok) {
+        if (result.error) {
+          setFbSyncMessage({ type: 'info', text: `Upload complete (partial: ${result.error})` });
+        } else {
+          setFbSyncMessage({ type: 'success', text: 'Local data uploaded to cloud.' });
+        }
+        setLastSync(getLastSyncTime());
+      } else {
+        setFbSyncMessage({ type: 'error', text: result.error || 'Upload failed.' });
+      }
+    } catch (err) {
+      setFbSyncAction('idle');
+      setFbSyncMessage({ type: 'error', text: err instanceof Error ? err.message : 'Upload error.' });
     }
   }, [user?.uid]);
 

@@ -115,11 +115,22 @@ function mergeSessions(
     if (!existing) {
       map.set(s.id, s);
     } else {
-      // Keep whichever was updated more recently
       const localTime = s.updatedAt ?? s.createdAt ?? 0;
       const cloudTime = existing.updatedAt ?? existing.createdAt ?? 0;
       if (localTime > cloudTime) {
         map.set(s.id, s);
+      } else {
+        // Cloud wins on timestamp, but it may have heavy fields stripped.
+        // Restore transcriptData / transcriptLines / aiAnalysis from local.
+        map.set(s.id, {
+          ...existing,
+          transcriptData: existing.transcriptData ?? s.transcriptData,
+          transcriptLines:
+            existing.transcriptLines && existing.transcriptLines.length > 0
+              ? existing.transcriptLines
+              : s.transcriptLines,
+          aiAnalysis: existing.aiAnalysis ?? s.aiAnalysis,
+        });
       }
     }
   }
@@ -166,22 +177,31 @@ export async function uploadToCloud(uid: string): Promise<SyncResult> {
   try {
     const data = collectLocalData();
 
-    await Promise.all([
+    const results = await Promise.allSettled([
       uploadCollection(uid, 'vocabulary', data.vocabulary),
       uploadCollection(uid, 'sentences', data.sentences),
       uploadCollection(uid, 'sessions', data.sessions.map(s => ({
         ...s,
         // Strip large fields to stay under Firestore 1MB document limit
         transcriptData: undefined,
-        transcriptLines: [],
+        transcriptLines: undefined,
         aiAnalysis: undefined,
       }))),
     ]);
 
+    const errors = results
+      .filter((r): r is PromiseRejectedResult => r.status === 'rejected')
+      .map((r) => r.reason?.message ?? String(r.reason));
+
+    if (errors.length === results.length) {
+      // All failed
+      return { ok: false, error: errors.join('; ') };
+    }
+
     localStorage.setItem(LAST_SYNC_KEY, String(Date.now()));
     localStorage.removeItem(SYNC_PENDING_KEY);
 
-    return {
+    const result: SyncResult = {
       ok: true,
       counts: {
         vocabulary: data.vocabulary.length,
@@ -189,6 +209,10 @@ export async function uploadToCloud(uid: string): Promise<SyncResult> {
         sessions: data.sessions.length,
       },
     };
+    if (errors.length > 0) {
+      result.error = errors.join('; ');
+    }
+    return result;
   } catch (err) {
     return {
       ok: false,
@@ -219,11 +243,23 @@ export async function syncWithCloud(uid: string): Promise<SyncResult> {
     const local = collectLocalData();
 
     // Download all cloud collections in parallel (dailyPlan excluded — local only)
-    const [cloudVocab, cloudSentences, cloudSessions] = await Promise.all([
+    const dlResults = await Promise.allSettled([
       downloadCollection<VocabularyItem>(uid, 'vocabulary'),
       downloadCollection<SentenceItem>(uid, 'sentences'),
       downloadCollection<VideoStudySession>(uid, 'sessions'),
     ]);
+
+    const cloudVocab = dlResults[0].status === 'fulfilled' ? dlResults[0].value : [];
+    const cloudSentences = dlResults[1].status === 'fulfilled' ? dlResults[1].value : [];
+    const cloudSessions = dlResults[2].status === 'fulfilled' ? dlResults[2].value : [];
+
+    const dlErrors: string[] = [];
+    dlResults.forEach((r, i) => {
+      if (r.status === 'rejected') {
+        const name = ['vocabulary', 'sentences', 'sessions'][i];
+        dlErrors.push(`${name}: ${r.reason?.message ?? String(r.reason)}`);
+      }
+    });
 
     // Merge each collection
     const mergedVocab = mergeById(local.vocabulary, cloudVocab);
@@ -238,7 +274,6 @@ export async function syncWithCloud(uid: string): Promise<SyncResult> {
     // Restore current session from merged list (the most recent one)
     const currentSession = loadCurrentSession();
     if (currentSession) {
-      // If current session exists in merged, keep it; otherwise use the most recent merged
       const found = mergedSessions.find((s) => s.id === currentSession.id);
       if (found) {
         saveCurrentSession(found);
@@ -248,16 +283,31 @@ export async function syncWithCloud(uid: string): Promise<SyncResult> {
     }
 
     // Upload merged data back to cloud (so cloud has the merged result too)
-    await Promise.all([
+    const ulResults = await Promise.allSettled([
       uploadCollection(uid, 'vocabulary', mergedVocab),
       uploadCollection(uid, 'sentences', mergedSentences),
       uploadCollection(uid, 'sessions', mergedSessions.map(s => ({
         ...s,
         transcriptData: undefined,
-        transcriptLines: [],
+        transcriptLines: undefined,
         aiAnalysis: undefined,
       }))),
     ]);
+
+    const ulErrors: string[] = [];
+    ulResults.forEach((r, i) => {
+      if (r.status === 'rejected') {
+        const name = ['vocabulary', 'sentences', 'sessions'][i];
+        ulErrors.push(`${name}: ${r.reason?.message ?? String(r.reason)}`);
+      }
+    });
+
+    const allErrors = [...dlErrors, ...ulErrors];
+
+    // If every download AND every upload failed, report total failure
+    if (dlErrors.length === 3 && ulErrors.length === 3) {
+      return { ok: false, error: allErrors.join('; ') };
+    }
 
     localStorage.setItem(LAST_SYNC_KEY, String(Date.now()));
     localStorage.removeItem(SYNC_PENDING_KEY);
@@ -268,7 +318,11 @@ export async function syncWithCloud(uid: string): Promise<SyncResult> {
       sessions: mergedSessions.length,
     };
 
-    return { ok: true, counts };
+    const result: SyncResult = { ok: true, counts };
+    if (allErrors.length > 0) {
+      result.error = allErrors.join('; ');
+    }
+    return result;
   } catch (err) {
     return {
       ok: false,
