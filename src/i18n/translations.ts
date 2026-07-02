@@ -35,6 +35,11 @@ const translations: Record<string, Record<Lang, string>> = {
   'login.errCancelled':  { en: 'Sign-in was cancelled.', zh: '登录已取消。' },
   'login.errTooMany':    { en: 'Too many attempts. Please try again later.', zh: '尝试次数过多，请稍后再试。' },
   'login.errFailed':     { en: 'Authentication failed.', zh: '认证失败。' },
+  'login.confirmPassword': { en: 'Confirm password', zh: '确认密码' },
+  'login.errPwMismatch': { en: 'Passwords do not match.', zh: '两次输入的密码不一致。' },
+  'login.pwWeak':        { en: 'Weak', zh: '弱' },
+  'login.pwMedium':      { en: 'Medium', zh: '中' },
+  'login.pwStrong':      { en: 'Strong', zh: '强' },
 
   // ── Dashboard ────────────────────────────────────────────
   'dash.welcome':        { en: 'Welcome back', zh: '欢迎回来' },
