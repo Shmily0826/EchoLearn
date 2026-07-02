@@ -348,7 +348,22 @@ export async function pushItemsToCloud(
   if (collections.includes('sentences')) {
     promises.push(uploadCollection(uid, 'sentences', loadSentences()));
   }
-  await Promise.all(promises);
+  await Promise.allSettled(promises);
+  localStorage.setItem(LAST_SYNC_KEY, String(Date.now()));
+}
+
+/**
+ * Upload sessions to Firestore with heavy fields stripped.
+ * Called automatically after session save/update (debounced by the caller).
+ */
+export async function pushSessionToCloud(uid: string): Promise<void> {
+  const sessions = loadAllSessions().map((s) => ({
+    ...s,
+    transcriptData: undefined,
+    transcriptLines: undefined,
+    aiAnalysis: undefined,
+  }));
+  await uploadCollection(uid, 'sessions', sessions);
   localStorage.setItem(LAST_SYNC_KEY, String(Date.now()));
 }
 

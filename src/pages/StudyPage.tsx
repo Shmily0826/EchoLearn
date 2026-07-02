@@ -15,7 +15,7 @@ import { fetchYouTubeTranscript } from '../services/youtubeTranscript';
 import { fetchBilibiliTranscript, getBilibiliVideoTitle } from '../services/bilibiliTranscript';
 import { translateWord } from '../services/translationService';
 import { lookupWord } from '../services/dictionaryService';
-import { pushItemsToCloud } from '../services/firestoreSync';
+import { pushItemsToCloud, pushSessionToCloud, syncWithCloud } from '../services/firestoreSync';
 import { useAuth } from '../contexts/AuthContext';
 import { CEFR_LEVELS, type CEFRLevel } from '../services/cefrWordList';
 import { useI18n } from '../i18n/I18nContext';
@@ -62,6 +62,26 @@ const StudyPage: React.FC = () => {
     syncTimerRef.current = setTimeout(() => {
       pushItemsToCloud(user.uid).catch(() => { /* silent */ });
     }, 2000);
+  }, [user?.uid]);
+
+  // Debounced session sync — pushes sessions 5s after last change (they're larger)
+  const sessionSyncTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const triggerSessionSync = useCallback(() => {
+    if (!user?.uid) return;
+    if (sessionSyncTimerRef.current) clearTimeout(sessionSyncTimerRef.current);
+    sessionSyncTimerRef.current = setTimeout(() => {
+      pushSessionToCloud(user.uid).catch(() => { /* silent */ });
+    }, 5000);
+  }, [user?.uid]);
+
+  // Auto-sync with cloud when StudyPage mounts (pull latest data from other devices)
+  useEffect(() => {
+    if (!user?.uid) return;
+    syncWithCloud(user.uid).then(() => {
+      // Refresh state from localStorage after merge
+      setVocabulary(loadVocabulary());
+      setSentences(loadSentences());
+    }).catch(() => { /* silent */ });
   }, [user?.uid]);
 
   // ── Session state ──────────────────────────────────────────
@@ -461,8 +481,9 @@ const StudyPage: React.FC = () => {
       };
       saveCurrentSession(updated);
       setSession(updated);
+      triggerSessionSync();
     },
-    [session, platform],
+    [session, platform, triggerSessionSync],
   );
 
   // ── Shared: import raw blocks → normalize → persist ────────
