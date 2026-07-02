@@ -31,3 +31,7 @@ android/.gradle
 android/app/build
 android/app/release
 android/local.properties
+android/app/*.keystore
+
+# APK files (built artifacts)
+*.apk
