@@ -62,7 +62,9 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       // skipNativeAuth: true — native plugin only shows the Google account
       // picker and returns an ID token.  We manually bridge it to web
       // Firebase Auth via signInWithCredential.
-      const result = await FirebaseAuthentication.signInWithGoogle();
+      const result = await FirebaseAuthentication.signInWithGoogle({
+        useCredentialManager: false,
+      });
       if (result?.credential?.idToken) {
         const credential = GoogleAuthProvider.credential(result.credential.idToken);
         await signInWithCredential(auth, credential);
