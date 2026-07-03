@@ -155,6 +155,31 @@ function collectLocalData(): AllLocalData {
   };
 }
 
+// ── Firestore-safe helpers ──────────────────────────────────────
+
+/**
+ * Remove all keys whose value is `undefined` from an object.
+ * Firestore setDoc() rejects `{ field: undefined }` — the key must
+ * not exist at all.  This utility makes any object safe to write.
+ */
+function stripUndefined<T extends Record<string, unknown>>(obj: T): Record<string, unknown> {
+  const result: Record<string, unknown> = {};
+  for (const [key, value] of Object.entries(obj)) {
+    if (value !== undefined) result[key] = value;
+  }
+  return result;
+}
+
+/**
+ * Strip heavy fields from a session so it stays under Firestore's 1 MB
+ * document limit.  Uses destructuring to *omit* the keys entirely
+ * (setting them to `undefined` would make Firestore reject the write).
+ */
+function stripSession(s: VideoStudySession): VideoStudySession {
+  const { transcriptData, transcriptLines, aiAnalysis, ...rest } = s;
+  return stripUndefined(rest as Record<string, unknown>) as unknown as VideoStudySession;
+}
+
 // ── Upload ─────────────────────────────────────────────────────
 
 async function uploadCollection<T extends { id: string }>(
@@ -163,8 +188,10 @@ async function uploadCollection<T extends { id: string }>(
   items: T[],
 ): Promise<void> {
   const ref = getCollectionRef(uid, collection);
+  // Strip undefined values from every item to prevent Firestore errors
+  const cleanItems = items.map((item) => stripUndefined(item as Record<string, unknown>));
   await setDoc(ref, {
-    items,
+    items: cleanItems,
     updatedAt: Date.now(),
     serverUpdatedAt: serverTimestamp(),
   });
@@ -181,13 +208,7 @@ export async function uploadToCloud(uid: string): Promise<SyncResult> {
     const results = await Promise.allSettled([
       uploadCollection(uid, 'vocabulary', data.vocabulary),
       uploadCollection(uid, 'sentences', data.sentences),
-      uploadCollection(uid, 'sessions', data.sessions.map(s => ({
-        ...s,
-        // Strip large fields to stay under Firestore 1MB document limit
-        transcriptData: undefined,
-        transcriptLines: undefined,
-        aiAnalysis: undefined,
-      }))),
+      uploadCollection(uid, 'sessions', data.sessions.map(stripSession)),
     ]);
 
     const errors = results
@@ -297,12 +318,7 @@ export async function syncWithCloud(uid: string): Promise<SyncResult> {
     const ulResults = await Promise.allSettled([
       uploadCollection(uid, 'vocabulary', mergedVocab),
       uploadCollection(uid, 'sentences', mergedSentences),
-      uploadCollection(uid, 'sessions', mergedSessions.map(s => ({
-        ...s,
-        transcriptData: undefined,
-        transcriptLines: undefined,
-        aiAnalysis: undefined,
-      }))),
+      uploadCollection(uid, 'sessions', mergedSessions.map(stripSession)),
     ]);
 
     const ulErrors: string[] = [];
@@ -368,12 +384,7 @@ export async function pushItemsToCloud(
  * Called automatically after session save/update (debounced by the caller).
  */
 export async function pushSessionToCloud(uid: string): Promise<void> {
-  const sessions = loadAllSessions().map((s) => ({
-    ...s,
-    transcriptData: undefined,
-    transcriptLines: undefined,
-    aiAnalysis: undefined,
-  }));
+  const sessions = loadAllSessions().map(stripSession);
   await uploadCollection(uid, 'sessions', sessions);
   localStorage.setItem(LAST_SYNC_KEY, String(Date.now()));
 }
