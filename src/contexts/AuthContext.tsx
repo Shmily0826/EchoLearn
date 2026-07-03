@@ -3,10 +3,12 @@ import type { ReactNode } from 'react';
 import {
   onAuthStateChanged,
   signInWithPopup,
+  signInWithCredential,
   signInWithEmailAndPassword,
   createUserWithEmailAndPassword,
   signOut,
   updateProfile,
+  GoogleAuthProvider,
 } from 'firebase/auth';
 import type { User } from 'firebase/auth';
 import { FirebaseAuthentication } from '@capacitor-firebase/authentication';
@@ -57,13 +59,15 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
   const signInWithGoogle = useCallback(async () => {
     if (isCapacitor()) {
-      // Native Google Sign-In — shows device account picker.
-      // Falls back to web popup if the native plugin fails (e.g. "no credentials").
-      try {
-        await FirebaseAuthentication.signInWithGoogle();
-      } catch (nativeErr) {
-        console.warn('[Auth] Native Google Sign-In failed, trying web popup fallback:', nativeErr);
-        await signInWithPopup(auth, googleProvider);
+      // skipNativeAuth: true — native plugin only shows the Google account
+      // picker and returns an ID token.  We manually bridge it to web
+      // Firebase Auth via signInWithCredential.
+      const result = await FirebaseAuthentication.signInWithGoogle();
+      if (result?.credential?.idToken) {
+        const credential = GoogleAuthProvider.credential(result.credential.idToken);
+        await signInWithCredential(auth, credential);
+      } else {
+        throw new Error('Google Sign-In returned no ID token');
       }
     } else {
       await signInWithPopup(auth, googleProvider);
@@ -85,6 +89,9 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   );
 
   const logOut = useCallback(async () => {
+    if (isCapacitor()) {
+      try { await FirebaseAuthentication.signOut(); } catch { /* ignore */ }
+    }
     await signOut(auth);
   }, []);
 
