@@ -1,6 +1,7 @@
 import { useEffect } from 'react';
 import { BrowserRouter, useLocation, useNavigate } from 'react-router-dom';
 import { App as CapApp } from '@capacitor/app';
+import { StatusBar, Style } from '@capacitor/status-bar';
 import { isCapacitor } from './utils/platform';
 import { AuthProvider, useAuth } from './contexts/AuthContext';
 import { I18nProvider, useI18n } from './i18n/I18nContext';
@@ -26,9 +27,14 @@ function AppContent() {
   const { translateDetected, dismissWarning } = useAntiTranslate();
   const { t } = useI18n();
 
-  // Handle Android back button in Capacitor
+  // Handle Android back button and status bar in Capacitor
   useEffect(() => {
     if (!isCapacitor()) return;
+
+    // Prevent status bar from overlapping app content
+    StatusBar.setOverlaysWebView({ overlay: false }).catch(() => {});
+    StatusBar.setStyle({ style: Style.Dark }).catch(() => {});
+
     const handler = CapApp.addListener('backButton', ({ canGoBack }) => {
       if (pathname !== '/') {
         navigate('/');

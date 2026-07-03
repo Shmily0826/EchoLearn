@@ -59,6 +59,9 @@ header, main, div, section, button, input, select, textarea {
 }
 
 /* Safe area for iOS notch / bottom bar */
+.safe-area-top {
+  padding-top: env(safe-area-inset-top, 0px);
+}
 .safe-area-bottom {
   padding-bottom: env(safe-area-inset-bottom, 0px);
 }

@@ -84,7 +84,7 @@ const Layout: React.FC<{ children: ReactNode }> = ({ children }) => {
 
   return (
     <div
-      className="min-h-screen flex flex-col notranslate"
+      className="min-h-screen flex flex-col notranslate safe-area-top"
       style={{ backgroundColor: 'var(--color-bg)', color: 'var(--color-text)' }}
       translate="no"
     >

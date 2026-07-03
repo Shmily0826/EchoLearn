@@ -37,20 +37,21 @@ import {
 
 function useLocalDataSize() {
   const [size, setSize] = useState({ vocab: 0, sentences: 0, sessions: 0 });
-  useEffect(() => {
+  const refresh = useCallback(() => {
     setSize({
       vocab: loadVocabulary().length,
       sentences: loadSentences().length,
       sessions: loadAllSessions().length,
     });
   }, []);
-  return size;
+  useEffect(() => { refresh(); }, [refresh]);
+  return { size, refresh };
 }
 
 // ── Settings Page ─────────────────────────────────────────────
 
 const SettingsPage: React.FC = () => {
-  const dataSize = useLocalDataSize();
+  const { size: dataSize, refresh: refreshDataSize } = useLocalDataSize();
   const { user, logOut } = useAuth();
   const { t } = useI18n();
 
@@ -99,6 +100,7 @@ const SettingsPage: React.FC = () => {
         setFbSyncAction('idle');
         if (result.ok) {
           setLastSync(getLastSyncTime());
+          refreshDataSize();
           if (result.error) {
             setFbSyncMessage({ type: 'info', text: `Sync complete (partial: ${result.error})` });
           }
@@ -134,6 +136,7 @@ const SettingsPage: React.FC = () => {
           setFbSyncMessage({ type: 'success', text: `Sync complete${detail}.` });
         }
         setLastSync(getLastSyncTime());
+        refreshDataSize();
       } else {
         setFbSyncMessage({ type: 'error', text: result.error || 'Sync failed.' });
       }
@@ -141,7 +144,7 @@ const SettingsPage: React.FC = () => {
       setFbSyncAction('idle');
       setFbSyncMessage({ type: 'error', text: err instanceof Error ? err.message : 'Sync error.' });
     }
-  }, [user?.uid]);
+  }, [user?.uid, refreshDataSize]);
 
   // ── Firebase upload only ──────────────────────────────────
   const handleUploadOnly = useCallback(async () => {
@@ -158,6 +161,7 @@ const SettingsPage: React.FC = () => {
           setFbSyncMessage({ type: 'success', text: 'Local data uploaded to cloud.' });
         }
         setLastSync(getLastSyncTime());
+        refreshDataSize();
       } else {
         setFbSyncMessage({ type: 'error', text: result.error || 'Upload failed.' });
       }
@@ -165,7 +169,7 @@ const SettingsPage: React.FC = () => {
       setFbSyncAction('idle');
       setFbSyncMessage({ type: 'error', text: err instanceof Error ? err.message : 'Upload error.' });
     }
-  }, [user?.uid]);
+  }, [user?.uid, refreshDataSize]);
 
   // ── Handle sign out ───────────────────────────────────────
   const handleSignOut = useCallback(async () => {
@@ -265,7 +269,7 @@ const SettingsPage: React.FC = () => {
       const detail = parts.length > 0 ? parts.join(', ') : '';
       setSyncMessage({ type: 'success', text: t('settings.syncRestored', { detail }) });
       setSyncStatus(getSyncStatus());
-      setTimeout(() => window.location.reload(), 2000);
+      refreshDataSize();
     } else {
       setSyncMessage({ type: 'error', text: result.error || t('settings.syncLoadFailed') });
     }
