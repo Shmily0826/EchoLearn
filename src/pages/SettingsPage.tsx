@@ -369,6 +369,7 @@ const SettingsPage: React.FC = () => {
                 <p className="font-medium text-gray-800 dark:text-gray-200">{user.displayName}</p>
               )}
               <p className="text-gray-400 dark:text-gray-500">{user.email}</p>
+              <p className="text-[10px] text-gray-300 dark:text-gray-600 font-mono mt-0.5 select-all">UID: {user.uid}</p>
               {user.providerData[0]?.providerId === 'google.com' && (
                 <p className="text-xs text-gray-400 dark:text-gray-500 mt-0.5">{t('settings.signedInGoogle')}</p>
               )}

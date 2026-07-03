@@ -176,6 +176,7 @@ async function uploadCollection<T extends { id: string }>(
 export async function uploadToCloud(uid: string): Promise<SyncResult> {
   try {
     const data = collectLocalData();
+    console.log('[Sync] Upload →', { uid, vocab: data.vocabulary.length, sentences: data.sentences.length, sessions: data.sessions.length });
 
     const results = await Promise.allSettled([
       uploadCollection(uid, 'vocabulary', data.vocabulary),
@@ -195,11 +196,18 @@ export async function uploadToCloud(uid: string): Promise<SyncResult> {
 
     if (errors.length === results.length) {
       // All failed
+      console.error('[Sync] Upload FAILED (all):', errors);
       return { ok: false, error: errors.join('; ') };
     }
 
     localStorage.setItem(LAST_SYNC_KEY, String(Date.now()));
     localStorage.removeItem(SYNC_PENDING_KEY);
+
+    if (errors.length > 0) {
+      console.warn('[Sync] Upload partial:', errors);
+    } else {
+      console.log('[Sync] Upload OK');
+    }
 
     const result: SyncResult = {
       ok: true,
@@ -241,6 +249,7 @@ async function downloadCollection<T>(
 export async function syncWithCloud(uid: string): Promise<SyncResult> {
   try {
     const local = collectLocalData();
+    console.log('[Sync] Sync →', { uid, localVocab: local.vocabulary.length, localSentences: local.sentences.length, localSessions: local.sessions.length });
 
     // Download all cloud collections in parallel (dailyPlan excluded — local only)
     const dlResults = await Promise.allSettled([
@@ -252,6 +261,7 @@ export async function syncWithCloud(uid: string): Promise<SyncResult> {
     const cloudVocab = dlResults[0].status === 'fulfilled' ? dlResults[0].value : [];
     const cloudSentences = dlResults[1].status === 'fulfilled' ? dlResults[1].value : [];
     const cloudSessions = dlResults[2].status === 'fulfilled' ? dlResults[2].value : [];
+    console.log('[Sync] Cloud ↓', { cloudVocab: cloudVocab.length, cloudSentences: cloudSentences.length, cloudSessions: cloudSessions.length });
 
     const dlErrors: string[] = [];
     dlResults.forEach((r, i) => {
@@ -265,6 +275,7 @@ export async function syncWithCloud(uid: string): Promise<SyncResult> {
     const mergedVocab = mergeById(local.vocabulary, cloudVocab);
     const mergedSentences = mergeById(local.sentences, cloudSentences);
     const mergedSessions = mergeSessions(local.sessions, cloudSessions);
+    console.log('[Sync] Merged', { vocab: mergedVocab.length, sentences: mergedSentences.length, sessions: mergedSessions.length });
 
     // Save merged data to localStorage (dailyPlan stays as-is locally)
     saveVocabulary(mergedVocab);
