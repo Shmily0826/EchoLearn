@@ -57,8 +57,14 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
   const signInWithGoogle = useCallback(async () => {
     if (isCapacitor()) {
-      // Native Google Sign-In — shows device account picker
-      await FirebaseAuthentication.signInWithGoogle();
+      // Native Google Sign-In — shows device account picker.
+      // Falls back to web popup if the native plugin fails (e.g. "no credentials").
+      try {
+        await FirebaseAuthentication.signInWithGoogle();
+      } catch (nativeErr) {
+        console.warn('[Auth] Native Google Sign-In failed, trying web popup fallback:', nativeErr);
+        await signInWithPopup(auth, googleProvider);
+      }
     } else {
       await signInWithPopup(auth, googleProvider);
     }

@@ -23,6 +23,7 @@ const config: CapacitorConfig = {
     FirebaseAuthentication: {
       skipNativeAuth: false,
       providers: ['google.com'],
+      serverClientId: '820664709629-0p6htp9i7lbog4k8kp7u22rr6socfhev.apps.googleusercontent.com',
     },
     SplashScreen: {
       launchShowDuration: 3000,

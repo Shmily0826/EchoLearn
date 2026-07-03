@@ -830,8 +830,17 @@ const StudyPage: React.FC = () => {
                 </svg>
                 <span>{t('study.timerPaused')}</span>
                 <button
+                  onClick={() => {
+                    playerRef.current?.playVideo();
+                    setSleepToast(false);
+                  }}
+                  className="ml-auto px-2 py-0.5 text-xs rounded bg-amber-200 dark:bg-amber-800/50 text-amber-800 dark:text-amber-200 hover:bg-amber-300 dark:hover:bg-amber-700/60 transition-colors cursor-pointer"
+                >
+                  {t('study.timerUndo')}
+                </button>
+                <button
                   onClick={() => setSleepToast(false)}
-                  className="ml-auto text-amber-400 hover:text-amber-600 dark:hover:text-amber-200 cursor-pointer"
+                  className="text-amber-400 hover:text-amber-600 dark:hover:text-amber-200 cursor-pointer"
                 >
                   <svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
                     <path strokeLinecap="round" strokeLinejoin="round" d="M6 18L18 6M6 6l12 12" />
@@ -938,10 +947,16 @@ const StudyPage: React.FC = () => {
                   </div>
                 </div>
                 {sleepRemaining > 0 && (
-                  <span className="text-[10px] text-amber-600 dark:text-amber-400 font-mono tabular-nums">
+                  <span className="flex items-center gap-1.5 text-[10px] text-amber-600 dark:text-amber-400 font-mono tabular-nums">
                     {t('study.timerRemaining', {
                       time: `${Math.floor(sleepRemaining / 60)}:${String(sleepRemaining % 60).padStart(2, '0')}`,
                     })}
+                    <button
+                      onClick={() => { setSleepMinutes(0); setSleepRemaining(0); }}
+                      className="text-[9px] font-sans px-1.5 py-0.5 rounded bg-amber-100 dark:bg-amber-900/40 text-amber-700 dark:text-amber-300 hover:bg-amber-200 dark:hover:bg-amber-800/50 transition-colors cursor-pointer"
+                    >
+                      {t('study.timerCancel')}
+                    </button>
                   </span>
                 )}
                 {/* Video info — hidden on mobile, visible on desktop */}

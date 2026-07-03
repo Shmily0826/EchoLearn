@@ -692,13 +692,38 @@ function clearLocalProxyFailure(): void {
 
 /**
  * Calls server-side transcript APIs.
- * Tries CF Worker first (better IP reputation), then Vercel /api/transcript as fallback.
+ * Tries Vercel /api/transcript first (same-origin, reliable on mobile),
+ * then CF Worker as fallback (different IP range, better for YouTube blocking).
  */
 async function fetchViaServerApi(
   videoId: string,
   lang: string,
 ): Promise<TranscriptFetchResult | null> {
-  // Try CF Worker first
+  // Try same-origin Vercel serverless function first (avoids cross-origin issues on mobile)
+  try {
+    const res = await fetch(
+      `/api/transcript?videoId=${encodeURIComponent(videoId)}&lang=${encodeURIComponent(lang)}`,
+    );
+    if (res.ok) {
+      const data = (await res.json()) as TranscriptFetchResult;
+      if (data.lines && data.lines.length > 0) {
+        console.log(
+          `[EchoLearn] Vercel Server API: got ${data.lines.length} lines (${data.language})`,
+        );
+        return data;
+      }
+    } else {
+      const body = await res.text().catch(() => '');
+      console.warn(`[EchoLearn] Vercel Server API error: ${res.status}`, body.substring(0, 200));
+    }
+  } catch (err) {
+    console.warn(
+      '[EchoLearn] Vercel Server API error:',
+      err instanceof Error ? err.message : err,
+    );
+  }
+
+  // Fallback: CF Worker (different IP range, may bypass YouTube blocking)
   try {
     const res = await fetch(
       `${CF_WORKER_URL}/api/transcript?videoId=${encodeURIComponent(videoId)}&lang=${encodeURIComponent(lang)}`,
@@ -721,30 +746,7 @@ async function fetchViaServerApi(
     );
   }
 
-  // Fallback: Vercel serverless function
-  try {
-    const res = await fetch(
-      `/api/transcript?videoId=${encodeURIComponent(videoId)}&lang=${encodeURIComponent(lang)}`,
-    );
-    if (!res.ok) {
-      const body = await res.text().catch(() => '');
-      console.warn(`[EchoLearn] Vercel Server API error: ${res.status}`, body.substring(0, 200));
-      return null;
-    }
-    const data = (await res.json()) as TranscriptFetchResult;
-    if (!data.lines || data.lines.length === 0) return null;
-
-    console.log(
-      `[EchoLearn] Vercel Server API: got ${data.lines.length} lines (${data.language})`,
-    );
-    return data;
-  } catch (err) {
-    console.warn(
-      '[EchoLearn] Vercel Server API error:',
-      err instanceof Error ? err.message : err,
-    );
-    return null;
-  }
+  return null;
 }
 
 // ── Strategy 4: youtube-transcript npm package (client-side) ──

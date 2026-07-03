@@ -363,6 +363,8 @@ const translations: Record<string, Record<Lang, string>> = {
   'study.timerMin':      { en: '{n} min', zh: '{n} 分钟' },
   'study.timerRemaining': { en: 'Sleep in {time}', zh: '{time} 后暂停' },
   'study.timerPaused':   { en: 'Timer done — video paused', zh: '定时结束 — 视频已暂停' },
+  'study.timerCancel':   { en: 'Cancel', zh: '取消' },
+  'study.timerUndo':     { en: 'Resume', zh: '继续播放' },
   'study.timerCustom':   { en: 'Custom minutes (1-180)', zh: '自定义分钟数 (1-180)' },
 
   // ── Playback Resume ─────────────────────────────────────
