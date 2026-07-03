@@ -771,7 +771,7 @@ const DashboardPage: React.FC = () => {
                 {currentSession.title || currentSession.youtubeUrl}
               </p>
               <p className="text-xs text-gray-400 dark:text-gray-500 mt-1">
-                {currentSession.transcriptLines.length} {t('dash.lines')} &middot;{' '}
+                {(currentSession.transcriptLines?.length ?? 0)} {t('dash.lines')} &middot;{' '}
                 {statusLabel(currentSession.status)} &middot;{' '}
                 {t('dash.updated')} {new Date(currentSession.updatedAt).toLocaleDateString()}
               </p>
@@ -837,7 +837,7 @@ const DashboardPage: React.FC = () => {
                                 {s.youtubeId}
                               </span>
                               <span className="text-[11px] text-gray-400 dark:text-gray-500">
-                                {s.transcriptLines.length} {t('dash.lines')}
+                                {(s.transcriptLines?.length ?? 0)} {t('dash.lines')}
                               </span>
                               <span className={`px-1.5 py-0.5 rounded text-[10px] font-medium ${
                                 s.status === 'studying'
@@ -925,7 +925,7 @@ const DashboardPage: React.FC = () => {
                                       </span>
                                     )}
                                     <span className="text-[10px] text-gray-400 dark:text-gray-500">
-                                      {s.transcriptLines.length} {t('dash.lines')}
+                                      {(s.transcriptLines?.length ?? 0)} {t('dash.lines')}
                                     </span>
                                   </div>
                                 </div>

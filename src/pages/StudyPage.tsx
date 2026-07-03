@@ -197,7 +197,7 @@ const StudyPage: React.FC = () => {
       if (saved.transcriptData) {
         setRawBlocks(saved.transcriptData.rawBlocks);
         setSentenceLines(saved.transcriptData.sentenceLines);
-      } else if (saved.transcriptLines.length > 0) {
+      } else if ((saved.transcriptLines?.length ?? 0) > 0) {
         const blocks = saved.transcriptLines;
         const sLines = normalizeTranscriptToSentences(blocks);
         setRawBlocks(blocks);
@@ -211,7 +211,7 @@ const StudyPage: React.FC = () => {
 
       // Auto-fetch captions if no transcript exists for this video
       const hasTranscript =
-        !!saved.transcriptData || saved.transcriptLines.length > 0;
+        !!saved.transcriptData || (saved.transcriptLines?.length ?? 0) > 0;
       if (saved.youtubeId && !hasTranscript) {
         setFetchingCaption(true);
         setCaptionError(null);
@@ -289,7 +289,7 @@ const StudyPage: React.FC = () => {
     if (saved.transcriptData) {
       setRawBlocks(saved.transcriptData.rawBlocks);
       setSentenceLines(saved.transcriptData.sentenceLines);
-    } else if (saved.transcriptLines.length > 0) {
+    } else if ((saved.transcriptLines?.length ?? 0) > 0) {
       const blocks = saved.transcriptLines;
       const sLines = normalizeTranscriptToSentences(blocks);
       setRawBlocks(blocks);
@@ -306,7 +306,7 @@ const StudyPage: React.FC = () => {
 
     // Auto-fetch captions if no transcript exists
     const hasTranscript =
-      !!saved.transcriptData || saved.transcriptLines.length > 0;
+      !!saved.transcriptData || (saved.transcriptLines?.length ?? 0) > 0;
     if (saved.youtubeId && !hasTranscript) {
       setFetchingCaption(true);
       setCaptionError(null);
