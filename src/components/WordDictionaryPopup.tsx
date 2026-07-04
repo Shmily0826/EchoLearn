@@ -1,7 +1,8 @@
-import { useState, useEffect, useRef } from 'react';
+import { useState, useEffect, useRef, useCallback } from 'react';
 import type { DictionaryEntry } from '../types';
 import { lookupWord } from '../services/dictionaryService';
 import { translateWord } from '../services/translationService';
+import ClickableDefinition from './ClickableDefinition';
 
 interface WordDictionaryPopupProps {
   /** The word to look up */
@@ -18,19 +19,28 @@ interface WordDictionaryPopupProps {
 /**
  * A reusable popup that shows dictionary information for a word.
  * Used by TranscriptViewer, VocabularyPage, and SentencesPage.
+ * Supports recursive lookup: tap any word in the definition to look it up.
  */
 const WordDictionaryPopup: React.FC<WordDictionaryPopupProps> = ({
-  word,
+  word: initialWord,
   x,
   y,
   onClose,
   actions,
 }) => {
+  const [currentWord, setCurrentWord] = useState(initialWord);
+  const [wordHistory, setWordHistory] = useState<string[]>([]);
   const [entry, setEntry] = useState<DictionaryEntry | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(false);
   const [definitionCn, setDefinitionCn] = useState('');
   const popupRef = useRef<HTMLDivElement>(null);
+
+  // Reset when initial word changes
+  useEffect(() => {
+    setCurrentWord(initialWord);
+    setWordHistory([]);
+  }, [initialWord]);
 
   // Close on outside click
   useEffect(() => {
@@ -53,25 +63,44 @@ const WordDictionaryPopup: React.FC<WordDictionaryPopupProps> = ({
     setLoading(true);
     setError(false);
     setDefinitionCn('');
-    lookupWord(word).then((result) => {
+    lookupWord(currentWord).then((result) => {
       if (cancelled) return;
       if (result) {
         setEntry(result);
         // Fetch Chinese translation in background
-        translateWord(word, result.definitionEn).then((cn) => {
+        translateWord(currentWord, result.definitionEn).then((cn) => {
           if (!cancelled && cn) setDefinitionCn(cn);
         }).catch(() => { /* silent */ });
       } else {
         setError(true);
         // Still try to translate the word itself
-        translateWord(word).then((cn) => {
+        translateWord(currentWord).then((cn) => {
           if (!cancelled && cn) setDefinitionCn(cn);
         }).catch(() => { /* silent */ });
       }
       setLoading(false);
     });
     return () => { cancelled = true; };
-  }, [word]);
+  }, [currentWord]);
+
+  // Look up a new word from the definition (push current to history)
+  const handleLookupWord = useCallback((w: string) => {
+    const cleaned = w.replace(/[^\w']/g, '').toLowerCase();
+    if (!cleaned || cleaned === currentWord.toLowerCase()) return;
+    setWordHistory((prev) => [...prev, currentWord]);
+    setCurrentWord(cleaned);
+  }, [currentWord]);
+
+  // Go back to the previous word
+  const handleGoBack = useCallback(() => {
+    setWordHistory((prev) => {
+      if (prev.length === 0) return prev;
+      const newHistory = [...prev];
+      const prevWord = newHistory.pop()!;
+      setCurrentWord(prevWord);
+      return newHistory;
+    });
+  }, []);
 
   const handlePlayAudio = (e: React.MouseEvent) => {
     e.stopPropagation();
@@ -100,9 +129,20 @@ const WordDictionaryPopup: React.FC<WordDictionaryPopupProps> = ({
             <path strokeLinecap="round" strokeLinejoin="round" d="M6 18L18 6M6 6l12 12" />
           </svg>
         </button>
-        {/* Word + phonetic */}
+        {/* Word + phonetic + back button */}
         <div className="flex items-center gap-2 mb-1">
-          <span className="text-lg font-bold text-gray-800 dark:text-gray-200">{word}</span>
+          {wordHistory.length > 0 && (
+            <button
+              onClick={handleGoBack}
+              title="Back to previous word"
+              className="p-1 rounded-full hover:bg-gray-100 dark:hover:bg-slate-700 text-indigo-500 hover:text-indigo-700 transition-colors cursor-pointer"
+            >
+              <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                <path strokeLinecap="round" strokeLinejoin="round" d="M15 19l-7-7 7-7" />
+              </svg>
+            </button>
+          )}
+          <span className="text-lg font-bold text-gray-800 dark:text-gray-200">{currentWord}</span>
           {entry?.phonetic && (
             <span className="text-sm text-gray-400 dark:text-gray-500 font-mono">{entry.phonetic}</span>
           )}
@@ -142,7 +182,9 @@ const WordDictionaryPopup: React.FC<WordDictionaryPopupProps> = ({
         {entry && !loading && (
           <div className="mb-3">
             {entry.definitionEn && (
-              <p className="text-sm text-gray-700 dark:text-gray-300 leading-relaxed">{entry.definitionEn}</p>
+              <p className="text-sm text-gray-700 dark:text-gray-300 leading-relaxed">
+                <ClickableDefinition text={entry.definitionEn} onWordClick={handleLookupWord} />
+              </p>
             )}
             {definitionCn && (
               <p className="text-sm text-indigo-600 dark:text-indigo-400 leading-relaxed mt-1">{definitionCn}</p>
@@ -156,7 +198,13 @@ const WordDictionaryPopup: React.FC<WordDictionaryPopupProps> = ({
               <div className="mt-2 flex items-start gap-1 flex-wrap">
                 <span className="text-[10px] text-gray-400 dark:text-gray-500 font-medium mt-px">syn:</span>
                 {entry.synonyms.slice(0, 5).map((s) => (
-                  <span key={s} className="text-[10px] px-1.5 py-0.5 bg-gray-100 dark:bg-slate-700 text-gray-600 dark:text-gray-400 rounded">{s}</span>
+                  <button
+                    key={s}
+                    onClick={() => handleLookupWord(s)}
+                    className="text-[10px] px-1.5 py-0.5 bg-gray-100 dark:bg-slate-700 text-indigo-600 dark:text-indigo-400 rounded hover:bg-indigo-50 dark:hover:bg-indigo-950 cursor-pointer transition-colors"
+                  >
+                    {s}
+                  </button>
                 ))}
               </div>
             )}
@@ -164,7 +212,13 @@ const WordDictionaryPopup: React.FC<WordDictionaryPopupProps> = ({
               <div className="mt-1 flex items-start gap-1 flex-wrap">
                 <span className="text-[10px] text-gray-400 dark:text-gray-500 font-medium mt-px">ant:</span>
                 {entry.antonyms.slice(0, 5).map((s) => (
-                  <span key={s} className="text-[10px] px-1.5 py-0.5 bg-gray-100 dark:bg-slate-700 text-gray-600 dark:text-gray-400 rounded">{s}</span>
+                  <button
+                    key={s}
+                    onClick={() => handleLookupWord(s)}
+                    className="text-[10px] px-1.5 py-0.5 bg-gray-100 dark:bg-slate-700 text-indigo-600 dark:text-indigo-400 rounded hover:bg-indigo-50 dark:hover:bg-indigo-950 cursor-pointer transition-colors"
+                  >
+                    {s}
+                  </button>
                 ))}
               </div>
             )}

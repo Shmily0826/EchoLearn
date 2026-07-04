@@ -6,6 +6,7 @@ import TranscriptViewer from '../components/TranscriptViewer';
 import TranscriptImporter from '../components/TranscriptImporter';
 import AIAnalysisPanel from '../components/AIAnalysisPanel';
 import WordDictionaryPopup from '../components/WordDictionaryPopup';
+import ClickableDefinition from '../components/ClickableDefinition';
 import { parseYouTubeId, parseStartTime } from '../utils/youtube';
 import { detectPlatform, parseBilibiliId, parseBilibiliStartTime, parseBilibiliPage } from '../utils/bilibili';
 import { normalizeTranscriptToSentences } from '../utils/transcriptNormalizer';
@@ -730,14 +731,14 @@ const StudyPage: React.FC = () => {
             )}
           </div>
 
-          <div className="flex items-center gap-2 sm:gap-3">
+          <div className="flex items-center gap-2 sm:gap-3 flex-wrap">
             <input
               type="text"
               value={urlInput}
               onChange={(e) => setUrlInput(e.target.value)}
               onKeyDown={(e) => e.key === 'Enter' && handleLoadVideo()}
               placeholder={t('study.urlPh')}
-              className="flex-1 sm:w-80 px-3 py-1.5 text-sm border border-gray-300 dark:border-slate-700 rounded-lg focus:outline-none focus:ring-2 focus:ring-indigo-400 focus:border-transparent dark:bg-slate-800 dark:text-gray-200 min-w-0"
+              className="flex-1 sm:w-80 px-3 py-1.5 text-sm border border-gray-300 dark:border-slate-700 rounded-lg focus:outline-none focus:ring-2 focus:ring-indigo-400 focus:border-transparent dark:bg-slate-800 dark:text-gray-200 min-w-[120px]"
             />
             <button
               onClick={handleLoadVideo}
@@ -875,12 +876,12 @@ const StudyPage: React.FC = () => {
                   <span className="text-[10px] text-gray-400 dark:text-gray-500 font-medium shrink-0">
                     {t('study.speed')}:
                   </span>
-                  <div className="flex items-center gap-0.5">
+                  <div className="flex items-center gap-1 sm:gap-0.5">
                     {SPEED_PRESETS.map((rate) => (
                       <button
                         key={rate}
                         onClick={() => setPlaybackRate(rate)}
-                        className={`px-1.5 py-0.5 text-[10px] rounded transition-colors cursor-pointer ${
+                        className={`px-2 py-1 sm:px-1.5 sm:py-0.5 text-[11px] sm:text-[10px] rounded transition-colors cursor-pointer ${
                           playbackRate === rate
                             ? 'bg-indigo-100 dark:bg-indigo-900/40 text-indigo-700 dark:text-indigo-300 font-semibold'
                             : 'text-gray-500 dark:text-gray-400 hover:bg-gray-100 dark:hover:bg-slate-700'
@@ -1576,6 +1577,8 @@ const MobileTranscriptPanel: React.FC<{
   const [dictEntry, setDictEntry] = useState<import('../types').DictionaryEntry | null>(null);
   const [dictLoading, setDictLoading] = useState(false);
   const [dictError, setDictError] = useState(false);
+  const [dictWordHistory, setDictWordHistory] = useState<string[]>([]);
+  const [dictCurrentWord, setDictCurrentWord] = useState('');
 
   // Detect user scrolling
   const handleScroll = useCallback(() => {
@@ -1617,21 +1620,40 @@ const MobileTranscriptPanel: React.FC<{
     };
   }, [popup]);
 
-  // Dictionary lookup when popup opens
+  // Dictionary lookup when dictCurrentWord changes
   useEffect(() => {
-    if (!popup) return;
+    if (!dictCurrentWord) return;
     setDictEntry(null);
     setDictLoading(true);
     setDictError(false);
     let cancelled = false;
-    lookupWord(popup.word).then((entry) => {
+    lookupWord(dictCurrentWord).then((entry) => {
       if (cancelled) return;
       if (entry) setDictEntry(entry);
       else setDictError(true);
       setDictLoading(false);
     });
     return () => { cancelled = true; };
-  }, [popup]);
+  }, [dictCurrentWord]);
+
+  // Look up a word from definition (push current to history)
+  const handleDictWordClick = useCallback((w: string) => {
+    const cleaned = w.replace(/[^\w']/g, '').toLowerCase();
+    if (!cleaned || cleaned === dictCurrentWord.toLowerCase()) return;
+    setDictWordHistory((prev) => [...prev, dictCurrentWord]);
+    setDictCurrentWord(cleaned);
+  }, [dictCurrentWord]);
+
+  // Go back to previous word in dictionary history
+  const handleDictGoBack = useCallback(() => {
+    setDictWordHistory((prev) => {
+      if (prev.length === 0) return prev;
+      const newHistory = [...prev];
+      const prevWord = newHistory.pop()!;
+      setDictCurrentWord(prevWord);
+      return newHistory;
+    });
+  }, []);
 
   const handleWordClick = useCallback((word: string, context: string, lineStart: number, e: React.MouseEvent | React.TouchEvent) => {
     e.stopPropagation();
@@ -1644,11 +1666,13 @@ const MobileTranscriptPanel: React.FC<{
       x: rect.left + rect.width / 2,
       y: rect.top - 8,
     });
+    setDictCurrentWord(word);
+    setDictWordHistory([]);
   }, []);
 
   const handleAddWord = useCallback(() => {
-    if (!popup) return;
-    const lemma = lemmatize(popup.word);
+    if (!popup || !dictCurrentWord) return;
+    const lemma = lemmatize(dictCurrentWord);
     const item: VocabularyItem = {
       id: `vocab_${Date.now()}`,
       word: lemma,
@@ -1674,7 +1698,7 @@ const MobileTranscriptPanel: React.FC<{
     };
     onAddVocabulary(item);
     setPopup(null);
-  }, [popup, dictEntry, videoId, videoTitle, onAddVocabulary]);
+  }, [popup, dictCurrentWord, dictEntry, videoId, videoTitle, onAddVocabulary]);
 
   const handleAddSentence = useCallback((line: TranscriptLine) => {
     const item: SentenceItem = {
@@ -1737,7 +1761,18 @@ const MobileTranscriptPanel: React.FC<{
               </svg>
             </button>
             <div className="flex items-center gap-2 mb-1">
-              <span className="text-lg font-bold text-gray-800 dark:text-gray-200">{popup.word}</span>
+              {dictWordHistory.length > 0 && (
+                <button
+                  onClick={handleDictGoBack}
+                  title="Back to previous word"
+                  className="p-1 rounded-full hover:bg-gray-100 dark:hover:bg-slate-700 text-indigo-500 hover:text-indigo-700 transition-colors cursor-pointer"
+                >
+                  <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                    <path strokeLinecap="round" strokeLinejoin="round" d="M15 19l-7-7 7-7" />
+                  </svg>
+                </button>
+              )}
+              <span className="text-lg font-bold text-gray-800 dark:text-gray-200">{dictCurrentWord}</span>
               {dictEntry?.phonetic && <span className="text-sm text-gray-400 font-mono">{dictEntry.phonetic}</span>}
               {dictEntry?.audioUrl && (
                 <button onClick={handlePlayAudio} className="p-1 text-indigo-500 rounded-full cursor-pointer">
@@ -1756,13 +1791,23 @@ const MobileTranscriptPanel: React.FC<{
             )}
             {dictEntry && !dictLoading && (
               <div className="mb-3">
-                {dictEntry.definitionEn && <p className="text-sm text-gray-700 dark:text-gray-300 leading-relaxed">{dictEntry.definitionEn}</p>}
+                {dictEntry.definitionEn && (
+                  <p className="text-sm text-gray-700 dark:text-gray-300 leading-relaxed">
+                    <ClickableDefinition text={dictEntry.definitionEn} onWordClick={handleDictWordClick} />
+                  </p>
+                )}
                 {dictEntry.example && <p className="text-xs text-gray-400 mt-1.5 italic">&ldquo;{dictEntry.example}&rdquo;</p>}
                 {dictEntry.synonyms.length > 0 && (
                   <div className="mt-2 flex items-start gap-1 flex-wrap">
                     <span className="text-[10px] text-gray-400 font-medium mt-px">syn:</span>
                     {dictEntry.synonyms.slice(0, 5).map((s) => (
-                      <span key={s} className="text-[10px] px-1.5 py-0.5 bg-gray-100 dark:bg-slate-700 text-gray-600 dark:text-gray-400 rounded">{s}</span>
+                      <button
+                        key={s}
+                        onClick={() => handleDictWordClick(s)}
+                        className="text-[10px] px-1.5 py-0.5 bg-gray-100 dark:bg-slate-700 text-indigo-600 dark:text-indigo-400 rounded hover:bg-indigo-50 dark:hover:bg-indigo-950 cursor-pointer transition-colors"
+                      >
+                        {s}
+                      </button>
                     ))}
                   </div>
                 )}
@@ -1770,7 +1815,7 @@ const MobileTranscriptPanel: React.FC<{
             )}
             {dictError && !dictLoading && <p className="text-xs text-gray-400 mb-3">Dictionary entry not found.</p>}
             <p className="text-[11px] text-gray-400 mb-3 line-clamp-2">&ldquo;{popup.context}&rdquo;</p>
-            {isWordSaved(popup.word) ? (
+            {isWordSaved(dictCurrentWord) ? (
               <span className="text-xs text-amber-600 dark:text-amber-400 font-medium">{t('study.alreadySaved')}</span>
             ) : (
               <button onClick={handleAddWord} className="w-full px-3 py-2 text-sm bg-amber-50 dark:bg-amber-950/30 text-amber-700 dark:text-amber-400 rounded-lg hover:bg-amber-100 dark:hover:bg-amber-900/50 font-medium cursor-pointer">
