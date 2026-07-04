@@ -103,6 +103,8 @@ const YouTubeEmbed = forwardRef<PlayerHandle, YouTubeEmbedProps>(
     playbackRateRef.current = playbackRate ?? 1;
     const retryCount = useRef(0);
     const retryTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+    // Capture the initial videoId in a ref so initPlayer doesn't depend on it
+    const initialVideoIdRef = useRef(youtubeId);
 
     useImperativeHandle(
       ref,
@@ -121,7 +123,7 @@ const YouTubeEmbed = forwardRef<PlayerHandle, YouTubeEmbedProps>(
       [],
     );
 
-    // Create the player — only depends on youtubeId (startTime read from ref)
+    // Create the player — only runs once (initial videoId from ref)
     const initPlayer = useCallback(() => {
       if (playerRef.current) return;
       const el = document.getElementById(containerId.current);
@@ -131,7 +133,7 @@ const YouTubeEmbed = forwardRef<PlayerHandle, YouTubeEmbedProps>(
         playerRef.current = new YT.Player(el, {
           width: '100%',
           height: '100%',
-          videoId: youtubeId,
+          videoId: initialVideoIdRef.current,
           playerVars: {
             modestbranding: 1,
             rel: 0,
@@ -179,7 +181,7 @@ const YouTubeEmbed = forwardRef<PlayerHandle, YouTubeEmbedProps>(
       } catch {
         setStatus('fallback');
       }
-    }, [youtubeId]);
+    }, []);
 
     // Mount: load API → create player or fallback
     useEffect(() => {
@@ -243,17 +245,20 @@ const YouTubeEmbed = forwardRef<PlayerHandle, YouTubeEmbedProps>(
       return () => document.removeEventListener('visibilitychange', handleVisibilityChange);
     }, [status, initPlayer]);
 
-    // Load different video when youtubeId changes
+    // Load different video when youtubeId changes (player already created)
     useEffect(() => {
       if (status !== 'ready' || !playerRef.current) return;
-      if (startTime !== undefined) {
-        playerRef.current.loadVideoById({
-          videoId: youtubeId,
-          startSeconds: startTime,
-        });
-      } else {
-        playerRef.current.loadVideoById(youtubeId);
-      }
+      if (typeof playerRef.current.loadVideoById !== 'function') return;
+      try {
+        if (startTime !== undefined) {
+          playerRef.current.loadVideoById({
+            videoId: youtubeId,
+            startSeconds: startTime,
+          });
+        } else {
+          playerRef.current.loadVideoById(youtubeId);
+        }
+      } catch { /* player not ready — noop */ }
       // Re-apply playback rate after loadVideoById (YouTube resets it)
       setTimeout(() => {
         try {

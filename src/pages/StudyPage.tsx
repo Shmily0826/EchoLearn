@@ -518,20 +518,24 @@ const StudyPage: React.FC = () => {
       if (!id) return;
       const st = parseBilibiliStartTime(urlInput);
       const pg = parseBilibiliPage(urlInput);
+
+      // Persist old session before switching
+      if (rawBlocks.length > 0 && videoId) {
+        persistSession(videoId, urlInput.trim(), rawBlocks, sentenceLines, sessionTitle || urlInput.trim());
+      }
+
       setVideoId(id);
       setStartTime(st);
       setBiliPage(pg);
+      setRawBlocks([]);
+      setSentenceLines([]);
+      setAnalysis(null);
 
       if (!sessionTitle) {
         setSessionTitle(urlInput.trim());
         getBilibiliVideoTitle(id).then((info) => {
           if (info?.title) setSessionTitle(info.title);
         });
-      }
-
-      if (rawBlocks.length > 0) {
-        persistSession(id, urlInput.trim(), rawBlocks, sentenceLines, sessionTitle || urlInput.trim());
-        return;
       }
 
       setFetchingCaption(true);
@@ -549,20 +553,24 @@ const StudyPage: React.FC = () => {
       const id = parseYouTubeId(urlInput);
       if (!id) return;
       const st = parseStartTime(urlInput);
+
+      // Persist old session before switching
+      if (rawBlocks.length > 0 && videoId) {
+        persistSession(videoId, urlInput.trim(), rawBlocks, sentenceLines, sessionTitle || urlInput.trim());
+      }
+
       setVideoId(id);
       setStartTime(st);
       setBiliPage(undefined);
+      setRawBlocks([]);
+      setSentenceLines([]);
+      setAnalysis(null);
 
       if (!sessionTitle) {
         setSessionTitle(urlInput.trim());
         getVideoTitle(urlInput).then((info) => {
           if (info?.title) setSessionTitle(info.title);
         });
-      }
-
-      if (rawBlocks.length > 0) {
-        persistSession(id, urlInput.trim(), rawBlocks, sentenceLines, sessionTitle || urlInput.trim());
-        return;
       }
 
       setFetchingCaption(true);
@@ -576,7 +584,7 @@ const StudyPage: React.FC = () => {
         })
         .finally(() => setFetchingCaption(false));
     }
-  }, [urlInput, rawBlocks, sentenceLines, sessionTitle, persistSession, importTranscript]);
+  }, [urlInput, rawBlocks, sentenceLines, sessionTitle, videoId, persistSession, importTranscript]);
 
   // ── Import transcript (from TranscriptImporter) ─────────────
   const handleImportTranscript = useCallback(
