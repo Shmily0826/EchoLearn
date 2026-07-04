@@ -203,6 +203,34 @@ async function callDeepSeek(
   return validateResult(parsed);
 }
 
+/** Strip surrounding quotes/apostrophes and trim a word. */
+function cleanWord(w: string): string {
+  let s = String(w).trim();
+  // Strip matched surrounding quotes: 'word', "word", "word", 'word'
+  while (s.length >= 2 && (
+    (s[0] === "'" && s[s.length - 1] === "'") ||
+    (s[0] === '"' && s[s.length - 1] === '"') ||
+    (s[0] === '\u2018' && s[s.length - 1] === '\u2019') ||
+    (s[0] === '\u201C' && s[s.length - 1] === '\u201D')
+  )) {
+    s = s.slice(1, -1).trim();
+  }
+  return s;
+}
+
+/** Trim and strip outer quotes from sentence text. */
+function cleanSentence(s: string): string {
+  let t = String(s).trim();
+  // Strip matched outer quotes
+  if (t.length >= 2 && (
+    (t[0] === '"' && t[t.length - 1] === '"') ||
+    (t[0] === '\u201C' && t[t.length - 1] === '\u201D')
+  )) {
+    t = t.slice(1, -1).trim();
+  }
+  return t;
+}
+
 /** Validate and map raw JSON to AIAnalysisResult. */
 function validateResult(parsed: Record<string, unknown>): AIAnalysisResult {
   return {
@@ -215,17 +243,18 @@ function validateResult(parsed: Record<string, unknown>): AIAnalysisResult {
       ? (parsed.vocabularySuggestions as VocabularySuggestion[])
           .filter((v) => v.word && v.context)
           .map((v) => ({
-            word: String(v.word),
-            context: String(v.context),
+            word: cleanWord(v.word),
+            context: cleanSentence(v.context),
             meaningCn: String(v.meaningCn ?? ''),
             reason: String(v.reason ?? ''),
           }))
+          .filter((v) => v.word.length > 0)
       : [],
     sentenceSuggestions: Array.isArray(parsed.sentenceSuggestions)
       ? (parsed.sentenceSuggestions as SentenceSuggestion[])
           .filter((s) => s.text)
           .map((s) => ({
-            text: String(s.text),
+            text: cleanSentence(s.text),
             meaningCn: String(s.meaningCn ?? ''),
             reason: String(s.reason ?? ''),
             grammarNotes: s.grammarNotes ? String(s.grammarNotes) : undefined,
