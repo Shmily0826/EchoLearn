@@ -36,7 +36,7 @@ const CORS_HEADERS = {
 // ── Main handler ──────────────────────────────────────────────
 
 export default {
-  async fetch(request) {
+  async fetch(request, env) {
     // Handle CORS preflight
     if (request.method === 'OPTIONS') {
       return new Response(null, { status: 204, headers: CORS_HEADERS });
@@ -46,7 +46,7 @@ export default {
 
     try {
       if (url.pathname === '/api/transcript') {
-        return await handleTranscript(url);
+        return await handleTranscript(url, env);
       }
       if (url.pathname === '/api/yt') {
         return await handleProxy(request, url);
@@ -64,7 +64,7 @@ export default {
 
 // ── /api/transcript — Fetch YouTube transcript ────────────────
 
-async function handleTranscript(url) {
+async function handleTranscript(url, env) {
   const videoId = url.searchParams.get('videoId');
   const lang = url.searchParams.get('lang') || 'en';
   const debug = url.searchParams.get('debug') === '1';
@@ -102,6 +102,13 @@ async function handleTranscript(url) {
   if (pipedResult) {
     if (debug) pipedResult._debug = debugLog;
     return jsonResponse(pipedResult);
+  }
+
+  // Strategy 5: Whisper ASR (audio transcription via Groq)
+  const whisperResult = await fetchViaWhisper(videoId, lang, env, log);
+  if (whisperResult) {
+    if (debug) whisperResult._debug = debugLog;
+    return jsonResponse(whisperResult);
   }
 
   const response = { error: 'No transcript available for this video' };
@@ -765,6 +772,141 @@ async function fetchViaPiped(videoId, lang, log = console.log) {
   }
 
   return null;
+}
+
+// ── Whisper ASR strategy (Groq API) ───────────────────────────
+
+/**
+ * Last-resort strategy: extract audio from the video and transcribe
+ * using Groq's Whisper API (free tier, whisper-large-v3-turbo).
+ *
+ * Audio source: Piped instances' audioStreams (direct audio URLs).
+ * Groq accepts up to 25 MB audio files.
+ */
+async function fetchViaWhisper(videoId, lang, env, log = console.log) {
+  if (!env || !env.GROQ_API_KEY) {
+    log('Whisper: no GROQ_API_KEY configured, skipping');
+    return null;
+  }
+
+  // Step 1: Get audio URL from Piped instances
+  let audioUrl = null;
+  for (const instance of PIPED_INSTANCES) {
+    try {
+      const resp = await fetchWithTimeout(`${instance}/streams/${videoId}`, {
+        headers: { 'User-Agent': BROWSER_UA, 'Accept': 'application/json' },
+      }, 8000);
+
+      if (!resp.ok) continue;
+      const data = await resp.json();
+
+      const streams = data.audioStreams;
+      if (!Array.isArray(streams) || streams.length === 0) continue;
+
+      // Pick lowest bitrate to stay under Groq's 25 MB limit
+      const sorted = [...streams].sort((a, b) => (a.bitrate || 0) - (b.bitrate || 0));
+      audioUrl = sorted[0].url;
+      log(`Whisper: audio URL from Piped (${new URL(instance).hostname}), ${sorted.length} stream(s)`);
+      break;
+    } catch (err) {
+      log(`Whisper: Piped (${new URL(instance).hostname}): ${err.message}`);
+    }
+  }
+
+  if (!audioUrl) {
+    log('Whisper: could not obtain audio URL from any Piped instance');
+    return null;
+  }
+
+  // Step 2: Download audio
+  let audioBuffer;
+  try {
+    const audioResp = await fetchWithTimeout(audioUrl, {
+      headers: { 'User-Agent': BROWSER_UA },
+    }, 30000);
+
+    if (!audioResp.ok) {
+      log(`Whisper: audio download HTTP ${audioResp.status}`);
+      return null;
+    }
+
+    audioBuffer = await audioResp.arrayBuffer();
+
+    // Groq limit is 25 MB
+    if (audioBuffer.byteLength > 25 * 1024 * 1024) {
+      log(`Whisper: audio too large (${(audioBuffer.byteLength / 1024 / 1024).toFixed(1)} MB)`);
+      return null;
+    }
+
+    log(`Whisper: downloaded ${(audioBuffer.byteLength / 1024 / 1024).toFixed(1)} MB audio`);
+  } catch (err) {
+    log(`Whisper: audio download failed: ${err.message}`);
+    return null;
+  }
+
+  // Step 3: Send to Groq Whisper API
+  try {
+    const formData = new FormData();
+    formData.append('file', new File([audioBuffer], 'audio.mp3', { type: 'audio/mpeg' }));
+    formData.append('model', 'whisper-large-v3-turbo');
+    formData.append('response_format', 'verbose_json');
+    // Pass language hint to improve accuracy (Whisper uses ISO 639-1 codes)
+    const whisperLang = lang === 'zh' ? 'zh' : lang === 'ja' ? 'ja' : lang === 'ko' ? 'ko' : 'en';
+    formData.append('language', whisperLang);
+
+    const groqResp = await fetchWithTimeout('https://api.groq.com/openai/v1/audio/transcriptions', {
+      method: 'POST',
+      headers: {
+        'Authorization': `Bearer ${env.GROQ_API_KEY}`,
+      },
+      body: formData,
+    }, 120000); // 2 min timeout for long videos
+
+    if (!groqResp.ok) {
+      const errText = await groqResp.text();
+      log(`Whisper: Groq API HTTP ${groqResp.status}: ${errText.substring(0, 200)}`);
+      return null;
+    }
+
+    const result = await groqResp.json();
+    const segments = result.segments;
+
+    if (!Array.isArray(segments) || segments.length === 0) {
+      log('Whisper: no segments in response');
+      // Try falling back to the full text if segments aren't available
+      if (result.text && result.text.trim()) {
+        log(`Whisper: using full text fallback (${result.text.length} chars)`);
+        return {
+          lines: [{
+            id: 'yt_1',
+            start: 0,
+            end: 999,
+            text: result.text.trim(),
+          }],
+          language: lang,
+          isAutoGenerated: true,
+        };
+      }
+      return null;
+    }
+
+    const lines = segments.map((seg, i) => ({
+      id: `yt_${i + 1}`,
+      start: Math.round(seg.start * 100) / 100,
+      end: Math.round(seg.end * 100) / 100,
+      text: seg.text.trim(),
+    }));
+
+    log(`Whisper: got ${lines.length} segments via Groq`);
+    return {
+      lines,
+      language: lang,
+      isAutoGenerated: true,
+    };
+  } catch (err) {
+    log(`Whisper: Groq API failed: ${err.message}`);
+    return null;
+  }
 }
 
 /**

@@ -694,6 +694,7 @@ function clearLocalProxyFailure(): void {
  * Calls server-side transcript APIs.
  * Tries Vercel /api/transcript first (same-origin, reliable on mobile),
  * then CF Worker as fallback (different IP range, better for YouTube blocking).
+ * CF Worker internally cascades: InnerTube → Web scrape → Invidious → Piped → Whisper ASR (Groq).
  */
 async function fetchViaServerApi(
   videoId: string,
