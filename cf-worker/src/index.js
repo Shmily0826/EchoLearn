@@ -26,37 +26,127 @@ const IOS_UA =
 const INNERTUBE_API_URL =
   'https://www.youtube.com/youtubei/v1/player?prettyPrint=false';
 
-const CORS_HEADERS = {
-  'Access-Control-Allow-Origin': '*',
-  'Access-Control-Allow-Methods': 'GET, POST, OPTIONS',
-  'Access-Control-Allow-Headers': 'Content-Type',
-  'Access-Control-Max-Age': '86400',
-};
+const CORS_METHODS = 'GET, POST, OPTIONS';
+
+// Domains the /api/yt proxy is allowed to forward to.
+const ALLOWED_TARGET_DOMAINS = ['youtube.com', 'googlevideo.com', 'googleapis.com'];
+
+/** Exact match or subdomain match (e.g. www.youtube.com) — prevents lookalike bypass. */
+function isAllowedHost(hostname) {
+  const host = hostname.toLowerCase();
+  return ALLOWED_TARGET_DOMAINS.some(
+    (domain) => host === domain || host.endsWith('.' + domain),
+  );
+}
+
+// Origins allowed to call this worker via CORS.
+const ALLOWED_ORIGINS = [
+  'https://app.echo-learn.uk',
+  'https://echo-learn.uk',
+  'http://localhost:5173',
+  'http://localhost:4173',
+  'http://127.0.0.1:5173',
+];
+
+function resolveOrigin(origin) {
+  if (!origin) return null;
+  if (ALLOWED_ORIGINS.includes(origin)) return origin;
+  if (origin.endsWith('.vercel.app')) return origin; // Vercel preview deployments
+  return null;
+}
+
+function corsHeaders(origin) {
+  const headers = {
+    'Access-Control-Allow-Methods': CORS_METHODS,
+    'Access-Control-Allow-Headers': 'Content-Type',
+    'Access-Control-Max-Age': '86400',
+  };
+  const allowed = resolveOrigin(origin);
+  if (allowed) headers['Access-Control-Allow-Origin'] = allowed;
+  return headers;
+}
+
+/** Apply restricted CORS headers to a response at the single exit point. */
+function withCors(response, origin) {
+  const headers = new Headers(response.headers);
+  for (const [k, v] of Object.entries(corsHeaders(origin))) {
+    headers.set(k, v);
+  }
+  return new Response(response.body, {
+    status: response.status,
+    statusText: response.statusText,
+    headers,
+  });
+}
+
+// ── Per-IP rate limiting (best-effort, per Cloudflare isolate) ──
+// Protects the paid Whisper/Groq fallback from scripted abuse. Isolates are
+// short-lived, so this throttles sustained single-IP abuse rather than
+// guaranteeing a global cap. For strict global limits, add a Cloudflare
+// Rate Limiting binding or dashboard rule.
+
+const RATE_LIMIT_WINDOW_MS = 60_000; // 1 minute
+const RATE_LIMIT_MAX = 30; // requests per IP per window
+const rateBuckets = new Map(); // ip -> [timestamps]
+
+function isRateLimited(ip) {
+  if (!ip) return false;
+  const now = Date.now();
+  const cutoff = now - RATE_LIMIT_WINDOW_MS;
+  let hits = rateBuckets.get(ip);
+  if (!hits) {
+    hits = [];
+    rateBuckets.set(ip, hits);
+  }
+  while (hits.length > 0 && hits[0] <= cutoff) hits.shift();
+  // Keep the map from growing unbounded across many client IPs.
+  if (rateBuckets.size > 5000) {
+    for (const [key, val] of rateBuckets) {
+      if (val.length === 0 || val[val.length - 1] <= cutoff) rateBuckets.delete(key);
+    }
+  }
+  if (hits.length >= RATE_LIMIT_MAX) return true;
+  hits.push(now);
+  return false;
+}
 
 // ── Main handler ──────────────────────────────────────────────
 
 export default {
   async fetch(request, env) {
+    const origin = request.headers.get('Origin');
+
     // Handle CORS preflight
     if (request.method === 'OPTIONS') {
-      return new Response(null, { status: 204, headers: CORS_HEADERS });
+      return withCors(new Response(null, { status: 204 }), origin);
+    }
+
+    // Per-IP rate limiting (best-effort, per isolate)
+    const ip = request.headers.get('cf-connecting-ip') || '';
+    if (isRateLimited(ip)) {
+      return withCors(
+        jsonResponse({ error: 'Too many requests, please slow down' }, 429),
+        origin,
+      );
     }
 
     const url = new URL(request.url);
 
     try {
+      let response;
       if (url.pathname === '/api/transcript') {
-        return await handleTranscript(url, env);
+        response = await handleTranscript(url, env);
+      } else if (url.pathname === '/api/yt') {
+        response = await handleProxy(request, url);
+      } else {
+        response = jsonResponse({ error: 'Unknown endpoint' }, 404);
       }
-      if (url.pathname === '/api/yt') {
-        return await handleProxy(request, url);
-      }
-      return jsonResponse({ error: 'Unknown endpoint' }, 404);
+      return withCors(response, origin);
     } catch (err) {
       console.error('Worker error:', err);
-      return jsonResponse(
-        { error: err.message || 'Internal error' },
-        500,
+      return withCors(
+        jsonResponse({ error: err.message || 'Internal error' }, 500),
+        origin,
       );
     }
   },
@@ -539,11 +629,7 @@ async function handleProxy(request, url) {
 
   try {
     const target = new URL(targetUrl);
-    if (
-      !target.hostname.includes('youtube.com') &&
-      !target.hostname.includes('googlevideo.com') &&
-      !target.hostname.includes('googleapis.com')
-    ) {
+    if (!isAllowedHost(target.hostname)) {
       return jsonResponse({ error: 'Only YouTube URLs allowed' }, 403);
     }
 
@@ -575,9 +661,6 @@ async function handleProxy(request, url) {
     const response = await fetch(targetUrl, init);
 
     const responseHeaders = new Headers(response.headers);
-    for (const [k, v] of Object.entries(CORS_HEADERS)) {
-      responseHeaders.set(k, v);
-    }
     responseHeaders.delete('x-frame-options');
     responseHeaders.delete('content-security-policy');
 
@@ -1009,7 +1092,6 @@ function jsonResponse(data, status = 200) {
     status,
     headers: {
       'Content-Type': 'application/json',
-      ...CORS_HEADERS,
     },
   });
 }

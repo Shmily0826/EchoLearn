@@ -25,11 +25,13 @@ const ANDROID_UA =
 const CONSENT_COOKIE = 'CONSENT=PENDING+987; SOCS=CAISNQgDEitib3FfaWRlbnRpdHlmcm9udGVuZHVpc2VydmVyXzIwMjMwODI5LjA3X3AxGgJlbiACGgYIgJnSmgY';
 
 export default async function handler(request: Request): Promise<Response> {
+  const origin = request.headers.get('Origin');
+
   // Handle CORS preflight
   if (request.method === 'OPTIONS') {
     return new Response(null, {
       status: 204,
-      headers: corsHeaders(),
+      headers: corsHeaders(origin),
     });
   }
 
@@ -43,12 +45,9 @@ export default async function handler(request: Request): Promise<Response> {
   try {
     const target = new URL(targetUrl);
 
-    // Only allow YouTube and Google video domains
-    if (
-      !target.hostname.includes('youtube.com') &&
-      !target.hostname.includes('googlevideo.com') &&
-      !target.hostname.includes('googleapis.com')
-    ) {
+    // Only allow YouTube and Google video domains (exact match to prevent
+    // SSRF bypass via lookalike hosts like youtube.com.evil.com)
+    if (!isAllowedHost(target.hostname)) {
       return new Response('Only YouTube URLs are allowed', { status: 403 });
     }
 
@@ -104,7 +103,7 @@ export default async function handler(request: Request): Promise<Response> {
 
     // Build response with CORS headers
     const responseHeaders = new Headers(response.headers);
-    for (const [k, v] of Object.entries(corsHeaders())) {
+    for (const [k, v] of Object.entries(corsHeaders(origin))) {
       responseHeaders.set(k, v);
     }
     // Remove restrictive headers from YouTube
@@ -122,11 +121,40 @@ export default async function handler(request: Request): Promise<Response> {
   }
 }
 
-function corsHeaders(): Record<string, string> {
-  return {
-    'Access-Control-Allow-Origin': '*',
+// Domains the proxy is allowed to forward to.
+const ALLOWED_TARGET_DOMAINS = ['youtube.com', 'googlevideo.com', 'googleapis.com'];
+
+/** Exact match or subdomain match (e.g. www.youtube.com) — prevents lookalike bypass. */
+function isAllowedHost(hostname: string): boolean {
+  const host = hostname.toLowerCase();
+  return ALLOWED_TARGET_DOMAINS.some(
+    (domain) => host === domain || host.endsWith('.' + domain),
+  );
+}
+
+// Origins allowed to call this endpoint via CORS.
+const ALLOWED_ORIGINS = [
+  'https://app.echo-learn.uk',
+  'https://echo-learn.uk',
+  'http://localhost:5173',
+  'http://localhost:4173',
+  'http://127.0.0.1:5173',
+];
+
+function resolveOrigin(origin: string | null): string | null {
+  if (!origin) return null;
+  if (ALLOWED_ORIGINS.includes(origin)) return origin;
+  if (origin.endsWith('.vercel.app')) return origin; // Vercel preview deployments
+  return null;
+}
+
+function corsHeaders(origin: string | null): Record<string, string> {
+  const headers: Record<string, string> = {
     'Access-Control-Allow-Methods': 'GET, POST, OPTIONS',
     'Access-Control-Allow-Headers': 'Content-Type, Authorization, X-YouTube-Client-Name, X-YouTube-Client-Version',
     'Access-Control-Max-Age': '86400',
   };
+  const allowed = resolveOrigin(origin);
+  if (allowed) headers['Access-Control-Allow-Origin'] = allowed;
+  return headers;
 }

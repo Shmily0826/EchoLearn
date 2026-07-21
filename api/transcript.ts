@@ -12,10 +12,27 @@
 const CONSENT_COOKIE =
   'CONSENT=PENDING+987; SOCS=CAISNQgDEitib3FfaWRlbnRpdHlmcm9udGVuZHVpc2VydmVyXzIwMjMwODI5LjA3X3AxGgJlbiACGgYIgJnSmgY';
 
+// Origins allowed to call this endpoint via CORS.
+const ALLOWED_ORIGINS = [
+  'https://app.echo-learn.uk',
+  'https://echo-learn.uk',
+  'http://localhost:5173',
+  'http://localhost:4173',
+  'http://127.0.0.1:5173',
+];
+
+function resolveOrigin(origin: string | undefined): string | null {
+  if (!origin) return null;
+  if (ALLOWED_ORIGINS.includes(origin)) return origin;
+  if (origin.endsWith('.vercel.app')) return origin; // Vercel preview deployments
+  return null;
+}
+
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 export default async function handler(req: any, res: any): Promise<void> {
-  // CORS headers
-  res.setHeader('Access-Control-Allow-Origin', '*');
+  // CORS headers (restricted to the app's known origins)
+  const allowed = resolveOrigin(req.headers?.origin as string | undefined);
+  if (allowed) res.setHeader('Access-Control-Allow-Origin', allowed);
   res.setHeader('Access-Control-Allow-Methods', 'GET, OPTIONS');
   res.setHeader('Access-Control-Allow-Headers', 'Content-Type');
 
