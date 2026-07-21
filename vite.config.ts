@@ -78,6 +78,32 @@ export default defineConfig(({ mode }) => {
         },
       }),
     ],
+    build: {
+      // Strip console.* and debugger from production builds (kept in dev for debugging).
+      // Vite 8 uses rolldown/oxc which doesn't expose drop_console, so use terser here.
+      minify: mode === 'production' ? 'terser' : 'oxc',
+      terserOptions: {
+        compress: {
+          drop_console: true,
+          drop_debugger: true,
+        },
+      },
+      rollupOptions: {
+        output: {
+          // Split heavy vendor libs into separate chunks for parallel download + caching
+          manualChunks(id) {
+            if (id.includes('node_modules')) {
+              if (id.includes('recharts') || id.includes('d3-') || id.includes('victory')) {
+                return 'vendor-charts';
+              }
+              if (id.includes('firebase') || id.includes('@firebase')) {
+                return 'vendor-firebase';
+              }
+            }
+          },
+        },
+      },
+    },
     server: {
       proxy: {
         // Proxy YouTube requests to bypass CORS in dev mode
