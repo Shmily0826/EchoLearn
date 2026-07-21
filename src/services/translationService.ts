@@ -3,7 +3,8 @@
  * for vocabulary words and sentences that were manually added without meaningCn.
  */
 
-const DEEPSEEK_ENDPOINT = 'https://api.deepseek.com/chat/completions';
+/** Requests go through the server-side proxy at /api/ai (API key stays server-side). */
+const DEEPSEEK_ENDPOINT = '/api/ai';
 const DEEPSEEK_MODEL = 'deepseek-v4-flash';
 
 /** Supported target languages for translation */
@@ -29,10 +30,6 @@ interface TranslateItem {
   context?: string;
 }
 
-function getApiKey(): string | undefined {
-  return import.meta.env.VITE_DEEPSEEK_API_KEY as string | undefined;
-}
-
 /**
  * Batch-translate a list of words / sentences using DeepSeek.
  * @param targetLang  Target language code (default: 'zh')
@@ -43,11 +40,6 @@ async function callBatchTranslate(
   kind: 'word' | 'sentence',
   targetLang: TranslateLang = 'zh',
 ): Promise<Record<string, string>> {
-  const apiKey = getApiKey();
-  if (!apiKey) {
-    console.warn('[translation] No VITE_DEEPSEEK_API_KEY set');
-    return {};
-  }
   if (items.length === 0) return {};
 
   const kindLabel = kind === 'word' ? 'English vocabulary word' : 'English sentence';
@@ -72,7 +64,6 @@ The array must have exactly ${items.length} element(s), in the same order as the
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
-        Authorization: `Bearer ${apiKey}`,
       },
       body: JSON.stringify({
         model: DEEPSEEK_MODEL,

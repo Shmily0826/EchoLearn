@@ -8,7 +8,8 @@ import { t, type Lang } from '../i18n/translations';
 
 // ── DeepSeek API config ──────────────────────────────────────
 
-const DEEPSEEK_ENDPOINT = 'https://api.deepseek.com/chat/completions';
+/** Requests go through the server-side proxy at /api/ai (API key stays server-side). */
+const DEEPSEEK_ENDPOINT = '/api/ai';
 const DEEPSEEK_MODEL = 'deepseek-v4-flash';
 
 /** Max characters of transcript to send (keeps tokens reasonable). */
@@ -120,11 +121,6 @@ async function callDeepSeek(
   onChunk?: (chunk: string) => void,
   lang: 'en' | 'zh' = 'zh',
 ): Promise<AIAnalysisResult> {
-  const apiKey = import.meta.env.VITE_DEEPSEEK_API_KEY as string | undefined;
-  if (!apiKey) {
-    throw new Error('VITE_DEEPSEEK_API_KEY is not set');
-  }
-
   const transcript = truncateText(transcriptText);
   const useStreaming = !!onChunk;
 
@@ -132,7 +128,6 @@ async function callDeepSeek(
     method: 'POST',
     headers: {
       'Content-Type': 'application/json',
-      Authorization: `Bearer ${apiKey}`,
     },
     body: JSON.stringify({
       model: DEEPSEEK_MODEL,

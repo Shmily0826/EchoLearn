@@ -1274,9 +1274,12 @@ const StudyPage: React.FC = () => {
                   <svg className="w-8 h-8 text-red-400 mx-auto mb-2" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.5}>
                     <path strokeLinecap="round" strokeLinejoin="round" d="M12 9v3.75m9-.75a9 9 0 11-18 0 9 9 0 0118 0zm-9 3.75h.008v.008H12v-.008z" />
                   </svg>
-                  <p className="text-sm text-red-600 dark:text-red-400 font-medium mb-1">{t('study.fetchFailed')}</p>
-                  <p className="text-xs text-red-500/70 dark:text-red-400/60 mb-3 whitespace-pre-line">{captionError}</p>
-                  <p className="text-xs text-gray-500 dark:text-gray-400">{t('study.pasteManual')}</p>
+                  <p className="text-sm text-red-600 dark:text-red-400 font-medium mb-1">{t('study.captionErrorFriendly')}</p>
+                  <p className="text-xs text-gray-500 dark:text-gray-400 mb-3">{t('study.captionErrorSuggestions')}</p>
+                  <details className="text-left mt-2">
+                    <summary className="text-xs text-gray-400 dark:text-gray-500 cursor-pointer hover:text-gray-600 dark:hover:text-gray-300">{t('study.captionErrorDetails')}</summary>
+                    <p className="text-xs text-red-500/50 dark:text-red-400/40 mt-1 whitespace-pre-line break-all">{captionError}</p>
+                  </details>
                 </div>
                 <div className="flex gap-3 mt-3">
                   <button

@@ -1,106 +1,126 @@
-import { defineConfig } from 'vite'
+import { defineConfig, loadEnv } from 'vite'
 import react from '@vitejs/plugin-react'
 import tailwindcss from '@tailwindcss/vite'
 import { VitePWA } from 'vite-plugin-pwa'
 
 // https://vite.dev/config/
-export default defineConfig({
-  plugins: [
-    react(),
-    tailwindcss(),
-    VitePWA({
-      registerType: 'autoUpdate',
-      includeAssets: ['favicon.svg', 'apple-touch-icon.png'],
-      manifest: {
-        name: 'EchoLearn — YouTube English Learning',
-        short_name: 'EchoLearn',
-        description:
-          'Learn English from YouTube videos with AI-powered transcript analysis, vocabulary extraction, and spaced repetition.',
-        theme_color: '#863bff',
-        background_color: '#ffffff',
-        display: 'standalone',
-        orientation: 'portrait-primary',
-        start_url: '/',
-        scope: '/',
-        icons: [
-          {
-            src: 'pwa-192x192.png',
-            sizes: '192x192',
-            type: 'image/png',
-          },
-          {
-            src: 'pwa-512x512.png',
-            sizes: '512x512',
-            type: 'image/png',
-          },
-          {
-            src: 'pwa-512x512.png',
-            sizes: '512x512',
-            type: 'image/png',
-            purpose: 'any maskable',
-          },
-        ],
-      },
-      workbox: {
-        globPatterns: ['**/*.{js,css,html,ico,png,svg,woff2}'],
-        runtimeCaching: [
-          {
-            urlPattern: /^https:\/\/api\.deepseek\.com\/.*/i,
-            handler: 'NetworkFirst',
-            options: {
-              cacheName: 'deepseek-api',
-              expiration: { maxEntries: 50, maxAgeSeconds: 60 * 60 * 24 },
+export default defineConfig(({ mode }) => {
+  // Load all env vars (including non-VITE_ prefixed) for the dev proxy
+  const env = loadEnv(mode, process.cwd(), '');
+
+  return {
+    plugins: [
+      react(),
+      tailwindcss(),
+      VitePWA({
+        registerType: 'autoUpdate',
+        includeAssets: ['favicon.svg', 'apple-touch-icon.png'],
+        manifest: {
+          name: 'EchoLearn — YouTube English Learning',
+          short_name: 'EchoLearn',
+          description:
+            'Learn English from YouTube videos with AI-powered transcript analysis, vocabulary extraction, and spaced repetition.',
+          theme_color: '#863bff',
+          background_color: '#ffffff',
+          display: 'standalone',
+          orientation: 'portrait-primary',
+          start_url: '/',
+          scope: '/',
+          icons: [
+            {
+              src: 'pwa-192x192.png',
+              sizes: '192x192',
+              type: 'image/png',
             },
-          },
-          {
-            // Cache YouTube proxy responses (same-origin /api/yt)
-            urlPattern: /\/api\/yt.*/i,
-            handler: 'NetworkFirst',
-            options: {
-              cacheName: 'youtube-proxy',
-              expiration: { maxEntries: 30, maxAgeSeconds: 60 * 60 * 2 },
+            {
+              src: 'pwa-512x512.png',
+              sizes: '512x512',
+              type: 'image/png',
             },
-          },
-          {
-            urlPattern: /^https:\/\/fonts\.googleapis\.com\/.*/i,
-            handler: 'CacheFirst',
-            options: {
-              cacheName: 'google-fonts',
-              expiration: { maxEntries: 10, maxAgeSeconds: 60 * 60 * 24 * 365 },
+            {
+              src: 'pwa-512x512.png',
+              sizes: '512x512',
+              type: 'image/png',
+              purpose: 'any maskable',
             },
+          ],
+        },
+        workbox: {
+          globPatterns: ['**/*.{js,css,html,ico,png,svg,woff2}'],
+          runtimeCaching: [
+            {
+              // AI analysis requests go through the same-origin proxy
+              urlPattern: /\/api\/ai.*/i,
+              handler: 'NetworkFirst',
+              options: {
+                cacheName: 'ai-api',
+                expiration: { maxEntries: 50, maxAgeSeconds: 60 * 60 * 24 },
+              },
+            },
+            {
+              // Cache YouTube proxy responses (same-origin /api/yt)
+              urlPattern: /\/api\/yt.*/i,
+              handler: 'NetworkFirst',
+              options: {
+                cacheName: 'youtube-proxy',
+                expiration: { maxEntries: 30, maxAgeSeconds: 60 * 60 * 2 },
+              },
+            },
+            {
+              urlPattern: /^https:\/\/fonts\.googleapis\.com\/.*/i,
+              handler: 'CacheFirst',
+              options: {
+                cacheName: 'google-fonts',
+                expiration: { maxEntries: 10, maxAgeSeconds: 60 * 60 * 24 * 365 },
+              },
+            },
+          ],
+        },
+      }),
+    ],
+    server: {
+      proxy: {
+        // Proxy YouTube requests to bypass CORS in dev mode
+        '/yt-proxy': {
+          target: 'https://www.youtube.com',
+          changeOrigin: true,
+          secure: false,
+          rewrite: (path) => path.replace(/^\/yt-proxy/, ''),
+          configure: (proxy) => {
+            proxy.on('proxyReq', (proxyReq, _req) => {
+              proxyReq.removeHeader('origin');
+              proxyReq.removeHeader('referer');
+            });
+            proxy.on('proxyRes', (proxyRes, req) => {
+              console.log(
+                `[yt-proxy] ${req.method} ${req.url?.substring(0, 80)} → ${proxyRes.statusCode}`,
+              );
+            });
+            proxy.on('error', (err, req) => {
+              console.error(`[yt-proxy] ERROR ${req.url?.substring(0, 80)}:`, err.message);
+            });
           },
-        ],
-      },
-    }),
-  ],
-  server: {
-    proxy: {
-      // Proxy YouTube requests to bypass CORS in dev mode
-      // Note: do NOT override headers here — the client code sets
-      // appropriate User-Agent for InnerTube API (Android) vs page fetch.
-      '/yt-proxy': {
-        target: 'https://www.youtube.com',
-        changeOrigin: true,
-        secure: false,
-        rewrite: (path) => path.replace(/^\/yt-proxy/, ''),
-        configure: (proxy) => {
-          proxy.on('proxyReq', (proxyReq, _req) => {
-            // Remove the host header set by the browser (localhost)
-            // so the proxy sends youtube.com as the host
-            proxyReq.removeHeader('origin');
-            proxyReq.removeHeader('referer');
-          });
-          proxy.on('proxyRes', (proxyRes, req) => {
-            // Log proxy responses for debugging
-            console.log(
-              `[yt-proxy] ${req.method} ${req.url?.substring(0, 80)} → ${proxyRes.statusCode}`,
-            );
-          });
-          proxy.on('error', (err, req) => {
-            console.error(`[yt-proxy] ERROR ${req.url?.substring(0, 80)}:`, err.message);
-          });
+        },
+        // Proxy DeepSeek AI requests in dev mode (API key injected server-side)
+        '/api/ai': {
+          target: 'https://api.deepseek.com',
+          changeOrigin: true,
+          secure: true,
+          rewrite: () => '/chat/completions',
+          configure: (proxy) => {
+            proxy.on('proxyReq', (proxyReq) => {
+              if (env.DEEPSEEK_API_KEY) {
+                proxyReq.setHeader('Authorization', `Bearer ${env.DEEPSEEK_API_KEY}`);
+              }
+            });
+            proxy.on('proxyRes', (proxyRes, req) => {
+              console.log(
+                `[ai-proxy] ${req.method} → ${proxyRes.statusCode}`,
+              );
+            });
+          },
         },
       },
     },
-  },
-})
+  };
+});
