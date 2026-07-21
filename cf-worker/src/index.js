@@ -780,7 +780,9 @@ async function fetchViaPiped(videoId, lang, log = console.log) {
  * Last-resort strategy: extract audio from the video and transcribe
  * using Groq's Whisper API (free tier, whisper-large-v3-turbo).
  *
- * Audio source: Piped instances' audioStreams (direct audio URLs).
+ * Audio sources (tried in order):
+ *   1. Piped instances' audioStreams
+ *   2. InnerTube adaptiveFormats (ANDROID client)
  * Groq accepts up to 25 MB audio files.
  */
 async function fetchViaWhisper(videoId, lang, env, log = console.log) {
@@ -789,7 +791,7 @@ async function fetchViaWhisper(videoId, lang, env, log = console.log) {
     return null;
   }
 
-  // Step 1: Get audio URL from Piped instances
+  // Step 1a: Try getting audio URL from Piped instances
   let audioUrl = null;
   for (const instance of PIPED_INSTANCES) {
     try {
@@ -813,8 +815,53 @@ async function fetchViaWhisper(videoId, lang, env, log = console.log) {
     }
   }
 
+  // Step 1b: Fallback — get audio URL from InnerTube adaptiveFormats
   if (!audioUrl) {
-    log('Whisper: could not obtain audio URL from any Piped instance');
+    log('Whisper: Piped failed, trying InnerTube adaptiveFormats');
+    try {
+      const resp = await fetchWithTimeout(
+        `${INNERTUBE_API_URL}&key=AIzaSyA8eiZmM1FaDVjRy-df2KTyQ_vz_yYM39w`,
+        {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            'User-Agent': ANDROID_UA,
+            'Cookie': CONSENT_COOKIE,
+            'X-Goog-Api-Key': 'AIzaSyA8eiZmM1FaDVjRy-df2KTyQ_vz_yYM39w',
+          },
+          body: JSON.stringify({
+            context: { client: { clientName: 'ANDROID', clientVersion: '20.10.38', hl: lang } },
+            videoId,
+            contentCheckOk: true,
+            racyCheckOk: true,
+          }),
+        },
+        10000,
+      );
+
+      if (resp.ok) {
+        const data = await resp.json();
+        const formats = data?.streamingData?.adaptiveFormats;
+        if (Array.isArray(formats)) {
+          // Filter audio-only streams, pick lowest bitrate
+          const audioFormats = formats
+            .filter((f) => f.mimeType && f.mimeType.startsWith('audio/') && f.url)
+            .sort((a, b) => (a.bitrate || 0) - (b.bitrate || 0));
+          if (audioFormats.length > 0) {
+            audioUrl = audioFormats[0].url;
+            log(`Whisper: audio URL from InnerTube adaptiveFormats (${audioFormats.length} audio stream(s))`);
+          }
+        }
+      } else {
+        log(`Whisper: InnerTube HTTP ${resp.status}`);
+      }
+    } catch (err) {
+      log(`Whisper: InnerTube adaptiveFormats failed: ${err.message}`);
+    }
+  }
+
+  if (!audioUrl) {
+    log('Whisper: could not obtain audio URL from any source');
     return null;
   }
 

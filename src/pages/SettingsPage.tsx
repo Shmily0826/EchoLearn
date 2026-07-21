@@ -48,12 +48,25 @@ function useLocalDataSize() {
   return { size, refresh };
 }
 
+// ── Developer mode persistence ────────────────────────────────
+
+const DEV_MODE_KEY = 'echolearn_dev_mode';
+
+function loadDevMode(): boolean {
+  return localStorage.getItem(DEV_MODE_KEY) === '1';
+}
+
+function saveDevMode(on: boolean): void {
+  localStorage.setItem(DEV_MODE_KEY, on ? '1' : '0');
+}
+
 // ── Settings Page ─────────────────────────────────────────────
 
 const SettingsPage: React.FC = () => {
   const { size: dataSize, refresh: refreshDataSize } = useLocalDataSize();
   const { user, logOut } = useAuth();
   const { t } = useI18n();
+  const [devMode, setDevMode] = useState(loadDevMode);
 
   // ── Firebase sync state ──────────────────────────────────
   const [fbSyncAction, setFbSyncAction] = useState<'idle' | 'syncing' | 'uploading'>('idle');
@@ -458,7 +471,8 @@ const SettingsPage: React.FC = () => {
         </section>
       )}
 
-      {/* ── Local Proxy Section ──────────────────────────────── */}
+      {/* ── Local Proxy Section (Developer Mode only) ─────────── */}
+      {devMode && (
       <section className="bg-white dark:bg-slate-800 rounded-xl border border-gray-200 dark:border-slate-700 shadow-sm p-5 sm:p-6 mb-6">
         <div className="flex items-center gap-3 mb-5">
           <div className="p-2 bg-emerald-100 dark:bg-emerald-950 rounded-lg">
@@ -564,8 +578,10 @@ const SettingsPage: React.FC = () => {
           </div>
         </details>
       </section>
+      )}
 
-      {/* ── Cloud Sync Section ──────────────────────────────── */}
+      {/* ── Cloud Sync Section (Developer Mode only) ─────────── */}
+      {devMode && (
       <section className="bg-white dark:bg-slate-800 rounded-xl border border-gray-200 dark:border-slate-700 shadow-sm p-5 sm:p-6 mb-6">
         <div className="flex items-center gap-3 mb-5">
           <div className="p-2 bg-indigo-100 dark:bg-indigo-950 rounded-lg">
@@ -749,6 +765,7 @@ const SettingsPage: React.FC = () => {
           </div>
         )}
       </section>
+      )}
 
       {/* ── Data Export Section ──────────────────────────────── */}
       <section className="bg-white dark:bg-slate-800 rounded-xl border border-gray-200 dark:border-slate-700 shadow-sm p-5 sm:p-6 mb-6">
@@ -826,6 +843,31 @@ const SettingsPage: React.FC = () => {
               1014755473@qq.com
             </a>
           </p>
+        </div>
+
+        {/* Developer Mode toggle */}
+        <div className="border-t border-gray-100 dark:border-slate-700 mt-4 pt-4 flex items-center justify-between">
+          <div>
+            <p className="text-xs font-medium text-gray-600 dark:text-gray-300">{t('settings.devMode')}</p>
+            <p className="text-[11px] text-gray-400 dark:text-gray-500">{t('settings.devModeHint')}</p>
+          </div>
+          <button
+            onClick={() => {
+              const next = !devMode;
+              setDevMode(next);
+              saveDevMode(next);
+            }}
+            className={`relative w-10 h-5.5 rounded-full transition-colors cursor-pointer flex-shrink-0 ${
+              devMode ? 'bg-violet-600' : 'bg-gray-300 dark:bg-slate-600'
+            }`}
+            style={{ height: '22px' }}
+          >
+            <span
+              className={`absolute top-0.5 left-0.5 w-[18px] h-[18px] bg-white rounded-full shadow transition-transform ${
+                devMode ? 'translate-x-[18px]' : ''
+              }`}
+            />
+          </button>
         </div>
       </section>
 

@@ -297,6 +297,8 @@ const translations: Record<string, Record<Lang, string>> = {
   'settings.fullBackup': { en: 'Full backup', zh: '完整备份' },
   'settings.about':      { en: 'About EchoLearn', zh: '关于 EchoLearn' },
   'settings.aboutDesc':  { en: 'YouTube-based English learning workspace', zh: '基于 YouTube 的英语学习工作台' },
+  'settings.devMode':    { en: 'Developer Mode', zh: '开发者模式' },
+  'settings.devModeHint': { en: 'Show advanced settings (local proxy, Gist backup)', zh: '显示高级设置（本地代理、Gist 备份）' },
 
   // ── ErrorBoundary ────────────────────────────────────────
   'error.somethingWrong':{ en: 'Something went wrong', zh: '出了点问题' },
