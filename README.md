@@ -1,73 +1,94 @@
-# React + TypeScript + Vite
+# EchoLearn
 
-This template provides a minimal setup to get React working in Vite with HMR and some ESLint rules.
+A YouTube & Bilibili-powered English learning tool. Paste a video URL, get AI-curated vocabulary and sentence suggestions tailored to your CEFR level, then review them with spaced repetition.
 
-Currently, two official plugins are available:
+**Live:** [app.echo-learn.uk](https://app.echo-learn.uk) (PWA + Android APK)
 
-- [@vitejs/plugin-react](https://github.com/vitejs/vite-plugin-react/blob/main/packages/plugin-react) uses [Oxc](https://oxc.rs)
-- [@vitejs/plugin-react-swc](https://github.com/vitejs/vite-plugin-react/blob/main/packages/plugin-react-swc) uses [SWC](https://swc.rs/)
+## Features
 
-## React Compiler
+- **Auto transcript fetching** — Multi-strategy caption retrieval (InnerTube, web scraping, Invidious, Piped, Whisper ASR) with graceful fallback chain
+- **AI-powered analysis** — DeepSeek analyzes transcripts to recommend vocabulary and sentences calibrated to CEFR levels (A1–C2)
+- **Interactive transcripts** — Click any word for instant dictionary lookup with phonetics, audio, definitions, and recursive word exploration
+- **Spaced repetition** — Review saved words and sentences on a 3→7→14→30 day schedule
+- **Cloud sync** — Firebase Firestore for automatic cross-device sync, plus GitHub Gist backup
+- **Bilingual UI** — Full English/Chinese interface toggle
+- **Bilibili support** — Fetch subtitles from Bilibili videos alongside YouTube
+- **PWA + Android** — Install as a PWA or use the native Android app (Capacitor)
 
-The React Compiler is not enabled on this template because of its impact on dev & build performances. To add it, see [this documentation](https://react.dev/learn/react-compiler/installation).
+## Tech Stack
 
-## Expanding the ESLint configuration
+React 19 · TypeScript · Vite 8 · Tailwind CSS 4 · Firebase Auth & Firestore · Capacitor 8 · DeepSeek API · Cloudflare Workers · Vercel Edge Functions · Recharts
 
-If you are developing a production application, we recommend updating the configuration to enable type-aware lint rules:
+## Architecture
 
-```js
-export default defineConfig([
-  globalIgnores(['dist']),
-  {
-    files: ['**/*.{ts,tsx}'],
-    extends: [
-      // Other configs...
-
-      // Remove tseslint.configs.recommended and replace with this
-      tseslint.configs.recommendedTypeChecked,
-      // Alternatively, use this for stricter rules
-      tseslint.configs.strictTypeChecked,
-      // Optionally, add this for stylistic rules
-      tseslint.configs.stylisticTypeChecked,
-
-      // Other configs...
-    ],
-    languageOptions: {
-      parserOptions: {
-        project: ['./tsconfig.node.json', './tsconfig.app.json'],
-        tsconfigRootDir: import.meta.dirname,
-      },
-      // other options...
-    },
-  },
-])
+```
+Video URL → Parse videoId → Fetch captions (5-strategy cascade)
+  → Normalize to sentences → Display with video player
+  → AI analysis (DeepSeek) → Vocabulary & sentence suggestions
+  → Save to localStorage → Sync to Firestore
+  → Spaced repetition review
 ```
 
-You can also install [eslint-plugin-react-x](https://github.com/Rel1cx/eslint-react/tree/main/packages/plugins/eslint-plugin-react-x) and [eslint-plugin-react-dom](https://github.com/Rel1cx/eslint-react/tree/main/packages/plugins/eslint-plugin-react-dom) for React-specific lint rules:
+### Caption Fetching Cascade
 
-```js
-// eslint.config.js
-import reactX from 'eslint-plugin-react-x'
-import reactDom from 'eslint-plugin-react-dom'
+The system tries multiple strategies in order until one succeeds:
 
-export default defineConfig([
-  globalIgnores(['dist']),
-  {
-    files: ['**/*.{ts,tsx}'],
-    extends: [
-      // Other configs...
-      // Enable lint rules for React
-      reactX.configs['recommended-typescript'],
-      // Enable lint rules for React DOM
-      reactDom.configs.recommended,
-    ],
-    languageOptions: {
-      parserOptions: {
-        project: ['./tsconfig.node.json', './tsconfig.app.json'],
-        tsconfigRootDir: import.meta.dirname,
-      },
-      // other options...
-    },
-  },
-])
+1. **Local proxy** — Residential IP via Cloudflare Tunnel (optional, highest success rate)
+2. **Vercel API** — Server-side `youtube-transcript` npm package
+3. **Cloudflare Worker** — Edge-deployed proxy with 5 internal strategies:
+   - InnerTube API (ANDROID / iOS / WEB / TV clients)
+   - YouTube page HTML scraping
+   - Invidious instances (10 third-party frontends)
+   - Piped instances (6 third-party frontends)
+   - Whisper ASR via Groq (audio transcription fallback)
+4. **InnerTube direct** — Client-side API calls via Edge Function proxy
+5. **Web scraping** — Extract `ytInitialPlayerResponse` from page HTML
+6. **npm package** — Client-side `youtube-transcript` (last resort)
+
+## Getting Started
+
+```bash
+# Install dependencies
+npm install
+
+# Start dev server
+npm run dev
+
+# Build for production
+npm run build
+
+# Deploy CF Worker (caption proxy)
+cd cf-worker && npx wrangler deploy
 ```
+
+### Environment Variables
+
+| Variable | Description |
+|----------|-------------|
+| `VITE_DEEPSEEK_API_KEY` | DeepSeek API key for AI analysis |
+| `VITE_YOUTUBE_API_KEY` | YouTube Data API v3 key (channel videos) |
+| `VITE_FIREBASE_*` | Firebase project config |
+| `VITE_YOUTUBE_PROXY` | (Optional) Custom YouTube proxy base URL |
+
+CF Worker secrets: `GROQ_API_KEY` (Whisper ASR fallback)
+
+## Project Structure
+
+```
+src/
+├── pages/          # Dashboard, Study, Vocabulary, Sentences, Review, Settings, Login
+├── components/     # YouTubeEmbed, TranscriptViewer, AIAnalysisPanel, WordDictionaryPopup, etc.
+├── services/       # youtubeTranscript, aiAnalysis, dictionaryService, firestoreSync, etc.
+├── utils/          # storage, transcriptNormalizer, lemmatizer, URL parsers
+├── hooks/          # useAntiTranslate, useInstallPrompt
+├── i18n/           # English/Chinese translations
+├── contexts/       # AuthContext (Firebase Auth)
+└── types/          # TypeScript interfaces
+api/                # Vercel Serverless & Edge Functions
+cf-worker/          # Cloudflare Worker (caption proxy + Whisper ASR)
+android/            # Capacitor Android project
+```
+
+## License
+
+Private project. All rights reserved.
