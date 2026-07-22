@@ -157,7 +157,9 @@ export default {
 async function handleTranscript(url, env) {
   const videoId = url.searchParams.get('videoId');
   const lang = url.searchParams.get('lang') || 'en';
-  const debug = url.searchParams.get('debug') === '1';
+  // Debug logs are off by default in production. To re-enable for troubleshooting,
+  // set the ALLOW_DEBUG=1 environment variable (e.g. `npx wrangler secret put ALLOW_DEBUG`).
+  const debug = url.searchParams.get('debug') === '1' && env.ALLOW_DEBUG === '1';
 
   if (!videoId) {
     return jsonResponse({ error: 'Missing videoId parameter' }, 400);

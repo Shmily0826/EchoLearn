@@ -47,6 +47,9 @@ export default defineConfig(({ mode }) => {
         },
         workbox: {
           globPatterns: ['**/*.{js,css,html,ico,png,svg,woff2}'],
+          // social-preview.png is only for social-media link crawlers, not the app UI —
+          // keep it out of the precache so users don't download ~716KB needlessly.
+          globIgnores: ['**/social-preview.png'],
           runtimeCaching: [
             {
               // AI analysis requests go through the same-origin proxy
