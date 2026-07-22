@@ -104,6 +104,34 @@ const DashboardPage: React.FC = () => {
     return dueWords + dueSentences;
   }, [vocabulary, sentences]);
 
+  // Study streak: consecutive days with any learning activity
+  const streak = useMemo(() => {
+    const daySet = new Set<string>();
+    const addDay = (ms: number) => {
+      const d = new Date(ms);
+      daySet.add(`${d.getFullYear()}-${d.getMonth()}-${d.getDate()}`);
+    };
+    vocabulary.forEach((v) => addDay(v.addedAt));
+    sentences.forEach((s) => addDay(s.addedAt));
+    sessions.forEach((s) => addDay(s.createdAt));
+    if (daySet.size === 0) return 0;
+
+    let count = 0;
+    const cursor = new Date();
+    // If today has no activity yet, start checking from yesterday
+    const todayKey = `${cursor.getFullYear()}-${cursor.getMonth()}-${cursor.getDate()}`;
+    if (!daySet.has(todayKey)) {
+      cursor.setDate(cursor.getDate() - 1);
+    }
+    while (true) {
+      const key = `${cursor.getFullYear()}-${cursor.getMonth()}-${cursor.getDate()}`;
+      if (!daySet.has(key)) break;
+      count++;
+      cursor.setDate(cursor.getDate() - 1);
+    }
+    return count;
+  }, [vocabulary, sentences, sessions]);
+
   // ── Chart data ──────────────────────────────────────────────
   const weeklyActivityData = useMemo(() => {
     const locale = lang === 'zh' ? 'zh-CN' : 'en';
@@ -365,7 +393,7 @@ const DashboardPage: React.FC = () => {
       </div>
 
       {/* Stat cards */}
-      <div className="grid grid-cols-2 lg:grid-cols-4 gap-3 sm:gap-4 mb-6 sm:mb-10">
+      <div className="grid grid-cols-2 lg:grid-cols-5 gap-3 sm:gap-4 mb-6 sm:mb-10">
         <StatCard
           label={t('dash.savedWords')}
           value={vocabulary.length}
@@ -405,6 +433,17 @@ const DashboardPage: React.FC = () => {
           icon={
             <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.5}>
               <path strokeLinecap="round" strokeLinejoin="round" d="M9 12.75L11.25 15 15 9.75M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
+            </svg>
+          }
+        />
+        <StatCard
+          label={t('dash.streak')}
+          value={streak}
+          color="orange"
+          icon={
+            <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.5}>
+              <path strokeLinecap="round" strokeLinejoin="round" d="M15.362 5.214A8.252 8.252 0 0112 21 8.25 8.25 0 016.038 7.048 8.287 8.287 0 009 9.6a8.983 8.983 0 013.361-6.867 8.21 8.21 0 003 2.48z" />
+              <path strokeLinecap="round" strokeLinejoin="round" d="M12 18a3.75 3.75 0 00.495-7.467 5.99 5.99 0 00-1.925 3.546 5.974 5.974 0 01-2.133-1A3.75 3.75 0 0012 18z" />
             </svg>
           }
         />
@@ -968,6 +1007,7 @@ const colorMap: Record<string, { bg: string; text: string; iconBg: string }> = {
   violet: { bg: 'bg-violet-50 dark:bg-indigo-950/40', text: 'text-violet-700 dark:text-indigo-300', iconBg: 'bg-violet-100 dark:bg-indigo-900/50' },
   blue:   { bg: 'bg-blue-50 dark:bg-blue-900/40',   text: 'text-blue-700 dark:text-blue-300',   iconBg: 'bg-blue-100 dark:bg-blue-900/50' },
   green:  { bg: 'bg-green-50 dark:bg-green-900/40',  text: 'text-green-700 dark:text-green-300',  iconBg: 'bg-green-100 dark:bg-green-900/50' },
+  orange: { bg: 'bg-orange-50 dark:bg-orange-950/30', text: 'text-orange-700 dark:text-orange-300', iconBg: 'bg-orange-100 dark:bg-orange-900/50' },
 };
 
 const StatCard: React.FC<{

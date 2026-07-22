@@ -62,7 +62,7 @@ function saveDevMode(on: boolean): void {
 
 // ── Settings Page ─────────────────────────────────────────────
 
-const SettingsPage: React.FC = () => {
+const SettingsPage: React.FC<{ onLoginRequest?: () => void }> = ({ onLoginRequest }) => {
   const { size: dataSize, refresh: refreshDataSize } = useLocalDataSize();
   const { user, logOut } = useAuth();
   const { t } = useI18n();
@@ -341,6 +341,29 @@ const SettingsPage: React.FC = () => {
       <p className="text-gray-500 dark:text-gray-400 text-sm mb-8">
         {t('settings.subtitle')}
       </p>
+
+      {/* ── Guest Login Card ─────────────────────────────────── */}
+      {!user && onLoginRequest && (
+        <section className="bg-gradient-to-r from-violet-50 to-indigo-50 dark:from-violet-950/40 dark:to-indigo-950/40 rounded-xl border border-violet-200 dark:border-violet-800 shadow-sm p-5 sm:p-6 mb-6">
+          <div className="flex items-center gap-3 mb-3">
+            <div className="p-2 bg-violet-100 dark:bg-violet-900 rounded-lg">
+              <svg className="w-5 h-5 text-violet-600 dark:text-violet-300" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.5}>
+                <path strokeLinecap="round" strokeLinejoin="round" d="M15.75 6a3.75 3.75 0 11-7.5 0 3.75 3.75 0 017.5 0zM4.501 20.118a7.5 7.5 0 0114.998 0A17.933 17.933 0 0112 21.75c-2.676 0-5.216-.584-7.499-1.632z" />
+              </svg>
+            </div>
+            <div>
+              <h2 className="text-base font-semibold text-gray-800 dark:text-gray-200">{t('settings.guestTitle')}</h2>
+              <p className="text-xs text-gray-500 dark:text-gray-400">{t('settings.guestHint')}</p>
+            </div>
+          </div>
+          <button
+            onClick={onLoginRequest}
+            className="w-full py-2.5 rounded-xl text-sm font-semibold text-white bg-violet-600 hover:bg-violet-700 transition-colors cursor-pointer"
+          >
+            {t('settings.guestSignIn')}
+          </button>
+        </section>
+      )}
 
       {/* ── Account Section ──────────────────────────────────── */}
       {user && (

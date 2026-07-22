@@ -17,7 +17,7 @@ function getPasswordStrength(pw: string): number {
   return 3;
 }
 
-const LoginPage: React.FC = () => {
+const LoginPage: React.FC<{ onGuest?: () => void }> = ({ onGuest }) => {
   const { signInWithGoogle, signInWithEmail, signUpWithEmail } = useAuth();
   const { t, lang, toggleLang } = useI18n();
   const [mode, setMode] = useState<AuthMode>('login');
@@ -274,6 +274,22 @@ const LoginPage: React.FC = () => {
             {mode === 'login' ? t('login.signUpLink') : t('login.signInLink')}
           </button>
         </p>
+
+        {/* Guest mode entry */}
+        {onGuest && (
+          <div className="mt-6 pt-5 border-t" style={{ borderColor: 'var(--color-border)' }}>
+            <button
+              onClick={onGuest}
+              className="w-full py-2.5 rounded-xl text-sm font-medium transition-colors cursor-pointer hover:bg-gray-50 dark:hover:bg-gray-800"
+              style={{ color: 'var(--color-text-muted)', border: '1px dashed var(--color-border)' }}
+            >
+              {t('login.guest')}
+            </button>
+            <p className="text-center text-[11px] mt-2" style={{ color: 'var(--color-text-muted)', opacity: 0.7 }}>
+              {t('login.guestHint')}
+            </p>
+          </div>
+        )}
       </div>
     </div>
   );

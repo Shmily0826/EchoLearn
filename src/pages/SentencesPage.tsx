@@ -70,6 +70,13 @@ const SentencesPage: React.FC = () => {
     setSessions(loadAllSessions());
   }, []);
 
+  // Listen for cross-page data changes (e.g., StudyPage saving a sentence)
+  useEffect(() => {
+    const handler = () => setSentences(loadSentences());
+    window.addEventListener('echolearn:sentences-changed', handler);
+    return () => window.removeEventListener('echolearn:sentences-changed', handler);
+  }, []);
+
   // Build videoId -> title map
   const titleMap = useMemo(() => {
     const map = new Map<string, string>();

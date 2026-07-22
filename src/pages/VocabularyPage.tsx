@@ -64,6 +64,13 @@ const VocabularyPage: React.FC = () => {
     setSessions(loadAllSessions());
   }, []);
 
+  // Listen for cross-page data changes (e.g., StudyPage saving a word)
+  useEffect(() => {
+    const handler = () => setVocabulary(loadVocabulary());
+    window.addEventListener('echolearn:vocab-changed', handler);
+    return () => window.removeEventListener('echolearn:vocab-changed', handler);
+  }, []);
+
   // Build videoId -> title map
   const titleMap = useMemo(() => {
     const map = new Map<string, string>();

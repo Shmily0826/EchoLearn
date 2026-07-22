@@ -1,4 +1,4 @@
-import { useEffect } from 'react';
+import { useEffect, useState, useCallback } from 'react';
 import { BrowserRouter, useLocation, useNavigate } from 'react-router-dom';
 import { App as CapApp } from '@capacitor/app';
 import { StatusBar, Style } from '@capacitor/status-bar';
@@ -21,7 +21,7 @@ import SettingsPage from './pages/SettingsPage';
  * Only the active route is visible. This preserves component state
  * (video player, scroll position, form inputs) when switching tabs.
  */
-function AppContent() {
+function AppContent({ onLoginRequest }: { onLoginRequest?: () => void }) {
   const { pathname } = useLocation();
   const navigate = useNavigate();
   const { translateDetected, dismissWarning } = useAntiTranslate();
@@ -84,18 +84,24 @@ function AppContent() {
         <ReviewPage />
       </div>
       <div style={{ display: pathname === '/settings' ? undefined : 'none' }}>
-        <SettingsPage />
+        <SettingsPage onLoginRequest={onLoginRequest} />
       </div>
     </Layout>
   );
 }
 
 /**
- * Auth gate — shows login page if not authenticated, otherwise renders the app.
- * The old VITE_ACCESS_PASSWORD gate is deprecated in favour of Firebase Auth.
+ * Auth gate — supports guest mode.
+ * First visit shows LoginPage with a "try as guest" option.
+ * Guests can browse videos/subtitles; saving & AI analysis require login.
+ * After login, guest localStorage data auto-merges via syncWithCloud.
  */
 function AuthGate() {
   const { user, loading } = useAuth();
+  const [guestMode, setGuestMode] = useState(false);
+
+  const handleGuest = useCallback(() => setGuestMode(true), []);
+  const handleLoginRequest = useCallback(() => setGuestMode(false), []);
 
   if (loading) {
     // Initial auth state check — show a minimal loader
@@ -126,11 +132,11 @@ function AuthGate() {
     );
   }
 
-  if (!user) {
-    return <LoginPage />;
+  if (!user && !guestMode) {
+    return <LoginPage onGuest={handleGuest} />;
   }
 
-  return <AppContent />;
+  return <AppContent onLoginRequest={!user ? handleLoginRequest : undefined} />;
 }
 
 function App() {

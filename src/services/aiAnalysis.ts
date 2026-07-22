@@ -5,6 +5,7 @@ import type {
 } from '../types';
 import { extractWordsByLevel, type CEFRLevel } from './cefrWordList';
 import { t, type Lang } from '../i18n/translations';
+import { checkAiRateLimit, rateLimitWaitSeconds } from './aiRateLimit';
 
 // ── DeepSeek API config ──────────────────────────────────────
 
@@ -96,7 +97,8 @@ Requirements:
   4. Spread your selection across the ENTIRE transcript — do not only pick words from the beginning. Include words from the middle and end sections too.
   5. Each "word" must be the dictionary base form (lemma) — e.g. "running" → "run", "went" → "go", "children" → "child".
   6. "meaningCn" must be the precise Chinese meaning of the word itself (not a sentence translation).
-  7. If fewer than ${vocabCount} words at the ${minLevel}–${maxLevel} level exist in the transcript, return ALL qualifying words you can find (do NOT pad with easier words). Set "note" to explain: e.g. "该字幕中 ${minLevel}–${maxLevel} 级别词汇有限，共找到 N 个符合条件的词。"
+  7. **CEFR DISTRIBUTION**: Distribute words EVENLY across the ${minLevel}–${maxLevel} range. For example, if the range is B1–C2 and you need 8 words, aim for ~2 B1, ~2 B2, ~2 C1, ~2 C2. Do NOT cluster all words at the highest level. Include some easier (but still above-A2) words alongside the advanced ones.
+  8. If fewer than ${vocabCount} words at the ${minLevel}–${maxLevel} level exist in the transcript, return ALL qualifying words you can find (do NOT pad with easier words). Set "note" to explain: e.g. "该字幕中 ${minLevel}–${maxLevel} 级别词汇有限，共找到 N 个符合条件的词。"
 - "sentenceSuggestions": exactly ${sentenceCount} sentences that showcase useful grammar, collocations, or expressions.
   - Each "text" must be an exact quote.
   - "grammarNotes" must be a brief analysis of the sentence: identify key grammar structures (e.g. ${lang === 'zh' ? '虚拟语气, 定语从句, 被动语态' : 'subjunctive mood, relative clauses, passive voice'}), useful collocations, or expression techniques. Keep it to 2-3 sentences. ${grammarFieldDesc}.
@@ -341,6 +343,20 @@ export async function analyzeTranscript(
   onChunk?: (chunk: string) => void,
   lang: 'en' | 'zh' = 'zh',
 ): Promise<AIAnalysisResult> {
+  // Clamp parameters to sane ranges (prevent abuse like vocabCount=1000)
+  vocabCount = Math.max(1, Math.min(vocabCount, 30));
+  sentenceCount = Math.max(1, Math.min(sentenceCount, 20));
+
+  // Client-side rate limit: 10 AI calls per minute (shared with translation)
+  if (!checkAiRateLimit()) {
+    const wait = rateLimitWaitSeconds();
+    throw new Error(
+      lang === 'zh'
+        ? `AI 使用过于频繁，请 ${wait} 秒后再试。`
+        : `Too many AI requests. Please wait ${wait}s and try again.`,
+    );
+  }
+
   try {
     return await callDeepSeek(transcriptText, minLevel, maxLevel, vocabCount, sentenceCount, onChunk, lang);
   } catch (err) {

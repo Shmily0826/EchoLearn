@@ -3,6 +3,8 @@
  * for vocabulary words and sentences that were manually added without meaningCn.
  */
 
+import { checkAiRateLimit, rateLimitWaitSeconds } from './aiRateLimit';
+
 /** Requests go through the server-side proxy at /api/ai (API key stays server-side). */
 const DEEPSEEK_ENDPOINT = '/api/ai';
 const DEEPSEEK_MODEL = 'deepseek-v4-flash';
@@ -41,6 +43,13 @@ async function callBatchTranslate(
   targetLang: TranslateLang = 'zh',
 ): Promise<Record<string, string>> {
   if (items.length === 0) return {};
+
+  // Client-side rate limit: shared 10 calls/min budget with AI analysis
+  if (!checkAiRateLimit()) {
+    const wait = rateLimitWaitSeconds();
+    console.warn(`[translation] Rate limited, retry after ${wait}s`);
+    return {};
+  }
 
   const kindLabel = kind === 'word' ? 'English vocabulary word' : 'English sentence';
   const langName = TRANSLATE_LANGS[targetLang] ?? 'Chinese';

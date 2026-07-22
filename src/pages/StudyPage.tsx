@@ -55,6 +55,15 @@ const StudyPage: React.FC = () => {
   const { t, lang } = useI18n();
   const { user } = useAuth();
 
+  // Guest mode: toast prompt when trying to use login-required features
+  const [loginToast, setLoginToast] = useState(false);
+  const loginToastTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const showLoginToast = useCallback(() => {
+    setLoginToast(true);
+    if (loginToastTimer.current) clearTimeout(loginToastTimer.current);
+    loginToastTimer.current = setTimeout(() => setLoginToast(false), 3000);
+  }, []);
+
   // Debounced cloud sync — pushes vocabulary/sentences 2s after last change
   const syncTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const triggerCloudSync = useCallback(() => {
@@ -644,6 +653,7 @@ const StudyPage: React.FC = () => {
 
   // ── Analyze transcript ──────────────────────────────────────
   const handleAnalyze = useCallback(async () => {
+    if (!user) { showLoginToast(); return; }
     const textLines = displayMode === 'sentence' ? sentenceLines : rawBlocks;
     if (textLines.length === 0) return;
     const text = textLines.map((l) => l.text).join(' ');
@@ -675,10 +685,11 @@ const StudyPage: React.FC = () => {
       setAnalyzing(false);
       setStreamChars(0);
     }
-  }, [displayMode, sentenceLines, rawBlocks, cefrMin, cefrMax, vocabCount, sentenceCount, persistAnalysis, lang]);
+  }, [user, displayMode, sentenceLines, rawBlocks, cefrMin, cefrMax, vocabCount, sentenceCount, persistAnalysis, lang, showLoginToast]);
 
   // ── Vocab / sentence handlers ─────────────────────────────
   const handleAddVocabulary = useCallback((item: VocabularyItem) => {
+    if (!user) { showLoginToast(); return; }
     setVocabulary(addVocabularyItem(item));
     triggerCloudSync();
     // Auto-translate meaningCn if empty
@@ -690,12 +701,13 @@ const StudyPage: React.FC = () => {
         }
       }).catch(() => { /* silent */ });
     }
-  }, [triggerCloudSync]);
+  }, [user, triggerCloudSync, showLoginToast]);
 
   const handleAddSentence = useCallback((item: SentenceItem) => {
+    if (!user) { showLoginToast(); return; }
     setSentences(addSentenceItem(item));
     triggerCloudSync();
-  }, [triggerCloudSync]);
+  }, [user, triggerCloudSync, showLoginToast]);
 
   const handleRemoveVocabulary = useCallback((id: string) => {
     if (!window.confirm(t('study.deleteWord'))) return;
@@ -1039,18 +1051,18 @@ const StudyPage: React.FC = () => {
                       <input
                         type="number"
                         min={1}
-                        max={50}
+                        max={30}
                         value={vocabCount}
-                        onChange={(e) => setVocabCount(Math.max(1, Math.min(50, Number(e.target.value) || 1)))}
+                        onChange={(e) => setVocabCount(Math.max(1, Math.min(30, Number(e.target.value) || 1)))}
                         className="w-10 px-1 py-0.5 border border-gray-200 dark:border-slate-700 rounded text-[10px] bg-white dark:bg-slate-800 text-gray-600 dark:text-gray-400 focus:outline-none text-center"
                       />
                       <span className="text-gray-300 ml-0.5">{t('study.sents')}</span>
                       <input
                         type="number"
                         min={1}
-                        max={30}
+                        max={20}
                         value={sentenceCount}
-                        onChange={(e) => setSentenceCount(Math.max(1, Math.min(30, Number(e.target.value) || 1)))}
+                        onChange={(e) => setSentenceCount(Math.max(1, Math.min(20, Number(e.target.value) || 1)))}
                         className="w-10 px-1 py-0.5 border border-gray-200 dark:border-slate-700 rounded text-[10px] bg-white dark:bg-slate-800 text-gray-600 dark:text-gray-400 focus:outline-none text-center"
                       />
                     </div>
@@ -1130,18 +1142,18 @@ const StudyPage: React.FC = () => {
                       <input
                         type="number"
                         min={1}
-                        max={50}
+                        max={30}
                         value={vocabCount}
-                        onChange={(e) => setVocabCount(Math.max(1, Math.min(50, Number(e.target.value) || 1)))}
+                        onChange={(e) => setVocabCount(Math.max(1, Math.min(30, Number(e.target.value) || 1)))}
                         className="w-12 px-1 py-1 border border-gray-200 dark:border-slate-700 rounded text-[11px] bg-white dark:bg-slate-800 text-gray-600 dark:text-gray-400 focus:outline-none focus:ring-1 focus:ring-indigo-300 text-center"
                       />
                       <span className="text-gray-300 dark:text-gray-500 ml-1">{t('study.sents')}</span>
                       <input
                         type="number"
                         min={1}
-                        max={30}
+                        max={20}
                         value={sentenceCount}
-                        onChange={(e) => setSentenceCount(Math.max(1, Math.min(30, Number(e.target.value) || 1)))}
+                        onChange={(e) => setSentenceCount(Math.max(1, Math.min(20, Number(e.target.value) || 1)))}
                         className="w-12 px-1 py-1 border border-gray-200 dark:border-slate-700 rounded text-[11px] bg-white dark:bg-slate-800 text-gray-600 dark:text-gray-400 focus:outline-none focus:ring-1 focus:ring-indigo-300 text-center"
                       />
                     </div>
@@ -1408,6 +1420,21 @@ const StudyPage: React.FC = () => {
           </div>
         </div>
       </main>
+
+      {/* Guest login toast */}
+      {loginToast && (
+        <div className="fixed bottom-20 md:bottom-6 left-4 right-4 md:left-auto md:right-6 md:max-w-sm z-50 px-4 py-3 rounded-xl shadow-lg border text-sm flex items-center gap-2 bg-violet-50 dark:bg-violet-950 border-violet-200 dark:border-violet-800 text-violet-700 dark:text-violet-300">
+          <svg className="w-4 h-4 flex-shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+            <path strokeLinecap="round" strokeLinejoin="round" d="M16.5 10.5V6.75a4.5 4.5 0 10-9 0v3.75m-.75 11.25h10.5a2.25 2.25 0 002.25-2.25v-6.75a2.25 2.25 0 00-2.25-2.25H6.75a2.25 2.25 0 00-2.25 2.25v6.75a2.25 2.25 0 002.25 2.25z" />
+          </svg>
+          <span className="flex-1">{t('study.loginRequired')}</span>
+          <button onClick={() => setLoginToast(false)} className="flex-shrink-0 opacity-60 hover:opacity-100 cursor-pointer">
+            <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+              <path strokeLinecap="round" strokeLinejoin="round" d="M6 18L18 6M6 6l12 12" />
+            </svg>
+          </button>
+        </div>
+      )}
     </div>
   );
 };

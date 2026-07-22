@@ -164,6 +164,7 @@ export function loadVocabularyByVideo(videoId: string): VocabularyItem[] {
 
 export function saveVocabulary(items: VocabularyItem[]): void {
   localStorage.setItem(VOCAB_KEY, JSON.stringify(items));
+  window.dispatchEvent(new CustomEvent('echolearn:vocab-changed'));
 }
 
 export function addVocabularyItem(item: VocabularyItem): VocabularyItem[] {
@@ -217,6 +218,7 @@ export function loadSentencesByVideo(videoId: string): SentenceItem[] {
 
 export function saveSentences(items: SentenceItem[]): void {
   localStorage.setItem(SENTENCE_KEY, JSON.stringify(items));
+  window.dispatchEvent(new CustomEvent('echolearn:sentences-changed'));
 }
 
 export function addSentenceItem(item: SentenceItem): SentenceItem[] {

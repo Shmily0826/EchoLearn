@@ -40,6 +40,8 @@ const translations: Record<string, Record<Lang, string>> = {
   'login.pwWeak':        { en: 'Weak', zh: '弱' },
   'login.pwMedium':      { en: 'Medium', zh: '中' },
   'login.pwStrong':      { en: 'Strong', zh: '强' },
+  'login.guest':         { en: 'Try without login', zh: '先体验一下' },
+  'login.guestHint':     { en: 'Browse videos & subtitles freely. Sign in to save words and use AI.', zh: '可自由浏览视频和字幕，登录后保存词汇和使用 AI 分析。' },
 
   // ── Dashboard ────────────────────────────────────────────
   'dash.welcome':        { en: 'Welcome back', zh: '欢迎回来' },
@@ -48,6 +50,7 @@ const translations: Record<string, Record<Lang, string>> = {
   'dash.savedSentences': { en: 'Saved Sentences', zh: '已存句子' },
   'dash.studySessions':  { en: 'Study Sessions', zh: '学习记录' },
   'dash.todayReview':    { en: "Today's Review", zh: '今日复习' },
+  'dash.streak':         { en: 'Day Streak', zh: '连续天数' },
   'dash.singleChannel':  { en: 'Single Channel', zh: '单频道' },
   'dash.topicPh':        { en: 'Topic keyword (e.g. English Podcast)', zh: '主题关键词（如 English Podcast）' },
   'dash.channel':        { en: 'Channel:', zh: '频道：' },
@@ -263,6 +266,9 @@ const translations: Record<string, Record<Lang, string>> = {
   // ── Settings ─────────────────────────────────────────────
   'settings.title':      { en: 'Settings', zh: '设置' },
   'settings.subtitle':   { en: 'Manage your account, data sync and export preferences.', zh: '管理账户、数据同步和导出设置。' },
+  'settings.guestTitle': { en: 'Guest Mode', zh: '游客模式' },
+  'settings.guestHint':  { en: 'Sign in to save vocabulary, sentences and sync across devices.', zh: '登录后可保存词汇、句子，并跨设备同步数据。' },
+  'settings.guestSignIn':{ en: 'Sign In / Sign Up', zh: '登录 / 注册' },
   'settings.account':    { en: 'Account', zh: '账户' },
   'settings.signOut':    { en: 'Sign Out', zh: '退出登录' },
   'settings.signedIn':   { en: 'Signed in', zh: '已登录' },
@@ -374,6 +380,7 @@ const translations: Record<string, Record<Lang, string>> = {
 
   // ── Playback Resume ─────────────────────────────────────
   'study.resumedAt':     { en: 'Resumed at {time}', zh: '已从 {time} 继续播放' },
+  'study.loginRequired': { en: 'Sign in to save words, sentences and use AI analysis.', zh: '登录后可保存词汇、句子和使用 AI 分析。' },
 
   // ── Common ───────────────────────────────────────────────
   'common.words':        { en: 'Words', zh: '词汇' },
