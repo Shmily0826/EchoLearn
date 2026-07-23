@@ -183,7 +183,7 @@ const ReviewPage: React.FC = () => {
   const handleForgot = useCallback(() => {
     if (!currentCard) return;
     const patch = {
-      reviewCount: currentCard.item.reviewCount,
+      reviewCount: Math.max(0, currentCard.item.reviewCount - 1),
       lastReviewedAt: Date.now(),
       nextReviewAt: tomorrowMs(),
       mastered: false,
