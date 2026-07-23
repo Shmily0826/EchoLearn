@@ -14,13 +14,22 @@ const DEEPSEEK_ENDPOINT = '/api/ai';
 const DEEPSEEK_MODEL = 'deepseek-v4-flash';
 
 /** Max characters of transcript to send (keeps tokens reasonable). */
-const MAX_TRANSCRIPT_CHARS = 15000;
+const MAX_TRANSCRIPT_CHARS = 12000;
 
 // ── Helpers ────────────────────────────────────────────────────
 
-function truncateText(text: string, max = MAX_TRANSCRIPT_CHARS): string {
+/**
+ * Smart truncation: sample evenly from beginning, middle, and end
+ * so the AI sees content from across the entire video, not just the start.
+ */
+function smartTruncate(text: string, max = MAX_TRANSCRIPT_CHARS): string {
   if (text.length <= max) return text;
-  return text.slice(0, max) + '\n...[truncated]';
+  const third = Math.floor(max / 3);
+  const head = text.slice(0, third);
+  const midStart = Math.floor((text.length - third) / 2);
+  const mid = text.slice(midStart, midStart + third);
+  const tail = text.slice(text.length - third);
+  return head + '\n...[middle]...\n' + mid + '\n...[later]...\n' + tail;
 }
 
 // ── System prompt ─────────────────────────────────────────────
@@ -51,6 +60,7 @@ function buildUserPrompt(
   vocabCount: number,
   sentenceCount: number,
   lang: 'en' | 'zh' = 'zh',
+  candidates?: Array<{ word: string; level: CEFRLevel; context: string }>,
 ): string {
   const grammarInstruction = lang === 'zh'
     ? '用中文简要解析该句的语法结构、重点短语或表达技巧（2-3句话）'
@@ -60,51 +70,36 @@ function buildUserPrompt(
     ? '用中文写语法解析'
     : 'write grammar analysis in English';
 
-  return `You are analyzing an English video transcript for a Chinese-speaking English learner.
+  // Two-stage: when candidates exist, vocab section references them directly (saves tokens)
+  const vocabSection = candidates && candidates.length > 0
+    ? `- "vocabularySuggestions": Pick the best ${vocabCount} words from the CANDIDATE LIST below.
+  For each: "word" = lemma as given, "context" = sentence from candidate (or better one from transcript), "meaningCn" = precise translation, "reason" = why worth learning.
+  **Distribute EVENLY across ${minLevel}–${maxLevel}** — do NOT cluster at the highest level.
+  You may add 1-2 words NOT in the list if you spot important ones missed locally.
+  If fewer than ${vocabCount} candidates exist, return all and set "note".
 
-IMPORTANT WORKFLOW: First, read and understand the ENTIRE transcript thoroughly. Only after you have a complete understanding of the content, select the best vocabulary and sentences that match the requirements below. Do NOT stop reading early or pick items only from the beginning.
+  CANDIDATE LIST (word | level | context):
+${candidates.slice(0, 40).map((c) => `  ${c.word} | ${c.level} | "${c.context.slice(0, 90)}"`).join('\n')}`
+    : `- "vocabularySuggestions": up to ${vocabCount} words at CEFR ${minLevel}–${maxLevel} from the transcript.
+  Each: lemma + context + meaningCn + reason. Distribute EVENLY across levels.`;
 
-Return a JSON object with this exact schema:
+  return `Analyze this English video transcript for a ${lang === 'zh' ? 'Chinese-speaking' : 'non-native'} English learner.
 
+Return JSON:
 {
-  "summaryEn": "2-3 sentence English summary of the content",
-${lang === 'zh' ? '  "summaryCn": "同样内容的2-3句中文摘要",\n' : ''}  "keyTakeaways": ["takeaway 1", "takeaway 2", "takeaway 3"],
-  "vocabularySuggestions": [
-    {
-      "word": "the word (base form / lemma)",
-      "context": "the exact sentence from transcript where this word appears",
-      "meaningCn": "准确的中文释义",
-      "reason": "brief reason why this word is worth learning at this level"
-    }
-  ],
-  "sentenceSuggestions": [
-    {
-      "text": "exact sentence from transcript",
-      "meaningCn": "准确的中文翻译",
-      "reason": "why this sentence is useful for learning",
-      "grammarNotes": "${grammarInstruction}"
-    }
-  ],
-  "note": "optional — only include this field if you could not find enough words at the requested CEFR level"
+  "summaryEn": "2-3 sentence summary",
+${lang === 'zh' ? '  "summaryCn": "2-3句中文摘要",\n' : ''}  "keyTakeaways": ["point1", "point2", "point3"],
+  "vocabularySuggestions": [{"word":"","context":"","meaningCn":"","reason":""}],
+  "sentenceSuggestions": [{"text":"","meaningCn":"","reason":"","grammarNotes":""}],
+  "note": "optional"
 }
 
 Requirements:
-- "vocabularySuggestions": up to ${vocabCount} words STRICTLY at CEFR level ${minLevel}–${maxLevel}.
-  CRITICAL word selection rules:
-  1. SKIP all basic/common words (e.g. make, take, give, come, think, know, want, need, use, find, tell, ask, work, seem, feel, try, leave, call, good, great, big, small, new, old, long, high, different). These are A1-A2 level and the learner already knows them.
-  2. Choose words that a learner at ${minLevel}–${maxLevel} level would find CHALLENGING — words they likely cannot use confidently in their own writing or speech.
-  3. Prefer topic-specific vocabulary (domain terms, academic words, nuanced expressions) over generic high-frequency words.
-  4. Spread your selection across the ENTIRE transcript — do not only pick words from the beginning. Include words from the middle and end sections too.
-  5. Each "word" must be the dictionary base form (lemma) — e.g. "running" → "run", "went" → "go", "children" → "child".
-  6. "meaningCn" must be the precise Chinese meaning of the word itself (not a sentence translation).
-  7. **CEFR DISTRIBUTION**: Distribute words EVENLY across the ${minLevel}–${maxLevel} range. For example, if the range is B1–C2 and you need 8 words, aim for ~2 B1, ~2 B2, ~2 C1, ~2 C2. Do NOT cluster all words at the highest level. Include some easier (but still above-A2) words alongside the advanced ones.
-  8. If fewer than ${vocabCount} words at the ${minLevel}–${maxLevel} level exist in the transcript, return ALL qualifying words you can find (do NOT pad with easier words). Set "note" to explain: e.g. "该字幕中 ${minLevel}–${maxLevel} 级别词汇有限，共找到 N 个符合条件的词。"
-- "sentenceSuggestions": exactly ${sentenceCount} sentences that showcase useful grammar, collocations, or expressions.
-  - Each "text" must be an exact quote.
-  - "grammarNotes" must be a brief analysis of the sentence: identify key grammar structures (e.g. ${lang === 'zh' ? '虚拟语气, 定语从句, 被动语态' : 'subjunctive mood, relative clauses, passive voice'}), useful collocations, or expression techniques. Keep it to 2-3 sentences. ${grammarFieldDesc}.
-  - Prefer sentences from different parts of the transcript.
-- "keyTakeaways": exactly 3 key points in English.
-- "note": omit this field entirely if you found enough words. Only include it when the vocabulary count is less than requested.
+${vocabSection}
+- "sentenceSuggestions": exactly ${sentenceCount} exact quotes with useful grammar/expressions.
+  "grammarNotes": ${grammarInstruction}. ${grammarFieldDesc}. Pick from different parts.
+- "keyTakeaways": exactly 3 points in English.
+- "note": omit unless fewer words than requested.
 
 Transcript:
 ---
@@ -123,7 +118,11 @@ async function callDeepSeek(
   onChunk?: (chunk: string) => void,
   lang: 'en' | 'zh' = 'zh',
 ): Promise<AIAnalysisResult> {
-  const transcript = truncateText(transcriptText);
+  // Stage 1: local CEFR extraction (free, no API tokens)
+  const candidates = extractWordsByLevel(transcriptText, minLevel, maxLevel);
+
+  // Stage 2: smart-truncate transcript (for summary + sentences context)
+  const transcript = smartTruncate(transcriptText);
   const useStreaming = !!onChunk;
 
   const response = await fetch(DEEPSEEK_ENDPOINT, {
@@ -137,7 +136,7 @@ async function callDeepSeek(
         { role: 'system', content: buildSystemPrompt() },
         {
           role: 'user',
-          content: buildUserPrompt(transcript, minLevel, maxLevel, vocabCount, sentenceCount, lang),
+          content: buildUserPrompt(transcript, minLevel, maxLevel, vocabCount, sentenceCount, lang, candidates),
         },
       ],
       temperature: 0.4,
