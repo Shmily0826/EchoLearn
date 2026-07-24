@@ -449,6 +449,41 @@ const DashboardPage: React.FC = () => {
         />
       </div>
 
+      {/* ── First-use onboarding (shown when user has no data) ── */}
+      {vocabulary.length === 0 && sentences.length === 0 && sessions.length === 0 && (
+        <div className="bg-gradient-to-r from-indigo-50 to-violet-50 dark:from-indigo-950/30 dark:to-violet-950/30 rounded-xl border border-indigo-200 dark:border-indigo-800 shadow-sm p-6 mb-6 sm:mb-10">
+          <h2 className="text-lg font-bold text-gray-800 dark:text-gray-200 mb-2">
+            {t('dash.onboardTitle')}
+          </h2>
+          <p className="text-sm text-gray-500 dark:text-gray-400 mb-4">
+            {t('dash.onboardDesc')}
+          </p>
+          <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+            <button
+              onClick={() => navigate('/study')}
+              className="flex items-center gap-3 bg-white dark:bg-slate-800 rounded-lg border border-gray-200 dark:border-slate-700 p-3 text-left hover:shadow-sm transition-shadow cursor-pointer"
+            >
+              <span className="flex items-center justify-center w-8 h-8 rounded-full bg-indigo-100 dark:bg-indigo-900 text-indigo-600 dark:text-indigo-300 text-sm font-bold shrink-0">1</span>
+              <span className="text-sm text-gray-700 dark:text-gray-300">{t('dash.onboardStep1')}</span>
+            </button>
+            <button
+              onClick={() => navigate('/study')}
+              className="flex items-center gap-3 bg-white dark:bg-slate-800 rounded-lg border border-gray-200 dark:border-slate-700 p-3 text-left hover:shadow-sm transition-shadow cursor-pointer"
+            >
+              <span className="flex items-center justify-center w-8 h-8 rounded-full bg-violet-100 dark:bg-violet-900 text-violet-600 dark:text-violet-300 text-sm font-bold shrink-0">2</span>
+              <span className="text-sm text-gray-700 dark:text-gray-300">{t('dash.onboardStep2')}</span>
+            </button>
+            <button
+              onClick={() => navigate('/review')}
+              className="flex items-center gap-3 bg-white dark:bg-slate-800 rounded-lg border border-gray-200 dark:border-slate-700 p-3 text-left hover:shadow-sm transition-shadow cursor-pointer"
+            >
+              <span className="flex items-center justify-center w-8 h-8 rounded-full bg-green-100 dark:bg-green-900 text-green-600 dark:text-green-300 text-sm font-bold shrink-0">3</span>
+              <span className="text-sm text-gray-700 dark:text-gray-300">{t('dash.onboardStep3')}</span>
+            </button>
+          </div>
+        </div>
+      )}
+
       {/* ── Check Latest Video + Today's Plan ──────────────── */}
       <div className="grid grid-cols-1 lg:grid-cols-5 gap-3 sm:gap-4 mb-6 sm:mb-10">
         {/* Check Latest Video card */}

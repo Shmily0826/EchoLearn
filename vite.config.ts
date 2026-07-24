@@ -16,6 +16,7 @@ export default defineConfig(({ mode }) => {
         registerType: 'autoUpdate',
         includeAssets: ['favicon.svg', 'apple-touch-icon.png'],
         manifest: {
+          id: '/',
           name: 'EchoLearn — YouTube English Learning',
           short_name: 'EchoLearn',
           description:
@@ -26,22 +27,25 @@ export default defineConfig(({ mode }) => {
           orientation: 'portrait-primary',
           start_url: '/',
           scope: '/',
+          categories: ['education', 'productivity'],
           icons: [
             {
               src: 'pwa-192x192.png',
               sizes: '192x192',
               type: 'image/png',
+              purpose: 'any',
             },
             {
               src: 'pwa-512x512.png',
               sizes: '512x512',
               type: 'image/png',
+              purpose: 'any',
             },
             {
               src: 'pwa-512x512.png',
               sizes: '512x512',
               type: 'image/png',
-              purpose: 'any maskable',
+              purpose: 'maskable',
             },
           ],
         },
@@ -50,6 +54,9 @@ export default defineConfig(({ mode }) => {
           // social-preview.png is only for social-media link crawlers, not the app UI —
           // keep it out of the precache so users don't download ~716KB needlessly.
           globIgnores: ['**/social-preview.png'],
+          // Offline SPA fallback: serve the app shell for any navigation request
+          navigateFallback: '/index.html',
+          navigateFallbackDenylist: [/^\/api\//, /^\/privacy\.html/, /^\/terms\.html/, /^\/landing\.html/],
           runtimeCaching: [
             {
               // AI analysis requests go through the same-origin proxy
