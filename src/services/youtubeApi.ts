@@ -1,14 +1,19 @@
 import type { ChannelVideo } from '../types';
 
-const BASE = 'https://www.googleapis.com/youtube/v3';
+/**
+ * YouTube Data API calls go through the server-side proxy at /api/youtube.
+ * The API key is held server-side (process.env.YOUTUBE_API_KEY) and never
+ * exposed in the client bundle. See api/youtube.ts for the proxy implementation.
+ */
+const PROXY = '/api/youtube';
 
-function apiKey(): string {
-  return (import.meta.env.VITE_YOUTUBE_API_KEY as string) || '';
-}
-
-/** True when the user has set VITE_YOUTUBE_API_KEY. */
+/**
+ * Whether the YouTube Data API is available.
+ * Since the key is now server-side, we optimistically return true.
+ * The proxy will return an error if the key is not configured.
+ */
 export function hasApiKey(): boolean {
-  return !!apiKey();
+  return true;
 }
 
 /**
@@ -34,6 +39,12 @@ export async function getVideoTitle(
   }
 }
 
+/** Helper: call the YouTube proxy with whitelisted params. */
+async function proxyFetch(endpoint: string, params: Record<string, string>): Promise<Response> {
+  const qs = new URLSearchParams({ endpoint, ...params });
+  return fetch(`${PROXY}?${qs.toString()}`);
+}
+
 /**
  * Resolve a channel handle (@name) or channelId to its uploads playlist ID.
  * Returns null when the channel cannot be found.
@@ -41,17 +52,12 @@ export async function getVideoTitle(
 export async function getChannelByHandleOrId(
   input: string,
 ): Promise<{ channelId: string; title: string; uploadsPlaylistId: string } | null> {
-  const key = apiKey();
-  if (!key) return null;
-
   const isHandle = input.startsWith('@');
-  const params = new URLSearchParams({
+
+  const res = await proxyFetch('channels', {
     part: 'contentDetails,snippet',
-    key,
     ...(isHandle ? { forHandle: input } : { id: input }),
   });
-
-  const res = await fetch(`${BASE}/channels?${params}`);
   if (!res.ok) return null;
 
   const data = await res.json();
@@ -59,12 +65,10 @@ export async function getChannelByHandleOrId(
 
   // If not found and input doesn't start with @, try prepending @
   if (!channel && !isHandle) {
-    const retryParams = new URLSearchParams({
+    const retryRes = await proxyFetch('channels', {
       part: 'contentDetails,snippet',
-      key,
       forHandle: `@${input}`,
     });
-    const retryRes = await fetch(`${BASE}/channels?${retryParams}`);
     if (retryRes.ok) {
       const retryData = await retryRes.json();
       channel = retryData.items?.[0];
@@ -73,25 +77,20 @@ export async function getChannelByHandleOrId(
 
   // If still not found, try search API as last resort
   if (!channel) {
-    const searchParams = new URLSearchParams({
+    const searchRes = await proxyFetch('search', {
       part: 'snippet',
       q: input.replace(/^@/, ''),
       type: 'channel',
       maxResults: '1',
-      key,
     });
-    const searchRes = await fetch(`${BASE}/search?${searchParams}`);
     if (searchRes.ok) {
       const searchData = await searchRes.json();
       const searchChannelId = searchData.items?.[0]?.snippet?.channelId;
       if (searchChannelId) {
-        // Fetch full channel details with the found ID
-        const detailParams = new URLSearchParams({
+        const detailRes = await proxyFetch('channels', {
           part: 'contentDetails,snippet',
           id: searchChannelId,
-          key,
         });
-        const detailRes = await fetch(`${BASE}/channels?${detailParams}`);
         if (detailRes.ok) {
           const detailData = await detailRes.json();
           channel = detailData.items?.[0];
@@ -111,9 +110,7 @@ export async function getChannelByHandleOrId(
 
 /**
  * Fetch up to `count` recent public videos from the given channel (handle or id).
- * Supports pagination via `pageToken`. Returns both the videos and the nextPageToken
- * for fetching the next page. Returns empty results when no videos can be found
- * or the API key is missing.
+ * Supports pagination via `pageToken`.
  */
 export async function getRecentVideosFromChannel(
   input: string,
@@ -123,19 +120,14 @@ export async function getRecentVideosFromChannel(
   const channel = await getChannelByHandleOrId(input);
   if (!channel) return { videos: [], channelId: '', channelTitle: '' };
 
-  const key = apiKey();
-  const params = new URLSearchParams({
+  const params: Record<string, string> = {
     part: 'snippet',
     playlistId: channel.uploadsPlaylistId,
     maxResults: String(Math.min(count, 50)),
-    key,
-  });
+  };
+  if (pageToken) params.pageToken = pageToken;
 
-  if (pageToken) {
-    params.set('pageToken', pageToken);
-  }
-
-  const res = await fetch(`${BASE}/playlistItems?${params}`);
+  const res = await proxyFetch('playlistItems', params);
   if (!res.ok) return { videos: [], channelId: channel.channelId, channelTitle: channel.title };
 
   const data = await res.json();
@@ -174,7 +166,6 @@ export async function getRecentVideosFromChannel(
 
 /**
  * Fetch the latest public video from the given channel (handle or id).
- * Returns null when no video can be found or the API key is missing.
  * @deprecated Use getRecentVideosFromChannel for batch fetching.
  */
 export async function getLatestVideoFromChannel(

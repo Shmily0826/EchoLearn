@@ -63,14 +63,25 @@ cd cf-worker && npx wrangler deploy
 
 ### Environment Variables
 
-| Variable | Description |
-|----------|-------------|
-| `VITE_DEEPSEEK_API_KEY` | DeepSeek API key for AI analysis |
-| `VITE_YOUTUBE_API_KEY` | YouTube Data API v3 key (channel videos) |
-| `VITE_FIREBASE_*` | Firebase project config |
-| `VITE_YOUTUBE_PROXY` | (Optional) Custom YouTube proxy base URL |
+Create a `.env.local` file (never committed) with the following:
 
-CF Worker secrets: `GROQ_API_KEY` (Whisper ASR fallback)
+| Variable | Location | Description |
+|----------|----------|-------------|
+| `DEEPSEEK_API_KEY` | Vercel (server) | DeepSeek API key — held server-side in `api/ai.ts`, never in the client bundle |
+| `YOUTUBE_API_KEY` | Vercel (server) | YouTube Data API v3 key — held server-side in `api/youtube.ts` |
+| `VITE_FIREBASE_*` | Client (.env.local) | Firebase project web config (public by design, secured via Firestore Rules) |
+| `VITE_YOUTUBE_PROXY` | Client (.env.production) | (Optional) Custom YouTube CORS proxy base URL |
+
+CF Worker secrets: `GROQ_API_KEY` (Whisper ASR fallback), `ALLOW_DEBUG` (set to `1` to enable debug logs)
+
+See `.env.example` for a template.
+
+## Legal & Compliance
+
+- [Privacy Policy](https://app.echo-learn.uk/privacy.html)
+- [Terms of Service](https://app.echo-learn.uk/terms.html)
+
+**Transcript fetching disclaimer:** This app fetches YouTube/Bilibili captions via unofficial methods (InnerTube, page scraping, third-party frontends) for personal educational use. This may not comply with those platforms' Terms of Service. A manual transcript-paste fallback exists in the UI for full compliance. Use at your own risk; the developer assumes no liability for misuse.
 
 ## Project Structure
 

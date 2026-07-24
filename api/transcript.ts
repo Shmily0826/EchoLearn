@@ -4,6 +4,11 @@
  * Uses the `youtube-transcript` npm package on the server side with
  * a CONSENT cookie to help bypass YouTube's bot detection.
  *
+ * COMPLIANCE NOTE: This endpoint fetches auto-generated captions via
+ * unofficial means (youtube-transcript package / InnerTube). This may
+ * violate YouTube's Terms of Service. Risk is low at small scale but
+ * increases with traffic. Fallback: manual transcript paste in the UI.
+ *
  * Usage: GET /api/transcript?videoId=<id>&lang=<en>
  * Returns: JSON with transcript lines
  */
@@ -11,6 +16,27 @@
 // Consent cookie to help bypass YouTube's bot wall
 const CONSENT_COOKIE =
   'CONSENT=PENDING+987; SOCS=CAISNQgDEitib3FfaWRlbnRpdHlmcm9udGVuZHVpc2VydmVyXzIwMjMwODI5LjA3X3AxGgJlbiACGgYIgJnSmgY';
+
+// ── Per-IP rate limiter (per serverless instance, best-effort) ──
+const RATE_LIMIT_WINDOW_MS = 60_000;
+const RATE_LIMIT_MAX = 20;
+const rateBuckets = new Map<string, number[]>();
+
+function isRateLimited(ip: string): boolean {
+  const now = Date.now();
+  const cutoff = now - RATE_LIMIT_WINDOW_MS;
+  if (rateBuckets.size >= 5000) {
+    for (const [k, v] of rateBuckets) {
+      if (v.length === 0 || v[v.length - 1] <= cutoff) rateBuckets.delete(k);
+    }
+  }
+  let hits = rateBuckets.get(ip);
+  if (!hits) { hits = []; rateBuckets.set(ip, hits); }
+  while (hits.length > 0 && hits[0] <= cutoff) hits.shift();
+  if (hits.length >= RATE_LIMIT_MAX) return true;
+  hits.push(now);
+  return false;
+}
 
 // Origins allowed to call this endpoint via CORS.
 const ALLOWED_ORIGINS = [
@@ -38,6 +64,16 @@ export default async function handler(req: any, res: any): Promise<void> {
 
   if (req.method === 'OPTIONS') {
     res.status(204).end();
+    return;
+  }
+
+  // Rate limit per IP
+  const ip = (req.headers?.['x-forwarded-for'] as string)?.split(',')[0]?.trim()
+    || (req.headers?.['x-real-ip'] as string)
+    || (req.socket?.remoteAddress as string)
+    || 'unknown';
+  if (isRateLimited(ip)) {
+    res.status(429).json({ error: 'Rate limit exceeded. Please slow down.' });
     return;
   }
 

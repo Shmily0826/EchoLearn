@@ -24,6 +24,32 @@ const ANDROID_UA =
 // Consent cookie to bypass YouTube's consent/bot wall
 const CONSENT_COOKIE = 'CONSENT=PENDING+987; SOCS=CAISNQgDEitib3FfaWRlbnRpdHlmcm9udGVuZHVpc2VydmVyXzIwMjMwODI5LjA3X3AxGgJlbiACGgYIgJnSmgY';
 
+// ── Per-IP rate limiter (per Edge instance, best-effort) ──────
+const RATE_LIMIT_WINDOW_MS = 60_000;
+const RATE_LIMIT_MAX = 30;
+const rateBuckets = new Map<string, number[]>();
+
+function isRateLimited(ip: string): boolean {
+  const now = Date.now();
+  const cutoff = now - RATE_LIMIT_WINDOW_MS;
+  if (rateBuckets.size >= 5000) {
+    for (const [k, v] of rateBuckets) {
+      if (v.length === 0 || v[v.length - 1] <= cutoff) rateBuckets.delete(k);
+    }
+  }
+  let hits = rateBuckets.get(ip);
+  if (!hits) { hits = []; rateBuckets.set(ip, hits); }
+  while (hits.length > 0 && hits[0] <= cutoff) hits.shift();
+  if (hits.length >= RATE_LIMIT_MAX) return true;
+  hits.push(now);
+  return false;
+}
+
+function getClientIp(request: Request): string {
+  return request.headers.get('x-forwarded-for')?.split(',')[0]?.trim()
+    || request.headers.get('x-real-ip') || 'unknown';
+}
+
 export default async function handler(request: Request): Promise<Response> {
   const origin = request.headers.get('Origin');
 
@@ -31,6 +57,15 @@ export default async function handler(request: Request): Promise<Response> {
   if (request.method === 'OPTIONS') {
     return new Response(null, {
       status: 204,
+      headers: corsHeaders(origin),
+    });
+  }
+
+  // Rate limit per IP
+  const ip = getClientIp(request);
+  if (isRateLimited(ip)) {
+    return new Response('Rate limit exceeded', {
+      status: 429,
       headers: corsHeaders(origin),
     });
   }
