@@ -110,6 +110,47 @@ function isRateLimited(ip) {
   return false;
 }
 
+// ── Instance health tracker (per-isolate, best-effort) ─────────
+// Dead instances are skipped for a cooldown period, avoiding repeated
+// 8-second timeouts on known-dead hosts. Within a single isolate's
+// lifetime this dramatically speeds up the cascade.
+
+const HEALTH_COOLDOWN_MS = 5 * 60 * 1000; // 5 minutes before retrying a dead instance
+const instanceHealth = new Map(); // url -> { alive: boolean, lastCheck: number }
+
+function recordSuccess(url) {
+  instanceHealth.set(url, { alive: true, lastCheck: Date.now() });
+}
+
+function recordFailure(url) {
+  instanceHealth.set(url, { alive: false, lastCheck: Date.now() });
+}
+
+/**
+ * Filter and sort instances: alive first, then unknown, then dead
+ * (whose cooldown has expired). Dead instances within cooldown are skipped.
+ */
+function getAliveInstances(instances) {
+  const now = Date.now();
+  const alive = [];
+  const unknown = [];
+  const retryable = [];
+
+  for (const url of instances) {
+    const h = instanceHealth.get(url);
+    if (!h) {
+      unknown.push(url);
+    } else if (h.alive) {
+      alive.push(url);
+    } else if (now - h.lastCheck >= HEALTH_COOLDOWN_MS) {
+      retryable.push(url); // cooldown expired, worth retrying
+    }
+    // else: dead and still in cooldown — skip
+  }
+
+  return [...alive, ...unknown, ...retryable];
+}
+
 // ── Main handler ──────────────────────────────────────────────
 
 export default {
@@ -138,6 +179,8 @@ export default {
         response = await handleTranscript(url, env);
       } else if (url.pathname === '/api/yt') {
         response = await handleProxy(request, url);
+      } else if (url.pathname === '/api/health') {
+        response = handleHealthCheck();
       } else {
         response = jsonResponse({ error: 'Unknown endpoint' }, 404);
       }
@@ -695,7 +738,14 @@ const INVIDIOUS_INSTANCES = [
 ];
 
 async function fetchViaInvidious(videoId, lang, log = console.log) {
-  for (const instance of INVIDIOUS_INSTANCES) {
+  const instances = getAliveInstances(INVIDIOUS_INSTANCES);
+  if (instances.length === 0) {
+    log('Invidious: all instances in cooldown, skipping');
+    return null;
+  }
+
+  for (const instance of instances) {
+    const hostname = new URL(instance).hostname;
     try {
       // Invidious API: GET /api/v1/captions/:id
       const captionsUrl = `${instance}/api/v1/captions/${videoId}`;
@@ -704,23 +754,26 @@ async function fetchViaInvidious(videoId, lang, log = console.log) {
       }, 8000);
 
       if (!resp.ok) {
-        log(`Invidious (${new URL(instance).hostname}): HTTP ${resp.status}`);
+        log(`Invidious (${hostname}): HTTP ${resp.status}`);
+        recordFailure(instance);
         continue;
       }
 
       const data = await resp.json().catch(() => null);
       if (!data) {
-        log(`Invidious (${new URL(instance).hostname}): invalid JSON response`);
+        log(`Invidious (${hostname}): invalid JSON response`);
+        recordFailure(instance);
         continue;
       }
 
       const captions = data.captions;
       if (!Array.isArray(captions) || captions.length === 0) {
-        log(`Invidious (${new URL(instance).hostname}): no captions`);
+        log(`Invidious (${hostname}): no captions`);
+        recordFailure(instance);
         continue;
       }
 
-      log(`Invidious (${new URL(instance).hostname}): ${captions.length} caption(s) available`);
+      log(`Invidious (${hostname}): ${captions.length} caption(s) available`);
 
       // Find matching language track
       const track = captions.find(c => c.languageCode === lang && c.kind !== 'asr')
@@ -729,7 +782,6 @@ async function fetchViaInvidious(videoId, lang, log = console.log) {
         || captions[0];
 
       // Fetch the actual caption content via Invidious proxy
-      // Invidious returns caption URLs relative to the instance
       let captionUrl;
       if (track.url.startsWith('http')) {
         captionUrl = track.url;
@@ -753,13 +805,14 @@ async function fetchViaInvidious(videoId, lang, log = console.log) {
           const captionText = await captionResp.text();
 
           if (captionText.length === 0) {
-            log(`Invidious (${new URL(instance).hostname}): empty caption (${fmt || 'default'})`);
+            log(`Invidious (${hostname}): empty caption (${fmt || 'default'})`);
             continue;
           }
 
           const lines = parseCaptionData(captionText);
           if (lines.length > 0) {
-            log(`Invidious (${new URL(instance).hostname}): got ${lines.length} lines (${fmt || 'default'})`);
+            log(`Invidious (${hostname}): got ${lines.length} lines (${fmt || 'default'})`);
+            recordSuccess(instance);
             return {
               lines,
               language: track.languageCode || lang,
@@ -771,9 +824,11 @@ async function fetchViaInvidious(videoId, lang, log = console.log) {
         }
       }
 
-      log(`Invidious (${new URL(instance).hostname}): all formats returned empty`);
+      log(`Invidious (${hostname}): all formats returned empty`);
+      recordFailure(instance);
     } catch (err) {
-      log(`Invidious (${new URL(instance).hostname}): ${err.message}`);
+      log(`Invidious (${hostname}): ${err.message}`);
+      recordFailure(instance);
     }
   }
 
@@ -796,25 +851,34 @@ const PIPED_INSTANCES = [
 ];
 
 async function fetchViaPiped(videoId, lang, log = console.log) {
-  for (const instance of PIPED_INSTANCES) {
+  const instances = getAliveInstances(PIPED_INSTANCES);
+  if (instances.length === 0) {
+    log('Piped: all instances in cooldown, skipping');
+    return null;
+  }
+
+  for (const instance of instances) {
+    const hostname = new URL(instance).hostname;
     try {
       const resp = await fetchWithTimeout(`${instance}/streams/${videoId}`, {
         headers: { 'User-Agent': BROWSER_UA, 'Accept': 'application/json' },
       }, 8000);
 
       if (!resp.ok) {
-        log(`Piped (${new URL(instance).hostname}): HTTP ${resp.status}`);
+        log(`Piped (${hostname}): HTTP ${resp.status}`);
+        recordFailure(instance);
         continue;
       }
 
       const data = await resp.json();
       const subtitles = data.subtitles;
       if (!Array.isArray(subtitles) || subtitles.length === 0) {
-        log(`Piped (${new URL(instance).hostname}): no subtitles`);
+        log(`Piped (${hostname}): no subtitles`);
+        recordFailure(instance);
         continue;
       }
 
-      log(`Piped (${new URL(instance).hostname}): ${subtitles.length} subtitle(s)`);
+      log(`Piped (${hostname}): ${subtitles.length} subtitle(s)`);
 
       // Find matching language
       const sub = subtitles.find(s => s.code === lang && !s.autoGenerated)
@@ -822,9 +886,9 @@ async function fetchViaPiped(videoId, lang, log = console.log) {
         || subtitles.find(s => s.code === lang)
         || subtitles[0];
 
-      // Piped provides subtitle URLs that return VTT or other formats
       if (!sub.url) {
-        log(`Piped: no URL for subtitle`);
+        log(`Piped (${hostname}): no URL for subtitle`);
+        recordFailure(instance);
         continue;
       }
 
@@ -832,27 +896,31 @@ async function fetchViaPiped(videoId, lang, log = console.log) {
         headers: { 'User-Agent': BROWSER_UA, 'Accept': '*/*' },
       });
 
-      if (!subResp.ok) continue;
+      if (!subResp.ok) {
+        recordFailure(instance);
+        continue;
+      }
       const subText = await subResp.text();
 
-      // Try parsing as VTT, XML, or JSON3
       let lines = parseCaptionData(subText);
-
-      // If standard parsing fails, try VTT-specific parsing
       if (lines.length === 0 && subText.includes('WEBVTT')) {
         lines = parseVTT(subText);
       }
 
       if (lines.length > 0) {
-        log(`Piped (${new URL(instance).hostname}): got ${lines.length} lines`);
+        log(`Piped (${hostname}): got ${lines.length} lines`);
+        recordSuccess(instance);
         return {
           lines,
           language: sub.code || lang,
           isAutoGenerated: !!sub.autoGenerated,
         };
       }
+
+      recordFailure(instance);
     } catch (err) {
-      log(`Piped (${new URL(instance).hostname}): ${err.message}`);
+      log(`Piped (${hostname}): ${err.message}`);
+      recordFailure(instance);
     }
   }
 
@@ -1088,6 +1156,25 @@ function parseVTTTime(str) {
 }
 
 // ── Helpers ───────────────────────────────────────────────────
+
+/** Returns current instance health status for monitoring / cron warm-up. */
+function handleHealthCheck() {
+  const now = Date.now();
+  const status = (url) => {
+    const h = instanceHealth.get(url);
+    if (!h) return 'unknown';
+    if (h.alive) return 'alive';
+    if (now - h.lastCheck >= HEALTH_COOLDOWN_MS) return 'cooldown-expired';
+    return `dead (${Math.ceil((HEALTH_COOLDOWN_MS - (now - h.lastCheck)) / 60000)}m left)`;
+  };
+
+  return jsonResponse({
+    invidious: INVIDIOUS_INSTANCES.map((u) => ({ url: u, status: status(u) })),
+    piped: PIPED_INSTANCES.map((u) => ({ url: u, status: status(u) })),
+    aliveInvidious: getAliveInstances(INVIDIOUS_INSTANCES).length,
+    alivePiped: getAliveInstances(PIPED_INSTANCES).length,
+  });
+}
 
 function jsonResponse(data, status = 200) {
   return new Response(JSON.stringify(data), {
