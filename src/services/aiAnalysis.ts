@@ -6,6 +6,8 @@ import type {
 import { extractWordsByLevel, type CEFRLevel } from './cefrWordList';
 import { t, type Lang } from '../i18n/translations';
 import { checkAiRateLimit, rateLimitWaitSeconds } from './aiRateLimit';
+import { doc, getDoc, setDoc, serverTimestamp } from 'firebase/firestore';
+import { db } from '../lib/firebase';
 
 // ── DeepSeek API config ──────────────────────────────────────
 
@@ -30,6 +32,56 @@ function smartTruncate(text: string, max = MAX_TRANSCRIPT_CHARS): string {
   const mid = text.slice(midStart, midStart + third);
   const tail = text.slice(text.length - third);
   return head + '\n...[middle]...\n' + mid + '\n...[later]...\n' + tail;
+}
+
+// ── AI result cache (Firestore, shared across users) ──────────
+//
+// Popular videos get analyzed by many users. Caching the DeepSeek result
+// keyed by a hash of (levels + lang + counts + transcript) means only the
+// FIRST user pays for the AI call; everyone else reads the cached result.
+// This cuts the dominant cost of running EchoLearn at scale.
+//
+// - Keyed on the transcript text, so identical transcripts (same video, or a
+//   manually pasted transcript) share a cache entry across all users.
+// - Stored in a public-read Firestore collection (content is non-PII AI output
+//   of public transcripts). Writes require an authenticated user.
+
+const AI_CACHE_COLLECTION = 'aiAnalyses';
+const AI_CACHE_TTL_MS = 1000 * 60 * 60 * 24 * 30; // 30 days
+
+async function sha256Hex(input: string): Promise<string> {
+  const data = new TextEncoder().encode(input);
+  const buf = await crypto.subtle.digest('SHA-256', data);
+  return Array.from(new Uint8Array(buf))
+    .map((b) => b.toString(16).padStart(2, '0'))
+    .join('');
+}
+
+async function getCachedAnalysis(cacheKey: string): Promise<AIAnalysisResult | null> {
+  try {
+    const snap = await getDoc(doc(db, AI_CACHE_COLLECTION, cacheKey));
+    if (!snap.exists()) return null;
+    const data = snap.data() as { content?: string; createdAt?: number };
+    if (!data.content) return null;
+    if (typeof data.createdAt === 'number' && Date.now() - data.createdAt > AI_CACHE_TTL_MS) {
+      return null; // expired
+    }
+    return JSON.parse(data.content) as AIAnalysisResult;
+  } catch {
+    return null; // cache read failure → treat as miss
+  }
+}
+
+async function setCachedAnalysis(cacheKey: string, result: AIAnalysisResult): Promise<void> {
+  try {
+    await setDoc(doc(db, AI_CACHE_COLLECTION, cacheKey), {
+      content: JSON.stringify(result),
+      createdAt: Date.now(),
+      serverCreatedAt: serverTimestamp(),
+    });
+  } catch {
+    // best-effort; ignore cache write failures
+  }
 }
 
 // ── System prompt ─────────────────────────────────────────────
@@ -346,6 +398,24 @@ export async function analyzeTranscript(
   vocabCount = Math.max(1, Math.min(vocabCount, 30));
   sentenceCount = Math.max(1, Math.min(sentenceCount, 20));
 
+  // ── Shared result cache ───────────────────────────────────
+  // Hash the inputs so identical (video/transcript + settings) analyses
+  // share one cached DeepSeek result across all users.
+  let cacheKey: string | undefined;
+  let cached: AIAnalysisResult | null = null;
+  try {
+    cacheKey = await sha256Hex(
+      `${minLevel}|${maxLevel}|${lang}|${vocabCount}|${sentenceCount}|${transcriptText}`,
+    );
+    cached = await getCachedAnalysis(cacheKey);
+  } catch {
+    // cache read failed → fall through to live call
+  }
+  if (cached) {
+    console.log('[aiAnalysis] cache HIT', (cacheKey ?? '').slice(0, 8));
+    return cached;
+  }
+
   // Client-side rate limit: 10 AI calls per minute (shared with translation)
   if (!checkAiRateLimit()) {
     const wait = rateLimitWaitSeconds();
@@ -357,7 +427,10 @@ export async function analyzeTranscript(
   }
 
   try {
-    return await callDeepSeek(transcriptText, minLevel, maxLevel, vocabCount, sentenceCount, onChunk, lang);
+    const result = await callDeepSeek(transcriptText, minLevel, maxLevel, vocabCount, sentenceCount, onChunk, lang);
+    // Store successful DeepSeek result for future users (best-effort).
+    if (cacheKey) void setCachedAnalysis(cacheKey, result);
+    return result;
   } catch (err) {
     console.warn('[aiAnalysis] DeepSeek API failed, falling back to local analysis:', err);
     return localFallback(transcriptText, minLevel, maxLevel, vocabCount, sentenceCount, lang);

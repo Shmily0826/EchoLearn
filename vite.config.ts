@@ -2,6 +2,7 @@ import { defineConfig, loadEnv } from 'vite'
 import react from '@vitejs/plugin-react'
 import tailwindcss from '@tailwindcss/vite'
 import { VitePWA } from 'vite-plugin-pwa'
+import { sentryVitePlugin } from '@sentry/vite-plugin'
 
 // https://vite.dev/config/
 export default defineConfig(({ mode }) => {
@@ -87,6 +88,24 @@ export default defineConfig(({ mode }) => {
           ],
         },
       }),
+    // Sentry source map upload — only active when all three env vars are set
+    // (Vercel: SENTRY_AUTH_TOKEN, SENTRY_ORG, SENTRY_PROJECT). When absent,
+    // the build behaves exactly as before (no upload, no failure).
+    ...(process.env.SENTRY_AUTH_TOKEN && process.env.SENTRY_ORG && process.env.SENTRY_PROJECT
+      ? [
+          sentryVitePlugin({
+            org: process.env.SENTRY_ORG,
+            project: process.env.SENTRY_PROJECT,
+            authToken: process.env.SENTRY_AUTH_TOKEN,
+            release: { name: 'echolearn-web@prod' },
+            // Remove the uploaded source maps from the build output so they are
+            // not publicly served (security) — Sentry keeps its own copy.
+            sourcemaps: {
+              filesToDeleteAfterUpload: ['**/*.map'],
+            },
+          }),
+        ]
+      : []),
     ],
     build: {
       // Strip console.* and debugger from production builds (kept in dev for debugging).
