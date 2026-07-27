@@ -15,6 +15,7 @@ import VocabularyPage from './pages/VocabularyPage';
 import SentencesPage from './pages/SentencesPage';
 import ReviewPage from './pages/ReviewPage';
 import SettingsPage from './pages/SettingsPage';
+import GuidePage from './pages/GuidePage';
 
 /**
  * All pages are always mounted (never unmounted on route change).
@@ -85,6 +86,9 @@ function AppContent({ onLoginRequest }: { onLoginRequest?: () => void }) {
       </div>
       <div style={{ display: pathname === '/settings' ? undefined : 'none' }}>
         <SettingsPage onLoginRequest={onLoginRequest} />
+      </div>
+      <div style={{ display: pathname === '/guide' ? undefined : 'none' }}>
+        <GuidePage />
       </div>
     </Layout>
   );

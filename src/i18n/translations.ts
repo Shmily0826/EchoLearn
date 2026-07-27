@@ -9,8 +9,33 @@ const translations: Record<string, Record<Lang, string>> = {
   'nav.review':          { en: 'Review',     zh: '复习' },
   'nav.settings':        { en: 'Settings',   zh: '设置' },
   'nav.install':         { en: 'Install',    zh: '安装' },
+  'nav.guide':           { en: 'Guide',      zh: '指南' },
   'darkMode.on':         { en: 'Switch to dark mode',  zh: '切换深色模式' },
   'darkMode.off':        { en: 'Switch to light mode', zh: '切换浅色模式' },
+
+  // ── Guide page ──────────────────────────────────────────
+  'guide.title':         { en: 'How to use EchoLearn', zh: 'EchoLearn 使用指南' },
+  'guide.subtitle':      { en: 'Learn English from YouTube & Bilibili videos with AI-powered vocabulary extraction and spaced review.', zh: '用 AI 词汇提取与间隔复习，从 YouTube 和 B站视频高效学英语。' },
+  'guide.startBtn':      { en: 'Start learning', zh: '开始学习' },
+  'guide.backBtn':       { en: 'Back to dashboard', zh: '返回主页' },
+  'guide.tipsTitle':     { en: 'Pro tips', zh: '实用技巧' },
+  'guide.privacy':       { en: 'Transcripts are fetched from third-party platforms. EchoLearn does not own or claim copyright over any content.', zh: '字幕取自第三方平台，EchoLearn 不拥有或主张任何内容的版权。' },
+
+  'guide.s1Title':       { en: 'Add a video', zh: '添加视频' },
+  'guide.s1Body':        { en: 'Paste a YouTube or Bilibili link in Study, or add videos from a channel into your daily plan on the Dashboard. The transcript is fetched automatically.', zh: '在学习页粘贴 YouTube 或 B站链接，或在主页把某个频道的视频加入每日计划，字幕会自动获取。' },
+  'guide.s2Title':       { en: 'Read with the transcript', zh: '对照字幕阅读' },
+  'guide.s2Body':        { en: 'Tap any word to see its definition and save it. Save useful sentences for later. Run AI analysis to extract vocabulary and example sentences graded by CEFR level.', zh: '点击任意单词查看释义并保存；把有用的句子存下来。运行 AI 分析，按 CEFR 等级提取词汇和例句。' },
+  'guide.s3Title':       { en: 'Study smart', zh: '高效学习' },
+  'guide.s3Body':        { en: 'Slow down playback, loop a single line (A-B repeat), and look up words as you watch. Focus on the words and sentences you have saved.', zh: '放慢播放速度、单句循环（A-B 复读），边看边查词。专注你已经保存的词汇和句子。' },
+  'guide.s4Title':       { en: 'Review daily', zh: '每日复习' },
+  'guide.s4Body':        { en: 'EchoLearn schedules spaced-repetition reviews for your saved words and sentences. Open Review each day to keep your streak alive.', zh: 'EchoLearn 会为已保存的词汇和句子安排间隔复习。每天打开复习页，保持连续学习天数。' },
+  'guide.s5Title':       { en: 'Track your progress', zh: '跟踪进度' },
+  'guide.s5Body':        { en: 'The Dashboard shows your saved words, study streak, and learning activity over time. Sign in to sync your data across devices.', zh: '主页展示已存词汇、连续天数和学习活动曲线。登录后可在多设备间同步数据。' },
+
+  'guide.tip1':          { en: 'Install EchoLearn as an app (PWA) for offline access to saved words and sentences.', zh: '把 EchoLearn 安装为应用（PWA），离线也能查看已保存的词汇和句子。' },
+  'guide.tip2':          { en: 'Try as a guest first — no account needed to browse videos and transcripts.', zh: '可以先以游客身份体验，无需账号即可浏览视频和字幕。' },
+  'guide.tip3':          { en: 'Set a topic channel on the Dashboard to auto-fill your daily plan with fresh videos.', zh: '在主页设置主题频道，自动把最新视频加入每日计划。' },
+
 
   // ── Login ────────────────────────────────────────────────
   'login.subtitle':      { en: 'Sign in to sync your learning data across devices', zh: '登录后学习数据可跨设备同步' },
