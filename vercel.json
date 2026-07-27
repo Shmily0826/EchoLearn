@@ -1,6 +1,7 @@
 {
   "rewrites": [
     { "source": "/api/yt", "destination": "/api/yt" },
+    { "source": "/api/youtube", "destination": "/api/youtube" },
     { "source": "/api/transcript", "destination": "/api/transcript" },
     { "source": "/api/ai", "destination": "/api/ai" },
     { "source": "/(.*)", "destination": "/index.html" }

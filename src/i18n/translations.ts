@@ -88,7 +88,7 @@ const translations: Record<string, Record<Lang, string>> = {
   'dash.fetchHint':      { en: 'Fetches 10 videos per click. Completed videos are skipped. Click again for the next batch.', zh: '每次获取10个视频，已完成的自动跳过。再次点击获取下一批。' },
   'dash.fetching':       { en: 'Checking...', zh: '检查中...' },
   'dash.fetchBtn':       { en: 'Fetch Latest Videos', zh: '获取最新视频' },
-  'dash.apiKeyMsg':      { en: 'Please configure VITE_YOUTUBE_API_KEY in .env.local to check latest videos.', zh: '请在 .env.local 中配置 VITE_YOUTUBE_API_KEY 以获取最新视频。' },
+  'dash.apiKeyMsg':      { en: 'YouTube API is not configured on the server. Channel video fetching is unavailable.', zh: '服务端未配置 YouTube API，频道视频获取暂不可用。' },
   'dash.noVideos':       { en: 'Could not find this channel or it has no public videos. Try a different name.', zh: '找不到该频道或没有公开视频，请检查频道名称。' },
   'dash.allInPlan':      { en: 'All recent videos are already in your plan. Try again later.', zh: '所有近期视频已在计划中，请稍后再试。' },
   'dash.addedNFrom':     { en: 'Added {n} video(s) from "{channel}" to your plan.', zh: '已从「{channel}」将 {n} 个视频加入计划。' },
