@@ -426,6 +426,7 @@ const DashboardPage: React.FC = () => {
           }
         />
         <StatCard
+          id="tour-review-card"
           label={t('dash.todayReview')}
           value={todayCount}
           color="green"
@@ -493,7 +494,7 @@ const DashboardPage: React.FC = () => {
       {/* ── Check Latest Video + Today's Plan ──────────────── */}
       <div className="grid grid-cols-1 lg:grid-cols-5 gap-3 sm:gap-4 mb-6 sm:mb-10">
         {/* Check Latest Video card */}
-        <div className="lg:col-span-2 bg-white dark:bg-slate-800 rounded-xl border border-gray-200 dark:border-slate-700 shadow-sm p-5 flex flex-col">
+        <div id="tour-channel-card" className="lg:col-span-2 bg-white dark:bg-slate-800 rounded-xl border border-gray-200 dark:border-slate-700 shadow-sm p-5 flex flex-col">
           <p className="text-xs text-gray-400 dark:text-gray-500 uppercase tracking-wider mb-2">
             {t('dash.singleChannel')}
           </p>
@@ -592,7 +593,7 @@ const DashboardPage: React.FC = () => {
         </div>
 
         {/* Today's Plan list */}
-        <div className="lg:col-span-3 bg-white dark:bg-slate-800 rounded-xl border border-gray-200 dark:border-slate-700 shadow-sm p-5">
+        <div id="tour-today-plan" className="lg:col-span-3 bg-white dark:bg-slate-800 rounded-xl border border-gray-200 dark:border-slate-700 shadow-sm p-5">
           <div className="flex items-center justify-between mb-3">
             <p className="text-xs text-gray-400 dark:text-gray-500 uppercase tracking-wider">
               {t('dash.todayPlan')}
@@ -1057,10 +1058,12 @@ const StatCard: React.FC<{
   color: string;
   icon: React.ReactNode;
   onClick?: () => void;
-}> = ({ label, value, color, icon, onClick }) => {
+  id?: string;
+}> = ({ label, value, color, icon, onClick, id }) => {
   const c = colorMap[color] || colorMap.blue;
   return (
     <div
+      id={id}
       className={`${c.bg} rounded-xl p-5 border border-transparent ${onClick ? 'cursor-pointer hover:shadow-md transition-shadow' : ''}`}
       onClick={onClick}
     >

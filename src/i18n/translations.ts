@@ -13,6 +13,23 @@ const translations: Record<string, Record<Lang, string>> = {
   'darkMode.on':         { en: 'Switch to dark mode',  zh: '切换深色模式' },
   'darkMode.off':        { en: 'Switch to light mode', zh: '切换浅色模式' },
 
+  // ── First-time bubble tour ──────────────────────────────
+  'tour.next':           { en: 'Next', zh: '下一步' },
+  'tour.prev':           { en: 'Previous', zh: '上一步' },
+  'tour.done':           { en: 'Got it', zh: '知道了' },
+  'tour.close':          { en: 'Skip tour', zh: '跳过引导' },
+  'tour.progress':       { en: '{{current}} of {{total}}', zh: '{{current}} / {{total}}' },
+  'tour.welcomeTitle':   { en: 'Welcome to EchoLearn', zh: '欢迎使用 EchoLearn' },
+  'tour.welcomeBody':    { en: 'Here is a quick 4-step guide to help you get started with video-based English learning.', zh: '一个简短的 4 步引导，帮你快速上手用视频学英语。' },
+  'tour.channelTitle':   { en: 'Fetch videos from a channel', zh: '从频道获取视频' },
+  'tour.channelBody':    { en: 'Enter a YouTube channel handle (e.g. @EnglishClass101) or Channel ID, then click "Fetch Latest Videos". EchoLearn adds up to 10 new videos to your daily plan and skips the ones you have already completed.', zh: '输入 YouTube 频道名（如 @EnglishClass101）或频道 ID，点击"获取最新视频"，EchoLearn 会把最多 10 个新视频加入今日计划，并自动跳过已完成的。' },
+  'tour.planTitle':      { en: "Today's plan", zh: '今日计划' },
+  'tour.planBody':       { en: 'Fetched videos appear here. Click any item to open it in Study, read the transcript, save words, and run AI analysis.', zh: '获取到的视频会出现在这里。点击任意一项进入学习页，阅读字幕、保存词汇并运行 AI 分析。' },
+  'tour.reviewTitle':    { en: 'Review every day', zh: '每日复习' },
+  'tour.reviewBody':     { en: 'Saved words and sentences are scheduled for spaced-repetition review. Tap this card each day to keep your streak going.', zh: '已保存的词汇和句子会进入间隔复习。每天点击这里打卡，保持连续学习天数。' },
+  'tour.doneTitle':      { en: 'Ready to learn?', zh: '准备好开始学习了吗？' },
+  'tour.doneBody':       { en: 'You can always replay this tour from the Guide page. Happy learning!', zh: '你可以随时从"指南"页重新播放这个引导。祝你学习愉快！' },
+
   // ── Guide page ──────────────────────────────────────────
   'guide.title':         { en: 'How to use EchoLearn', zh: 'EchoLearn 使用指南' },
   'guide.subtitle':      { en: 'Learn English from YouTube & Bilibili videos with AI-powered vocabulary extraction and spaced review.', zh: '用 AI 词汇提取与间隔复习，从 YouTube 和 B站视频高效学英语。' },
@@ -22,11 +39,11 @@ const translations: Record<string, Record<Lang, string>> = {
   'guide.privacy':       { en: 'Transcripts are fetched from third-party platforms. EchoLearn does not own or claim copyright over any content.', zh: '字幕取自第三方平台，EchoLearn 不拥有或主张任何内容的版权。' },
 
   'guide.s1Title':       { en: 'Add a video', zh: '添加视频' },
-  'guide.s1Body':        { en: 'Paste a YouTube or Bilibili link in Study, or add videos from a channel into your daily plan on the Dashboard. The transcript is fetched automatically.', zh: '在学习页粘贴 YouTube 或 B站链接，或在主页把某个频道的视频加入每日计划，字幕会自动获取。' },
+  'guide.s1Body':        { en: 'Paste a YouTube or Bilibili link in Study, or enter a YouTube channel handle / Channel ID on the Dashboard and click "Fetch Latest Videos" to add up to 10 videos at once. The transcript is fetched automatically.', zh: '在学习页粘贴 YouTube 或 B站链接，或在主页输入 YouTube 频道名 / 频道 ID 后点击"获取最新视频"，一次性添加最多 10 个视频，字幕会自动获取。' },
   'guide.s2Title':       { en: 'Read with the transcript', zh: '对照字幕阅读' },
   'guide.s2Body':        { en: 'Tap any word to see its definition and save it. Save useful sentences for later. Run AI analysis to extract vocabulary and example sentences graded by CEFR level.', zh: '点击任意单词查看释义并保存；把有用的句子存下来。运行 AI 分析，按 CEFR 等级提取词汇和例句。' },
   'guide.s3Title':       { en: 'Study smart', zh: '高效学习' },
-  'guide.s3Body':        { en: 'Slow down playback, loop a single line (A-B repeat), and look up words as you watch. Focus on the words and sentences you have saved.', zh: '放慢播放速度、单句循环（A-B 复读），边看边查词。专注你已经保存的词汇和句子。' },
+  'guide.s3Body':        { en: 'Adjust playback speed, click words to look them up, and focus on the words and sentences you have saved.', zh: '调整播放速度、点击单词查释义，专注你已经保存的词汇和句子。' },
   'guide.s4Title':       { en: 'Review daily', zh: '每日复习' },
   'guide.s4Body':        { en: 'EchoLearn schedules spaced-repetition reviews for your saved words and sentences. Open Review each day to keep your streak alive.', zh: 'EchoLearn 会为已保存的词汇和句子安排间隔复习。每天打开复习页，保持连续学习天数。' },
   'guide.s5Title':       { en: 'Track your progress', zh: '跟踪进度' },
@@ -34,7 +51,7 @@ const translations: Record<string, Record<Lang, string>> = {
 
   'guide.tip1':          { en: 'Install EchoLearn as an app (PWA) for offline access to saved words and sentences.', zh: '把 EchoLearn 安装为应用（PWA），离线也能查看已保存的词汇和句子。' },
   'guide.tip2':          { en: 'Try as a guest first — no account needed to browse videos and transcripts.', zh: '可以先以游客身份体验，无需账号即可浏览视频和字幕。' },
-  'guide.tip3':          { en: 'Set a topic channel on the Dashboard to auto-fill your daily plan with fresh videos.', zh: '在主页设置主题频道，自动把最新视频加入每日计划。' },
+  'guide.tip3':          { en: 'On the Dashboard, enter a YouTube channel handle or Channel ID to auto-fill your daily plan with fresh videos.', zh: '在主页输入 YouTube 频道名或频道 ID，自动把最新视频加入每日计划。' },
 
 
   // ── Login ────────────────────────────────────────────────

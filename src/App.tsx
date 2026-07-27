@@ -8,6 +8,7 @@ import { I18nProvider, useI18n } from './i18n/I18nContext';
 import { useAntiTranslate } from './hooks/useAntiTranslate';
 import ErrorBoundary from './components/ErrorBoundary';
 import Layout from './components/Layout';
+import FirstTimeTour from './components/FirstTimeTour';
 import LoginPage from './pages/LoginPage';
 import DashboardPage from './pages/DashboardPage';
 import StudyPage from './pages/StudyPage';
@@ -90,6 +91,9 @@ function AppContent({ onLoginRequest }: { onLoginRequest?: () => void }) {
       <div style={{ display: pathname === '/guide' ? undefined : 'none' }}>
         <GuidePage />
       </div>
+
+      {/* First-time bubble tour — only active on Dashboard and only once per device */}
+      <FirstTimeTour />
     </Layout>
   );
 }
