@@ -549,6 +549,33 @@ const SettingsPage: React.FC<{ onLoginRequest?: () => void }> = ({ onLoginReques
         </section>
       )}
 
+      {/* ── Developer Mode Section ──────────────────────────── */}
+      <section className="bg-white dark:bg-slate-800 rounded-xl border border-gray-200 dark:border-slate-700 shadow-sm p-5 sm:p-6 mb-6">
+        <div className="flex items-center justify-between">
+          <div>
+            <p className="text-xs font-medium text-gray-600 dark:text-gray-300">{t('settings.devMode')}</p>
+            <p className="text-[11px] text-gray-400 dark:text-gray-500">{t('settings.devModeHint')}</p>
+          </div>
+          <button
+            onClick={() => {
+              const next = !devMode;
+              setDevMode(next);
+              saveDevMode(next);
+            }}
+            className={`relative w-10 h-5.5 rounded-full transition-colors cursor-pointer flex-shrink-0 ${
+              devMode ? 'bg-violet-600' : 'bg-gray-300 dark:bg-slate-600'
+            }`}
+            style={{ height: '22px' }}
+          >
+            <span
+              className={`absolute top-0.5 left-0.5 w-[18px] h-[18px] bg-white rounded-full shadow transition-transform ${
+                devMode ? 'translate-x-[18px]' : ''
+              }`}
+            />
+          </button>
+        </div>
+      </section>
+
       {/* ── Local Proxy Section (Developer Mode only) ─────────── */}
       {devMode && (
       <section className="bg-white dark:bg-slate-800 rounded-xl border border-gray-200 dark:border-slate-700 shadow-sm p-5 sm:p-6 mb-6">
@@ -968,31 +995,6 @@ const SettingsPage: React.FC<{ onLoginRequest?: () => void }> = ({ onLoginReques
               rng2018520@gmail.com
             </a>
           </p>
-        </div>
-
-        {/* Developer Mode toggle */}
-        <div className="border-t border-gray-100 dark:border-slate-700 mt-4 pt-4 flex items-center justify-between">
-          <div>
-            <p className="text-xs font-medium text-gray-600 dark:text-gray-300">{t('settings.devMode')}</p>
-            <p className="text-[11px] text-gray-400 dark:text-gray-500">{t('settings.devModeHint')}</p>
-          </div>
-          <button
-            onClick={() => {
-              const next = !devMode;
-              setDevMode(next);
-              saveDevMode(next);
-            }}
-            className={`relative w-10 h-5.5 rounded-full transition-colors cursor-pointer flex-shrink-0 ${
-              devMode ? 'bg-violet-600' : 'bg-gray-300 dark:bg-slate-600'
-            }`}
-            style={{ height: '22px' }}
-          >
-            <span
-              className={`absolute top-0.5 left-0.5 w-[18px] h-[18px] bg-white rounded-full shadow transition-transform ${
-                devMode ? 'translate-x-[18px]' : ''
-              }`}
-            />
-          </button>
         </div>
       </section>
 

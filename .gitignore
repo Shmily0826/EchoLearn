@@ -41,3 +41,8 @@ android/app/google-services.json
 
 # APK files (built artifacts)
 *.apk
+
+# Local tooling / agent workspace (not part of the app)
+.firebase/
+.workbuddy/
+

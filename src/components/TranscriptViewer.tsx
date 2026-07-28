@@ -385,6 +385,7 @@ const TranscriptViewer: React.FC<TranscriptViewerProps> = ({
             <div
               key={idx}
               ref={isActive ? activeLineRef : undefined}
+              data-transcript-line={idx}
               className={lineClass}
               onClick={() => handleLineClick(line)}
             >

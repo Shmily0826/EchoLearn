@@ -21,6 +21,7 @@ import { useAuth } from '../contexts/AuthContext';
 import { CEFR_LEVELS, type CEFRLevel } from '../services/cefrWordList';
 import { useI18n } from '../i18n/I18nContext';
 import { getVideoTitle } from '../services/youtubeApi';
+import sampleTranscript from '../data/sample-transcript.json';
 import {
   loadVocabulary,
   addVocabularyItem,
@@ -47,8 +48,6 @@ import type {
   VideoPlatform,
 } from '../types';
 
-type DisplayMode = 'sentence' | 'caption';
-
 const SPEED_PRESETS = [0.5, 0.75, 1, 1.25, 1.5, 1.75, 2];
 
 // ── Demo / sample video ──────────────────────────────────────
@@ -60,18 +59,9 @@ const SPEED_PRESETS = [0.5, 0.75, 1, 1.25, 1.5, 1.75, 2];
 const SAMPLE_VIDEO_ID = 'iG9CE55wbtY'; // Ken Robinson — Do schools kill creativity?
 const SAMPLE_VIDEO_TITLE = 'Sample · Ken Robinson: Do schools kill creativity?';
 
-const SAMPLE_FALLBACK_TRANSCRIPT: TranscriptLine[] = [
-  { start: 0, end: 6, text: 'I want to talk to you about education and creativity.' },
-  { start: 6, end: 12, text: 'We are born with a tremendous capacity to be creative.' },
-  { start: 12, end: 19, text: 'Children are not afraid of being wrong, and mistakes are where learning happens.' },
-  { start: 19, end: 26, text: 'By the time they become adults, most people have lost that capacity entirely.' },
-  { start: 26, end: 33, text: 'We educate people out of their creative confidence in a predictable hierarchy.' },
-  { start: 33, end: 40, text: 'Academics are at the top, and the arts are frequently at the bottom of the system.' },
-  { start: 40, end: 47, text: 'We should rethink the fundamental principles on which we are educating our children.' },
-  { start: 47, end: 54, text: 'Human communities depend on a diversity of talents, not a single conception of ability.' },
-  { start: 54, end: 61, text: 'Our task is to cultivate the conditions for imagination and originality to flourish.' },
-  { start: 61, end: 68, text: 'Creativity now is as important in education as literacy, and we should treat it with the same status.' },
-];
+// Full sample transcript is bundled so the demo loads instantly without waiting
+// for a network fetch from YouTube. See src/data/sample-transcript.json.
+const SAMPLE_FALLBACK_TRANSCRIPT: TranscriptLine[] = sampleTranscript;
 
 const StudyPage: React.FC = () => {
   const { t, lang } = useI18n();
@@ -130,7 +120,6 @@ const StudyPage: React.FC = () => {
   // Transcript state — raw caption blocks + sentence-level lines
   const [rawBlocks, setRawBlocks] = useState<TranscriptLine[]>([]);
   const [sentenceLines, setSentenceLines] = useState<TranscriptLine[]>([]);
-  const [displayMode, setDisplayMode] = useState<DisplayMode>('sentence');
 
   // Saved data state (all items, filtered by current video for display)
   const [vocabulary, setVocabulary] = useState<VocabularyItem[]>([]);
@@ -193,8 +182,8 @@ const StudyPage: React.FC = () => {
   const [sleepRemaining, setSleepRemaining] = useState(0); // seconds
   const [sleepToast, setSleepToast] = useState(false);
 
-  // The lines currently shown in TranscriptViewer (depends on display mode)
-  const displayLines = displayMode === 'sentence' ? sentenceLines : rawBlocks;
+  // The lines currently shown in TranscriptViewer (always sentence-level)
+  const displayLines = sentenceLines;
 
   // ── Restore last session on mount ──────────────────────────
   useEffect(() => {
@@ -282,18 +271,12 @@ const StudyPage: React.FC = () => {
       setSessionTitle(SAMPLE_VIDEO_TITLE);
       setFetchingCaption(true);
       setCaptionError(null);
-      const applySample = (lines: TranscriptLine[]) => {
-        const sLines = normalizeTranscriptToSentences(lines);
-        setRawBlocks(lines);
-        setSentenceLines(sLines);
-      };
-      fetchYouTubeTranscript(SAMPLE_VIDEO_ID)
-        .then(({ lines }) => {
-          if (lines.length > 0) applySample(lines);
-          else applySample(SAMPLE_FALLBACK_TRANSCRIPT);
-        })
-        .catch(() => applySample(SAMPLE_FALLBACK_TRANSCRIPT))
-        .finally(() => setFetchingCaption(false));
+      // Use the bundled full transcript for the sample video so the demo loads
+      // instantly and never depends on a network fetch.
+      const sLines = normalizeTranscriptToSentences(SAMPLE_FALLBACK_TRANSCRIPT);
+      setRawBlocks(SAMPLE_FALLBACK_TRANSCRIPT);
+      setSentenceLines(sLines);
+      setFetchingCaption(false);
     }
 
     setVocabulary(loadVocabulary());
@@ -475,12 +458,24 @@ const StudyPage: React.FC = () => {
   }, [currentTime, displayLines]);
 
   // ── Seek to a specific time in the video ───────────────────
-  const handleSeekTo = useCallback((seconds: number) => {
+  // `scrollTranscript` (used when locating a saved sentence from the list)
+  // also brings the target transcript line into view — on mobile the transcript
+  // sits above the saved-items list, so otherwise the located line is off-screen.
+  const handleSeekTo = useCallback((seconds: number, scrollTranscript = false) => {
     if (playerRef.current) {
       playerRef.current.seekTo(seconds);
       playerRef.current.playVideo();
     }
-  }, []);
+    if (scrollTranscript) {
+      const idx = displayLines.findIndex((l) => seconds >= l.start && seconds < l.end);
+      const target = idx >= 0 ? idx : displayLines.findIndex((l) => l.start >= seconds);
+      if (target < 0) return;
+      window.setTimeout(() => {
+        const el = document.querySelector<HTMLElement>(`[data-transcript-line="${target}"]`);
+        el?.scrollIntoView({ behavior: 'smooth', block: 'center' });
+      }, 300);
+    }
+  }, [displayLines]);
 
   // ── Filtered data for current video ────────────────────────
   const filteredVocabulary = useMemo(
@@ -662,6 +657,33 @@ const StudyPage: React.FC = () => {
     setBiliPage(undefined);
   }, []);
 
+  // ── Reload transcript for the current video ────────────────
+  const handleReloadTranscript = useCallback(() => {
+    if (!videoId) return;
+    setCaptionError(null);
+    setFetchingCaption(true);
+    const fetcher = platform === 'bilibili'
+      ? fetchBilibiliTranscript(videoId)
+      : fetchYouTubeTranscript(videoId);
+    fetcher
+      .then(({ lines }) => {
+        if (lines.length > 0) {
+          const sLines = normalizeTranscriptToSentences(lines);
+          setRawBlocks(lines);
+          setSentenceLines(sLines);
+          if (session) {
+            const updated = { ...session, transcriptLines: lines, transcriptData: { rawBlocks: lines, sentenceLines: sLines } };
+            saveCurrentSession(updated);
+            setSession(updated);
+          }
+        }
+      })
+      .catch((err) => {
+        setCaptionError(err instanceof Error ? err.message : 'Unknown error');
+      })
+      .finally(() => setFetchingCaption(false));
+  }, [videoId, platform, session]);
+
   // ── Toggle session completion status ───────────────────────
   const handleToggleComplete = useCallback(() => {
     if (!session) return;
@@ -697,9 +719,8 @@ const StudyPage: React.FC = () => {
   // ── Analyze transcript ──────────────────────────────────────
   const handleAnalyze = useCallback(async () => {
     if (!user) { showLoginToast(); return; }
-    const textLines = displayMode === 'sentence' ? sentenceLines : rawBlocks;
-    if (textLines.length === 0) return;
-    const text = textLines.map((l) => l.text).join(' ');
+    if (sentenceLines.length === 0) return;
+    const text = sentenceLines.map((l) => l.text).join(' ');
 
     // Persist preferences
     localStorage.setItem('echolearn_cefr_min', cefrMin);
@@ -728,7 +749,7 @@ const StudyPage: React.FC = () => {
       setAnalyzing(false);
       setStreamChars(0);
     }
-  }, [user, displayMode, sentenceLines, rawBlocks, cefrMin, cefrMax, vocabCount, sentenceCount, persistAnalysis, lang, showLoginToast]);
+  }, [user, sentenceLines, cefrMin, cefrMax, vocabCount, sentenceCount, persistAnalysis, lang, showLoginToast]);
 
   // ── Vocab / sentence handlers ─────────────────────────────
   const handleAddVocabulary = useCallback((item: VocabularyItem) => {
@@ -1092,6 +1113,9 @@ const StudyPage: React.FC = () => {
                 {/* Mobile analysis controls — words/sents/level only */}
                 {displayLines.length > 0 && (
                   <div data-tour="study-controls" className="flex items-center gap-2 px-3 py-1.5 border-b border-gray-100 dark:border-slate-700 flex-wrap">
+                    <p className="basis-full text-[10px] text-gray-400 dark:text-gray-500 leading-snug">
+                      {t('study.aiIntro')} <span className="text-gray-500 dark:text-gray-400">{t('study.aiCountNote')}</span>
+                    </p>
                     <div className="flex items-center gap-1 text-[10px]">
                       <span className="text-gray-400">{t('study.words')}</span>
                       <input
@@ -1142,6 +1166,7 @@ const StudyPage: React.FC = () => {
                         ))}
                       </select>
                     </div>
+                    <span className="text-[10px] text-gray-400 dark:text-gray-500 whitespace-nowrap">{t('study.cefrHint')}</span>
                   </div>
                 )}
                 <MobileTranscriptPanel
@@ -1182,6 +1207,9 @@ const StudyPage: React.FC = () => {
                 {/* Count selectors + CEFR + Analyze (only when transcript loaded) */}
                 {displayLines.length > 0 && (
                   <div data-tour="study-controls" className="flex items-center gap-1.5 sm:gap-3 flex-wrap">
+                    <p className="basis-full text-[11px] text-gray-400 dark:text-gray-500 leading-snug">
+                      {t('study.aiIntro')} <span className="text-gray-500 dark:text-gray-400">{t('study.aiCountNote')}</span>
+                    </p>
                     {/* Vocab / Sentence count */}
                     <div className="flex items-center gap-1 text-[11px]">
                       <span className="text-gray-400 dark:text-gray-500">{t('study.words')}</span>
@@ -1238,6 +1266,7 @@ const StudyPage: React.FC = () => {
                         ))}
                       </select>
                     </div>
+                    <span className="text-[10px] text-gray-400 dark:text-gray-500 whitespace-nowrap">{t('study.cefrHint')}</span>
                   </div>
                 )}
                 {/* Analyze button */}
@@ -1266,39 +1295,21 @@ const StudyPage: React.FC = () => {
                     )}
                   </button>
                 )}
-                {/* Display mode toggle */}
-                {sentenceLines.length > 0 && rawBlocks.length > 0 && (
-                  <div className="flex items-center bg-gray-100 dark:bg-slate-700 rounded-lg p-0.5">
-                    <button
-                      onClick={() => setDisplayMode('sentence')}
-                      className={`px-2.5 py-1 text-[11px] font-medium rounded-md transition-colors cursor-pointer ${
-                        displayMode === 'sentence'
-                          ? 'bg-white dark:bg-slate-800 text-indigo-600 dark:text-indigo-400 shadow-sm'
-                          : 'text-gray-500 dark:text-gray-400 hover:text-gray-700 dark:hover:text-gray-200'
-                      }`}
-                    >
-                      {t('study.sentence')}
-                    </button>
-                    <button
-                      onClick={() => setDisplayMode('caption')}
-                      className={`px-2.5 py-1 text-[11px] font-medium rounded-md transition-colors cursor-pointer ${
-                        displayMode === 'caption'
-                          ? 'bg-white dark:bg-slate-800 text-indigo-600 dark:text-indigo-400 shadow-sm'
-                          : 'text-gray-500 dark:text-gray-400 hover:text-gray-700 dark:hover:text-gray-200'
-                      }`}
-                    >
-                      {t('study.caption')}
-                    </button>
-                  </div>
-                )}
-                {videoId && sentenceLines.length === 0 && rawBlocks.length === 0 && (
-                  <span />
-                )}
                 <span className="text-[10px] text-gray-400 dark:text-gray-500">
-                  {displayMode === 'sentence'
-                    ? `${sentenceLines.length} ${t('study.sentences')}`
-                    : `${rawBlocks.length} ${t('study.blocks')}`}
+                  {`${sentenceLines.length} ${t('study.sentences')}`}
                 </span>
+                {videoId && (
+                  <button
+                    onClick={handleReloadTranscript}
+                    disabled={fetchingCaption}
+                    title={t('study.reloadTranscript')}
+                    className="p-1 text-gray-400 dark:text-gray-500 hover:text-indigo-500 dark:hover:text-indigo-400 disabled:opacity-40 disabled:cursor-not-allowed cursor-pointer"
+                  >
+                    <svg className={`w-3.5 h-3.5 ${fetchingCaption ? 'animate-spin' : ''}`} fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                      <path strokeLinecap="round" strokeLinejoin="round" d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" />
+                    </svg>
+                  </button>
+                )}
               </div>
             </div>
 
@@ -1342,32 +1353,7 @@ const StudyPage: React.FC = () => {
                 </div>
                 <div className="flex gap-3 mt-3">
                   <button
-                    onClick={() => {
-                      if (videoId) {
-                        setCaptionError(null);
-                        setFetchingCaption(true);
-                        const retryFetcher = (platform === 'bilibili')
-                          ? fetchBilibiliTranscript(videoId)
-                          : fetchYouTubeTranscript(videoId);
-                        retryFetcher
-                          .then(({ lines }) => {
-                            if (lines.length > 0) {
-                              const sLines = normalizeTranscriptToSentences(lines);
-                              setRawBlocks(lines);
-                              setSentenceLines(sLines);
-                              if (session) {
-                                const updated = { ...session, transcriptLines: lines, transcriptData: { rawBlocks: lines, sentenceLines: sLines } };
-                                saveCurrentSession(updated);
-                                setSession(updated);
-                              }
-                            }
-                          })
-                          .catch((err) => {
-                            setCaptionError(err instanceof Error ? err.message : 'Unknown error');
-                          })
-                          .finally(() => setFetchingCaption(false));
-                      }
-                    }}
+                    onClick={handleReloadTranscript}
                     className="text-xs text-indigo-500 hover:text-indigo-700 dark:hover:text-indigo-300 cursor-pointer"
                   >
                     {t('study.retry')}
@@ -1461,7 +1447,7 @@ const StudyPage: React.FC = () => {
               <SentenceList
                 items={filteredSentences}
                 onRemove={handleRemoveSentence}
-                onSeek={handleSeekTo}
+                onSeek={(seconds) => handleSeekTo(seconds, true)}
               />
             )}
           </div>
@@ -1926,6 +1912,7 @@ const MobileTranscriptPanel: React.FC<{
             <div
               key={line.id || idx}
               ref={isActive ? activeRef : null}
+              data-transcript-line={idx}
               className={`px-2 py-1.5 rounded-lg text-sm leading-relaxed transition-colors ${
                 isActive
                   ? 'bg-indigo-50 dark:bg-indigo-950/40 text-indigo-900 dark:text-indigo-100 font-medium'
