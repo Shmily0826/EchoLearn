@@ -1,0 +1,18 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>EchoLearn Auth</title>
+  <script>
+    // OAuth callbacks hit /__/auth/handler, which Firebase serves automatically.
+    // Anyone landing on the bare auth domain gets redirected to the main app.
+    if (!location.pathname.startsWith('/__/')) {
+      location.replace('https://app.echo-learn.uk');
+    }
+  </script>
+</head>
+<body>
+  <p>Redirecting to EchoLearn...</p>
+</body>
+</html>
