@@ -482,12 +482,6 @@ const DashboardPage: React.FC = () => {
               <span className="text-sm text-gray-700 dark:text-gray-300">{t('dash.onboardStep3')}</span>
             </button>
           </div>
-          <button
-            onClick={() => navigate('/guide')}
-            className="mt-3 w-full inline-flex items-center justify-center gap-1.5 text-sm font-medium text-indigo-600 dark:text-indigo-400 bg-white dark:bg-slate-800 rounded-lg border border-indigo-200 dark:border-indigo-800 py-2.5 hover:bg-indigo-50 dark:hover:bg-indigo-950/40 transition-colors cursor-pointer"
-          >
-            {t('guide.title')} →
-          </button>
         </div>
       )}
 

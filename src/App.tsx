@@ -9,6 +9,7 @@ import { useAntiTranslate } from './hooks/useAntiTranslate';
 import ErrorBoundary from './components/ErrorBoundary';
 import Layout from './components/Layout';
 import FirstTimeTour from './components/FirstTimeTour';
+import LanguageChooser from './components/LanguageChooser';
 import LoginPage from './pages/LoginPage';
 import DashboardPage from './pages/DashboardPage';
 import StudyPage from './pages/StudyPage';
@@ -16,7 +17,6 @@ import VocabularyPage from './pages/VocabularyPage';
 import SentencesPage from './pages/SentencesPage';
 import ReviewPage from './pages/ReviewPage';
 import SettingsPage from './pages/SettingsPage';
-import GuidePage from './pages/GuidePage';
 
 /**
  * All pages are always mounted (never unmounted on route change).
@@ -51,6 +51,9 @@ function AppContent({ onLoginRequest }: { onLoginRequest?: () => void }) {
 
   return (
     <Layout>
+      {/* First-ever-visit language picker (renders nothing once chosen) */}
+      <LanguageChooser />
+
       {/* Google Translate detection banner */}
       {translateDetected && (
         <div
@@ -87,9 +90,6 @@ function AppContent({ onLoginRequest }: { onLoginRequest?: () => void }) {
       </div>
       <div style={{ display: pathname === '/settings' ? undefined : 'none' }}>
         <SettingsPage onLoginRequest={onLoginRequest} />
-      </div>
-      <div style={{ display: pathname === '/guide' ? undefined : 'none' }}>
-        <GuidePage />
       </div>
 
       {/* First-time bubble tour — only active on Dashboard and only once per device */}

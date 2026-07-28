@@ -1,6 +1,7 @@
 import { useState, useEffect, useCallback } from 'react';
 import { useAuth } from '../contexts/AuthContext';
 import { useI18n } from '../i18n/I18nContext';
+import { TOUR_START_EVENT } from '../components/tourEvents';
 import {
   syncWithCloud,
   uploadToCloud,
@@ -331,6 +332,11 @@ const SettingsPage: React.FC<{ onLoginRequest?: () => void }> = ({ onLoginReques
     exportAllDataJSON();
     setSyncMessage({ type: 'success', text: t('settings.exportAllOk') });
   }, [t]);
+
+  // ── Replay the first-time guide tour ───────────────────
+  const handleReplayGuide = useCallback(() => {
+    window.dispatchEvent(new Event(TOUR_START_EVENT));
+  }, []);
 
   // ── Render ────────────────────────────────────────────────
   return (
@@ -789,6 +795,27 @@ const SettingsPage: React.FC<{ onLoginRequest?: () => void }> = ({ onLoginReques
         )}
       </section>
       )}
+
+      {/* ── Replay Guide Section ────────────────────────────── */}
+      <section className="bg-white dark:bg-slate-800 rounded-xl border border-gray-200 dark:border-slate-700 shadow-sm p-5 sm:p-6 mb-6">
+        <div className="flex items-center gap-3 mb-3">
+          <div className="p-2 bg-indigo-100 dark:bg-indigo-950 rounded-lg">
+            <svg className="w-5 h-5 text-indigo-600 dark:text-indigo-400" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.5}>
+              <path strokeLinecap="round" strokeLinejoin="round" d="M12 6.042A8.967 8.967 0 006 3.75c-1.052 0-2.062.18-3 .512v14.25A8.987 8.987 0 016 18c2.305 0 4.408.867 6 2.292m0-14.25a8.966 8.966 0 016-2.292c1.052 0 2.062.18 3 .512v14.25A8.987 8.987 0 0018 18a8.967 8.967 0 00-6 2.292m0-14.25v14.25" />
+            </svg>
+          </div>
+          <div>
+            <h2 className="text-base font-semibold text-gray-800 dark:text-gray-200">{t('settings.replayGuide')}</h2>
+            <p className="text-xs text-gray-400 dark:text-gray-500">{t('lang.subtitle')}</p>
+          </div>
+        </div>
+        <button
+          onClick={handleReplayGuide}
+          className="w-full py-2.5 text-sm font-semibold text-white bg-indigo-600 hover:bg-indigo-700 rounded-lg transition-colors cursor-pointer"
+        >
+          {t('settings.replayGuide')}
+        </button>
+      </section>
 
       {/* ── Data Export Section ──────────────────────────────── */}
       <section className="bg-white dark:bg-slate-800 rounded-xl border border-gray-200 dark:border-slate-700 shadow-sm p-5 sm:p-6 mb-6">

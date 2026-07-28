@@ -353,6 +353,7 @@ const TranscriptViewer: React.FC<TranscriptViewerProps> = ({
               </span>
             ) : (
               <button
+                id="tour-transcript-save-word"
                 onClick={handleAddWord}
                 className="w-full px-3 py-2 text-sm bg-amber-50 dark:bg-amber-900/50 text-amber-700 dark:text-amber-300 rounded-lg hover:bg-amber-100 dark:hover:bg-amber-800 transition-colors font-medium cursor-pointer"
               >
@@ -432,6 +433,7 @@ const TranscriptViewer: React.FC<TranscriptViewerProps> = ({
 
                 {/* Bookmark button — toggle save / unsave sentence */}
                 <button
+                  id="tour-transcript-save-sentence"
                   onClick={(e) => {
                     e.stopPropagation();
                     if (sentenceSaved && onRemoveSentence && savedSentenceIds) {

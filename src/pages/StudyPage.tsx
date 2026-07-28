@@ -753,6 +753,7 @@ const StudyPage: React.FC = () => {
 
           <div className="flex items-center gap-2 sm:gap-3 flex-wrap">
             <input
+              id="tour-study-url"
               type="text"
               value={urlInput}
               onChange={(e) => setUrlInput(e.target.value)}
@@ -761,6 +762,7 @@ const StudyPage: React.FC = () => {
               className="flex-1 sm:w-80 px-3 py-1.5 text-sm border border-gray-300 dark:border-slate-700 rounded-lg focus:outline-none focus:ring-2 focus:ring-indigo-400 focus:border-transparent dark:bg-slate-800 dark:text-gray-200 min-w-[120px]"
             />
             <button
+              id="tour-study-load"
               onClick={handleLoadVideo}
               className="px-3 sm:px-4 py-1.5 text-sm bg-indigo-600 text-white rounded-lg hover:bg-indigo-700 transition-colors font-medium cursor-pointer whitespace-nowrap"
             >
@@ -1019,6 +1021,7 @@ const StudyPage: React.FC = () => {
                     )}
                     {displayLines.length > 0 && (
                       <button
+                        id="tour-study-ai"
                         onClick={handleAnalyze}
                         disabled={analyzing}
                         className="flex items-center gap-1 px-2 py-0.5 text-[10px] font-medium bg-indigo-50 dark:bg-indigo-950 text-indigo-600 dark:text-indigo-400 rounded-lg hover:bg-indigo-100 dark:hover:bg-indigo-900 transition-colors cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed"
