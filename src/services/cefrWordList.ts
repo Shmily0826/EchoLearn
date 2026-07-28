@@ -2,12 +2,14 @@
  * CEFR-level word classification for EchoLearn.
  *
  * Words are grouped by approximate CEFR level based on frequency and complexity.
- * This is a simplified local heuristic — a real LLM-based backend would be more accurate.
+ * This is a simplified local heuristic — a real LLM-based backend would be more accurate,
+ * but the local list is the *primary* signal (it feeds the candidate list to the AI and
+ * powers the offline fallback), so it is kept fairly complete.
  *
  * Levels:
  *   A1 – Absolute beginner (most common function words, numbers, greetings)
  *   A2 – Elementary (common everyday words, basic verbs, adjectives)
- *   B1 – Intermediate (less common words, some abstract concepts)
+ *   B1 – Intermediate (less common words, some abstract concepts, phrasal verbs)
  *   B2 – Upper intermediate (academic, professional, nuanced vocabulary)
  *   C1 – Advanced (sophisticated, formal, literary vocabulary)
  *   C2 – Mastery (rare, archaic, highly specialised vocabulary)
@@ -263,22 +265,303 @@ const A2_WORDS = new Set([
   'yesterday', 'yet', 'zone',
 ]);
 
+// ── B1 words (intermediate — less common, some abstract, phrasal verbs) ──
+
+const B1_WORDS = new Set([
+  'abandon', 'ability', 'absence', 'academy', 'accomplish', 'accordance', 'account',
+  'accurate', 'achieve', 'acquire', 'adapt', 'adequate', 'adjust', 'admire',
+  'admit', 'adopt', 'advance', 'advantage', 'adventure', 'advice', 'advise',
+  'affair', 'affect', 'afford', 'agency', 'agenda', 'alike', 'alive', 'ancient',
+  'annoy', 'anxiety', 'anxious', 'apart', 'apologise', 'apparent', 'appeal',
+  'apply', 'appreciate', 'approach', 'appropriate', 'approve', 'argue', 'arise',
+  'aspect', 'assess', 'assist', 'assume', 'assure', 'attach', 'attack', 'attract',
+  'audience', 'author', 'automatic', 'available', 'avoid', 'aware', 'awful',
+  'backbone', 'background', 'balance', 'ban', 'barrier', 'basis', 'behalf',
+  'behave', 'belief', 'belong', 'beneath', 'benefit', 'besides', 'beyond',
+  'blame', 'boiling', 'boundary', 'branch', 'brand', 'breach', 'brief', 'broad',
+  'broken', 'bucket', 'budget', 'bump', 'burden', 'bureau', 'burn', 'cabin',
+  'calculate', 'campaign', 'cancel', 'cancer', 'candidate', 'capture', 'carbon',
+  'career', 'cargo', 'carrier', 'casual', 'cattle', 'cease', 'celebrity',
+  'ceremony', 'challenge', 'chamber', 'chaos', 'characteristic', 'charm',
+  'chart', 'chase', 'cheap', 'cheer', 'chief', 'childish', 'chorus', 'clash',
+  'classic', 'climate', 'clinic', 'club', 'clue', 'collapse', 'colleague',
+  'combat', 'comedy', 'command', 'comment', 'commit', 'commodity', 'community',
+  'commute', 'compact', 'compare', 'compete', 'complaint', 'complex', 'compose',
+  'comprehensive', 'comprise', 'compute', 'conceal', 'conclude', 'conduct',
+  'conference', 'confident', 'confirm', 'confuse', 'conscious', 'consent',
+  'consequence', 'consist', 'constant', 'constitute', 'construct', 'consult',
+  'consume', 'contact', 'contain', 'contest', 'context', 'contract', 'contrast',
+  'contribute', 'convert', 'convince', 'coordinate', 'cope', 'copyright',
+  'corporate', 'correspond', 'costly', 'council', 'counsel', 'county', 'crash',
+  'creative', 'credit', 'crisis', 'critic', 'crucial', 'crush', 'currency',
+  'customer', 'cutoff', 'cycle', 'damage', 'dangerous', 'deadline', 'debate',
+  'debt', 'decade', 'decline', 'decorate', 'decrease', 'defeat', 'defend',
+  'define', 'definite', 'delegate', 'deliberate', 'deliver', 'demand',
+  'democracy', 'demonstrate', 'dense', 'deny', 'depend', 'deprive', 'derive',
+  'describe', 'desert', 'desire', 'detect', 'device', 'devote', 'differ',
+  'digest', 'dilemma', 'diploma', 'discipline', 'disclose', 'discount',
+  'discourage', 'dismiss', 'disorder', 'display', 'dispute', 'distant',
+  'distinct', 'distribute', 'disturb', 'diverse', 'dive', 'domain', 'domestic',
+  'dominate', 'doubt', 'drama', 'drought', 'duration', 'dynamic', 'eager',
+  'earn', 'ease', 'echo', 'economic', 'edition', 'elderly', 'election',
+  'element', 'embarrass', 'emerge', 'emotion', 'emphasize', 'employ', 'enable',
+  'encounter', 'endure', 'engage', 'enhance', 'enormous', 'ensure', 'entail',
+  'enterprise', 'entertain', 'entitle', 'entirely', 'entity', 'episode',
+  'equivalent', 'essential', 'establish', 'estate', 'evaluate', 'evident',
+  'exaggerate', 'examine', 'exceed', 'exception', 'excess', 'exchange',
+  'exclude', 'exhibit', 'expand', 'expense', 'exploit', 'explore', 'export',
+  'expose', 'express', 'extend', 'extent', 'external', 'extraordinary',
+  'extreme', 'fabric', 'facility', 'factor', 'fade', 'faint', 'faithful',
+  'false', 'familiar', 'fancy', 'fare', 'fascinate', 'fatal', 'fault', 'favor',
+  'feature', 'fee', 'fellow', 'fence', 'festival', 'fierce', 'figure', 'file',
+  'finance', 'firm', 'flame', 'flash', 'flesh', 'forbid', 'force', 'forecast',
+  'forge', 'former', 'fortunate', 'forum', 'foundation', 'fragile', 'framework',
+  'franchise', 'fraud', 'friction', 'freeze', 'frequent', 'fulfill', 'fund',
+  'fundamental', 'funeral', 'furnish', 'further', 'gadget', 'gallery', 'gas',
+  'gather', 'gender', 'genuine', 'gesture', 'giant', 'glance', 'glimpse',
+  'global', 'gloomy', 'goal', 'goods', 'govern', 'grab', 'graduate', 'grand',
+  'grant', 'grateful', 'gravity', 'grease', 'greet', 'grim', 'grip', 'gross',
+  'guarantee', 'guard', 'guess', 'guidance', 'guideline', 'guilty', 'handle',
+  'harvest', 'heading', 'heap', 'hedge', 'heroic', 'highlight', 'hike', 'hint',
+  'hire', 'historic', 'hollow', 'horror', 'host', 'household', 'housing',
+  'hum', 'humble', 'hunt', 'ideal', 'identify', 'idle', 'ignore', 'illegal',
+  'illusion', 'image', 'immigrant', 'impact', 'imply', 'import', 'impose',
+  'incentive', 'incident', 'income', 'index', 'infer', 'inferior', 'influence',
+  'inhabit', 'inherit', 'initial', 'inject', 'injure', 'inner', 'innocent',
+  'inquire', 'inspect', 'install', 'instance', 'instinct', 'instruct', 'insult',
+  'intellectual', 'intend', 'intense', 'interact', 'interior', 'internal',
+  'interpret', 'interrupt', 'interval', 'intimate', 'invent', 'invest',
+  'involve', 'isolate', 'jealous', 'joint', 'journal', 'judge', 'junior',
+  'jury', 'justify', 'keen', 'kneel', 'knit', 'label', 'labor', 'lance',
+  'landscape', 'lane', 'launch', 'layer', 'lean', 'leap', 'lease', 'lecture',
+  'legal', 'legend', 'leisure', 'length', 'liberal', 'license', 'likely',
+  'link', 'liquid', 'living', 'loan', 'locate', 'lodge', 'logic', 'loose',
+  'loyal', 'luxury', 'magnetic', 'magnificent', 'maintain', 'majority', 'manner',
+  'margin', 'marine', 'mask', 'massive', 'mature', 'maximum', 'meaningful',
+  'means', 'medium', 'melt', 'mention', 'minimal', 'minimum', 'minister',
+  'minor', 'minority', 'miracle', 'mislead', 'mission', 'mistake', 'mixture',
+  'moderate', 'modest', 'modify', 'moist', 'monitor', 'monthly', 'motive',
+  'mount', 'multiple', 'muscle', 'mutual', 'myth', 'narrow', 'native',
+  'nearby', 'neglect', 'negotiate', 'neutral', 'nevertheless', 'noble', 'nod',
+  'notice', 'notion', 'numb', 'oblige', 'observe', 'obstacle', 'obtain',
+  'obvious', 'occupy', 'occur', 'offense', 'offset', 'online', 'opaque',
+  'operate', 'oppose', 'optimal', 'optional', 'orbit', 'order', 'ordinary',
+  'organize', 'overcome', 'overlook', 'owe', 'oxygen', 'painful', 'panel',
+  'panic', 'parliament', 'partial', 'participate', 'particular', 'passage',
+  'passion', 'passive', 'patch', 'patient', 'pause', 'payment', 'penalty',
+  'pension', 'perceive', 'perform', 'permit', 'perspective', 'phase',
+  'phenomenon', 'philosophy', 'photocopy', 'phrase', 'physical', 'pitch',
+  'plain', 'planet', 'plunge', 'poison', 'pole', 'polish', 'pollute', 'portion',
+  'pose', 'positive', 'possess', 'poverty', 'precise', 'predict', 'prejudice',
+  'preserve', 'pretend', 'previous', 'primary', 'prime', 'primitive',
+  'principal', 'priority', 'prison', 'probable', 'procedure', 'proceed',
+  'process', 'profession', 'profile', 'profit', 'program', 'project', 'promote',
+  'prompt', 'proof', 'proper', 'propose', 'prospect', 'provoke', 'publish',
+  'pulse', 'pump', 'punctual', 'punish', 'purchase', 'pure', 'pursue', 'puzzle',
+  'qualify', 'quality', 'quantity', 'quote', 'radical', 'rail', 'rank', 'rapid',
+  'ratio', 'react', 'ready', 'realize', 'recall', 'recover', 'reduce', 'refer',
+  'reflect', 'reform', 'refuse', 'regard', 'region', 'register', 'regret',
+  'regular', 'reject', 'relate', 'relax', 'release', 'relevant', 'relief',
+  'rely', 'remain', 'remark', 'remedy', 'render', 'replace', 'request',
+  'require', 'rescue', 'reserve', 'resolve', 'respect', 'respond', 'restore',
+  'restrict', 'resume', 'retail', 'retain', 'retire', 'retreat', 'reveal',
+  'reverse', 'revise', 'reward', 'rhythm', 'rigid', 'rival', 'roar', 'rob',
+  'rough', 'route', 'royal', 'ruin', 'rule', 'rural', 'sacred', 'sacrifice',
+  'sail', 'sake', 'salary', 'sample', 'sanction', 'satisfy', 'scan', 'scarce',
+  'scatter', 'scholar', 'scope', 'score', 'scratch', 'secure', 'seek', 'seize',
+  'select', 'senior', 'sense', 'sequence', 'series', 'serve', 'settle',
+  'severe', 'shallow', 'shelf', 'shift', 'shine', 'shrink', 'signal', 'silent',
+  'similar', 'since', 'sing', 'sink', 'site', 'situation', 'skill', 'slap',
+  'slight', 'slip', 'slope', 'slot', 'smart', 'smell', 'smile', 'smoke',
+  'soak', 'soar', 'social', 'society', 'sole', 'solve', 'sophisticated',
+  'spare', 'sphere', 'spill', 'spin', 'spirit', 'splash', 'spoke', 'sport',
+  'spot', 'spray', 'squeeze', 'stable', 'stack', 'staff', 'stain', 'stake',
+  'stare', 'steady', 'steal', 'sting', 'stir', 'stock', 'stomach', 'strain',
+  'strange', 'stretch', 'strict', 'string', 'strip', 'struggle', 'stupid',
+  'submit', 'substance', 'subtract', 'succeed', 'such', 'sudden', 'suffer',
+  'suggest', 'suit', 'sum', 'supply', 'support', 'suppose', 'surface', 'surge',
+  'surround', 'survive', 'suspend', 'sustain', 'swallow', 'sweat', 'sweep',
+  'swell', 'swing', 'sympathetic', 'tackle', 'tame', 'tank', 'tap', 'target',
+  'taste', 'tend', 'tennis', 'term', 'terrible', 'text', 'thank', 'theme',
+  'theory', 'thick', 'thin', 'thought', 'threat', 'thrill', 'throat',
+  'throughout', 'throw', 'thus', 'tide', 'tight', 'toast', 'tobacco', 'tolerate',
+  'tone', 'toss', 'tour', 'toward', 'towel', 'trace', 'track', 'trade',
+  'trait', 'transform', 'translate', 'trash', 'trial', 'tribe', 'trick',
+  'trouble', 'trunk', 'trust', 'truth', 'twist', 'type', 'typical', 'ugly',
+  'ultimate', 'unconscious', 'undergo', 'underline', 'undertake', 'undoubtedly',
+  'uneasy', 'unexpected', 'unity', 'universal', 'unlock', 'upset', 'urgent',
+  'utility', 'utter', 'vague', 'valid', 'vanish', 'variable', 'vary', 'vehicle',
+  'venture', 'vessel', 'victim', 'view', 'violate', 'virtual', 'visible',
+  'voluntary', 'vote', 'wage', 'waist', 'wander', 'warmth', 'weakness',
+  'wealth', 'weapon', 'whistle', 'widespread', 'willing', 'wind', 'withdraw',
+  'witness', 'wrap', 'wreck', 'yield', 'zone',
+]);
+
+// ── B2 words (upper-intermediate — academic, professional, nuanced) ──
+
+const B2_WORDS = new Set([
+  'abbreviation', 'abolish', 'abstract', 'abundant', 'accessory', 'acclaim',
+  'accommodate', 'accompany', 'accumulate', 'accurate', 'acknowledge',
+  'acquaintance', 'acquire', 'address', 'adequate', 'adjacent', 'adjust',
+  'administer', 'admirable', 'advocate', 'aesthetic', 'affluent', 'agenda',
+  'alien', 'align', 'allege', 'allocate', 'ambiguous', 'ambitious', 'analogy',
+  'analyse', 'analysis', 'ancestor', 'announce', 'anticipate', 'apparatus',
+  'apparent', 'appendix', 'applaud', 'appreciable', 'appropriate', 'arbitrary',
+  'array', 'articulate', 'ascertain', 'aspiration', 'assert', 'assess',
+  'asset', 'assumption', 'astonish', 'attain', 'attitude', 'attribute',
+  'authentic', 'authority', 'autonomous', 'avail', 'avert', 'awareness',
+  'barely', 'bearing', 'beneficial', 'bias', 'binding', 'breach', 'budget',
+  'bureaucracy', 'bypass', 'capable', 'capacity', 'capital', 'catastrophe',
+  'censorship', 'chronicle', 'coincide', 'collaborate', 'commemorate',
+  'compelling', 'compensate', 'compile', 'complement', 'complex', 'comply',
+  'comprehensive', 'comprise', 'compromise', 'concede', 'conceive', 'concept',
+  'concern', 'conclusive', 'condemn', 'conduct', 'confer', 'confine',
+  'conform', 'confront', 'consensus', 'consequent', 'conservative', 'consist',
+  'conspicuous', 'constitute', 'constrain', 'contemporary', 'contend',
+  'context', 'contradict', 'contribute', 'controversy', 'convene', 'convert',
+  'convince', 'coordinate', 'corporate', 'correspond', 'courtesy', 'criteria',
+  'cumulative', 'curb', 'deduce', 'deficit', 'deliberate', 'demonstrate',
+  'denote', 'deprive', 'derive', 'despite', 'detach', 'devastate', 'deviate',
+  'discern', 'disclose', 'discriminate', 'dismantle', 'displace', 'dispose',
+  'dispute', 'disregard', 'disrupt', 'dissolve', 'distinct', 'distort',
+  'distract', 'diverse', 'dominant', 'dubious', 'duplicate', 'dynamic',
+  'elaborate', 'elicit', 'embody', 'emerge', 'emphasis', 'empirical',
+  'endeavour', 'enormous', 'ensue', 'entail', 'entity', 'equilibrium',
+  'essential', 'establish', 'estimate', 'ethical', 'evident', 'exaggerate',
+  'exceed', 'excerpt', 'exclusive', 'execute', 'exemplify', 'exhaust',
+  'explicit', 'exploit', 'explore', 'export', 'expose', 'express', 'extract',
+  'facilitate', 'feasible', 'fluctuate', 'foresee', 'formulate', 'fortify',
+  'fortunate', 'fragment', 'framework', 'fundamental', 'generate', 'genuine',
+  'gorgeous', 'gradual', 'graphic', 'gratify', 'hazard', 'highlight', 'hypothesis',
+  'identical', 'identify', 'illusion', 'immense', 'implement', 'implicate',
+  'implicit', 'imply', 'incentive', 'incidence', 'incline', 'inclusive',
+  'inconsistency', 'incorporate', 'increment', 'index', 'indicate', 'inevitable',
+  'infer', 'inhibit', 'initiate', 'innovate', 'insight', 'insist', 'integral',
+  'integrate', 'integrity', 'intense', 'interim', 'interpret', 'intervene',
+  'intimate', 'intrigue', 'invoke', 'isolate', 'legitimate', 'liaise', 'linear',
+  'linguistic', 'magnitude', 'manipulate', 'mediate', 'mediate', 'merit',
+  'metaphor', 'migration', 'minimal', 'minimize', 'momentum', 'monitor',
+  'motive', 'negligible', 'notion', 'notwithstanding', 'objective', 'obligation',
+  'obscure', 'observe', 'obtain', 'obvious', 'occupy', 'offset', 'ongoing',
+  'oppressive', 'optimize', 'option', 'originate', 'outcome', 'overlap',
+  'overwhelm', 'paradigm', 'parallel', 'partial', 'participate', 'particular',
+  'passive', 'penetrate', 'perceive', 'perpetuate', 'persevere', 'perspective',
+  'pertinent', 'phenomenon', 'plausible', 'polar', 'portion', 'pose', 'positive',
+  'precede', 'precipitate', 'precise', 'predominant', 'preliminary', 'presume',
+  'prevalent', 'primitive', 'priority', 'proceed', 'process', 'proclaim',
+  'proficient', 'profound', 'prohibit', 'project', 'prolong', 'prominent',
+  'prompt', 'propagate', 'proportion', 'propose', 'prospect', 'protocol',
+  'provoke', 'prudent', 'publication', 'pursue', 'quantify', 'radical',
+  'random', 'rational', 'react', 'realm', 'reassure', 'recall', 'recede',
+  'reciprocal', 'recognize', 'recommend', 'reconcile', 'recur', 'reflect',
+  'refute', 'regime', 'register', 'regulate', 'reinforce', 'reject', 'relate',
+  'relentless', 'relevant', 'reliable', 'relieve', 'reluctant', 'remedy',
+  'renowned', 'reproduce', 'resilient', 'resolve', 'resort', 'resource',
+  'respond', 'restore', 'restrain', 'restrict', 'retain', 'retrieve',
+  'reveal', 'reverse', 'revise', 'rigorous', 'rotate', 'sanction', 'scenario',
+  'scope', 'scrutinize', 'sector', 'secure', 'seek', 'segregate', 'sequence',
+  'shrink', 'significant', 'simulate', 'simultaneous', 'skeptical', 'sophisticated',
+  'spatial', 'specific', 'specify', 'sponsor', 'stable', 'stationary', 'stimulate',
+  'strategic', 'submerge', 'subsequent', 'substance', 'substantial', 'subtle',
+  'successive', 'sufficient', 'sufficient', 'summary', 'supplement', 'surpass',
+  'survive', 'susceptible', 'sustain', 'tentative', 'threshold', 'tolerate',
+  'transcend', 'transform', 'transient', 'transmit', 'transparent', 'trigger',
+  'ultimate', 'unanimous', 'underestimate', 'undergo', 'undermine', 'unfold',
+  'unique', 'unprecedented', 'utilize', 'validate', 'vanish', 'variable',
+  'vary', 'vehicle', 'versatile', 'vicinity', 'violate', 'virtual', 'visible',
+  'vital', 'volatile', 'volatile', 'whereas', 'widespread',
+]);
+
+// ── C1 words (advanced — sophisticated, formal, literary) ──
+
+const C1_WORDS = new Set([
+  'abstain', 'acquiesce', 'admonish', 'adversary', 'advocate', 'aesthetic',
+  'affinity', 'aggressor', 'alleviate', 'amalgam', 'ambiguous', 'ambivalence',
+  'anomaly', 'antithesis', 'apathetic', 'apprehension', 'arbitrate', 'ascertain',
+  'aspire', 'assiduous', 'atrophy', 'attenuate', 'augment', 'auspicious',
+  'authoritarian', 'avow', 'belittle', 'benevolent', 'bereft', 'bombastic',
+  'cajole', 'candour', 'capitulate', 'catalyst', 'caustic', 'censure',
+  'chastise', 'cohesion', 'commensurate', 'compelling', 'compliant',
+  'conciliate', 'condone', 'confluence', 'connotation', 'consequential',
+  'consolidate', 'construe', 'contrive', 'copious', 'corroborate', 'cosmopolitan',
+  'credulous', 'culpable', 'cumulative', 'debilitate', 'decorum', 'deference',
+  'delinquent', 'demagogue', 'demystify', 'denigrate', 'depict', 'deplete',
+  'deposition', 'derivative', 'despondent', 'deterrent', 'detrimental',
+  'deviate', 'diatribe', 'didactic', 'discern', 'discrepancy', 'disdain',
+  'disseminate', 'distraught', 'divergent', 'doggrel', 'ebullient', 'efface',
+  'efficacy', 'egalitarian', 'elucidate', 'emancipate', 'empathy', 'emulate',
+  'enervate', 'engender', 'epitome', 'equanimity', 'equivocal', 'erudite',
+  'espouse', 'euphemism', 'exacerbate', 'exculpate', 'exonerate', 'expedient',
+  'explicate', 'extant', 'extol', 'facetious', 'fallacious', 'fatuous',
+  'feckless', 'flagrant', 'fortuitous', 'frugal', 'garrulous', 'gregarious',
+  'harangue', 'hegemony', 'heterogeneous', 'hierarchy', 'hypocrisy', 'iconoclast',
+  'idiosyncratic', 'imbue', 'immutable', 'impede', 'imperative', 'impertinent',
+  'impetus', 'implacable', 'inadvertent', 'inaugurate', 'incentive', 'incisive',
+  'inclination', 'inculcate', 'indelible', 'ineffable', 'inept', 'inertia',
+  'infallible', 'infringe', 'ingenuity', 'inherent', 'innocuous', 'insidious',
+  'insinuate', 'instigate', 'intransigent', 'intrinsic', 'inveterate',
+  'jettison', 'juxtapose', 'languish', 'liaise', 'lugubrious', 'magnanimous',
+  'malleable', 'mendacious', 'meritorious', 'metamorphosis', 'meticulous',
+  'mitigate', 'morose', 'mutable', 'narcissistic', 'nefarious', 'nonchalant',
+  'obdurate', 'obfuscate', 'obsequious', 'obsolescent', 'oligarchy', 'omniscient',
+  'opprobrious', 'ostensible', 'palliative', 'panacea', 'paradigm', 'paragon',
+  'partisan', 'pedantic', 'pejorative', 'pellucid', 'penchant', 'perceive',
+  'pernicious', 'perspicacious', 'pertinent', 'philanthropic', 'placate',
+  'pragmatic', 'precarious', 'precipitous', 'predilection', 'presumptuous',
+  'prevaricate', 'procrastinate', 'prodigious', 'proliferate', 'propensity',
+  'propitiate', 'provocative', 'punctilious', 'quintessential', 'rapport',
+  'recalcitrant', 'reconcile', 'redolent', 'refute', 'relegate', 'remonstrate',
+  'reprehensible', 'repudiate', 'resilient', 'restitution', 'reticent',
+  'revere', 'salient', 'sanctimonious', 'sanguine', 'scurrilous', 'sedulous',
+  'serendipity', 'sinecure', 'spurious', 'strident', 'subjugate', 'sublime',
+  'supersede', 'supplant', 'surfeit', 'sycophant', 'tenacious', 'tepid',
+  'timorous', 'transgress', 'ubiquitous', 'unassailable', 'undermine',
+  'undulate', 'unflagging', 'unilateral', 'unprecedented', 'unravel',
+  'unvarying', 'vacillate', 'venerable', 'verbose', 'verisimilitude',
+  'viable', 'virulent', 'visceral', 'vituperate', 'volatile', 'wither',
+  'zealous',
+]);
+
+// ── C2 words (mastery — rare, archaic, highly specialised) ──
+
+const C2_WORDS = new Set([
+  'aberration', 'acrimonious', 'anachronism', 'antediluvian', 'apocryphal',
+  'apotheosis', 'asperity', 'assiduous', 'atavistic', 'baleful', 'bibulous',
+  'cacophony', 'callipygian', 'captious', 'casuistry', 'circumlocution',
+  'cloying', 'commensurate', 'concupiscent', 'coruscate', 'cupidity',
+  'deleterious', 'denouement', 'diaphanous', 'dichotomy', 'disapprobation',
+  'ebullient', 'ellipsis', 'encomium', 'ephemeral', 'epigram', 'esoteric',
+  'exegesis', 'exiguous', 'fatidic', 'fecund', 'floccinaucinihilipilification',
+  'gainsay', 'hornswoggle', 'imbroglio', 'inchoate', 'ineluctable', 'inexorable',
+  'iniquitous', 'insouciant', 'invidious', 'kowtow', 'laconic', 'lambent',
+  'leitmotif', 'limpid', 'logorrhea', 'lugubrious', 'machination', 'mellifluous',
+  'meretricious', 'minatory', 'mordant', 'muliebrity', 'nugatory', 'obloquy',
+  'obsequious', 'obviate', 'onanism', 'palliative', 'panegyric', 'parlous',
+  'pellucid', 'penumbra', 'peregrinate', 'peripatetic', 'peroration', 'picayune',
+  'pulchritude', 'pusillanimous', 'quidnunc', 'redoubtable', 'sanguinolent',
+  'sesquipedalian', 'sibylline', 'simulacrum', 'solecism', 'sophomoric',
+  'sycophancy', 'tergiversate', 'theodicy', 'uxorious', 'verisimilitude',
+  'vituperative', 'voracious', 'winnow', 'xenophile', 'yonder',
+]);
+
 // ── Classification function ─────────────────────────────────
 
 /**
  * Estimate the CEFR level of a word based on local word lists and heuristics.
  *
- * - Found in A1 list → 'A1'
- * - Found in A2 list → 'A2'
- * - Otherwise, use heuristics:
- *   - Short common words → B1
- *   - Longer / abstract / Latin-origin words → B2-C2
+ * Words are looked up against explicit A1→C2 lists first (local-first, so the
+ * result is deterministic and free). Only genuinely unknown words fall through
+ * to the suffix/length heuristic.
  */
 export function classifyWordCEFR(word: string): CEFRLevel {
   const lower = word.toLowerCase().replace(/[^a-z]/g, '');
 
   if (A1_WORDS.has(lower)) return 'A1';
   if (A2_WORDS.has(lower)) return 'A2';
+  if (B1_WORDS.has(lower)) return 'B1';
+  if (B2_WORDS.has(lower)) return 'B2';
+  if (C1_WORDS.has(lower)) return 'C1';
+  if (C2_WORDS.has(lower)) return 'C2';
 
   // Heuristic classification for unknown words
   const len = lower.length;

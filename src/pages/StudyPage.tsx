@@ -51,6 +51,28 @@ type DisplayMode = 'sentence' | 'caption';
 
 const SPEED_PRESETS = [0.5, 0.75, 1, 1.25, 1.5, 1.75, 2];
 
+// ── Demo / sample video ──────────────────────────────────────
+// When a user opens Study with no saved session, we pre-load a well-known,
+// caption-rich English talk so the UI (and the onboarding tour) can showcase
+// the live Load / Analyze / Save buttons. The video plays; the transcript is
+// fetched from YouTube. If that fetch fails (e.g. blocked), we fall back to a
+// small built-in transcript so the buttons still appear for the demo.
+const SAMPLE_VIDEO_ID = 'iG9CE55wbtY'; // Ken Robinson — Do schools kill creativity?
+const SAMPLE_VIDEO_TITLE = 'Sample · Ken Robinson: Do schools kill creativity?';
+
+const SAMPLE_FALLBACK_TRANSCRIPT: TranscriptLine[] = [
+  { start: 0, end: 6, text: 'I want to talk to you about education and creativity.' },
+  { start: 6, end: 12, text: 'We are born with a tremendous capacity to be creative.' },
+  { start: 12, end: 19, text: 'Children are not afraid of being wrong, and mistakes are where learning happens.' },
+  { start: 19, end: 26, text: 'By the time they become adults, most people have lost that capacity entirely.' },
+  { start: 26, end: 33, text: 'We educate people out of their creative confidence in a predictable hierarchy.' },
+  { start: 33, end: 40, text: 'Academics are at the top, and the arts are frequently at the bottom of the system.' },
+  { start: 40, end: 47, text: 'We should rethink the fundamental principles on which we are educating our children.' },
+  { start: 47, end: 54, text: 'Human communities depend on a diversity of talents, not a single conception of ability.' },
+  { start: 54, end: 61, text: 'Our task is to cultivate the conditions for imagination and originality to flourish.' },
+  { start: 61, end: 68, text: 'Creativity now is as important in education as literacy, and we should treat it with the same status.' },
+];
+
 const StudyPage: React.FC = () => {
   const { t, lang } = useI18n();
   const { user } = useAuth();
@@ -251,6 +273,27 @@ const StudyPage: React.FC = () => {
           })
           .finally(() => setFetchingCaption(false));
       }
+    } else {
+      // No saved session → pre-load a sample video so the Study UI (and the
+      // onboarding tour) can showcase the real Load / Analyze / Save buttons.
+      // We intentionally do NOT persist this as a session — it's a demo default.
+      setVideoId(SAMPLE_VIDEO_ID);
+      setPlatform('youtube');
+      setSessionTitle(SAMPLE_VIDEO_TITLE);
+      setFetchingCaption(true);
+      setCaptionError(null);
+      const applySample = (lines: TranscriptLine[]) => {
+        const sLines = normalizeTranscriptToSentences(lines);
+        setRawBlocks(lines);
+        setSentenceLines(sLines);
+      };
+      fetchYouTubeTranscript(SAMPLE_VIDEO_ID)
+        .then(({ lines }) => {
+          if (lines.length > 0) applySample(lines);
+          else applySample(SAMPLE_FALLBACK_TRANSCRIPT);
+        })
+        .catch(() => applySample(SAMPLE_FALLBACK_TRANSCRIPT))
+        .finally(() => setFetchingCaption(false));
     }
 
     setVocabulary(loadVocabulary());
