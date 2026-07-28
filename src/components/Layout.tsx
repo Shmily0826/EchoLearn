@@ -214,13 +214,13 @@ const Layout: React.FC<{ children: ReactNode }> = ({ children }) => {
           </a>
           <span style={{ color: 'var(--color-border)' }}>|</span>
           <a
-            href="mailto:1014755473@qq.com"
+            href="mailto:rng2018520@gmail.com"
             className="inline-flex items-center gap-1.5 hover:text-indigo-500 transition-colors"
           >
             <svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.5}>
               <path strokeLinecap="round" strokeLinejoin="round" d="M21.75 6.75v10.5a2.25 2.25 0 01-2.25 2.25h-15a2.25 2.25 0 01-2.25-2.25V6.75m19.5 0A2.25 2.25 0 0019.5 4.5h-15a2.25 2.25 0 00-2.25 2.25m19.5 0v.243a2.25 2.25 0 01-1.07 1.916l-7.5 4.615a2.25 2.25 0 01-2.36 0L3.32 8.91a2.25 2.25 0 01-1.07-1.916V6.75" />
             </svg>
-            1014755473@qq.com
+            rng2018520@gmail.com
           </a>
         </div>
       </footer>
@@ -234,8 +234,8 @@ const Layout: React.FC<{ children: ReactNode }> = ({ children }) => {
           GitHub
         </a>
         <span>|</span>
-        <a href="mailto:1014755473@qq.com" className="hover:text-indigo-500">
-          1014755473@qq.com
+        <a href="mailto:rng2018520@gmail.com" className="hover:text-indigo-500">
+          rng2018520@gmail.com
         </a>
       </div>
 

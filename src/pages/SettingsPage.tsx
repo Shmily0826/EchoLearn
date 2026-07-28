@@ -91,6 +91,15 @@ const SettingsPage: React.FC<{ onLoginRequest?: () => void }> = ({ onLoginReques
   const [proxyStatus, setProxyStatus] = useState<'idle' | 'checking' | 'online' | 'offline'>('idle');
   const [proxyMessage, setProxyMessage] = useState('');
 
+  // ── Feedback modal state ─────────────────────────────────
+  const [showFeedback, setShowFeedback] = useState(false);
+  const [feedbackText, setFeedbackText] = useState('');
+  const [includeEmail, setIncludeEmail] = useState(false);
+  const [feedbackEmail, setFeedbackEmail] = useState('');
+  const [feedbackError, setFeedbackError] = useState('');
+
+  const CONTACT_EMAIL = 'rng2018520@gmail.com';
+
   // Initialise on mount
   useEffect(() => {
     const pat = loadPat();
@@ -337,6 +346,42 @@ const SettingsPage: React.FC<{ onLoginRequest?: () => void }> = ({ onLoginReques
   const handleReplayGuide = useCallback(() => {
     window.dispatchEvent(new Event(TOUR_START_EVENT));
   }, []);
+
+  // ── Feedback modal ───────────────────────────────────────
+  const openFeedback = useCallback(() => {
+    setFeedbackText('');
+    setIncludeEmail(false);
+    setFeedbackEmail('');
+    setFeedbackError('');
+    setShowFeedback(true);
+  }, []);
+
+  const closeFeedback = useCallback(() => {
+    setShowFeedback(false);
+  }, []);
+
+  const submitFeedback = useCallback(() => {
+    if (!feedbackText.trim()) {
+      setFeedbackError(t('feedback.required'));
+      return;
+    }
+    const email = feedbackEmail.trim();
+    if (includeEmail && email && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) {
+      setFeedbackError(t('feedback.emailInvalid'));
+      return;
+    }
+    const body =
+      feedbackText.trim() +
+      (includeEmail && email ? `\n\nContact email: ${email}` : '');
+    const mailto = `mailto:${CONTACT_EMAIL}?subject=${encodeURIComponent(
+      t('feedback.subject')
+    )}&body=${encodeURIComponent(body)}`;
+    const a = document.createElement('a');
+    a.href = mailto;
+    a.click();
+    setShowFeedback(false);
+    setSyncMessage({ type: 'success', text: t('feedback.sent') });
+  }, [feedbackText, includeEmail, feedbackEmail, t]);
 
   // ── Render ────────────────────────────────────────────────
   return (
@@ -817,6 +862,30 @@ const SettingsPage: React.FC<{ onLoginRequest?: () => void }> = ({ onLoginReques
         </button>
       </section>
 
+      {/* ── Feedback Section ───────────────────────────────── */}
+      <section className="bg-white dark:bg-slate-800 rounded-xl border border-gray-200 dark:border-slate-700 shadow-sm p-5 sm:p-6 mb-6">
+        <div className="flex items-center gap-3 mb-3">
+          <div className="p-2 bg-amber-100 dark:bg-amber-950 rounded-lg">
+            <svg className="w-5 h-5 text-amber-600 dark:text-amber-400" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.5}>
+              <path strokeLinecap="round" strokeLinejoin="round" d="M7.5 8.25h9m-9 3H12m-9.75 1.51c0 1.6 1.123 2.994 2.707 3.227 1.087.16 2.185.283 3.293.369V21l4.184-4.183a1.14 1.14 0 01.778-.332 48.582 48.582 0 005.68-.494c1.584-.233 2.707-1.626 2.707-3.228V6.741c0-1.602-1.123-2.995-2.707-3.228A48.394 48.394 0 0012 3c-2.392 0-4.744.175-7.043.513C3.373 3.746 2.25 5.14 2.25 6.741v6.018z" />
+            </svg>
+          </div>
+          <div>
+            <h2 className="text-base font-semibold text-gray-800 dark:text-gray-200">{t('feedback.title')}</h2>
+            <p className="text-xs text-gray-400 dark:text-gray-500">{t('feedback.subtitle')}</p>
+          </div>
+        </div>
+        <button
+          onClick={openFeedback}
+          className="w-full py-2.5 text-sm font-semibold text-white bg-amber-500 hover:bg-amber-600 rounded-lg transition-colors cursor-pointer"
+        >
+          {t('feedback.open')}
+        </button>
+        <p className="text-[11px] text-gray-400 dark:text-gray-500 mt-3">
+          {t('feedback.contactHint', { email: CONTACT_EMAIL })}
+        </p>
+      </section>
+
       {/* ── Data Export Section ──────────────────────────────── */}
       <section className="bg-white dark:bg-slate-800 rounded-xl border border-gray-200 dark:border-slate-700 shadow-sm p-5 sm:p-6 mb-6">
         <div className="flex items-center gap-3 mb-5">
@@ -887,10 +956,10 @@ const SettingsPage: React.FC<{ onLoginRequest?: () => void }> = ({ onLoginReques
               GitHub
             </a>
             <a
-              href="mailto:1014755473@qq.com"
+              href="mailto:rng2018520@gmail.com"
               className="text-indigo-500 hover:underline"
             >
-              1014755473@qq.com
+              rng2018520@gmail.com
             </a>
           </p>
         </div>
@@ -920,6 +989,88 @@ const SettingsPage: React.FC<{ onLoginRequest?: () => void }> = ({ onLoginReques
           </button>
         </div>
       </section>
+
+      {/* ── Feedback modal ──────────────────────────────────── */}
+      {showFeedback && (
+        <div
+          className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/40"
+          onClick={closeFeedback}
+        >
+          <div
+            className="w-full max-w-md bg-white dark:bg-slate-800 rounded-2xl border border-gray-200 dark:border-slate-700 shadow-xl p-5 sm:p-6"
+            onClick={(e) => e.stopPropagation()}
+          >
+            <div className="flex items-start justify-between mb-4">
+              <div>
+                <h3 className="text-lg font-semibold text-gray-900 dark:text-gray-100">{t('feedback.title')}</h3>
+                <p className="text-xs text-gray-400 dark:text-gray-500 mt-0.5">{t('feedback.subtitle')}</p>
+              </div>
+              <button
+                onClick={closeFeedback}
+                className="p-1 text-gray-400 hover:text-gray-600 dark:hover:text-gray-300 cursor-pointer flex-shrink-0"
+                aria-label={t('feedback.cancel')}
+              >
+                <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                  <path strokeLinecap="round" strokeLinejoin="round" d="M6 18L18 6M6 6l12 12" />
+                </svg>
+              </button>
+            </div>
+
+            <textarea
+              value={feedbackText}
+              onChange={(e) => {
+                setFeedbackText(e.target.value);
+                if (feedbackError) setFeedbackError('');
+              }}
+              rows={5}
+              placeholder={t('feedback.placeholder')}
+              className="w-full px-3 py-2.5 text-sm border border-gray-200 dark:border-slate-600 rounded-lg bg-transparent text-gray-800 dark:text-gray-200 placeholder-gray-300 dark:placeholder-gray-600 focus:outline-none focus:border-amber-400 focus:ring-1 focus:ring-amber-400 transition-colors resize-none"
+            />
+
+            <label className="flex items-center gap-2 mt-3 cursor-pointer select-none">
+              <input
+                type="checkbox"
+                checked={includeEmail}
+                onChange={(e) => setIncludeEmail(e.target.checked)}
+                className="w-4 h-4 rounded border-gray-300 dark:border-slate-600 text-amber-500 focus:ring-amber-400 cursor-pointer"
+              />
+              <span className="text-sm text-gray-600 dark:text-gray-300">{t('feedback.includeEmail')}</span>
+            </label>
+
+            {includeEmail && (
+              <input
+                type="email"
+                value={feedbackEmail}
+                onChange={(e) => {
+                  setFeedbackEmail(e.target.value);
+                  if (feedbackError) setFeedbackError('');
+                }}
+                placeholder={t('feedback.emailPh')}
+                className="w-full mt-2 px-3 py-2 text-sm border border-gray-200 dark:border-slate-600 rounded-lg bg-transparent text-gray-800 dark:text-gray-200 placeholder-gray-300 dark:placeholder-gray-600 focus:outline-none focus:border-amber-400 focus:ring-1 focus:ring-amber-400 transition-colors"
+              />
+            )}
+
+            {feedbackError && (
+              <p className="text-xs text-red-500 dark:text-red-400 mt-2">{feedbackError}</p>
+            )}
+
+            <div className="flex gap-2 mt-4">
+              <button
+                onClick={closeFeedback}
+                className="flex-1 px-4 py-2.5 text-sm text-gray-600 dark:text-gray-300 border border-gray-200 dark:border-slate-600 rounded-lg hover:bg-gray-50 dark:hover:bg-slate-700 transition-colors cursor-pointer"
+              >
+                {t('feedback.cancel')}
+              </button>
+              <button
+                onClick={submitFeedback}
+                className="flex-1 px-4 py-2.5 text-sm font-semibold text-white bg-amber-500 hover:bg-amber-600 rounded-lg transition-colors cursor-pointer"
+              >
+                {t('feedback.submit')}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
 
       {/* ── Global sync message toast ───────────────────────── */}
       {syncMessage && (
