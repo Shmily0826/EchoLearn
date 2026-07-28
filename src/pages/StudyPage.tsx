@@ -1113,9 +1113,6 @@ const StudyPage: React.FC = () => {
                 {/* Mobile analysis controls — words/sents/level only */}
                 {displayLines.length > 0 && (
                   <div data-tour="study-controls" className="flex items-center gap-2 px-3 py-1.5 border-b border-gray-100 dark:border-slate-700 flex-wrap">
-                    <p className="basis-full text-[10px] text-gray-400 dark:text-gray-500 leading-snug">
-                      {t('study.aiIntro')} <span className="text-gray-500 dark:text-gray-400">{t('study.aiCountNote')}</span>
-                    </p>
                     <div className="flex items-center gap-1 text-[10px]">
                       <span className="text-gray-400">{t('study.words')}</span>
                       <input
@@ -1166,7 +1163,6 @@ const StudyPage: React.FC = () => {
                         ))}
                       </select>
                     </div>
-                    <span className="text-[10px] text-gray-400 dark:text-gray-500 whitespace-nowrap">{t('study.cefrHint')}</span>
                   </div>
                 )}
                 <MobileTranscriptPanel
@@ -1207,9 +1203,6 @@ const StudyPage: React.FC = () => {
                 {/* Count selectors + CEFR + Analyze (only when transcript loaded) */}
                 {displayLines.length > 0 && (
                   <div data-tour="study-controls" className="flex items-center gap-1.5 sm:gap-3 flex-wrap">
-                    <p className="basis-full text-[11px] text-gray-400 dark:text-gray-500 leading-snug">
-                      {t('study.aiIntro')} <span className="text-gray-500 dark:text-gray-400">{t('study.aiCountNote')}</span>
-                    </p>
                     {/* Vocab / Sentence count */}
                     <div className="flex items-center gap-1 text-[11px]">
                       <span className="text-gray-400 dark:text-gray-500">{t('study.words')}</span>
@@ -1266,7 +1259,6 @@ const StudyPage: React.FC = () => {
                         ))}
                       </select>
                     </div>
-                    <span className="text-[10px] text-gray-400 dark:text-gray-500 whitespace-nowrap">{t('study.cefrHint')}</span>
                   </div>
                 )}
                 {/* Analyze button */}

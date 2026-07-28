@@ -98,8 +98,6 @@ const SettingsPage: React.FC<{ onLoginRequest?: () => void }> = ({ onLoginReques
   const [includeEmail, setIncludeEmail] = useState(true);
   const [feedbackError, setFeedbackError] = useState('');
 
-  const CONTACT_EMAIL = 'rng2018520@gmail.com';
-
   // Initialise on mount
   useEffect(() => {
     const pat = loadPat();
@@ -549,6 +547,121 @@ const SettingsPage: React.FC<{ onLoginRequest?: () => void }> = ({ onLoginReques
         </section>
       )}
 
+      {/* ── Data Export Section (first feature, right under account) ── */}
+      <section className="bg-white dark:bg-slate-800 rounded-xl border border-gray-200 dark:border-slate-700 shadow-sm p-5 sm:p-6 mb-6">
+        <div className="flex items-center gap-3 mb-5">
+          <div className="p-2 bg-amber-100 dark:bg-amber-950 rounded-lg">
+            <svg className="w-5 h-5 text-amber-600 dark:text-amber-400" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.5}>
+              <path strokeLinecap="round" strokeLinejoin="round" d="M3 16.5v2.25A2.25 2.25 0 005.25 21h13.5A2.25 2.25 0 0021 18.75V16.5M16.5 12L12 16.5m0 0L7.5 12m4.5 4.5V3" />
+            </svg>
+          </div>
+          <div>
+            <h2 className="text-base font-semibold text-gray-800 dark:text-gray-200">{t('settings.dataExport')}</h2>
+            <p className="text-xs text-gray-400 dark:text-gray-500">{t('settings.exportHint')}</p>
+          </div>
+        </div>
+
+        <div className="grid grid-cols-1 sm:grid-cols-3 gap-2">
+          <button
+            onClick={handleExportVocabCSV}
+            className="px-4 py-2.5 text-sm text-gray-700 dark:text-gray-300 border border-gray-200 dark:border-slate-600 rounded-lg hover:bg-gray-50 dark:hover:bg-slate-700 transition-colors cursor-pointer text-left"
+          >
+            <span className="block font-medium">Vocabulary CSV</span>
+            <span className="text-xs text-gray-400 dark:text-gray-500">{dataSize.vocab} words</span>
+          </button>
+          <button
+            onClick={handleExportSentencesCSV}
+            className="px-4 py-2.5 text-sm text-gray-700 dark:text-gray-300 border border-gray-200 dark:border-slate-600 rounded-lg hover:bg-gray-50 dark:hover:bg-slate-700 transition-colors cursor-pointer text-left"
+          >
+            <span className="block font-medium">Sentences CSV</span>
+            <span className="text-xs text-gray-400 dark:text-gray-500">{dataSize.sentences} sentences</span>
+          </button>
+          <button
+            onClick={handleExportAllJSON}
+            className="px-4 py-2.5 text-sm text-gray-700 dark:text-gray-300 border border-gray-200 dark:border-slate-600 rounded-lg hover:bg-gray-50 dark:hover:bg-slate-700 transition-colors cursor-pointer text-left"
+          >
+            <span className="block font-medium">All Data (JSON)</span>
+            <span className="text-xs text-gray-400 dark:text-gray-500">{t('settings.fullBackup')}</span>
+          </button>
+        </div>
+      </section>
+
+      {/* ── Help & Feedback: two compact cards in one row ───── */}
+      <section className="bg-white dark:bg-slate-800 rounded-xl border border-gray-200 dark:border-slate-700 shadow-sm p-5 sm:p-6 mb-6">
+        <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+          {/* Replay guide */}
+          <button
+            onClick={handleReplayGuide}
+            className="flex items-center gap-3 p-3 text-left border border-gray-100 dark:border-slate-700 rounded-lg hover:bg-gray-50 dark:hover:bg-slate-700/50 transition-colors cursor-pointer"
+          >
+            <div className="p-2 bg-indigo-100 dark:bg-indigo-950 rounded-lg flex-shrink-0">
+              <svg className="w-5 h-5 text-indigo-600 dark:text-indigo-400" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.5}>
+                <path strokeLinecap="round" strokeLinejoin="round" d="M12 6.042A8.967 8.967 0 006 3.75c-1.052 0-2.062.18-3 .512v14.25A8.987 8.987 0 016 18c2.305 0 4.408.867 6 2.292m0-14.25a8.966 8.966 0 016-2.292c1.052 0 2.062.18 3 .512v14.25A8.987 8.987 0 0018 18a8.967 8.967 0 00-6 2.292m0-14.25v14.25" />
+              </svg>
+            </div>
+            <div className="min-w-0">
+              <p className="text-xs font-semibold text-gray-800 dark:text-gray-200">{t('settings.replayGuide')}</p>
+              <p className="text-[11px] text-gray-400 dark:text-gray-500 truncate">{t('settings.replayGuideDesc')}</p>
+            </div>
+          </button>
+          {/* Feedback */}
+          <button
+            onClick={openFeedback}
+            className="flex items-center gap-3 p-3 text-left border border-gray-100 dark:border-slate-700 rounded-lg hover:bg-gray-50 dark:hover:bg-slate-700/50 transition-colors cursor-pointer"
+          >
+            <div className="p-2 bg-amber-100 dark:bg-amber-950 rounded-lg flex-shrink-0">
+              <svg className="w-5 h-5 text-amber-600 dark:text-amber-400" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.5}>
+                <path strokeLinecap="round" strokeLinejoin="round" d="M7.5 8.25h9m-9 3H12m-9.75 1.51c0 1.6 1.123 2.994 2.707 3.227 1.087.16 2.185.283 3.293.369V21l4.184-4.183a1.14 1.14 0 01.778-.332 48.582 48.582 0 005.68-.494c1.584-.233 2.707-1.626 2.707-3.228V6.741c0-1.602-1.123-2.995-2.707-3.228A48.394 48.394 0 0012 3c-2.392 0-4.744.175-7.043.513C3.373 3.746 2.25 5.14 2.25 6.741v6.018z" />
+              </svg>
+            </div>
+            <div className="min-w-0">
+              <p className="text-xs font-semibold text-gray-800 dark:text-gray-200">{t('feedback.title')}</p>
+              <p className="text-[11px] text-gray-400 dark:text-gray-500 truncate">{t('feedback.subtitle')}</p>
+            </div>
+          </button>
+        </div>
+      </section>
+
+      {/* ── About Section ───────────────────────────────────── */}
+      <section className="bg-white dark:bg-slate-800 rounded-xl border border-gray-200 dark:border-slate-700 shadow-sm p-5 sm:p-6 mb-6">
+        <div className="flex items-center gap-3 mb-4">
+          <div className="p-2 bg-gray-100 dark:bg-slate-700 rounded-lg">
+            <svg className="w-5 h-5 text-gray-500 dark:text-gray-400" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.5}>
+              <path strokeLinecap="round" strokeLinejoin="round" d="M11.25 11.25l.041-.02a.75.75 0 011.063.852l-.708 2.836a.75.75 0 001.063.853l.041-.021M21 12a9 9 0 11-18 0 9 9 0 0118 0zm-9-3.75h.008v.008H12V8.25z" />
+            </svg>
+          </div>
+          <div>
+            <h2 className="text-base font-semibold text-gray-800 dark:text-gray-200">{t('settings.about')}</h2>
+            <p className="text-xs text-gray-400 dark:text-gray-500">{t('settings.aboutDesc')}</p>
+          </div>
+        </div>
+        <div className="text-xs text-gray-500 dark:text-gray-400 space-y-1">
+          <p>
+            All data is stored locally in your browser. Use Cloud Sync to back up
+            your data to a private GitHub Gist, or export it as CSV / JSON.
+          </p>
+          <p className="flex items-center gap-3 mt-3">
+            <a
+              href="https://github.com/Shmily0826"
+              target="_blank"
+              rel="noopener noreferrer"
+              className="text-indigo-500 hover:underline inline-flex items-center gap-1"
+            >
+              <svg className="w-3.5 h-3.5" fill="currentColor" viewBox="0 0 24 24">
+                <path d="M12 0C5.37 0 0 5.37 0 12c0 5.31 3.435 9.795 8.205 11.385.6.105.825-.255.825-.57 0-.285-.015-1.23-.015-2.235-3.015.555-3.795-.735-4.035-1.41-.135-.345-.72-1.41-1.23-1.695-.42-.225-1.02-.78-.015-.795.945-.015 1.62.87 1.845 1.23 1.08 1.815 2.805 1.305 3.495.99.105-.78.42-1.305.765-1.605-2.67-.3-5.46-1.335-5.46-5.925 0-1.305.465-2.385 1.23-3.225-.12-.3-.54-1.53.12-3.18 0 0 1.005-.315 3.3 1.23.96-.27 1.98-.405 3-.405s2.04.135 3 .405c2.295-1.56 3.3-1.23 3.3-1.23.66 1.65.24 2.88.12 3.18.765.84 1.23 1.905 1.23 3.225 0 4.605-2.805 5.625-5.475 5.925.435.375.81 1.095.81 2.22 0 1.605-.015 2.895-.015 3.3 0 .315.225.69.825.57A12.02 12.02 0 0024 12c0-6.63-5.37-12-12-12z" />
+              </svg>
+              GitHub
+            </a>
+            <a
+              href="mailto:rng2018520@gmail.com"
+              className="text-indigo-500 hover:underline"
+            >
+              rng2018520@gmail.com
+            </a>
+          </p>
+        </div>
+      </section>
+
       {/* ── Developer Mode Section ──────────────────────────── */}
       <section className="bg-white dark:bg-slate-800 rounded-xl border border-gray-200 dark:border-slate-700 shadow-sm p-5 sm:p-6 mb-6">
         <div className="flex items-center justify-between">
@@ -871,132 +984,6 @@ const SettingsPage: React.FC<{ onLoginRequest?: () => void }> = ({ onLoginReques
         )}
       </section>
       )}
-
-      {/* ── Replay Guide Section ────────────────────────────── */}
-      <section className="bg-white dark:bg-slate-800 rounded-xl border border-gray-200 dark:border-slate-700 shadow-sm p-5 sm:p-6 mb-6">
-        <div className="flex items-center gap-3 mb-3">
-          <div className="p-2 bg-indigo-100 dark:bg-indigo-950 rounded-lg">
-            <svg className="w-5 h-5 text-indigo-600 dark:text-indigo-400" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.5}>
-              <path strokeLinecap="round" strokeLinejoin="round" d="M12 6.042A8.967 8.967 0 006 3.75c-1.052 0-2.062.18-3 .512v14.25A8.987 8.987 0 016 18c2.305 0 4.408.867 6 2.292m0-14.25a8.966 8.966 0 016-2.292c1.052 0 2.062.18 3 .512v14.25A8.987 8.987 0 0018 18a8.967 8.967 0 00-6 2.292m0-14.25v14.25" />
-            </svg>
-          </div>
-          <div>
-            <h2 className="text-base font-semibold text-gray-800 dark:text-gray-200">{t('settings.replayGuide')}</h2>
-            <p className="text-xs text-gray-400 dark:text-gray-500">{t('lang.subtitle')}</p>
-          </div>
-        </div>
-        <button
-          onClick={handleReplayGuide}
-          className="w-full py-2.5 text-sm font-semibold text-white bg-indigo-600 hover:bg-indigo-700 rounded-lg transition-colors cursor-pointer"
-        >
-          {t('settings.replayGuide')}
-        </button>
-      </section>
-
-      {/* ── Feedback Section ───────────────────────────────── */}
-      <section className="bg-white dark:bg-slate-800 rounded-xl border border-gray-200 dark:border-slate-700 shadow-sm p-5 sm:p-6 mb-6">
-        <div className="flex items-center gap-3 mb-3">
-          <div className="p-2 bg-amber-100 dark:bg-amber-950 rounded-lg">
-            <svg className="w-5 h-5 text-amber-600 dark:text-amber-400" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.5}>
-              <path strokeLinecap="round" strokeLinejoin="round" d="M7.5 8.25h9m-9 3H12m-9.75 1.51c0 1.6 1.123 2.994 2.707 3.227 1.087.16 2.185.283 3.293.369V21l4.184-4.183a1.14 1.14 0 01.778-.332 48.582 48.582 0 005.68-.494c1.584-.233 2.707-1.626 2.707-3.228V6.741c0-1.602-1.123-2.995-2.707-3.228A48.394 48.394 0 0012 3c-2.392 0-4.744.175-7.043.513C3.373 3.746 2.25 5.14 2.25 6.741v6.018z" />
-            </svg>
-          </div>
-          <div>
-            <h2 className="text-base font-semibold text-gray-800 dark:text-gray-200">{t('feedback.title')}</h2>
-            <p className="text-xs text-gray-400 dark:text-gray-500">{t('feedback.subtitle')}</p>
-          </div>
-        </div>
-        <button
-          onClick={openFeedback}
-          className="w-full py-2.5 text-sm font-semibold text-white bg-amber-500 hover:bg-amber-600 rounded-lg transition-colors cursor-pointer"
-        >
-          {user ? t('feedback.open') : t('feedback.openGuest')}
-        </button>
-        <p className="text-[11px] text-gray-400 dark:text-gray-500 mt-3">
-          {user
-            ? t('feedback.contactHint', { email: CONTACT_EMAIL })
-            : t('feedback.guestHint')}
-        </p>
-      </section>
-
-      {/* ── Data Export Section ──────────────────────────────── */}
-      <section className="bg-white dark:bg-slate-800 rounded-xl border border-gray-200 dark:border-slate-700 shadow-sm p-5 sm:p-6 mb-6">
-        <div className="flex items-center gap-3 mb-5">
-          <div className="p-2 bg-amber-100 dark:bg-amber-950 rounded-lg">
-            <svg className="w-5 h-5 text-amber-600 dark:text-amber-400" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.5}>
-              <path strokeLinecap="round" strokeLinejoin="round" d="M3 16.5v2.25A2.25 2.25 0 005.25 21h13.5A2.25 2.25 0 0021 18.75V16.5M16.5 12L12 16.5m0 0L7.5 12m4.5 4.5V3" />
-            </svg>
-          </div>
-          <div>
-            <h2 className="text-base font-semibold text-gray-800 dark:text-gray-200">{t('settings.dataExport')}</h2>
-            <p className="text-xs text-gray-400 dark:text-gray-500">{t('settings.exportHint')}</p>
-          </div>
-        </div>
-
-        <div className="grid grid-cols-1 sm:grid-cols-3 gap-2">
-          <button
-            onClick={handleExportVocabCSV}
-            className="px-4 py-2.5 text-sm text-gray-700 dark:text-gray-300 border border-gray-200 dark:border-slate-600 rounded-lg hover:bg-gray-50 dark:hover:bg-slate-700 transition-colors cursor-pointer text-left"
-          >
-            <span className="block font-medium">Vocabulary CSV</span>
-            <span className="text-xs text-gray-400 dark:text-gray-500">{dataSize.vocab} words</span>
-          </button>
-          <button
-            onClick={handleExportSentencesCSV}
-            className="px-4 py-2.5 text-sm text-gray-700 dark:text-gray-300 border border-gray-200 dark:border-slate-600 rounded-lg hover:bg-gray-50 dark:hover:bg-slate-700 transition-colors cursor-pointer text-left"
-          >
-            <span className="block font-medium">Sentences CSV</span>
-            <span className="text-xs text-gray-400 dark:text-gray-500">{dataSize.sentences} sentences</span>
-          </button>
-          <button
-            onClick={handleExportAllJSON}
-            className="px-4 py-2.5 text-sm text-gray-700 dark:text-gray-300 border border-gray-200 dark:border-slate-600 rounded-lg hover:bg-gray-50 dark:hover:bg-slate-700 transition-colors cursor-pointer text-left"
-          >
-            <span className="block font-medium">All Data (JSON)</span>
-            <span className="text-xs text-gray-400 dark:text-gray-500">{t('settings.fullBackup')}</span>
-          </button>
-        </div>
-      </section>
-
-      {/* ── About Section ───────────────────────────────────── */}
-      <section className="bg-white dark:bg-slate-800 rounded-xl border border-gray-200 dark:border-slate-700 shadow-sm p-5 sm:p-6">
-        <div className="flex items-center gap-3 mb-4">
-          <div className="p-2 bg-gray-100 dark:bg-slate-700 rounded-lg">
-            <svg className="w-5 h-5 text-gray-500 dark:text-gray-400" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.5}>
-              <path strokeLinecap="round" strokeLinejoin="round" d="M11.25 11.25l.041-.02a.75.75 0 011.063.852l-.708 2.836a.75.75 0 001.063.853l.041-.021M21 12a9 9 0 11-18 0 9 9 0 0118 0zm-9-3.75h.008v.008H12V8.25z" />
-            </svg>
-          </div>
-          <div>
-            <h2 className="text-base font-semibold text-gray-800 dark:text-gray-200">{t('settings.about')}</h2>
-            <p className="text-xs text-gray-400 dark:text-gray-500">{t('settings.aboutDesc')}</p>
-          </div>
-        </div>
-        <div className="text-xs text-gray-500 dark:text-gray-400 space-y-1">
-          <p>
-            All data is stored locally in your browser. Use Cloud Sync to back up
-            your data to a private GitHub Gist, or export it as CSV / JSON.
-          </p>
-          <p className="flex items-center gap-3 mt-3">
-            <a
-              href="https://github.com/Shmily0826"
-              target="_blank"
-              rel="noopener noreferrer"
-              className="text-indigo-500 hover:underline inline-flex items-center gap-1"
-            >
-              <svg className="w-3.5 h-3.5" fill="currentColor" viewBox="0 0 24 24">
-                <path d="M12 0C5.37 0 0 5.37 0 12c0 5.31 3.435 9.795 8.205 11.385.6.105.825-.255.825-.57 0-.285-.015-1.23-.015-2.235-3.015.555-3.795-.735-4.035-1.41-.135-.345-.72-1.41-1.23-1.695-.42-.225-1.02-.78-.015-.795.945-.015 1.62.87 1.845 1.23 1.08 1.815 2.805 1.305 3.495.99.105-.78.42-1.305.765-1.605-2.67-.3-5.46-1.335-5.46-5.925 0-1.305.465-2.385 1.23-3.225-.12-.3-.54-1.53.12-3.18 0 0 1.005-.315 3.3 1.23.96-.27 1.98-.405 3-.405s2.04.135 3 .405c2.295-1.56 3.3-1.23 3.3-1.23.66 1.65.24 2.88.12 3.18.765.84 1.23 1.905 1.23 3.225 0 4.605-2.805 5.625-5.475 5.925.435.375.81 1.095.81 2.22 0 1.605-.015 2.895-.015 3.3 0 .315.225.69.825.57A12.02 12.02 0 0024 12c0-6.63-5.37-12-12-12z" />
-              </svg>
-              GitHub
-            </a>
-            <a
-              href="mailto:rng2018520@gmail.com"
-              className="text-indigo-500 hover:underline"
-            >
-              rng2018520@gmail.com
-            </a>
-          </p>
-        </div>
-      </section>
 
       {/* ── Feedback modal ──────────────────────────────────── */}
       {showFeedback && (

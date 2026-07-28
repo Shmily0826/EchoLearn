@@ -162,6 +162,7 @@ const FirstTimeTour: React.FC = () => {
           allowClose: true,
           overlayClickBehavior: 'close',
           showButtons: ['next', 'previous', 'close'],
+          popoverClass: 'echolearn-tour',
           nextBtnText: tt('tour.next'),
           prevBtnText: tt('tour.prev'),
           doneBtnText: tt('tour.done'),

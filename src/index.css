@@ -148,3 +148,16 @@ button, a, select, input, [role="button"] {
     align-self: stretch;
   }
 }
+
+/* ── First-time tour popover: slightly larger font ─────────── */
+.echolearn-tour.driver-popover {
+  font-size: 0.95rem;
+}
+.echolearn-tour .driver-popover-title {
+  font-size: 1.125rem;
+  font-weight: 600;
+}
+.echolearn-tour .driver-popover-description {
+  font-size: 0.95rem;
+  line-height: 1.55;
+}
