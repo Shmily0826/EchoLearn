@@ -4,7 +4,7 @@ import { getFirestore } from 'firebase/firestore';
 
 const firebaseConfig = {
   apiKey: 'AIzaSyBv32XgQuKRkrjyLEYC9YIbYwqIT2PXttc',
-  authDomain: 'echolearn-9f369.firebaseapp.com',
+  authDomain: 'auth.echo-learn.uk',
   projectId: 'echolearn-9f369',
   storageBucket: 'echolearn-9f369.firebasestorage.app',
   messagingSenderId: '820664709629',
