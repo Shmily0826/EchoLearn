@@ -1091,7 +1091,7 @@ const StudyPage: React.FC = () => {
                 </div>
                 {/* Mobile analysis controls — words/sents/level only */}
                 {displayLines.length > 0 && (
-                  <div className="flex items-center gap-2 px-3 py-1.5 border-b border-gray-100 dark:border-slate-700 flex-wrap">
+                  <div data-tour="study-controls" className="flex items-center gap-2 px-3 py-1.5 border-b border-gray-100 dark:border-slate-700 flex-wrap">
                     <div className="flex items-center gap-1 text-[10px]">
                       <span className="text-gray-400">{t('study.words')}</span>
                       <input
@@ -1181,7 +1181,7 @@ const StudyPage: React.FC = () => {
                 )}
                 {/* Count selectors + CEFR + Analyze (only when transcript loaded) */}
                 {displayLines.length > 0 && (
-                  <>
+                  <div data-tour="study-controls" className="flex items-center gap-1.5 sm:gap-3 flex-wrap">
                     {/* Vocab / Sentence count */}
                     <div className="flex items-center gap-1 text-[11px]">
                       <span className="text-gray-400 dark:text-gray-500">{t('study.words')}</span>
@@ -1238,7 +1238,7 @@ const StudyPage: React.FC = () => {
                         ))}
                       </select>
                     </div>
-                  </>
+                  </div>
                 )}
                 {/* Analyze button */}
                 {displayLines.length > 0 && (

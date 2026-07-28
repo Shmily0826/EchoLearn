@@ -40,7 +40,6 @@ const CHANNEL_PREFS_KEY = 'echolearn_channel_prefs';
 
 interface ChannelPrefs {
   input: string;
-  topic: string;
 }
 
 function loadChannelPrefs(): ChannelPrefs {
@@ -48,7 +47,7 @@ function loadChannelPrefs(): ChannelPrefs {
     const raw = localStorage.getItem(CHANNEL_PREFS_KEY);
     if (raw) return JSON.parse(raw);
   } catch { /* noop */ }
-  return { input: TARGET_CHANNEL.input, topic: TARGET_CHANNEL.topic };
+  return { input: TARGET_CHANNEL.input };
 }
 
 function saveChannelPrefs(prefs: ChannelPrefs): void {
@@ -492,13 +491,6 @@ const DashboardPage: React.FC = () => {
           <p className="text-xs text-gray-400 dark:text-gray-500 uppercase tracking-wider mb-2">
             {t('dash.singleChannel')}
           </p>
-          <input
-            type="text"
-            value={channelPrefs.topic}
-            onChange={(e) => handleChannelChange('topic', e.target.value)}
-            className="text-base font-semibold text-gray-800 dark:text-gray-200 mb-1 w-full px-1 py-0.5 border border-transparent hover:border-gray-300 dark:hover:border-slate-600 focus:border-indigo-400 focus:outline-none rounded transition-colors bg-transparent"
-            placeholder={t('dash.topicPh')}
-          />
           <div className="flex items-center gap-1.5 mb-2 flex-wrap">
             <span className="text-xs text-gray-500 dark:text-gray-400">{t('dash.channel')}</span>
             {/* Channel type toggle */}

@@ -6,6 +6,5 @@
  */
 export const TARGET_CHANNEL = {
   input: "@EnglishClass101",
-  topic: "English Podcast",
   preferredLevel: "B1-B2",
 };

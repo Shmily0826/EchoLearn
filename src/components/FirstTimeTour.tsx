@@ -21,10 +21,12 @@ const scrollIntoCenter: Config['onHighlighted'] = (element) => {
 // desktop-only copy. Return the one that is actually rendered/visible, so the
 // highlight box never lands on a display:none element.
 const pickVisible = (selector: string): HTMLElement | null => {
-  const el = document.querySelector(selector) as HTMLElement | null;
-  if (!el) return null;
-  const rect = el.getBoundingClientRect();
-  return rect.width > 0 && rect.height > 0 ? el : null;
+  const els = Array.from(document.querySelectorAll(selector)) as HTMLElement[];
+  for (const el of els) {
+    const rect = el.getBoundingClientRect();
+    if (rect.width > 0 && rect.height > 0) return el;
+  }
+  return null;
 };
 
 const FirstTimeTour: React.FC = () => {
@@ -37,10 +39,8 @@ const FirstTimeTour: React.FC = () => {
   useEffect(() => {
     const tt = t;
 
-    const runStudyTour = () => {
-      window.scrollTo(0, 0);
-      skippedRef.current = false;
-      const steps: Config['steps'] = [];
+    const buildStudySteps = (): NonNullable<Config['steps']> => {
+      const steps: NonNullable<Config['steps']> = [];
 
       if (document.querySelector('#tour-study-url')) {
         steps.push({
@@ -64,10 +64,22 @@ const FirstTimeTour: React.FC = () => {
           },
         });
       }
+      const controlsEl = pickVisible('[data-tour="study-controls"]');
       const analyzeEl = pickVisible('[data-tour="study-ai"]');
       const wordEl = document.querySelector('#tour-transcript-save-word') as HTMLElement | null;
       const sentenceEl = document.querySelector('#tour-transcript-save-sentence') as HTMLElement | null;
 
+      if (controlsEl) {
+        steps.push({
+          element: controlsEl,
+          popover: {
+            title: tt('tour.studyControlsTitle'),
+            description: tt('tour.studyControlsBody'),
+            side: 'bottom',
+            align: 'start',
+          },
+        });
+      }
       if (analyzeEl) {
         steps.push({
           element: analyzeEl,
@@ -102,7 +114,7 @@ const FirstTimeTour: React.FC = () => {
         });
       }
       // When no video is loaded yet, explain the save / analyse actions anyway.
-      if (!analyzeEl && !wordEl && !sentenceEl) {
+      if (!controlsEl && !analyzeEl && !wordEl && !sentenceEl) {
         steps.push({
           popover: {
             title: tt('tour.studySaveTitle'),
@@ -120,25 +132,51 @@ const FirstTimeTour: React.FC = () => {
           align: 'center',
         },
       });
+      return steps;
+    };
 
-      const d = driver({
-        showProgress: true,
-        allowClose: true,
-        overlayClickBehavior: 'close',
-        showButtons: ['next', 'previous', 'close'],
-        nextBtnText: tt('tour.next'),
-        prevBtnText: tt('tour.prev'),
-        doneBtnText: tt('tour.done'),
-        progressText: tt('tour.progress'),
-        onHighlighted: scrollIntoCenter,
-        onCloseClick: () => { skippedRef.current = true; d.destroy(); },
-        steps,
-        onDestroyed: () => {
-          localStorage.setItem(TOUR_KEY, '1');
-          tourRunningRef.current = false;
-        },
-      });
-      d.drive();
+    const runStudyTour = () => {
+      window.scrollTo(0, 0);
+      skippedRef.current = false;
+      let attempts = 0;
+      const tryBuild = () => {
+        const steps = buildStudySteps();
+        // The transcript-dependent controls (level/counts), the Analyze button,
+        // and the save buttons only render once a transcript is loaded. On a
+        // fresh visit the sample video is still fetching, so wait briefly and
+        // retry before falling back to the centred explanation.
+        const transcriptReady = !!(
+          pickVisible('[data-tour="study-controls"]') ||
+          pickVisible('[data-tour="study-ai"]') ||
+          document.querySelector('#tour-transcript-save-word') ||
+          document.querySelector('#tour-transcript-save-sentence')
+        );
+        if (!transcriptReady && attempts < 16) {
+          attempts += 1;
+          window.setTimeout(tryBuild, 500);
+          return;
+        }
+        if (steps.length === 0) return;
+        const d = driver({
+          showProgress: true,
+          allowClose: true,
+          overlayClickBehavior: 'close',
+          showButtons: ['next', 'previous', 'close'],
+          nextBtnText: tt('tour.next'),
+          prevBtnText: tt('tour.prev'),
+          doneBtnText: tt('tour.done'),
+          progressText: tt('tour.progress'),
+          onHighlighted: scrollIntoCenter,
+          onCloseClick: () => { skippedRef.current = true; d.destroy(); },
+          steps,
+          onDestroyed: () => {
+            localStorage.setItem(TOUR_KEY, '1');
+            tourRunningRef.current = false;
+          },
+        });
+        d.drive();
+      };
+      tryBuild();
     };
 
     const runDashboardTour = () => {
