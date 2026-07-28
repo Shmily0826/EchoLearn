@@ -8,12 +8,16 @@ import {
   createUserWithEmailAndPassword,
   signOut,
   updateProfile,
+  sendEmailVerification,
+  deleteUser,
   GoogleAuthProvider,
 } from 'firebase/auth';
 import type { User } from 'firebase/auth';
 import { FirebaseAuthentication } from '@capacitor-firebase/authentication';
 import { auth, googleProvider } from '../lib/firebase';
 import { isCapacitor } from '../utils/platform';
+import { deleteUserData } from '../services/firestoreSync';
+import { clearAllLocalData } from '../utils/storage';
 
 // ── Types ──────────────────────────────────────────────────────
 
@@ -23,6 +27,10 @@ interface AuthContextValue {
   signInWithGoogle: () => Promise<void>;
   signInWithEmail: (email: string, password: string) => Promise<void>;
   signUpWithEmail: (email: string, password: string, displayName: string) => Promise<void>;
+  /** Re-send the email verification link to the currently signed-in user. */
+  resendVerificationEmail: () => Promise<void>;
+  /** Permanently delete the account + its cloud data, then clear local data. */
+  deleteAccount: () => Promise<void>;
   logOut: () => Promise<void>;
 }
 
@@ -86,9 +94,54 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       if (displayName) {
         await updateProfile(cred.user, { displayName });
       }
+      // Send a verification email so we can prove ownership of the address.
+      // Failure to send must NOT block signup — the account is still created
+      // (unverified) and the user can resend later from Settings.
+      try {
+        await sendEmailVerification(cred.user);
+      } catch (err) {
+        console.error('[Auth] sendEmailVerification failed:', err);
+      }
     },
     [],
   );
+
+  const resendVerificationEmail = useCallback(async () => {
+    const u = auth.currentUser;
+    if (!u) throw new Error('No authenticated user');
+    await sendEmailVerification(u);
+  }, []);
+
+  const deleteAccount = useCallback(async () => {
+    const u = auth.currentUser;
+    if (!u) throw new Error('No authenticated user');
+    // Best-effort: wipe the user's cloud data before destroying the account.
+    // (Orphaned docs would otherwise linger, since rules require the uid.)
+    try {
+      await deleteUserData(u.uid);
+    } catch (err) {
+      console.error('[Auth] deleteUserData failed (continuing):', err);
+    }
+    // Wipe local study data on this device too.
+    clearAllLocalData();
+    try {
+      await deleteUser(u);
+    } catch (err) {
+      // deleteUser requires a recent sign-in. For Google users we can silently
+      // re-authenticate; for others we surface the error so the UI can ask for
+      // a re-login.
+      if (err instanceof Error && err.message.includes('requires-recent-login')) {
+        if (u.providerData.some((p) => p.providerId === 'google.com')) {
+          await signInWithPopup(auth, googleProvider);
+          await deleteUser(auth.currentUser!);
+        } else {
+          throw new Error('auth/requires-recent-login');
+        }
+      } else {
+        throw err;
+      }
+    }
+  }, []);
 
   const logOut = useCallback(async () => {
     if (isCapacitor()) {
@@ -99,7 +152,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
   return (
     <AuthContext.Provider
-      value={{ user, loading, signInWithGoogle, signInWithEmail, signUpWithEmail, logOut }}
+      value={{ user, loading, signInWithGoogle, signInWithEmail, signUpWithEmail, resendVerificationEmail, deleteAccount, logOut }}
     >
       {children}
     </AuthContext.Provider>

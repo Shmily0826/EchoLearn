@@ -406,6 +406,21 @@ export function clearLocalProxyUrl(): void {
   localStorage.removeItem(PROXY_URL_KEY);
 }
 
+/**
+ * Wipe all locally-stored study data (used on account deletion).
+ * Deliberately leaves device preferences intact: translation language,
+ * local-proxy URL, channel preference, and the chosen UI language.
+ */
+export function clearAllLocalData(): void {
+  localStorage.removeItem(VOCAB_KEY);
+  localStorage.removeItem(SENTENCE_KEY);
+  localStorage.removeItem(SESSION_KEY);
+  localStorage.removeItem(SESSIONS_LIST_KEY);
+  localStorage.removeItem(PLAN_KEY);
+  localStorage.removeItem(COMPLETED_VIDEOS_KEY);
+  localStorage.removeItem(PAGE_TOKEN_KEY);
+}
+
 /** Check if the local proxy is reachable (quick health check). */
 export async function checkLocalProxy(): Promise<{ ok: boolean; error?: string }> {
   const url = getLocalProxyUrl();

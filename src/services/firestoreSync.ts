@@ -20,9 +20,14 @@ import {
   getDoc,
   setDoc,
   serverTimestamp,
+  deleteDoc,
+  getDocs,
+  query,
+  where,
+  collection,
 } from 'firebase/firestore';
 import type { DocumentReference, DocumentData } from 'firebase/firestore';
-import { db } from '../lib/firebase';
+import { db, auth } from '../lib/firebase';
 import {
   loadVocabulary,
   saveVocabulary,
@@ -61,6 +66,33 @@ const SYNC_PENDING_KEY = 'echolearn_firebase_sync_pending';
 
 function getCollectionRef(uid: string, collection: SyncCollection): DocumentReference<DocumentData> {
   return doc(db, 'users', uid, 'data', collection);
+}
+
+/**
+ * Cloud writes are only allowed for email-verified accounts (see
+ * firestore.rules). Throw early so the caller can surface a clear message
+ * instead of a confusing permission-denied error.
+ */
+function assertVerified(uid: string): void {
+  const u = auth.currentUser;
+  if (!u || u.uid !== uid || !u.emailVerified) {
+    throw new Error('auth/email-not-verified');
+  }
+}
+
+/**
+ * Delete all cloud data belonging to a user (their sync docs + any feedback
+ * they submitted). Used by account deletion. Best-effort: errors are surfaced
+ * to the caller but do not abort the surrounding deletion flow.
+ */
+export async function deleteUserData(uid: string): Promise<void> {
+  const collections: SyncCollection[] = ['vocabulary', 'sentences', 'sessions'];
+  await Promise.allSettled(collections.map((c) => deleteDoc(getCollectionRef(uid, c))));
+
+  const fbSnap = await getDocs(
+    query(collection(db, 'feedback'), where('userId', '==', uid)),
+  );
+  await Promise.allSettled(fbSnap.docs.map((d) => deleteDoc(d.ref)));
 }
 
 /**
@@ -202,6 +234,7 @@ async function uploadCollection<T extends { id: string }>(
  */
 export async function uploadToCloud(uid: string): Promise<SyncResult> {
   try {
+    assertVerified(uid);
     const data = collectLocalData();
     console.log('[Sync] Upload →', { uid, vocab: data.vocabulary.length, sentences: data.sentences.length, sessions: data.sessions.length });
 
@@ -269,6 +302,7 @@ async function downloadCollection<T>(
  */
 export async function syncWithCloud(uid: string): Promise<SyncResult> {
   try {
+    assertVerified(uid);
     const local = collectLocalData();
     console.log('[Sync] Sync →', { uid, localVocab: local.vocabulary.length, localSentences: local.sentences.length, localSessions: local.sessions.length });
 

@@ -4,7 +4,12 @@ service cloud.firestore {
     // User data: users/{uid}/data/{collection}
     // Only the authenticated owner can read/write their own data
     match /users/{userId}/data/{collection} {
-      allow read, write: if request.auth != null && request.auth.uid == userId;
+      // Owner-only, AND the email must be verified. Unverified email/password
+      // accounts cannot read or write their cloud data — this prevents
+      // throwaway/fake-email accounts from polluting or reading sync data.
+      allow read, write: if request.auth != null
+        && request.auth.uid == userId
+        && request.auth.token.email_verified == true;
     }
 
     // Shared AI analysis cache: aiAnalyses/{cacheKey}
@@ -25,6 +30,7 @@ service cloud.firestore {
     // rules) — clients get no read/write/delete.
     match /feedback/{docId} {
       allow create: if request.auth != null
+        && request.auth.token.email_verified == true
         && request.resource.data.userId == request.auth.uid
         && request.resource.data.text is string
         && request.resource.data.text.size() > 0
