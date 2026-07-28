@@ -18,7 +18,7 @@ A YouTube & Bilibili-powered English learning tool. Paste a video URL, get AI-cu
 
 ## Tech Stack
 
-React 19 · TypeScript · Vite 8 · Tailwind CSS 4 · Firebase Auth & Firestore · Capacitor 8 · React Router 7 · DeepSeek API · Cloudflare Workers · Vercel Edge Functions · Recharts
+React 19 · TypeScript · Vite 8 · Tailwind CSS 4 · Firebase Auth & Firestore · Capacitor 8 · React Router 7 · DeepSeek API · Cloudflare Workers · Vercel Edge Functions · Recharts · Vercel Web Analytics (privacy-first, no cookies)
 
 ## Architecture
 

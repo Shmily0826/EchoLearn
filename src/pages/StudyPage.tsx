@@ -12,6 +12,7 @@ import { detectPlatform, parseBilibiliId, parseBilibiliStartTime, parseBilibiliP
 import { normalizeTranscriptToSentences } from '../utils/transcriptNormalizer';
 import { lemmatize } from '../utils/lemmatizer';
 import { analyzeTranscript } from '../services/aiAnalysis';
+import { trackEvent } from '../services/analytics';
 import { fetchYouTubeTranscript } from '../services/youtubeTranscript';
 import { fetchBilibiliTranscript, getBilibiliVideoTitle } from '../services/bilibiliTranscript';
 import { translateWord } from '../services/translationService';
@@ -529,6 +530,7 @@ const StudyPage: React.FC = () => {
       };
       saveCurrentSession(updated);
       setSession(updated);
+      if (!session?.id) trackEvent('video_studied', { platform });
       triggerSessionSync();
     },
     [session, platform, triggerSessionSync],
@@ -743,6 +745,7 @@ const StudyPage: React.FC = () => {
       );
       setAnalysis(result);
       persistAnalysis(result);
+      trackEvent('ai_analysis_used');
     } catch (err) {
       setAnalysisError(err instanceof Error ? err.message : 'Analysis failed');
     } finally {
@@ -755,6 +758,7 @@ const StudyPage: React.FC = () => {
   const handleAddVocabulary = useCallback((item: VocabularyItem) => {
     if (!user) { showLoginToast(); return; }
     setVocabulary(addVocabularyItem(item));
+    trackEvent('word_saved');
     triggerCloudSync();
     // Auto-translate meaningCn if empty
     if (!item.meaningCn) {
@@ -770,6 +774,7 @@ const StudyPage: React.FC = () => {
   const handleAddSentence = useCallback((item: SentenceItem) => {
     if (!user) { showLoginToast(); return; }
     setSentences(addSentenceItem(item));
+    trackEvent('sentence_saved');
     triggerCloudSync();
   }, [user, triggerCloudSync, showLoginToast]);
 

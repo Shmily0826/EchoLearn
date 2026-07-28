@@ -1,4 +1,5 @@
 import { useState, useEffect, useCallback } from 'react';
+import { trackEvent } from '../services/analytics';
 
 interface BeforeInstallPromptEvent extends Event {
   prompt: () => Promise<void>;
@@ -18,6 +19,7 @@ export function useInstallPrompt() {
     // Already running as installed PWA
     if (window.matchMedia('(display-mode: standalone)').matches) {
       setInstalled(true);
+      trackEvent('pwa_installed_session');
       return;
     }
 
@@ -32,6 +34,7 @@ export function useInstallPrompt() {
     const installedHandler = () => {
       setInstalled(true);
       setDeferredPrompt(null);
+      trackEvent('pwa_install');
     };
     window.addEventListener('appinstalled', installedHandler);
 
