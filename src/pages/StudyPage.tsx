@@ -1021,7 +1021,7 @@ const StudyPage: React.FC = () => {
                     )}
                     {displayLines.length > 0 && (
                       <button
-                        id="tour-study-ai"
+                        data-tour="study-ai"
                         onClick={handleAnalyze}
                         disabled={analyzing}
                         className="flex items-center gap-1 px-2 py-0.5 text-[10px] font-medium bg-indigo-50 dark:bg-indigo-950 text-indigo-600 dark:text-indigo-400 rounded-lg hover:bg-indigo-100 dark:hover:bg-indigo-900 transition-colors cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed"
@@ -1200,6 +1200,7 @@ const StudyPage: React.FC = () => {
                 {/* Analyze button */}
                 {displayLines.length > 0 && (
                   <button
+                    data-tour="study-ai"
                     onClick={handleAnalyze}
                     disabled={analyzing}
                     className="flex items-center gap-1.5 px-3 py-1 text-[11px] font-medium bg-indigo-50 dark:bg-indigo-950 text-indigo-600 dark:text-indigo-400 rounded-lg hover:bg-indigo-100 dark:hover:bg-indigo-900 transition-colors cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed"
