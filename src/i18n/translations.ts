@@ -86,6 +86,7 @@ const translations: Record<string, Record<Lang, string>> = {
   'login.errCancelled':  { en: 'Sign-in was cancelled.', zh: '登录已取消。' },
   'login.errTooMany':    { en: 'Too many attempts. Please try again later.', zh: '尝试次数过多，请稍后再试。' },
   'login.errFailed':     { en: 'Authentication failed.', zh: '认证失败。' },
+  'login.errProviderDisabled': { en: 'Email sign-in is unavailable. Please use Google sign-in or contact support.', zh: '邮箱登录当前不可用，请使用 Google 登录或联系支持。' },
   'login.confirmPassword': { en: 'Confirm password', zh: '确认密码' },
   'login.errPwMismatch': { en: 'Passwords do not match.', zh: '两次输入的密码不一致。' },
   'login.pwWeak':        { en: 'Weak', zh: '弱' },

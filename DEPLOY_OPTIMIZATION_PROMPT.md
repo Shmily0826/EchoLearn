@@ -15,7 +15,7 @@ React 19 · TypeScript · Vite 8 · Tailwind 4 · Firebase Auth & Firestore · C
 
 ## 关键参考（已有良好范式，请沿用其安全思路）
 - `api/ai.ts`：DeepSeek 的**服务端代理**已正确实现——服务端持有 key（`process.env.DEEPSEEK_API_KEY`），带 per-IP 限流、模型白名单、载荷字段白名单、max_tokens 上限、CORS 仅放行已知域名。把它当作安全范本。
-- `firestore.rules`：已按 `users/{uid}/...` 做好用户隔离，保持不变。
+- `firestore.rules`：已按 `users/{uid}/...` 做好用户隔离，且云同步 / 反馈写入额外要求 `request.auth.token.email_verified == true`（邮箱密码注册需验证邮箱）。规则通过 `firebase deploy --only firestore:rules` 部署（非 Vercel）。保持不变。
 
 ## 已知问题与优化任务（按优先级）
 

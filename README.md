@@ -2,7 +2,7 @@
 
 A YouTube & Bilibili-powered English learning tool. Paste a video URL, get AI-curated vocabulary and sentence suggestions tailored to your CEFR level, then review them with spaced repetition.
 
-**Live:** [echo-learn.uk](https://echo-learn.uk) (PWA + Android APK)
+**Live:** [echo-learn.uk](https://echo-learn.uk) (PWA + Android APK) — `app.echo-learn.uk` is a legacy alias that 301-redirects here
 
 ## Features
 
@@ -11,13 +11,14 @@ A YouTube & Bilibili-powered English learning tool. Paste a video URL, get AI-cu
 - **Interactive transcripts** — Click any word for instant dictionary lookup with phonetics, audio, definitions, and recursive word exploration
 - **Spaced repetition** — Review saved words and sentences on a 3→7→14→30 day schedule
 - **Cloud sync** — Firebase Firestore for automatic cross-device sync, plus GitHub Gist backup
+- **Guest-friendly accounts** — Core study features work with no login (data stays on your device); optional sign-in (Google or email) unlocks cloud sync, feedback, and cross-device backup
 - **Bilingual UI** — Full English/Chinese interface toggle
-- **Bilibili support** — Fetch subtitles from Bilibili videos alongside YouTube
+- **Bilibili support (experimental)** — Caption fetching works at the backend level; UI surfacing is planned. YouTube remains the fully-supported primary source
 - **PWA + Android** — Install as a PWA or use the native Android app (Capacitor)
 
 ## Tech Stack
 
-React 19 · TypeScript · Vite 8 · Tailwind CSS 4 · Firebase Auth & Firestore · Capacitor 8 · DeepSeek API · Cloudflare Workers · Vercel Edge Functions · Recharts
+React 19 · TypeScript · Vite 8 · Tailwind CSS 4 · Firebase Auth & Firestore · Capacitor 8 · React Router 7 · DeepSeek API · Cloudflare Workers · Vercel Edge Functions · Recharts
 
 ## Architecture
 
@@ -44,6 +45,15 @@ The system tries multiple strategies in order until one succeeds:
 4. **InnerTube direct** — Client-side API calls via Edge Function proxy
 5. **Web scraping** — Extract `ytInitialPlayerResponse` from page HTML
 6. **npm package** — Client-side `youtube-transcript` (last resort)
+
+## Accounts, Auth & Sync
+
+EchoLearn is **guest-friendly**: watching videos, saving words/sentences, and spaced-repetition review all work with **no account** — data is stored locally (`localStorage`). Signing in is optional and unlocks cloud features.
+
+- **Sign-in methods** — Google (OAuth via the custom auth domain `auth.echo-learn.uk`) or email + password.
+- **Email verification** — Email sign-up sends a verification link. Cloud sync and feedback are **gated on a verified email**, enforced both in the UI and server-side in `firestore.rules`, so throwaway/fake emails cannot write data. Google accounts are auto-verified by Firebase.
+- **Cloud sync backends** — (1) **Firebase Firestore** for automatic cross-device sync (requires a verified email); (2) **GitHub Gist** for manual PAT-scoped backup/restore.
+- **Account deletion** — In Settings, permanently deletes your Firebase account and all associated cloud data (local data optional).
 
 ## Getting Started
 
@@ -76,12 +86,25 @@ CF Worker secrets: `GROQ_API_KEY` (Whisper ASR fallback), `ALLOW_DEBUG` (set to 
 
 See `.env.example` for a template.
 
+### Firebase setup (required for auth & sync)
+
+The repo already ships `firebase.json` and `.firebaserc` (project `echolearn-9f369`), so no `firebase init` is needed. Two manual steps remain on your Firebase project:
+
+1. **Enable Email/Password sign-in** — Firebase console → Authentication → Sign-in method → add **Email/Password**. Without it, email sign-up fails with `auth/operation-not-allowed`.
+2. **Deploy Firestore rules** — rules live in `firestore.rules` but are **not** deployed by Vercel. Run:
+   ```bash
+   firebase deploy --only firestore:rules
+   ```
+   These rules require a verified email for all cloud writes.
+
 ## Legal & Compliance
 
 - [Privacy Policy](https://echo-learn.uk/privacy.html)
 - [Terms of Service](https://echo-learn.uk/terms.html)
 
 **Transcript fetching disclaimer:** This app fetches YouTube/Bilibili captions via unofficial methods (InnerTube, page scraping, third-party frontends) for personal educational use. This may not comply with those platforms' Terms of Service. A manual transcript-paste fallback exists in the UI for full compliance. Use at your own risk; the developer assumes no liability for misuse.
+
+- **Your data & account** — Export your data anytime (Settings → Data Export) and delete your account (Settings → Delete account), which removes your Firebase account and all associated cloud data.
 
 ## Project Structure
 

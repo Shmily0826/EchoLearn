@@ -310,6 +310,7 @@ function getErrorMessage(err: unknown, t: (key: string) => string): string {
   if (msg.includes('auth/invalid-credential')) return t('login.errCredential');
   if (msg.includes('auth/popup-closed-by-user')) return t('login.errCancelled');
   if (msg.includes('auth/too-many-requests')) return t('login.errTooMany');
+  if (msg.includes('auth/operation-not-allowed')) return t('login.errProviderDisabled');
   return msg.replace("Firebase: ", '').replace(/\(auth\/.*\)/, '').trim() || t('login.errFailed');
 }
 
