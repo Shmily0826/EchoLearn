@@ -19,6 +19,21 @@ service cloud.firestore {
         && request.resource.data.createdAt is int;
     }
 
+    // User feedback: feedback/{docId}
+    // Only the authenticated owner may create a doc about themselves. The
+    // developer reads submissions from the Firebase console (admin, bypasses
+    // rules) — clients get no read/write/delete.
+    match /feedback/{docId} {
+      allow create: if request.auth != null
+        && request.resource.data.userId == request.auth.uid
+        && request.resource.data.text is string
+        && request.resource.data.text.size() > 0
+        && request.resource.data.text.size() < 5000
+        && (request.resource.data.userEmail is string || request.resource.data.userEmail == null)
+        && request.resource.data.createdAt == request.time;
+      allow read, update, delete: if false;
+    }
+
     // Deny everything else by default
     match /{document=**} {
       allow read, write: if false;

@@ -28,6 +28,7 @@ import {
   clearLocalProxyUrl,
   checkLocalProxy,
 } from '../utils/storage';
+import { submitFeedback as submitFeedbackToFirestore } from '../services/feedback';
 import {
   exportVocabularyCSV,
   exportSentencesCSV,
@@ -66,7 +67,7 @@ function saveDevMode(on: boolean): void {
 const SettingsPage: React.FC<{ onLoginRequest?: () => void }> = ({ onLoginRequest }) => {
   const { size: dataSize, refresh: refreshDataSize } = useLocalDataSize();
   const { user, logOut } = useAuth();
-  const { t } = useI18n();
+  const { t, lang } = useI18n();
   const [devMode, setDevMode] = useState(loadDevMode);
 
   // ── Firebase sync state ──────────────────────────────────
@@ -94,8 +95,7 @@ const SettingsPage: React.FC<{ onLoginRequest?: () => void }> = ({ onLoginReques
   // ── Feedback modal state ─────────────────────────────────
   const [showFeedback, setShowFeedback] = useState(false);
   const [feedbackText, setFeedbackText] = useState('');
-  const [includeEmail, setIncludeEmail] = useState(false);
-  const [feedbackEmail, setFeedbackEmail] = useState('');
+  const [includeEmail, setIncludeEmail] = useState(true);
   const [feedbackError, setFeedbackError] = useState('');
 
   const CONTACT_EMAIL = 'rng2018520@gmail.com';
@@ -349,39 +349,43 @@ const SettingsPage: React.FC<{ onLoginRequest?: () => void }> = ({ onLoginReques
 
   // ── Feedback modal ───────────────────────────────────────
   const openFeedback = useCallback(() => {
+    if (!user) {
+      onLoginRequest?.();
+      return;
+    }
     setFeedbackText('');
-    setIncludeEmail(false);
-    setFeedbackEmail('');
+    setIncludeEmail(true);
     setFeedbackError('');
     setShowFeedback(true);
-  }, []);
+  }, [user, onLoginRequest]);
 
   const closeFeedback = useCallback(() => {
     setShowFeedback(false);
   }, []);
 
-  const submitFeedback = useCallback(() => {
+  const handleFeedbackSubmit = useCallback(async () => {
+    if (!user) {
+      onLoginRequest?.();
+      closeFeedback();
+      return;
+    }
     if (!feedbackText.trim()) {
       setFeedbackError(t('feedback.required'));
       return;
     }
-    const email = feedbackEmail.trim();
-    if (includeEmail && email && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) {
-      setFeedbackError(t('feedback.emailInvalid'));
-      return;
+    try {
+      await submitFeedbackToFirestore({
+        userId: user.uid,
+        userEmail: includeEmail ? user.email : null,
+        text: feedbackText.trim(),
+        locale: lang,
+      });
+      setShowFeedback(false);
+      setSyncMessage({ type: 'success', text: t('feedback.sent') });
+    } catch {
+      setFeedbackError(t('feedback.error'));
     }
-    const body =
-      feedbackText.trim() +
-      (includeEmail && email ? `\n\nContact email: ${email}` : '');
-    const mailto = `mailto:${CONTACT_EMAIL}?subject=${encodeURIComponent(
-      t('feedback.subject')
-    )}&body=${encodeURIComponent(body)}`;
-    const a = document.createElement('a');
-    a.href = mailto;
-    a.click();
-    setShowFeedback(false);
-    setSyncMessage({ type: 'success', text: t('feedback.sent') });
-  }, [feedbackText, includeEmail, feedbackEmail, t]);
+  }, [user, includeEmail, feedbackText, lang, t, onLoginRequest]);
 
   // ── Render ────────────────────────────────────────────────
   return (
@@ -879,10 +883,12 @@ const SettingsPage: React.FC<{ onLoginRequest?: () => void }> = ({ onLoginReques
           onClick={openFeedback}
           className="w-full py-2.5 text-sm font-semibold text-white bg-amber-500 hover:bg-amber-600 rounded-lg transition-colors cursor-pointer"
         >
-          {t('feedback.open')}
+          {user ? t('feedback.open') : t('feedback.openGuest')}
         </button>
         <p className="text-[11px] text-gray-400 dark:text-gray-500 mt-3">
-          {t('feedback.contactHint', { email: CONTACT_EMAIL })}
+          {user
+            ? t('feedback.contactHint', { email: CONTACT_EMAIL })
+            : t('feedback.guestHint')}
         </p>
       </section>
 
@@ -1034,21 +1040,10 @@ const SettingsPage: React.FC<{ onLoginRequest?: () => void }> = ({ onLoginReques
                 onChange={(e) => setIncludeEmail(e.target.checked)}
                 className="w-4 h-4 rounded border-gray-300 dark:border-slate-600 text-amber-500 focus:ring-amber-400 cursor-pointer"
               />
-              <span className="text-sm text-gray-600 dark:text-gray-300">{t('feedback.includeEmail')}</span>
+              <span className="text-sm text-gray-600 dark:text-gray-300">
+                {t('feedback.includeEmail', { email: user?.email ?? '' })}
+              </span>
             </label>
-
-            {includeEmail && (
-              <input
-                type="email"
-                value={feedbackEmail}
-                onChange={(e) => {
-                  setFeedbackEmail(e.target.value);
-                  if (feedbackError) setFeedbackError('');
-                }}
-                placeholder={t('feedback.emailPh')}
-                className="w-full mt-2 px-3 py-2 text-sm border border-gray-200 dark:border-slate-600 rounded-lg bg-transparent text-gray-800 dark:text-gray-200 placeholder-gray-300 dark:placeholder-gray-600 focus:outline-none focus:border-amber-400 focus:ring-1 focus:ring-amber-400 transition-colors"
-              />
-            )}
 
             {feedbackError && (
               <p className="text-xs text-red-500 dark:text-red-400 mt-2">{feedbackError}</p>
@@ -1062,7 +1057,7 @@ const SettingsPage: React.FC<{ onLoginRequest?: () => void }> = ({ onLoginReques
                 {t('feedback.cancel')}
               </button>
               <button
-                onClick={submitFeedback}
+                onClick={handleFeedbackSubmit}
                 className="flex-1 px-4 py-2.5 text-sm font-semibold text-white bg-amber-500 hover:bg-amber-600 rounded-lg transition-colors cursor-pointer"
               >
                 {t('feedback.submit')}
