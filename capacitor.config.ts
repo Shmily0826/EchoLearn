@@ -6,9 +6,9 @@ const config: CapacitorConfig = {
   webDir: 'dist',
 
   server: {
-    url: 'https://app.echo-learn.uk',
+    url: 'https://echo-learn.uk',
     allowNavigation: [
-      'app.echo-learn.uk',
+      'echo-learn.uk',
       'echolearn-9f369.firebaseapp.com',
       'accounts.google.com',
       'www.youtube.com',

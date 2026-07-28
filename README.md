@@ -2,7 +2,7 @@
 
 A YouTube & Bilibili-powered English learning tool. Paste a video URL, get AI-curated vocabulary and sentence suggestions tailored to your CEFR level, then review them with spaced repetition.
 
-**Live:** [app.echo-learn.uk](https://app.echo-learn.uk) (PWA + Android APK)
+**Live:** [echo-learn.uk](https://echo-learn.uk) (PWA + Android APK)
 
 ## Features
 
@@ -78,8 +78,8 @@ See `.env.example` for a template.
 
 ## Legal & Compliance
 
-- [Privacy Policy](https://app.echo-learn.uk/privacy.html)
-- [Terms of Service](https://app.echo-learn.uk/terms.html)
+- [Privacy Policy](https://echo-learn.uk/privacy.html)
+- [Terms of Service](https://echo-learn.uk/terms.html)
 
 **Transcript fetching disclaimer:** This app fetches YouTube/Bilibili captions via unofficial methods (InnerTube, page scraping, third-party frontends) for personal educational use. This may not comply with those platforms' Terms of Service. A manual transcript-paste fallback exists in the UI for full compliance. Use at your own risk; the developer assumes no liability for misuse.
 
