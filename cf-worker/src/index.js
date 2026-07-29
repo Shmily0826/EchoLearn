@@ -225,25 +225,32 @@ async function handleTranscript(url, env) {
     return jsonResponse(webResult);
   }
 
-  // Strategy 3: Invidious API (third-party YouTube frontends)
+  // Strategy 3: Whisper ASR (audio transcription via Groq)
+  // Tried EARLY (before the flaky Invidious/Piped instances) when a key is
+  // configured: it covers videos with no captions and is far less affected by
+  // YouTube's datacenter-IP caption throttling. Falls through to the instance
+  // cascades below if audio download/transcription fails.
+  if (env && env.GROQ_API_KEY) {
+    const whisperResult = await fetchViaWhisper(videoId, lang, env, log);
+    if (whisperResult) {
+      if (debug) whisperResult._debug = debugLog;
+      return jsonResponse(whisperResult);
+    }
+    log('Whisper fallback failed (audio fetch/transcription) — trying instance cascades');
+  }
+
+  // Strategy 4: Invidious API (third-party YouTube frontends)
   const invidiousResult = await fetchViaInvidious(videoId, lang, log);
   if (invidiousResult) {
     if (debug) invidiousResult._debug = debugLog;
     return jsonResponse(invidiousResult);
   }
 
-  // Strategy 4: Piped API
+  // Strategy 5: Piped API
   const pipedResult = await fetchViaPiped(videoId, lang, log);
   if (pipedResult) {
     if (debug) pipedResult._debug = debugLog;
     return jsonResponse(pipedResult);
-  }
-
-  // Strategy 5: Whisper ASR (audio transcription via Groq)
-  const whisperResult = await fetchViaWhisper(videoId, lang, env, log);
-  if (whisperResult) {
-    if (debug) whisperResult._debug = debugLog;
-    return jsonResponse(whisperResult);
   }
 
   const response = { error: 'No transcript available for this video' };

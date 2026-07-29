@@ -34,7 +34,7 @@ Video URL → Parse videoId → Fetch captions (5-strategy cascade)
 
 The system tries multiple strategies in order until one succeeds:
 
-1. **Local proxy** — Residential IP via Cloudflare Tunnel (optional, highest success rate)
+1. **Local proxy** — Residential IP via the local Node proxy server (`local-proxy/`), optional but highest success rate since YouTube throttles datacenter IPs (Cloudflare/Vercel) intermittently
 2. **Vercel API** — Server-side `youtube-transcript` npm package
 3. **Cloudflare Worker** — Edge-deployed proxy with 5 internal strategies:
    - InnerTube API (ANDROID / iOS / WEB / TV clients)
@@ -45,6 +45,8 @@ The system tries multiple strategies in order until one succeeds:
 4. **InnerTube direct** — Client-side API calls via Edge Function proxy
 5. **Web scraping** — Extract `ytInitialPlayerResponse` from page HTML
 6. **npm package** — Client-side `youtube-transcript` (last resort)
+
+> **Reducing reliance on the local proxy:** YouTube throttles datacenter IPs (Cloudflare/Vercel) intermittently, so the server-side cascade is not 100% reliable. Setting the `GROQ_API_KEY` secret on the CF Worker enables Whisper ASR (audio transcription), which is attempted **early** in the cascade when configured — it covers videos with no captions and is far less affected by caption-endpoint throttling. This is the recommended server-side upgrade so other users are not dependent on your machine running the local proxy.
 
 ## Accounts, Auth & Sync
 
