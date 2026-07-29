@@ -212,7 +212,7 @@ async function handleTranscript(url, env) {
   const log = debug ? (msg) => debugLog.push(msg) : (msg) => console.log(msg);
 
   // Strategy 1: InnerTube player API (multi-client)
-  const innerTubeResult = await fetchViaInnerTube(videoId, lang, log);
+  const innerTubeResult = await fetchViaInnerTube(videoId, lang, env, log);
   if (innerTubeResult) {
     if (debug) innerTubeResult._debug = debugLog;
     return jsonResponse(innerTubeResult);
@@ -305,20 +305,21 @@ async function proxiedFetch(url, init = {}, timeoutMs = 15000, env = {}, log = c
           const gw = new URL('https://api.zenrows.com/v1/');
           gw.searchParams.set('apikey', key);
           gw.searchParams.set('url', url);
-          gw.searchParams.set('js_render', 'false');
+          gw.searchParams.set('js_render', 'true');
           gw.searchParams.set('premium_proxy', 'true');
           gw.searchParams.set('proxy_country', 'us');
           log(`[scrape:zenrows→${host}]`);
-          return fetchWithTimeout(gw.toString(), {}, timeoutMs);
+          return doScrapeFetch(gw.toString(), timeoutMs, log);
         } else {
           const gw = new URL('https://app.scrapingbee.com/api/v1');
           gw.searchParams.set('api_key', key);
           gw.searchParams.set('url', url);
-          gw.searchParams.set('render_js', 'false');
+          gw.searchParams.set('render_js', 'true');
           gw.searchParams.set('premium_proxy', 'true');
           gw.searchParams.set('country_code', 'us');
+          gw.searchParams.set('timeout', String(Math.min(timeoutMs, 60000)));
           log(`[scrape:scrapingbee→${host}]`);
-          return fetchWithTimeout(gw.toString(), {}, timeoutMs);
+          return doScrapeFetch(gw.toString(), timeoutMs, log);
         }
       }
     }
@@ -326,7 +327,29 @@ async function proxiedFetch(url, init = {}, timeoutMs = 15000, env = {}, log = c
   return fetchWithTimeout(url, init, timeoutMs);
 }
 
-async function fetchViaInnerTube(videoId, lang, log = console.log) {
+/**
+ * Perform a scraping-API gateway fetch and log the outcome (status + a short
+ * body snippet) so debug traces show whether the gateway itself succeeded.
+ */
+async function doScrapeFetch(gwUrl, timeoutMs, log = console.log) {
+  try {
+    const resp = await fetchWithTimeout(gwUrl, {}, timeoutMs);
+    let snippet = '';
+    try {
+      const buf = await resp.clone().text();
+      snippet = buf.slice(0, 200).replace(/\s+/g, ' ');
+    } catch (_) {
+      /* ignore */
+    }
+    log(`[scrape] HTTP ${resp.status} (${snippet ? snippet + '…' : 'no body'})`);
+    return resp;
+  } catch (err) {
+    log(`[scrape] fetch error: ${err.message}`);
+    throw err;
+  }
+}
+
+async function fetchViaInnerTube(videoId, lang, env, log = console.log) {
   // Try ANDROID first (most reliable for captions), then IOS, then WEB, then TV
   const clients = [
     {
@@ -418,7 +441,7 @@ async function fetchViaInnerTube(videoId, lang, log = console.log) {
       }
 
       log(`InnerTube ${client.name}: found ${tracks.length} caption track(s)`);
-      const result = await fetchFromTracks(tracks, lang, env);
+      const result = await fetchFromTracks(tracks, lang, env, log);
       if (result) return result;
     } catch (err) {
       log(`InnerTube ${client.name} error: ${err.message}`);
@@ -428,11 +451,58 @@ async function fetchViaInnerTube(videoId, lang, log = console.log) {
   return null;
 }
 
+// ── InnerTube player API via GET (routed through scraping gateway) ──
+// When a scraping-API key is configured, route a plain GET to the InnerTube
+// player endpoint through the residential gateway. This returns the FULL
+// caption track list (more reliable than scraping the JS-rendered watch
+// page) from a residential IP, bypassing YouTube's datacenter-IP bot check.
+
+async function fetchViaInnerTubeGet(videoId, lang, env, log = console.log) {
+  if (!(env && env.SCRAPE_API_KEY)) return null;
+  const key = 'AIzaSyA8eiZmM1FaDVjRy-df2KTyQ_vz_yYM39w';
+  const url = `https://www.youtube.com/youtubei/v1/player?videoId=${videoId}&key=${key}&prettyPrint=false`;
+  try {
+    const resp = await proxiedFetch(
+      url,
+      {
+        headers: {
+          'User-Agent': BROWSER_UA,
+          'Content-Type': 'application/json',
+          'X-Goog-Api-Key': key,
+        },
+      },
+      30000,
+      env,
+      log,
+    );
+    if (!resp.ok) {
+      log(`InnerTube-GET: HTTP ${resp.status}`);
+      return null;
+    }
+    const data = await resp.json();
+    const status = data?.playabilityStatus?.status;
+    if (status !== 'OK') {
+      log(`InnerTube-GET: ${status} — ${data?.playabilityStatus?.reason}`);
+      return null;
+    }
+    const tracks = data?.captions?.playerCaptionsTracklistRenderer?.captionTracks;
+    if (!Array.isArray(tracks) || tracks.length === 0) {
+      log('InnerTube-GET: OK but no caption tracks');
+      return null;
+    }
+    log(`InnerTube-GET: found ${tracks.length} caption track(s)`);
+    return fetchFromTracks(tracks, lang, env, log);
+  } catch (err) {
+    log(`InnerTube-GET error: ${err.message}`);
+    return null;
+  }
+}
+
 // ── Web page scraping strategy ────────────────────────────────
 
 async function fetchViaWebPage(videoId, lang, env, log = console.log) {
   try {
-    const pageUrl = `https://www.youtube.com/watch?v=${videoId}`;
+    const pageUrl = `https://www.youtube.com/watch?v=${videoId}&bpctr=9999&has_verified=1`;
     const resp = await proxiedFetch(pageUrl, {
       headers: {
         'User-Agent': BROWSER_UA,
@@ -440,7 +510,7 @@ async function fetchViaWebPage(videoId, lang, env, log = console.log) {
         'Accept': 'text/html,application/xhtml+xml',
         'Cookie': CONSENT_COOKIE,
       },
-    }, 15000, env, log);
+    }, 45000, env, log);
 
     if (!resp.ok) {
       log(`Web page: HTTP ${resp.status}`);
@@ -517,7 +587,7 @@ async function fetchViaWebPage(videoId, lang, env, log = console.log) {
         }
 
         log(`Web page: found ${tracks.length} caption track(s)`);
-        const result = await fetchFromTracks(tracks, lang, env);
+        const result = await fetchFromTracks(tracks, lang, env, log);
         if (result) return result;
       } catch (e) {
         log(`Web page: JSON parse failed: ${e.message}`);
@@ -575,7 +645,7 @@ function extractJsonObject(src, startIdx) {
 
 // ── Fetch and parse caption tracks ────────────────────────────
 
-async function fetchFromTracks(tracks, lang, env) {
+async function fetchFromTracks(tracks, lang, env, log = console.log) {
   // Select best track for the requested language
   const manual = tracks.find((t) => t.languageCode === lang && t.kind !== 'asr');
   const auto = tracks.find((t) => t.languageCode === lang && t.kind === 'asr');
@@ -593,13 +663,29 @@ async function fetchFromTracks(tracks, lang, env) {
         captionUrl += (captionUrl.includes('?') ? '&' : '?') + `fmt=${fmt}`;
       }
 
-      const resp = await proxiedFetch(captionUrl, {
-        headers: {
-          'User-Agent': BROWSER_UA,
-          'Accept-Language': lang,
-          'Cookie': CONSENT_COOKIE,
-        },
-      }, 15000, env, log);
+      // Try a direct fetch first (timedtext is usually far less protected than
+      // the watch page); fall back to the scraping gateway only if that fails.
+      const capHeaders = {
+        'User-Agent': BROWSER_UA,
+        'Accept-Language': lang,
+        'Cookie': CONSENT_COOKIE,
+        'Referer': 'https://www.youtube.com/',
+        'Origin': 'https://www.youtube.com',
+      };
+      let resp = await fetchWithTimeout(captionUrl, { headers: capHeaders }, 20000);
+      let directBodyLen = 0;
+      try {
+        const probe = await resp.clone().text();
+        directBodyLen = probe.length;
+      } catch (_) {
+        /* ignore */
+      }
+      if (!resp.ok || directBodyLen < 20) {
+        log(
+          `Caption direct fetch ${resp.status} len=${directBodyLen}, trying scrape gateway`,
+        );
+        resp = await proxiedFetch(captionUrl, { headers: capHeaders }, 30000, env, log);
+      }
 
       if (!resp.ok) continue;
       const text = await resp.text();
