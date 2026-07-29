@@ -542,17 +542,16 @@ const StudyPage: React.FC = () => {
       const sLines = normalizeTranscriptToSentences(raw);
       setRawBlocks(raw);
       setSentenceLines(sLines);
-      if (videoId) {
-        persistSession(
-          videoId,
-          urlInput.trim() || sessionTitle || videoId,
-          raw,
-          sLines,
-          sessionTitle || urlInput.trim() || videoId,
-        );
+      // Prefer the current session's identity so we never accidentally save
+      // under a stale (e.g. sample) video id captured from the render closure.
+      const yId = session?.youtubeId ?? videoId;
+      const yUrl = session?.youtubeUrl ?? urlInput.trim() ?? yId;
+      const title = session?.title ?? sessionTitle ?? urlInput.trim() ?? yId;
+      if (yId) {
+        persistSession(yId, yUrl, raw, sLines, title);
       }
     },
-    [videoId, urlInput, sessionTitle, persistSession],
+    [session, videoId, urlInput, sessionTitle, persistSession],
   );
 
   // ── Load video ─────────────────────────────────────────────
@@ -562,17 +561,62 @@ const StudyPage: React.FC = () => {
 
     setPlatform(detected);
 
+    // Build a fresh session for the NEW video immediately so it survives a
+    // page refresh. Previously the new video's session was saved with a stale
+    // videoId from the render closure, which made the sample video reappear on
+    // reload.
+    const makeFreshSession = (
+      vid: string,
+      url: string,
+      plat: VideoPlatform,
+    ): VideoStudySession => {
+      const now = Date.now();
+      return {
+        id: `session_${now}_${Math.random().toString(36).slice(2, 8)}`,
+        youtubeUrl: url,
+        youtubeId: vid,
+        platform: plat,
+        title: url,
+        transcriptLines: [],
+        transcriptData: { rawBlocks: [], sentenceLines: [] },
+        createdAt: now,
+        updatedAt: now,
+        status: 'studying',
+        lastPosition: 0,
+      };
+    };
+
+    const persistTranscriptInto = (sess: VideoStudySession, lines: TranscriptLine[]) => {
+      const sLines = normalizeTranscriptToSentences(lines);
+      setRawBlocks(lines);
+      setSentenceLines(sLines);
+      const updated: VideoStudySession = {
+        ...sess,
+        transcriptLines: lines,
+        transcriptData: { rawBlocks: lines, sentenceLines: sLines },
+        updatedAt: Date.now(),
+      };
+      saveCurrentSession(updated);
+      setSession(updated);
+    };
+
     if (detected === 'bilibili') {
       const id = parseBilibiliId(urlInput);
       if (!id) return;
       const st = parseBilibiliStartTime(urlInput);
       const pg = parseBilibiliPage(urlInput);
 
-      // Persist old session before switching
-      if (rawBlocks.length > 0 && videoId) {
+      // Persist the genuinely-old session (a real studied video) before
+      // switching. The sample video has no session, so it is never saved.
+      if (session && rawBlocks.length > 0 && videoId) {
         persistSession(videoId, urlInput.trim(), rawBlocks, sentenceLines, sessionTitle || urlInput.trim());
       }
 
+      const fresh = makeFreshSession(id, urlInput.trim(), 'bilibili');
+      if (!session) trackEvent('video_studied', { platform: 'bilibili' });
+      saveCurrentSession(fresh);
+      setSession(fresh);
+      loadedSessionIdRef.current = fresh.id;
       setVideoId(id);
       setStartTime(st);
       setBiliPage(pg);
@@ -583,7 +627,17 @@ const StudyPage: React.FC = () => {
       if (!sessionTitle) {
         setSessionTitle(urlInput.trim());
         getBilibiliVideoTitle(id).then((info) => {
-          if (info?.title) setSessionTitle(info.title);
+          if (info?.title) {
+            setSessionTitle(info.title);
+            setSession((prev) => {
+              if (prev && prev.id === fresh.id) {
+                const u = { ...prev, title: info.title };
+                saveCurrentSession(u);
+                return u;
+              }
+              return prev;
+            });
+          }
         });
       }
 
@@ -591,23 +645,27 @@ const StudyPage: React.FC = () => {
       setCaptionError(null);
       fetchBilibiliTranscript(id)
         .then(({ lines }) => {
-          if (lines.length > 0) importTranscript(lines);
+          if (lines.length > 0) persistTranscriptInto(fresh, lines);
         })
         .catch((err) => {
           setCaptionError(err instanceof Error ? err.message : 'Unknown error fetching captions');
         })
         .finally(() => setFetchingCaption(false));
     } else {
-      // YouTube (existing logic)
+      // YouTube
       const id = parseYouTubeId(urlInput);
       if (!id) return;
       const st = parseStartTime(urlInput);
 
-      // Persist old session before switching
-      if (rawBlocks.length > 0 && videoId) {
+      if (session && rawBlocks.length > 0 && videoId) {
         persistSession(videoId, urlInput.trim(), rawBlocks, sentenceLines, sessionTitle || urlInput.trim());
       }
 
+      const fresh = makeFreshSession(id, urlInput.trim(), 'youtube');
+      if (!session) trackEvent('video_studied', { platform: 'youtube' });
+      saveCurrentSession(fresh);
+      setSession(fresh);
+      loadedSessionIdRef.current = fresh.id;
       setVideoId(id);
       setStartTime(st);
       setBiliPage(undefined);
@@ -618,7 +676,17 @@ const StudyPage: React.FC = () => {
       if (!sessionTitle) {
         setSessionTitle(urlInput.trim());
         getVideoTitle(urlInput).then((info) => {
-          if (info?.title) setSessionTitle(info.title);
+          if (info?.title) {
+            setSessionTitle(info.title);
+            setSession((prev) => {
+              if (prev && prev.id === fresh.id) {
+                const u = { ...prev, title: info.title };
+                saveCurrentSession(u);
+                return u;
+              }
+              return prev;
+            });
+          }
         });
       }
 
@@ -626,14 +694,14 @@ const StudyPage: React.FC = () => {
       setCaptionError(null);
       fetchYouTubeTranscript(id)
         .then(({ lines }) => {
-          if (lines.length > 0) importTranscript(lines);
+          if (lines.length > 0) persistTranscriptInto(fresh, lines);
         })
         .catch((err) => {
           setCaptionError(err instanceof Error ? err.message : 'Unknown error fetching captions');
         })
         .finally(() => setFetchingCaption(false));
     }
-  }, [urlInput, rawBlocks, sentenceLines, sessionTitle, videoId, persistSession, importTranscript]);
+  }, [urlInput, rawBlocks, sentenceLines, sessionTitle, session, videoId, persistSession]);
 
   // ── Import transcript (from TranscriptImporter) ─────────────
   const handleImportTranscript = useCallback(
