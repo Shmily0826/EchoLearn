@@ -951,27 +951,43 @@ async function fetchViaWhisper(videoId, lang, env, log = console.log) {
     return null;
   }
 
-  // Step 1a: Try getting audio URL from Piped instances
+  // Step 1a: Try getting audio URL from Piped instances (respect health cooldown)
   let audioUrl = null;
-  for (const instance of PIPED_INSTANCES) {
+  let audioSource = null;
+  const alivePiped = getAliveInstances(PIPED_INSTANCES);
+  if (alivePiped.length === 0) {
+    log('Whisper: all Piped instances in cooldown, skipping');
+  }
+  for (const instance of alivePiped) {
     try {
       const resp = await fetchWithTimeout(`${instance}/streams/${videoId}`, {
         headers: { 'User-Agent': BROWSER_UA, 'Accept': 'application/json' },
       }, 8000);
 
-      if (!resp.ok) continue;
+      if (!resp.ok) {
+        log(`Whisper: Piped (${new URL(instance).hostname}): HTTP ${resp.status}`);
+        recordFailure(instance);
+        continue;
+      }
       const data = await resp.json();
 
       const streams = data.audioStreams;
-      if (!Array.isArray(streams) || streams.length === 0) continue;
+      if (!Array.isArray(streams) || streams.length === 0) {
+        log(`Whisper: Piped (${new URL(instance).hostname}): no audioStreams`);
+        recordFailure(instance);
+        continue;
+      }
 
       // Pick lowest bitrate to stay under Groq's 25 MB limit
       const sorted = [...streams].sort((a, b) => (a.bitrate || 0) - (b.bitrate || 0));
       audioUrl = sorted[0].url;
-      log(`Whisper: audio URL from Piped (${new URL(instance).hostname}), ${sorted.length} stream(s)`);
+      audioSource = `Piped (${new URL(instance).hostname})`;
+      log(`Whisper: audio URL from ${audioSource}, ${sorted.length} stream(s)`);
+      recordSuccess(instance);
       break;
     } catch (err) {
       log(`Whisper: Piped (${new URL(instance).hostname}): ${err.message}`);
+      recordFailure(instance);
     }
   }
 
@@ -1009,7 +1025,8 @@ async function fetchViaWhisper(videoId, lang, env, log = console.log) {
             .sort((a, b) => (a.bitrate || 0) - (b.bitrate || 0));
           if (audioFormats.length > 0) {
             audioUrl = audioFormats[0].url;
-            log(`Whisper: audio URL from InnerTube adaptiveFormats (${audioFormats.length} audio stream(s))`);
+            audioSource = 'InnerTube adaptiveFormats';
+            log(`Whisper: audio URL from ${audioSource} (${audioFormats.length} audio stream(s))`);
           }
         }
       } else {
@@ -1017,6 +1034,69 @@ async function fetchViaWhisper(videoId, lang, env, log = console.log) {
       }
     } catch (err) {
       log(`Whisper: InnerTube adaptiveFormats failed: ${err.message}`);
+    }
+  }
+
+  // Step 1c: Second fallback — get audio URL from Invidious instances.
+  // Invidious proxies media through its own infrastructure, so it can work
+  // when Piped/InnerTube are blocked by YouTube's datacenter IP restrictions.
+  if (!audioUrl) {
+    log('Whisper: InnerTube failed, trying Invidious for audio URL');
+    const aliveInvidious = getAliveInstances(INVIDIOUS_INSTANCES);
+    if (aliveInvidious.length === 0) {
+      log('Whisper: all Invidious instances in cooldown, skipping');
+    }
+    for (const instance of aliveInvidious) {
+      try {
+        const resp = await fetchWithTimeout(`${instance}/api/v1/videos/${videoId}`, {
+          headers: { 'User-Agent': BROWSER_UA, 'Accept': 'application/json' },
+        }, 8000);
+
+        if (!resp.ok) {
+          log(`Whisper: Invidious (${new URL(instance).hostname}): HTTP ${resp.status}`);
+          recordFailure(instance);
+          continue;
+        }
+
+        const data = await resp.json().catch(() => null);
+        if (!data) {
+          log(`Whisper: Invidious (${new URL(instance).hostname}): invalid JSON`);
+          recordFailure(instance);
+          continue;
+        }
+
+        // adaptiveFormats contains separate audio/video streams
+        const formats = data.adaptiveFormats || data.formatStreams;
+        if (!Array.isArray(formats) || formats.length === 0) {
+          log(`Whisper: Invidious (${new URL(instance).hostname}): no adaptiveFormats`);
+          recordFailure(instance);
+          continue;
+        }
+
+        const audioFormats = formats
+          .filter((f) => f.type && f.type.startsWith('audio/') && f.url)
+          .sort((a, b) => (a.bitrate || 0) - (b.bitrate || 0));
+
+        if (audioFormats.length === 0) {
+          log(`Whisper: Invidious (${new URL(instance).hostname}): no audio streams`);
+          recordFailure(instance);
+          continue;
+        }
+
+        let url = audioFormats[0].url;
+        // Some instances return relative URLs
+        if (url && !url.startsWith('http')) {
+          url = `${instance}${url.startsWith('/') ? '' : '/'}${url}`;
+        }
+        audioUrl = url;
+        audioSource = `Invidious (${new URL(instance).hostname})`;
+        log(`Whisper: audio URL from ${audioSource} (${audioFormats.length} audio stream(s))`);
+        recordSuccess(instance);
+        break;
+      } catch (err) {
+        log(`Whisper: Invidious (${new URL(instance).hostname}): ${err.message}`);
+        recordFailure(instance);
+      }
     }
   }
 
