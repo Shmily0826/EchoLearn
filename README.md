@@ -6,7 +6,7 @@ A YouTube & Bilibili-powered English learning tool. Paste a video URL, get AI-cu
 
 ## Features
 
-- **Auto transcript fetching** — Multi-strategy caption retrieval (InnerTube, web scraping, Invidious, Piped, Whisper ASR) with graceful fallback chain
+- **Auto transcript fetching** — Two-tier fallback: a local proxy on the developer's machine (residential IP, preferred) and a 7×24 server-side path (Cloudflare Worker fronting a VPS yt-dlp service), degrading gracefully to InnerTube / scraping / Whisper when needed
 - **AI-powered analysis** — DeepSeek analyzes transcripts to recommend vocabulary and sentences calibrated to CEFR levels (A1–C2)
 - **Interactive transcripts** — Click any word for instant dictionary lookup with phonetics, audio, definitions, and recursive word exploration
 - **Spaced repetition** — Review saved words and sentences on a 3→7→14→30 day schedule
@@ -18,35 +18,51 @@ A YouTube & Bilibili-powered English learning tool. Paste a video URL, get AI-cu
 
 ## Tech Stack
 
-React 19 · TypeScript · Vite 8 · Tailwind CSS 4 · Firebase Auth & Firestore · Capacitor 8 · React Router 7 · DeepSeek API · Cloudflare Workers · Vercel Edge Functions · Recharts · Vercel Web Analytics (privacy-first, no cookies)
+React 19 · TypeScript · Vite 8 · Tailwind CSS 4 · Firebase Auth & Firestore · Capacitor 8 · React Router 7 · DeepSeek API · Cloudflare Workers · Vercel Edge Functions · FastAPI + yt-dlp (VPS caption service) · Recharts · Vercel Web Analytics (privacy-first, no cookies)
 
 ## Architecture
 
 ```
-Video URL → Parse videoId → Fetch captions (5-strategy cascade)
+Video URL → Parse videoId → Fetch captions (two-tier fallback: local proxy → CF Worker → VPS yt-dlp)
   → Normalize to sentences → Display with video player
   → AI analysis (DeepSeek) → Vocabulary & sentence suggestions
   → Save to localStorage → Sync to Firestore
   → Spaced repetition review
 ```
 
-### Caption Fetching Cascade
+### Caption Fetching — two-tier fallback
 
-The system tries multiple strategies in order until one succeeds:
+The web app always fetches captions through one of two tiers, automatically:
 
-1. **Local proxy** — Residential IP via the local Node proxy server (`local-proxy/`), optional but highest success rate since YouTube throttles datacenter IPs (Cloudflare/Vercel) intermittently
-2. **Vercel API** — Server-side `youtube-transcript` npm package
-3. **Cloudflare Worker** — Edge-deployed proxy with 5 internal strategies:
-   - InnerTube API (ANDROID / iOS / WEB / TV clients)
-   - YouTube page HTML scraping
-   - Invidious instances (10 third-party frontends)
-   - Piped instances (6 third-party frontends)
-   - Whisper ASR via Groq (audio transcription fallback)
-4. **InnerTube direct** — Client-side API calls via Edge Function proxy
-5. **Web scraping** — Extract `ytInitialPlayerResponse` from page HTML
-6. **npm package** — Client-side `youtube-transcript` (last resort)
+**Tier 1 — Local proxy (developer's PC, client-side, preferred)**
+- Default endpoint `proxy.echo-learn.uk` is a Cloudflare Tunnel to the
+  developer's machine (`local-proxy/`), which uses a residential IP.
+- Tried first on every request. If the PC/tunnel is offline, the request
+  fails fast (4s timeout) and is skipped for the next 5 minutes, then retried.
+- Highest success rate because it is not a throttled datacenter IP.
 
-> **Reducing reliance on the local proxy:** YouTube throttles datacenter IPs (Cloudflare/Vercel) intermittently, so the server-side cascade is not 100% reliable. Setting the `GROQ_API_KEY` secret on the CF Worker enables Whisper ASR (audio transcription), which is attempted **early** in the cascade when configured — it covers videos with no captions and is far less affected by caption-endpoint throttling. This is the recommended server-side upgrade so other users are not dependent on your machine running the local proxy.
+**Tier 2 — Server-side (CF Worker, 7×24)**
+- Reached automatically when Tier 1 is unavailable. First the Vercel
+  same-origin `/api/transcript`, then the Cloudflare Worker.
+- The Worker tries, in order:
+  1. **VPS yt-dlp** (Strategy 0) — a small always-on FastAPI service
+     (`vps-ytdlp/`) running yt-dlp with the TVHTML5 client signature, which
+     fetches captions **without a residential proxy**. Gated by the
+     `YTDLP_API_URL` secret; deploy it on Oracle Cloud Always-Free ($0) so
+     other users keep getting captions even when the developer's PC is off.
+  2. InnerTube (ANDROID / iOS / WEB / TV clients)
+  3. YouTube page HTML scraping
+  4. Whisper ASR via Groq (audio transcription — only for no-caption videos,
+     and only effective with `YTDLP_PROXY` since datacenter IPs cannot
+     download YouTube audio)
+  5. Invidious / Piped instances (third-party frontends)
+
+> **Reality check:** Strategies 2–5 run from Cloudflare's datacenter IPs,
+> which YouTube throttles/blocks intermittently (`LOGIN_REQUIRED`, 403/530 on
+> public frontends). In practice they are an unreliable safety net. The two
+> paths that actually work are the local proxy (Tier 1) and the VPS yt-dlp
+> service (Tier 2.1). See `vps-ytdlp/README.md` for the free-tier deploy
+> steps.
 
 ## Accounts, Auth & Sync
 
@@ -56,6 +72,38 @@ EchoLearn is **guest-friendly**: watching videos, saving words/sentences, and sp
 - **Email verification** — Email sign-up sends a verification link. Cloud sync and feedback are **gated on a verified email**, enforced both in the UI and server-side in `firestore.rules`, so throwaway/fake emails cannot write data. Google accounts are auto-verified by Firebase.
 - **Cloud sync backends** — (1) **Firebase Firestore** for automatic cross-device sync (requires a verified email); (2) **GitHub Gist** for manual PAT-scoped backup/restore.
 - **Account deletion** — In Settings, permanently deletes your Firebase account and all associated cloud data (local data optional).
+
+## Product Analytics
+
+Two complementary layers (both privacy-first, no third-party cookies):
+
+**1. Anonymous reach — Vercel Web Analytics**
+- Enabled in the Vercel dashboard (Web Analytics toggle). The `<Analytics />`
+  component (`src/main.tsx`) injects the script at runtime; no code config.
+- See: Vercel dashboard → your project → **Analytics** tab (PV/UV, referrers,
+  country, device, plus the product events below).
+
+**2. User-level behaviour — Firebase Analytics + Firebase Console**
+- Firebase Analytics is wired in `src/services/analytics.ts`: every
+  `trackEvent` reports to BOTH Vercel and Firebase. Auth events `sign_up` /
+  `login` are fired from `src/contexts/AuthContext.tsx`; product events
+  (`video_studied`, `word_saved`, `sentence_saved`, `ai_analysis_used`,
+  `pwa_install`) fire from the relevant pages. Only runs in production builds.
+- See registered-user counts and per-user data directly in the Firebase
+  console (no code needed):
+  - **Registration count** — Firebase console → **Authentication → Users**
+    (total + recent sign-ups; the `method` = email/google breakdown shows up
+    once Firebase Analytics is linked to the project).
+  - **Per-user study data** — Firestore → browse `users/{uid}/data/sessions`
+    (each YouTube video studied = one "deck"), `vocabulary`, `sentences`.
+    Count documents / items to see how many sessions each user created and how
+    much they saved.
+- The Firebase Analytics dashboard (Firebase console → **Analytics**) adds
+  funnels, DAU/WAU/MAU and retention on top of those events.
+
+> Note: Firebase Analytics collects device/geo like Vercel does. If you later
+> get meaningful EU traffic, add a consent gate before `getAnalytics()` in
+> `src/services/analytics.ts`.
 
 ## Getting Started
 
@@ -84,7 +132,7 @@ Create a `.env.local` file (never committed) with the following:
 | `VITE_FIREBASE_*` | Client (.env.local) | Firebase project web config (public by design, secured via Firestore Rules) |
 | `VITE_YOUTUBE_PROXY` | Client (.env.production) | (Optional) Custom YouTube CORS proxy base URL |
 
-CF Worker secrets: `GROQ_API_KEY` (Whisper ASR fallback), `ALLOW_DEBUG` (set to `1` to enable debug logs)
+CF Worker secrets: `YTDLP_API_URL` (base URL of the VPS yt-dlp service, e.g. `https://yt-api.echo-learn.uk` — enables Strategy 0), `YTDLP_API_KEY` (optional shared key protecting that endpoint), `GROQ_API_KEY` (Whisper ASR fallback), `SCRAPE_API_KEY` (optional ScrapingBee/ZenRows gateway), `ALLOW_DEBUG` (set to `1` to enable debug logs)
 
 See `.env.example` for a template.
 
@@ -121,7 +169,8 @@ src/
 ├── contexts/       # AuthContext (Firebase Auth)
 └── types/          # TypeScript interfaces
 api/                # Vercel Serverless & Edge Functions
-cf-worker/          # Cloudflare Worker (caption proxy + Whisper ASR)
+cf-worker/          # Cloudflare Worker (caption proxy; front-ends the VPS yt-dlp + fallback strategies)
+vps-ytdlp/          # FastAPI + yt-dlp service deployed on a VPS (server-side caption source)
 android/            # Capacitor Android project
 ```
 

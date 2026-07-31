@@ -94,6 +94,51 @@ request. If it returns nothing, the Worker falls through to its other
 strategies. The user's local proxy (client-side) is still attempted before
 the Worker, so it remains the primary when the user's PC is online.
 
+### Free tier — Oracle Cloud Always-Free
+
+Oracle's Always-Free ARM instance (Ampere A1, up to 4 OCPU / 24 GB RAM, **$0
+forever**) is more than enough — the service uses well under 1 vCPU / 1 GB.
+One-shot on a fresh Ubuntu aarch64 image:
+
+```bash
+# on the VPS
+sudo apt update && sudo apt install -y python3-venv python3-pip ffmpeg
+sudo mkdir -p /opt/echolearn-ytdlp && sudo chown $USER /opt/echolearn-ytdlp
+# copy vps-ytdlp/* into /opt/echolearn-ytdlp, then:
+cd /opt/echolearn-ytdlp
+python3 -m venv .venv && source .venv/bin/activate
+pip install -r requirements.txt
+
+# generate an API key, reuse the same value on the Worker
+openssl rand -hex 24
+
+# write the systemd unit (see above) and set:
+#   Environment=YTDLP_API_KEY=<the key from above>
+sudo systemctl enable --now echolearn-ytdlp
+curl http://localhost:8000/api/health
+```
+
+Cloudflare wiring (orange-cloud + Origin Rule so the origin can stay on :8000):
+
+1. DNS `A`: `yt-api.echo-learn.uk` → VPS public IP (proxy on / orange cloud).
+2. SSL/TLS → Overview → mode **Flexible** (Cloudflare→origin over HTTP :8000).
+3. Rules → Origin Rules → if hostname = `yt-api.echo-learn.uk`,
+   **Set destination port = 8000**.
+4. OCI Security List: inbound **TCP 8000** (optionally restrict to Cloudflare
+   IP ranges).
+5. Worker secrets, then deploy:
+
+   ```bash
+   cd cf-worker
+   npx wrangler secret put YTDLP_API_URL   # https://yt-api.echo-learn.uk
+   npx wrangler secret put YTDLP_API_KEY   # same key as the VPS
+   npx wrangler deploy
+   ```
+
+The local proxy is NOT removed — it stays the client-side preferred path when
+your PC is online; the VPS is the added server-side fallback so others keep
+working when your PC is off.
+
 ## Notes / limits
 
 - **Captions only.** For videos with *no* caption track at all, set

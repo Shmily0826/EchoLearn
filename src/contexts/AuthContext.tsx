@@ -18,6 +18,7 @@ import { auth, googleProvider } from '../lib/firebase';
 import { isCapacitor } from '../utils/platform';
 import { deleteUserData } from '../services/firestoreSync';
 import { clearAllLocalData } from '../utils/storage';
+import { trackEvent } from '../services/analytics';
 
 // ── Types ──────────────────────────────────────────────────────
 
@@ -82,10 +83,19 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     } else {
       await signInWithPopup(auth, googleProvider);
     }
+    // Report sign-in (and sign_up if this is a brand-new Google account).
+    const u = auth.currentUser;
+    if (u) {
+      const { creationTime, lastSignInTime } = u.metadata;
+      const isNew = !!creationTime && creationTime === lastSignInTime;
+      trackEvent('login', { method: 'google' });
+      if (isNew) trackEvent('sign_up', { method: 'google' });
+    }
   }, []);
 
   const signInWithEmail = useCallback(async (email: string, password: string) => {
     await signInWithEmailAndPassword(auth, email, password);
+    trackEvent('login', { method: 'email' });
   }, []);
 
   const signUpWithEmail = useCallback(
@@ -102,6 +112,9 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       } catch (err) {
         console.error('[Auth] sendEmailVerification failed:', err);
       }
+      // Acquisition + first session start.
+      trackEvent('sign_up', { method: 'email' });
+      trackEvent('login', { method: 'email' });
     },
     [],
   );
