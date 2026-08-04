@@ -248,15 +248,15 @@ const YouTubeEmbed = forwardRef<PlayerHandle, YouTubeEmbedProps>(
     // Load different video when youtubeId changes (player already created)
     useEffect(() => {
       if (status !== 'ready' || !playerRef.current) return;
-      if (typeof playerRef.current.loadVideoById !== 'function') return;
+      if (typeof playerRef.current.cueVideoById !== 'function') return;
       try {
         if (startTime !== undefined) {
-          playerRef.current.loadVideoById({
+          playerRef.current.cueVideoById({
             videoId: youtubeId,
             startSeconds: startTime,
           });
         } else {
-          playerRef.current.loadVideoById(youtubeId);
+          playerRef.current.cueVideoById(youtubeId);
         }
       } catch { /* player not ready — noop */ }
       // Re-apply playback rate after loadVideoById (YouTube resets it)
@@ -294,7 +294,7 @@ const YouTubeEmbed = forwardRef<PlayerHandle, YouTubeEmbedProps>(
     };
 
     // Build fallback iframe URL
-    const fallbackSrc = `https://www.youtube.com/embed/${youtubeId}?autoplay=1&rel=0&modestbranding=1${
+    const fallbackSrc = `https://www.youtube.com/embed/${youtubeId}?autoplay=0&rel=0&modestbranding=1${
       startTime !== undefined ? `&start=${Math.floor(startTime)}` : ''
     }`;
 

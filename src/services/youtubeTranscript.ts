@@ -692,15 +692,41 @@ function clearLocalProxyFailure(): void {
 
 /**
  * Calls server-side transcript APIs.
- * Tries Vercel /api/transcript first (same-origin, reliable on mobile),
- * then CF Worker as fallback (different IP range, better for YouTube blocking).
+ * Tries the CF Worker first (relays to AWS VPS yt-dlp — highest success rate),
+ * then falls back to Vercel /api/transcript (weaker on datacenter IPs).
  * CF Worker internally cascades: VPS yt-dlp (Strategy 0) → InnerTube → Web scrape → Invidious → Piped → Whisper ASR (Groq).
  */
 async function fetchViaServerApi(
   videoId: string,
   lang: string,
 ): Promise<TranscriptFetchResult | null> {
-  // Try same-origin Vercel serverless function first (avoids cross-origin issues on mobile)
+  // Try CF Worker first: it relays to the AWS VPS running yt-dlp, which has the
+  // highest success rate against YouTube's datacenter-IP blocking. The Worker is
+  // CORS-configured for our app origins, so this also works on mobile.
+  try {
+    const res = await fetch(
+      `${CF_WORKER_URL}/api/transcript?videoId=${encodeURIComponent(videoId)}&lang=${encodeURIComponent(lang)}`,
+    );
+    if (res.ok) {
+      const data = (await res.json()) as TranscriptFetchResult;
+      if (data.lines && data.lines.length > 0) {
+        console.log(
+          `[EchoLearn] CF Worker: got ${data.lines.length} lines (${data.language})`,
+        );
+        return data;
+      }
+    } else {
+      console.warn(`[EchoLearn] CF Worker error: ${res.status}`);
+    }
+  } catch (err) {
+    console.warn(
+      '[EchoLearn] CF Worker error:',
+      err instanceof Error ? err.message : err,
+    );
+  }
+
+  // Backup: same-origin Vercel serverless function (weaker on datacenter IPs,
+  // often 404/500, but useful if the Worker/VPS path is unavailable).
   try {
     const res = await fetch(
       `/api/transcript?videoId=${encodeURIComponent(videoId)}&lang=${encodeURIComponent(lang)}`,
@@ -720,29 +746,6 @@ async function fetchViaServerApi(
   } catch (err) {
     console.warn(
       '[EchoLearn] Vercel Server API error:',
-      err instanceof Error ? err.message : err,
-    );
-  }
-
-  // Fallback: CF Worker (different IP range, may bypass YouTube blocking)
-  try {
-    const res = await fetch(
-      `${CF_WORKER_URL}/api/transcript?videoId=${encodeURIComponent(videoId)}&lang=${encodeURIComponent(lang)}`,
-    );
-    if (res.ok) {
-      const data = (await res.json()) as TranscriptFetchResult;
-      if (data.lines && data.lines.length > 0) {
-        console.log(
-          `[EchoLearn] CF Worker: got ${data.lines.length} lines (${data.language})`,
-        );
-        return data;
-      }
-    } else {
-      console.warn(`[EchoLearn] CF Worker error: ${res.status}`);
-    }
-  } catch (err) {
-    console.warn(
-      '[EchoLearn] CF Worker error:',
       err instanceof Error ? err.message : err,
     );
   }
@@ -797,7 +800,7 @@ export interface TranscriptFetchResult {
  *
  * Tries multiple strategies in order:
  *   0. Local proxy (residential IP — skipped if failed within 5 min)
- *   1. Server-side API: Vercel /api/transcript first, then CF Worker
+ *   1. Server-side API: CF Worker (→ VPS yt-dlp) first, then Vercel fallback
  *      (Worker Strategy 0 = VPS yt-dlp; fallbacks = InnerTube/Web/Invidious/Piped/Whisper)
  *   2. InnerTube API (ANDROID/WEB clients) via Edge Function proxy
  *   3. YouTube page HTML scraping via Edge Function proxy
