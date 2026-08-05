@@ -3,7 +3,8 @@ import { useI18n } from '../i18n/I18nContext';
 import type { TranscriptLine, VocabularyItem, SentenceItem, DictionaryEntry } from '../types';
 import { tomorrowMs } from '../utils/storage';
 import { lemmatize } from '../utils/lemmatizer';
-import { lookupWord } from '../services/dictionaryService';
+import { lookupWord, isKnownProperNoun } from '../services/dictionaryService';
+import { translateWordFast } from '../services/translationService';
 
 interface TranscriptViewerProps {
   lines: TranscriptLine[];
@@ -41,11 +42,15 @@ const TranscriptViewer: React.FC<TranscriptViewerProps> = ({
   activeLineIndex,
   onSeekTo,
 }) => {
-  const { t } = useI18n();
+  const { t, lang } = useI18n();
   const [popup, setPopup] = useState<WordPopupState | null>(null);
   const [dictEntry, setDictEntry] = useState<DictionaryEntry | null>(null);
   const [dictLoading, setDictLoading] = useState(false);
   const [dictError, setDictError] = useState(false);
+  const [translation, setTranslation] = useState('');
+  const [translationLoading, setTranslationLoading] = useState(false);
+
+  const showChinese = lang === 'zh';
 
   const popupRef = useRef<HTMLDivElement>(null);
   const activeLineRef = useRef<HTMLDivElement>(null);
@@ -105,7 +110,8 @@ const TranscriptViewer: React.FC<TranscriptViewerProps> = ({
     container.scrollTo({ top: Math.max(0, targetScroll), behavior: 'smooth' });
   }, [activeLineIndex]);
 
-  // Trigger dictionary lookup when popup opens
+  // Trigger dictionary lookup when popup opens (English definition is useful
+  // in both language modes, so this always runs).
   useEffect(() => {
     if (!popup) return;
     setDictEntry(null);
@@ -125,6 +131,24 @@ const TranscriptViewer: React.FC<TranscriptViewerProps> = ({
 
     return () => { cancelled = true; };
   }, [popup]);
+
+  // Fast translation layer for the inline popup (Chinese mode only).
+  // Tries the keyless Google gtx proxy first, falls back to DeepSeek.
+  // Translations are cached in translationService, so repeats are instant.
+  useEffect(() => {
+    if (!popup || !showChinese) return;
+    setTranslation('');
+    setTranslationLoading(true);
+
+    let cancelled = false;
+    translateWordFast(popup.word, 'zh', 'en').then((result) => {
+      if (cancelled) return;
+      setTranslation(result);
+      setTranslationLoading(false);
+    });
+
+    return () => { cancelled = true; };
+  }, [popup, showChinese]);
 
   const handleWordClick = (
     word: string,
@@ -150,7 +174,7 @@ const TranscriptViewer: React.FC<TranscriptViewerProps> = ({
       id: `vocab_${Date.now()}`,
       word: lemma,
       lemma,
-      meaningCn: dictEntry?.definitionEn || '',
+      meaningCn: translation || '',
       context: popup.context,
       sourceVideoId: videoId,
       sourceVideoTitle: videoTitle,
@@ -265,6 +289,22 @@ const TranscriptViewer: React.FC<TranscriptViewerProps> = ({
               )}
             </div>
 
+            {/* Translation (Chinese) — primary fast layer for zh mode */}
+            {showChinese && translationLoading && (
+              <div className="flex items-center gap-2 py-1 mb-2 text-xs text-gray-400">
+                <svg className="animate-spin w-3.5 h-3.5" fill="none" viewBox="0 0 24 24">
+                  <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
+                  <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z" />
+                </svg>
+                Translating…
+              </div>
+            )}
+            {showChinese && translation && (
+              <p className="text-base font-semibold text-gray-900 dark:text-gray-100 leading-relaxed mb-2">
+                {translation}
+              </p>
+            )}
+
             {/* Part of speech */}
             {dictEntry?.partOfSpeech && (
               <span className="inline-block text-[11px] px-2 py-0.5 bg-indigo-50 dark:bg-indigo-950 text-indigo-600 rounded-full font-medium mb-2">
@@ -334,10 +374,14 @@ const TranscriptViewer: React.FC<TranscriptViewerProps> = ({
               </div>
             )}
 
-            {/* Error / not found state */}
+            {/* Error / not found state (muted — translation above covers most words) */}
             {dictError && !dictLoading && (
               <p className="text-xs text-gray-400 mb-3">
-                Dictionary entry not found. You can still save this word manually.
+                {showChinese && translation
+                  ? 'No offline dictionary definition, but the translation above is shown.'
+                  : isKnownProperNoun(popup.word)
+                    ? 'No dictionary entry — this looks like a name, brand, or abbreviation. You can still save it manually.'
+                    : 'Dictionary entry not found. You can still save this word manually.'}
               </p>
             )}
 

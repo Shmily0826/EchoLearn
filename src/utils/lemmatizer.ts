@@ -442,6 +442,24 @@ export function lemmatize(word: string): string {
     return lower;
   }
 
+  // Contractions (e.g. don't, you're, it's) → base word.
+  // Handled before inflection rules because the apostrophe blocks suffix matching.
+  if (lower.includes("'")) {
+    const CONTRACTIONS: Record<string, string> = {
+      "won't": 'will',
+      "can't": 'can',
+      "shan't": 'shall',
+      "ain't": 'be',
+    };
+    if (CONTRACTIONS[lower]) return CONTRACTIONS[lower];
+    const base = lower.split("'")[0];
+    if (base.length >= 1) {
+      // "don't" → "don" → "do"; "isn't" → "isn" → "is"
+      if (base.endsWith('n')) return base.slice(0, -1);
+      return base;
+    }
+  }
+
   // 1. Irregular forms (highest priority)
   if (IRREGULARS[lower]) {
     return IRREGULARS[lower];

@@ -1541,6 +1541,7 @@ const StudyPage: React.FC = () => {
 
 interface DictPopupState {
   word: string;
+  context?: string;
   x: number;
   y: number;
 }
@@ -1552,10 +1553,10 @@ const VocabularyList: React.FC<{
   const { t } = useI18n();
   const [dictPopup, setDictPopup] = useState<DictPopupState | null>(null);
 
-  const handleWordClick = (word: string, e: React.MouseEvent) => {
+  const handleWordClick = (word: string, context: string | undefined, e: React.MouseEvent) => {
     e.stopPropagation();
     const rect = (e.target as HTMLElement).getBoundingClientRect();
-    setDictPopup({ word, x: rect.left + rect.width / 2, y: rect.top });
+    setDictPopup({ word, context, x: rect.left + rect.width / 2, y: rect.top });
   };
 
   if (items.length === 0) {
@@ -1571,6 +1572,7 @@ const VocabularyList: React.FC<{
       {dictPopup && (
         <WordDictionaryPopup
           word={dictPopup.word}
+          context={dictPopup.context}
           x={dictPopup.x}
           y={dictPopup.y}
           onClose={() => setDictPopup(null)}
@@ -1585,7 +1587,7 @@ const VocabularyList: React.FC<{
             <div className="flex items-start justify-between">
               <span
                 className="text-base font-semibold text-amber-800 dark:text-amber-300 cursor-pointer hover:text-amber-900 dark:hover:text-amber-200 hover:underline"
-                onClick={(e) => handleWordClick(item.word, e)}
+                onClick={(e) => handleWordClick(item.word, item.context, e)}
                 title="Click to look up in dictionary"
               >
                 {item.word}

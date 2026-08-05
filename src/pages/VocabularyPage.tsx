@@ -19,6 +19,7 @@ type SortMode = 'newest' | 'az' | 'review' | 'most-reviewed';
 
 interface DictPopupState {
   word: string;
+  context?: string;
   x: number;
   y: number;
 }
@@ -130,11 +131,12 @@ const VocabularyPage: React.FC = () => {
     }
   }, [vocabulary]);
 
-  const handleWordClick = (word: string, e: React.MouseEvent) => {
+  const handleWordClick = (word: string, context: string | undefined, e: React.MouseEvent) => {
     e.stopPropagation();
     const rect = (e.target as HTMLElement).getBoundingClientRect();
     setDictPopup({
       word,
+      context,
       x: rect.left + rect.width / 2,
       y: rect.top - 8,
     });
@@ -189,6 +191,7 @@ const VocabularyPage: React.FC = () => {
       {dictPopup && (
         <WordDictionaryPopup
           word={dictPopup.word}
+          context={dictPopup.context}
           x={dictPopup.x}
           y={dictPopup.y}
           onClose={() => setDictPopup(null)}
@@ -307,7 +310,7 @@ const VocabularyPage: React.FC = () => {
               <div className="flex items-start justify-between gap-2 mb-2">
                 <div className="flex items-center gap-2 min-w-0">
                   <span
-                    onClick={(e) => handleWordClick(item.word, e)}
+                    onClick={(e) => handleWordClick(item.word, item.context, e)}
                     className="text-lg font-semibold text-gray-800 dark:text-gray-200 truncate cursor-pointer hover:text-indigo-600 transition-colors"
                     title="Click to look up in dictionary"
                   >

@@ -4,6 +4,7 @@
     { "source": "/api/youtube", "destination": "/api/youtube" },
     { "source": "/api/transcript", "destination": "/api/transcript" },
     { "source": "/api/ai", "destination": "/api/ai" },
+    { "source": "/api/translate", "destination": "/api/translate" },
     { "source": "/(.*)", "destination": "/index.html" }
   ]
 }

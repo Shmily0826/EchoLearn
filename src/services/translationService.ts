@@ -9,6 +9,33 @@ import { checkAiRateLimit, rateLimitWaitSeconds } from './aiRateLimit';
 const DEEPSEEK_ENDPOINT = '/api/ai';
 const DEEPSEEK_MODEL = 'deepseek-v4-flash';
 
+// ── localStorage cache (per-device, per-browser) ───────────────
+// Caches single-word translations so the dictionary popup / auto-translate
+// on save don't re-hit DeepSeek for the same word. Same scope as the
+// dictionary cache in dictionaryService.ts (device-local, not shared/server).
+const TRANSLATE_CACHE_KEY = 'echolearn_translation_cache';
+
+interface TranslationCacheStore {
+  [key: string]: string;
+}
+
+function loadTranslationCache(): TranslationCacheStore {
+  try {
+    const raw = localStorage.getItem(TRANSLATE_CACHE_KEY);
+    return raw ? JSON.parse(raw) : {};
+  } catch {
+    return {};
+  }
+}
+
+function saveTranslationCache(cache: TranslationCacheStore): void {
+  try {
+    localStorage.setItem(TRANSLATE_CACHE_KEY, JSON.stringify(cache));
+  } catch {
+    // localStorage full or unavailable — silently ignore
+  }
+}
+
 /** Supported target languages for translation */
 export const TRANSLATE_LANGS: Record<string, string> = {
   zh: '中文',
@@ -30,6 +57,19 @@ interface TranslateItem {
   id: string;
   text: string;
   context?: string;
+}
+
+/**
+ * Small stable hash so we can fold the (potentially long) context into a short
+ * cache key without bloating localStorage.
+ */
+function hashString(s: string): string {
+  let h = 0;
+  for (let i = 0; i < s.length; i++) {
+    h = (h << 5) - h + s.charCodeAt(i);
+    h |= 0;
+  }
+  return h.toString(36);
 }
 
 /**
@@ -128,15 +168,88 @@ The array must have exactly ${items.length} element(s), in the same order as the
 
 // ── Public API ────────────────────────────────────────────────
 
-/** Translate a single word. */
+/** Translate a single word. Result is cached in localStorage per word+lang+model. */
 export async function translateWord(
   word: string,
   context?: string,
   targetLang?: TranslateLang,
 ): Promise<string> {
+  const lang = targetLang ?? 'zh';
+  const ctx = context ? context.slice(0, 200) : '';
+  // Include a context signature in the key so a translation tied to one sentence
+  // doesn't get reused (and cached forever) for a different sense of the word.
+  const cacheKey = `${DEEPSEEK_MODEL}:${lang}:${word.toLowerCase()}:${hashString(ctx)}`;
+  const cache = loadTranslationCache();
+  if (cacheKey in cache) {
+    return cache[cacheKey];
+  }
   const items: TranslateItem[] = [{ id: '0', text: word, context }];
-  const result = await callBatchTranslate(items, 'word', targetLang);
-  return result['0'] || '';
+  const result = await callBatchTranslate(items, 'word', lang);
+  const translated = result['0'] || '';
+  if (translated) {
+    cache[cacheKey] = translated;
+    saveTranslationCache(cache);
+  }
+  return translated;
+}
+
+/**
+ * Fast single-word translation layer for the transcript inline popup.
+ *
+ * Strategy: try the keyless Google gtx proxy (/api/translate) first for
+ * sub-second latency and ~100% word coverage, then fall back to DeepSeek
+ * (translateWord) only if Google returns an empty string or errors.
+ * Results are cached in localStorage per word+lang (separate key namespace
+ * from DeepSeek so the two layers never collide).
+ *
+ * @param word        The English word to translate.
+ * @param targetLang  Target language code (default: 'zh'). Only 'zh' is wired
+ *                    into the UI today; passed through for future use.
+ * @param sourceLang  Source language code (default: 'en').
+ */
+export async function translateWordFast(
+  word: string,
+  targetLang: TranslateLang = 'zh',
+  sourceLang = 'en',
+): Promise<string> {
+  const w = word.trim().toLowerCase();
+  if (!w) return '';
+
+  const lang = targetLang ?? 'zh';
+  const cacheKey = `google:${lang}:${w}`;
+  const cache = loadTranslationCache();
+  if (cacheKey in cache) {
+    return cache[cacheKey];
+  }
+
+  // Fast layer: keyless Google gtx proxy (sub-second, no API key).
+  try {
+    const googleTarget = lang === 'zh' ? 'zh-CN' : lang;
+    const res = await fetch('/api/translate', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ text: word, source: sourceLang, target: googleTarget }),
+    });
+    if (res.ok) {
+      const data = (await res.json()) as { translation?: string };
+      const t = (data.translation ?? '').trim();
+      if (t) {
+        cache[cacheKey] = t;
+        saveTranslationCache(cache);
+        return t;
+      }
+    }
+  } catch {
+    // Network / proxy error → fall through to DeepSeek.
+  }
+
+  // Fallback layer: DeepSeek (slower, but reliable for context + rare words).
+  const fallback = await translateWord(word, undefined, lang);
+  if (fallback) {
+    cache[cacheKey] = fallback;
+    saveTranslationCache(cache);
+  }
+  return fallback;
 }
 
 /** Translate a single sentence. */

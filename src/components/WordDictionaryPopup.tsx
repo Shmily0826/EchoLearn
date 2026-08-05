@@ -1,7 +1,8 @@
 import { useState, useEffect, useRef, useCallback } from 'react';
 import type { DictionaryEntry } from '../types';
-import { lookupWord } from '../services/dictionaryService';
+import { lookupWord, isKnownProperNoun } from '../services/dictionaryService';
 import { translateWord } from '../services/translationService';
+import { useI18n } from '../i18n/I18nContext';
 import ClickableDefinition from './ClickableDefinition';
 
 interface WordDictionaryPopupProps {
@@ -14,6 +15,8 @@ interface WordDictionaryPopupProps {
   onClose: () => void;
   /** Optional: additional content below dictionary data (e.g. "Add to vocabulary" button) */
   actions?: React.ReactNode;
+  /** Optional: the sentence/phrase the word appeared in, used to disambiguate translation */
+  context?: string;
 }
 
 /**
@@ -27,6 +30,7 @@ const WordDictionaryPopup: React.FC<WordDictionaryPopupProps> = ({
   y,
   onClose,
   actions,
+  context,
 }) => {
   const [currentWord, setCurrentWord] = useState(initialWord);
   const [wordHistory, setWordHistory] = useState<string[]>([]);
@@ -35,6 +39,10 @@ const WordDictionaryPopup: React.FC<WordDictionaryPopupProps> = ({
   const [error, setError] = useState(false);
   const [definitionCn, setDefinitionCn] = useState('');
   const popupRef = useRef<HTMLDivElement>(null);
+  const { lang } = useI18n();
+  // In English page mode we deliberately hide the Chinese line and skip the
+  // DeepSeek call entirely (pure-English study view, saves token quota).
+  const showChinese = lang === 'zh';
 
   // Reset when initial word changes
   useEffect(() => {
@@ -57,7 +65,7 @@ const WordDictionaryPopup: React.FC<WordDictionaryPopupProps> = ({
     };
   }, [onClose]);
 
-  // Fetch dictionary data + Chinese translation
+  // Fetch dictionary data (+ Chinese translation only when the page language is Chinese)
   useEffect(() => {
     let cancelled = false;
     setLoading(true);
@@ -67,21 +75,28 @@ const WordDictionaryPopup: React.FC<WordDictionaryPopupProps> = ({
       if (cancelled) return;
       if (result) {
         setEntry(result);
-        // Fetch Chinese translation in background
-        translateWord(currentWord, result.definitionEn).then((cn) => {
-          if (!cancelled && cn) setDefinitionCn(cn);
-        }).catch(() => { /* silent */ });
+        // Only call DeepSeek for the Chinese translation in Chinese mode.
+        // Prefer the real sentence context (if the caller supplied it) so
+        // polysemous words are translated with the right sense.
+        if (showChinese) {
+          const ctx = context || result.definitionEn || '';
+          translateWord(currentWord, ctx).then((cn) => {
+            if (!cancelled && cn) setDefinitionCn(cn);
+          }).catch(() => { /* silent */ });
+        }
       } else {
         setError(true);
-        // Still try to translate the word itself
-        translateWord(currentWord).then((cn) => {
-          if (!cancelled && cn) setDefinitionCn(cn);
-        }).catch(() => { /* silent */ });
+        // Still try to translate the word itself, but only in Chinese mode.
+        if (showChinese) {
+          translateWord(currentWord, context).then((cn) => {
+            if (!cancelled && cn) setDefinitionCn(cn);
+          }).catch(() => { /* silent */ });
+        }
       }
       setLoading(false);
     });
     return () => { cancelled = true; };
-  }, [currentWord]);
+  }, [currentWord, showChinese]);
 
   // Look up a new word from the definition (push current to history)
   const handleLookupWord = useCallback((w: string) => {
@@ -186,7 +201,7 @@ const WordDictionaryPopup: React.FC<WordDictionaryPopupProps> = ({
                 <ClickableDefinition text={entry.definitionEn} onWordClick={handleLookupWord} />
               </p>
             )}
-            {definitionCn && (
+            {showChinese && definitionCn && (
               <p className="text-sm text-indigo-600 dark:text-indigo-400 leading-relaxed mt-1">{definitionCn}</p>
             )}
             {entry.example && (
@@ -228,8 +243,12 @@ const WordDictionaryPopup: React.FC<WordDictionaryPopupProps> = ({
         {/* Error */}
         {error && !loading && (
           <div className="mb-3">
-            <p className="text-xs text-gray-400">Dictionary entry not found.</p>
-            {definitionCn && (
+            <p className="text-xs text-gray-400">
+              {isKnownProperNoun(currentWord)
+                ? 'No dictionary entry — this looks like a name, brand, or abbreviation.'
+                : 'Dictionary entry not found.'}
+            </p>
+            {showChinese && definitionCn && (
               <p className="text-sm text-indigo-600 dark:text-indigo-400 leading-relaxed mt-1">{definitionCn}</p>
             )}
           </div>

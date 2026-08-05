@@ -19,6 +19,7 @@ import type { SentenceItem, VideoStudySession } from '../types';
 
 interface DictPopupState {
   word: string;
+  context?: string;
   x: number;
   y: number;
 }
@@ -95,11 +96,12 @@ const SentencesPage: React.FC = () => {
     triggerCloudSync();
   }, [t, triggerCloudSync]);
 
-  const handleWordClick = (word: string, e: React.MouseEvent) => {
+  const handleWordClick = (word: string, context: string | undefined, e: React.MouseEvent) => {
     e.stopPropagation();
     const rect = (e.target as HTMLElement).getBoundingClientRect();
     setDictPopup({
       word,
+      context,
       x: rect.left + rect.width / 2,
       y: rect.top - 8,
     });
@@ -195,6 +197,7 @@ const SentencesPage: React.FC = () => {
       {dictPopup && (
         <WordDictionaryPopup
           word={dictPopup.word}
+          context={dictPopup.context}
           x={dictPopup.x}
           y={dictPopup.y}
           onClose={() => setDictPopup(null)}
@@ -302,7 +305,7 @@ const SentencesPage: React.FC = () => {
                     return (
                       <span
                         key={i}
-                        onClick={(e) => handleWordClick(token, e)}
+                        onClick={(e) => handleWordClick(token, item.text, e)}
                         className="inline-block mx-[1px] px-0.5 rounded cursor-pointer hover:bg-indigo-100 hover:text-indigo-700 transition-colors"
                       >
                         {token}

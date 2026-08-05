@@ -1,37 +1,31 @@
 <!DOCTYPE html>
-<html lang="en">
+<html lang="zh-CN">
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>EchoLearn — Turn YouTube Videos into English Lessons</title>
-  <meta name="description" content="EchoLearn turns any YouTube video into a personalised English lesson. AI transcript analysis, CEFR-calibrated vocabulary, and spaced-repetition review. Free, no account needed, works on any device." />
-  <link rel="canonical" href="https://echo-learn.uk/" />
+  <title>EchoLearn — 把 YouTube 视频变成你的英语课</title>
+  <meta name="description" content="EchoLearn 帮你把任意 YouTube / Bilibili 视频变成专属英语课：AI 按你的水平挑生词和地道句子，再用遗忘曲线复习。免费、无需注册、手机电脑都能用。" />
+  <link rel="canonical" href="https://echo-learn.uk/landing-zh.html" />
   <meta name="theme-color" content="#863bff" />
 
   <!-- Open Graph -->
   <meta property="og:type" content="website" />
   <meta property="og:site_name" content="EchoLearn" />
-  <meta property="og:title" content="EchoLearn — Turn YouTube Videos into English Lessons" />
-  <meta property="og:description" content="Paste a YouTube link. Get AI-curated vocabulary and sentences at your level. Review with spaced repetition. It's that simple." />
-  <meta property="og:url" content="https://echo-learn.uk/" />
+  <meta property="og:title" content="EchoLearn — 把 YouTube 视频变成你的英语课" />
+  <meta property="og:description" content="贴一个链接，AI 帮你挑出生词和地道句子，按遗忘曲线复习。免费、无需注册。" />
+  <meta property="og:url" content="https://echo-learn.uk/landing-zh.html" />
   <meta property="og:image" content="https://echo-learn.uk/social-preview.png" />
   <meta property="og:image:width" content="1200" />
   <meta property="og:image:height" content="630" />
 
-  <!-- Twitter -->
-  <meta name="twitter:card" content="summary_large_image" />
-  <meta name="twitter:title" content="EchoLearn — Turn YouTube Videos into English Lessons" />
-  <meta name="twitter:description" content="AI-powered English learning from YouTube videos. Vocabulary, sentences, and spaced repetition — all in one tool." />
-  <meta name="twitter:image" content="https://echo-learn.uk/social-preview.png" />
-
-  <!-- Structured data for SEO -->
+  <!-- 结构化数据（SEO） -->
   <script type="application/ld+json">
   {
     "@context": "https://schema.org",
     "@type": "WebApplication",
     "name": "EchoLearn",
     "url": "https://echo-learn.uk",
-    "description": "Turn YouTube videos into personalised English lessons with AI-powered transcript analysis and spaced repetition.",
+    "description": "把 YouTube 视频变成个性化英语课，AI 提取字幕生词并配合间隔复习。",
     "applicationCategory": "EducationalApplication",
     "operatingSystem": "Web, Android",
     "offers": { "@type": "Offer", "price": "0", "priceCurrency": "USD" }
@@ -65,14 +59,14 @@
     * { margin: 0; padding: 0; box-sizing: border-box; }
     html { scroll-behavior: smooth; }
     body {
-      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Noto Sans SC', sans-serif;
-      background: var(--bg); color: var(--text); line-height: 1.65;
+      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Noto Sans SC', 'PingFang SC', 'Microsoft YaHei', sans-serif;
+      background: var(--bg); color: var(--text); line-height: 1.7;
       -webkit-font-smoothing: antialiased;
     }
     a { color: inherit; }
     .container { max-width: 1040px; margin: 0 auto; padding: 0 1.5rem; }
 
-    /* Nav */
+    /* 导航 */
     nav {
       position: sticky; top: 0; z-index: 50;
       display: flex; align-items: center; justify-content: space-between;
@@ -96,7 +90,7 @@
       display: inline-block; padding: 0.35rem 0.9rem; border-radius: 999px;
       background: var(--purple-soft); color: var(--purple); font-size: 0.8rem; font-weight: 600; margin-bottom: 1.2rem;
     }
-    .hero h1 { font-size: clamp(2.1rem, 5.5vw, 3.4rem); font-weight: 850; letter-spacing: -0.02em; line-height: 1.1; margin-bottom: 1.1rem; }
+    .hero h1 { font-size: clamp(2.1rem, 5.5vw, 3.4rem); font-weight: 850; letter-spacing: -0.01em; line-height: 1.15; margin-bottom: 1.1rem; }
     .hero h1 span {
       background: linear-gradient(120deg, var(--purple), #c084fc);
       -webkit-background-clip: text; background-clip: text; -webkit-text-fill-color: transparent;
@@ -115,51 +109,42 @@
     .btn-ghost:hover { border-color: var(--purple); background: var(--purple-soft); }
     .hero-sub { font-size: 0.82rem; color: var(--muted); margin-top: 1rem; }
 
-    /* Product preview */
+    /* 产品预览图 */
     .preview { margin: 2.5rem auto 0; max-width: 920px; }
-    .preview img {
-      width: 100%; border-radius: 18px; border: 1px solid var(--border);
-      box-shadow: var(--shadow); display: block; background: var(--surface);
-    }
+    .preview img { width: 100%; border-radius: 18px; border: 1px solid var(--border); box-shadow: var(--shadow); display: block; background: var(--surface); }
 
-    /* Section heading */
+    /* 区块标题 */
     .section { padding: 4rem 0; }
     .section h2 { text-align: center; font-size: clamp(1.6rem, 4vw, 2.2rem); margin-bottom: 0.6rem; letter-spacing: -0.01em; }
     .section .lead { text-align: center; color: var(--muted); max-width: 560px; margin: 0 auto 2.5rem; }
 
-    /* Steps */
+    /* 步骤 */
     .steps { display: grid; grid-template-columns: repeat(auto-fit, minmax(250px, 1fr)); gap: 1.5rem; }
     .step { background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius); padding: 2rem 1.6rem; text-align: center; }
-    .step-num {
-      display: inline-flex; align-items: center; justify-content: center; width: 40px; height: 40px;
-      border-radius: 50%; background: var(--purple); color: #fff; font-weight: 700; font-size: 1rem; margin-bottom: 1rem;
-    }
+    .step-num { display: inline-flex; align-items: center; justify-content: center; width: 40px; height: 40px; border-radius: 50%; background: var(--purple); color: #fff; font-weight: 700; font-size: 1rem; margin-bottom: 1rem; }
     .step h3 { font-size: 1.1rem; margin-bottom: 0.5rem; }
     .step p { font-size: 0.9rem; color: var(--muted); }
 
-    /* Features */
+    /* 功能 */
     .feature-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(280px, 1fr)); gap: 1.25rem; }
     .feature { background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius); padding: 1.6rem; }
     .feature .ico { font-size: 1.5rem; margin-bottom: 0.6rem; }
     .feature h4 { font-size: 1rem; margin-bottom: 0.4rem; }
     .feature p { font-size: 0.87rem; color: var(--muted); }
 
-    /* Use cases */
+    /* 场景 */
     .cases { display: grid; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); gap: 1rem; }
     .case { background: var(--purple-soft); border-radius: 14px; padding: 1.4rem; font-size: 0.9rem; }
     .case strong { display: block; margin-bottom: 0.3rem; color: var(--purple); }
 
-    /* Final CTA */
-    .cta-box {
-      background: linear-gradient(120deg, var(--purple), #6b21d4);
-      border-radius: 24px; padding: 3rem 2rem; text-align: center; color: #fff;
-    }
+    /* 最终 CTA */
+    .cta-box { background: linear-gradient(120deg, var(--purple), #6b21d4); border-radius: 24px; padding: 3rem 2rem; text-align: center; color: #fff; }
     .cta-box h2 { color: #fff; }
     .cta-box p { color: rgba(255,255,255,0.85); max-width: 480px; margin: 0 auto 1.8rem; }
     .cta-box .btn-primary { background: #fff; color: var(--purple-dark); }
     .cta-box .btn-primary:hover { background: #f3eaff; }
 
-    /* Footer */
+    /* 页脚 */
     footer { border-top: 1px solid var(--border); padding: 2.5rem 0 3rem; text-align: center; font-size: 0.82rem; color: var(--muted); }
     footer a { color: var(--purple); text-decoration: none; }
     footer .links { margin-bottom: 0.8rem; }
@@ -175,46 +160,46 @@
   <nav>
     <div class="nav-inner">
       <a href="/" class="logo"><span class="dot"></span>EchoLearn</a>
-      <a href="/" class="nav-cta">Open App</a>
+      <a href="/" class="nav-cta">打开应用</a>
     </div>
   </nav>
 
   <header class="hero">
     <div class="container">
-      <span class="badge">Free · No account needed · PWA + Android</span>
-      <h1>Turn any YouTube video into<br /><span>your English lesson</span></h1>
-      <p>Paste a link. AI extracts vocabulary and key sentences at your level. Review with spaced repetition. Learn from content you actually enjoy.</p>
+      <span class="badge">免费 · 不用注册 · 网页版 + 安卓 App</span>
+      <h1>把任意 YouTube 视频<br /><span>变成你的英语课</span></h1>
+      <p>贴一个链接，AI 按你的水平挑出生词和地道句子，再用遗忘曲线帮你记住。学你真正喜欢的内容。</p>
       <div class="hero-cta">
-        <a href="/" class="btn-primary">Start Learning — Free</a>
-        <a href="#demo" class="btn-ghost">▶ Watch 60-sec demo</a>
+        <a href="/" class="btn-primary">免费开始学习</a>
+        <a href="#demo" class="btn-ghost">▶ 看 60 秒演示</a>
       </div>
-      <p class="hero-sub">Works on desktop, mobile &amp; tablet. Install as an app. Your data stays on your device until you choose to sync.</p>
+      <p class="hero-sub">手机、电脑、平板都能用，可安装成 App。不登录也能学，数据先存在你设备上，想同步再说。</p>
     </div>
   </header>
 
   <div class="container preview">
-    <img src="/social-preview.png" alt="EchoLearn product preview" />
+    <img src="/social-preview.png" alt="EchoLearn 产品预览" />
   </div>
 
   <section class="section" id="how">
     <div class="container">
-      <h2>How it works</h2>
-      <p class="lead">Three steps from a video link to long-term memory.</p>
+      <h2>怎么用</h2>
+      <p class="lead">从一条视频链接，到真正记住，只要三步。</p>
       <div class="steps">
         <div class="step">
           <div class="step-num">1</div>
-          <h3>Paste a video link</h3>
-          <p>Any YouTube or Bilibili video with subtitles. Podcasts, lectures, vlogs, movie clips — you choose what to study.</p>
+          <h3>贴一个视频链接</h3>
+          <p>任意带字幕的 YouTube 或 Bilibili 视频——播客、公开课、Vlog、影视片段，你来决定学什么。</p>
         </div>
         <div class="step">
           <div class="step-num">2</div>
-          <h3>AI builds your lesson</h3>
-          <p>DeepSeek analyses the transcript, picks vocabulary at your CEFR level (A1–C2), and highlights key sentences with grammar notes.</p>
+          <h3>AI 帮你做课</h3>
+          <p>DeepSeek 分析字幕，按你的 CEFR 水平（A1–C2）挑生词，并标注重点句子和语法点。</p>
         </div>
         <div class="step">
           <div class="step-num">3</div>
-          <h3>Review &amp; remember</h3>
-          <p>Spaced repetition (3→7→14→30 days) moves words into long-term memory. Track your streak and mastery.</p>
+          <h3>复习 &amp; 记住</h3>
+          <p>间隔复习（3→7→14→30 天）把单词送进长期记忆。还能看连续学习天数和掌握度。</p>
         </div>
       </div>
     </div>
@@ -222,42 +207,42 @@
 
   <section class="section" id="features" style="padding-top:0;">
     <div class="container">
-      <h2>Everything you need to learn from video</h2>
-      <p class="lead">Built for real study sessions, not just another flashcard app.</p>
+      <h2>看视频学英语，该有的都有</h2>
+      <p class="lead">为真实的学习场景而做，不是又一个背单词 App。</p>
       <div class="feature-grid">
-        <div class="feature"><div class="ico">📖</div><h4>Interactive Transcripts</h4><p>Click any word for instant dictionary lookup — phonetics, audio, definitions, and recursive exploration.</p></div>
-        <div class="feature"><div class="ico">🎯</div><h4>CEFR-Calibrated AI</h4><p>Vocabulary matched to your level. Pick B1–C2 and get evenly distributed, just-right challenges.</p></div>
-        <div class="feature"><div class="ico">🔁</div><h4>Spaced Repetition</h4><p>Anki-inspired review schedule. Forgot a word? It drops back a level. Mastery is earned.</p></div>
-        <div class="feature"><div class="ico">☁️</div><h4>Cross-Device Sync</h4><p>Sign in with Google and your vocabulary, sentences, and progress sync automatically via Firebase.</p></div>
-        <div class="feature"><div class="ico">🌐</div><h4>Bilingual Interface</h4><p>Full English/Chinese UI toggle. AI translations in Chinese, Japanese, Korean, and 8 more languages.</p></div>
-        <div class="feature"><div class="ico">📱</div><h4>Install as an App</h4><p>PWA on any browser, or native Android APK. Works offline for review sessions.</p></div>
+        <div class="feature"><div class="ico">📖</div><h4>可点击的字幕</h4><p>点任意单词即时查词典——音标、发音、释义，还能层层点开相关词。</p></div>
+        <div class="feature"><div class="ico">🎯</div><h4>按水平匹配 AI</h4><p>生词推荐贴合你的等级。选 B1–C2，就能拿到难度刚好的挑战。</p></div>
+        <div class="feature"><div class="ico">🔁</div><h4>间隔复习</h4><p>Anki 式复习节奏。忘了？自动退回一级。掌握是练出来的。</p></div>
+        <div class="feature"><div class="ico">☁️</div><h4>多设备同步</h4><p>用 Google 登录，生词、句子和进度通过 Firebase 自动同步。</p></div>
+        <div class="feature"><div class="ico">🌐</div><h4>中英双语界面</h4><p>完整中英切换。AI 翻译支持中文、日语、韩语等十余种语言。</p></div>
+        <div class="feature"><div class="ico">📱</div><h4>装成 App 用</h4><p>任意浏览器可装 PWA，也有原生安卓安装包。复习时离线也能用。</p></div>
       </div>
     </div>
   </section>
 
   <section class="section" id="use-cases" style="background: color-mix(in srgb, var(--surface) 60%, var(--bg));">
     <div class="container">
-      <h2>Made for how you already watch</h2>
-      <p class="lead">Whatever you watch for fun or study, turn it into practice.</p>
+      <h2>为你已经在看的内容而做</h2>
+      <p class="lead">不管是娱乐还是学习，都能变成练习。</p>
       <div class="cases">
-        <div class="case"><strong>🎓 Exam prep</strong>IELTS / TOEFL / 考研 — collect real, native example sentences instead of textbook drills.</div>
-        <div class="case"><strong>🎬 Movie &amp; series fans</strong>Save the lines you love and actually remember them. Learn slang in context.</div>
-        <div class="case"><strong>🎙️ Podcast learners</strong>Turn a 20-min podcast into a vocabulary deck you review all week.</div>
-        <div class="case"><strong>💼 Professionals</strong>Study TED talks and industry videos in your field, build domain vocabulary.</div>
+        <div class="case"><strong>🎓 备考党</strong>雅思 / 托福 / 考研——收集地道原句，告别死记硬背的例句。</div>
+        <div class="case"><strong>🎬 追剧党</strong>收藏喜欢的台词并真正记住，在语境里学地道表达。</div>
+        <div class="case"><strong>🎙️ 播客听众</strong>把 20 分钟播客变成一周都在复习的生词卡。</div>
+        <div class="case"><strong>💼 职场人</strong>学本领域的 TED 和行业视频，积累专业词汇。</div>
       </div>
     </div>
   </section>
 
   <section class="section" id="demo">
     <div class="container">
-      <h2>See it in 60 seconds</h2>
-      <p class="lead">A quick look at how a video becomes a lesson.</p>
-      <!-- Replace # with your demo video URL (YouTube / Bilibili / Loom).
-           Example: <iframe ...></iframe> -->
+      <h2>60 秒看懂</h2>
+      <p class="lead">看看一条视频是怎么变成一节课的。</p>
+      <!-- 把 # 换成你的演示视频链接（YouTube / Bilibili / 视频号等）。
+           例如：<iframe ...></iframe> -->
       <div style="max-width:760px;margin:0 auto;border:1px dashed var(--border);border-radius:16px;padding:3rem 1.5rem;text-align:center;color:var(--muted);">
-        <p style="font-size:0.95rem;">🎥 Demo video goes here</p>
-        <p style="font-size:0.8rem;margin-top:0.4rem;">Drop your screen-recording link or embed in <code>public/landing.html</code> → section <code>#demo</code>.</p>
-        <p style="margin-top:1rem;"><a class="btn-primary" href="/" style="padding:0.7rem 1.6rem;font-size:0.95rem;">Open EchoLearn now →</a></p>
+        <p style="font-size:0.95rem;">🎥 演示视频放这里</p>
+        <p style="font-size:0.8rem;margin-top:0.4rem;">把你的录屏链接或嵌入代码填进 <code>public/landing-zh.html</code> 的 <code>#demo</code> 区块即可。</p>
+        <p style="margin-top:1rem;"><a class="btn-primary" href="/" style="padding:0.7rem 1.6rem;font-size:0.95rem;">现在就打开 EchoLearn →</a></p>
       </div>
     </div>
   </section>
@@ -265,9 +250,9 @@
   <section class="section" style="padding-top:0;">
     <div class="container">
       <div class="cta-box">
-        <h2>Start learning from what you watch</h2>
-        <p>No sign-up, no credit card. Paste a YouTube link and your first lesson is ready in seconds.</p>
-        <a href="/" class="btn-primary">Open EchoLearn — Free</a>
+        <h2>从你爱看的内容开始学</h2>
+        <p>不用注册、不用付费。贴一条 YouTube 链接，几秒就能上第一节课。</p>
+        <a href="/" class="btn-primary">免费打开 EchoLearn</a>
       </div>
     </div>
   </section>
@@ -275,11 +260,11 @@
   <footer>
     <div class="container">
       <div class="links">
-        <a href="/privacy.html">Privacy Policy</a> &middot;
-        <a href="/terms.html">Terms of Service</a> &middot;
+        <a href="/privacy.html">隐私政策</a> &middot;
+        <a href="/terms.html">服务条款</a> &middot;
         <a href="https://github.com/Shmily0826/EchoLearn">GitHub</a>
       </div>
-      <p>&copy; 2026 EchoLearn. Built for learners, by a learner.</p>
+      <p>&copy; 2026 EchoLearn. 由一个学习者，为学习者而做。</p>
     </div>
   </footer>
 </body>
