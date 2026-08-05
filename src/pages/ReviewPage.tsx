@@ -91,8 +91,8 @@ const ReviewPage: React.FC = () => {
   // ── Computed stats ──────────────────────────────────────
   const todayEnd = todayStartMs() + 24 * 60 * 60 * 1000;
 
-  const dueWordCount = useMemo(() => vocabulary.filter((v) => !v.mastered && v.nextReviewAt <= todayEnd).length, [vocabulary, todayEnd]);
-  const dueSentenceCount = useMemo(() => sentences.filter((s) => !s.mastered && s.nextReviewAt <= todayEnd).length, [sentences, todayEnd]);
+  const dueWordCount = useMemo(() => vocabulary.filter((v) => v.nextReviewAt > 0 && v.nextReviewAt <= todayEnd).length, [vocabulary, todayEnd]);
+  const dueSentenceCount = useMemo(() => sentences.filter((s) => s.nextReviewAt > 0 && s.nextReviewAt <= todayEnd).length, [sentences, todayEnd]);
   const dueCount = dueWordCount + dueSentenceCount;
 
   const unmasteredWordCount = useMemo(() => vocabulary.filter((v) => !v.mastered).length, [vocabulary]);
@@ -109,26 +109,24 @@ const ReviewPage: React.FC = () => {
   const startSession = useCallback(
     (selectedMode: ReviewMode, filter: TypeFilter = 'all') => {
       const due: ReviewCard[] = [];
-      const allUnmastered: ReviewCard[] = [];
+      const all: ReviewCard[] = [];
+
+      // A word/sentence is "due" when its next review is today or earlier and it
+      // has a real schedule (nextReviewAt > 0). Mastered items re-enter the
+      // queue here once their long-term refresher interval elapses.
+      const consider = (card: ReviewCard, nextReviewAt: number) => {
+        all.push(card); // 'all' mode studies everything, incl. mastered refreshers
+        if (nextReviewAt > 0 && nextReviewAt <= todayEnd) due.push(card);
+      };
 
       if (filter !== 'sentences') {
-        for (const v of vocabulary) {
-          if (!v.mastered) {
-            allUnmastered.push({ kind: 'word', item: v });
-            if (v.nextReviewAt <= todayEnd) due.push({ kind: 'word', item: v });
-          }
-        }
+        for (const v of vocabulary) consider({ kind: 'word', item: v }, v.nextReviewAt);
       }
       if (filter !== 'words') {
-        for (const s of sentences) {
-          if (!s.mastered) {
-            allUnmastered.push({ kind: 'sentence', item: s });
-            if (s.nextReviewAt <= todayEnd) due.push({ kind: 'sentence', item: s });
-          }
-        }
+        for (const s of sentences) consider({ kind: 'sentence', item: s }, s.nextReviewAt);
       }
 
-      const pool = selectedMode === 'due' ? due : allUnmastered;
+      const pool = selectedMode === 'due' ? due : all;
       const shuffled = [...pool].sort(() => Math.random() - 0.5);
 
       setMode(selectedMode);
@@ -165,7 +163,7 @@ const ReviewPage: React.FC = () => {
     const patch = {
       reviewCount: newCount,
       lastReviewedAt: now,
-      nextReviewAt: isMastered ? 0 : nextAt,
+      nextReviewAt: nextAt,
       mastered: isMastered,
     };
 
@@ -223,7 +221,7 @@ const ReviewPage: React.FC = () => {
     const patch = {
       reviewCount: newCount,
       lastReviewedAt: now,
-      nextReviewAt: isMastered ? 0 : nextAt,
+      nextReviewAt: nextAt,
       mastered: isMastered,
     };
 

@@ -37,9 +37,15 @@ export function computeNextReviewAt(reviewCount: number): number {
     2: 7,
     3: 14,
     4: 30,
+    // "Mastered" long-term maintenance ladder (reviewCount >= 5): keep
+    // surfacing words at growing intervals so they aren't forgotten forever.
+    5: 90,
+    6: 180,
+    7: 365,
   };
-  const days = intervals[reviewCount] ?? 0;
-  if (days === 0) return 0; // mastered — no further review
+  // reviewCount >= 5 but beyond the explicit map → stay on the longest interval.
+  const days = intervals[reviewCount] ?? (reviewCount >= 5 ? 365 : 0);
+  if (days === 0) return 0; // legacy mastered / invalid → never review
   return Date.now() + days * DAY_MS;
 }
 
