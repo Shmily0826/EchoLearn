@@ -446,23 +446,41 @@ function mwRelated(query: string, hw: string, primaryHw: string): boolean {
   return short.length >= 2 && long.startsWith(short);
 }
 
+/**
+ * Why the last MW attempt did not produce an answer. Surfaced (without the
+ * key) on X-Dict-Mw-Status so a bad key can be told apart from a genuine miss.
+ */
+let mwLastStatus = 'unused';
+
+/**
+ * Env values pasted through a dashboard often arrive wrapped in quotes or with
+ * a stray newline. Those characters get percent-encoded into the query string
+ * and MW rejects the request, which looks exactly like "no result".
+ */
+function readMwKey(): string {
+  return (process.env.MW_LEARNERS_KEY || '').trim().replace(/^["']|["']$/g, '').trim();
+}
+
 async function fetchMerriamWebster(word: string, target: string): Promise<BackendResponse | null> {
-  const key = process.env.MW_LEARNERS_KEY;
-  if (!key) return null;
+  const key = readMwKey();
+  if (!key) { mwLastStatus = 'no-key'; return null; }
 
   let data: unknown;
   try {
     const res = await fetch(`${MW_BASE}/${encodeURIComponent(word)}?key=${encodeURIComponent(key)}`, {
       signal: AbortSignal.timeout(MW_TIMEOUT_MS),
     });
-    if (!res.ok) return null;
+    if (!res.ok) { mwLastStatus = `http-${res.status}`; return null; }
     data = await res.json();
-  } catch {
+  } catch (e) {
+    mwLastStatus = `fetch-error-${(e as Error)?.name || 'unknown'}`;
     return null;
   }
 
   // A miss returns [] or an array of spelling suggestions (plain strings).
-  if (!Array.isArray(data) || data.length === 0 || typeof data[0] === 'string') return null;
+  if (!Array.isArray(data)) { mwLastStatus = 'bad-shape'; return null; }
+  if (data.length === 0) { mwLastStatus = 'empty'; return null; }
+  if (typeof data[0] === 'string') { mwLastStatus = 'suggestions'; return null; }
 
   // Keep only real learner entries that actually cover the queried word.
   // meta.stems is MW's own inflection list, so this is the dictionary telling
@@ -474,13 +492,13 @@ async function fetchMerriamWebster(word: string, target: string): Promise<Backen
     const stems = (e.meta?.stems || []).map((s) => s.toLowerCase());
     return stems.includes(word) || mwHeadword(e) === word;
   });
-  if (covering.length === 0) return null;
+  if (covering.length === 0) { mwLastStatus = 'no-covering-entry'; return null; }
 
   // MW ranks the best match first — use it as the anchor, then keep only
   // same-lexeme entries so noise like "went" → "unnoticed" cannot leak in.
   const primaryHw = mwHeadword(covering[0]);
   const entries = covering.filter((e) => mwRelated(word, mwHeadword(e), primaryHw));
-  if (entries.length === 0) return null;
+  if (entries.length === 0) { mwLastStatus = 'no-related-entry'; return null; }
 
   // Definitions: up to MAX_POS parts of speech, MAX_DEFS_PER_POS senses each.
   const tasks: DefTask[] = [];
@@ -498,7 +516,7 @@ async function fetchMerriamWebster(word: string, target: string): Promise<Backen
       tasks.push({ pos, original });
     }
   }
-  if (tasks.length === 0) return null;
+  if (tasks.length === 0) { mwLastStatus = 'no-definitions'; return null; }
 
   // Pronunciation: MW flags the British variant, everything else is US.
   let ipaUs = '';
@@ -515,8 +533,9 @@ async function fetchMerriamWebster(word: string, target: string): Promise<Backen
   }
 
   const out = await buildEntries(tasks, target);
-  if (out.length === 0) return null;
+  if (out.length === 0) { mwLastStatus = 'translate-failed'; return null; }
 
+  mwLastStatus = 'ok';
   return {
     ipa_uk: ipaUk || ipaUs,
     ipa_us: ipaUs || ipaUk,
@@ -632,7 +651,9 @@ async function fetchFromDatamuse(word: string, target: string): Promise<BackendR
 function diagHeaders(source: string | undefined): Record<string, string> {
   return {
     'X-Dict-Source': source || 'none',
-    'X-Dict-Mw-Key': process.env.MW_LEARNERS_KEY ? 'configured' : 'missing',
+    // Length only — enough to spot a truncated or quote-wrapped paste.
+    'X-Dict-Mw-Key': readMwKey() ? `configured-${readMwKey().length}` : 'missing',
+    'X-Dict-Mw-Status': mwLastStatus,
     'X-Dict-Fd-Breaker': fdAvailable() ? 'closed' : 'open',
   };
 }
