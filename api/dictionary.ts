@@ -45,7 +45,7 @@ const RATE_LIMIT_MAX = 120;
  * giving up early is strictly better than waiting.
  */
 const MW_TIMEOUT_MS = 4000;
-const FREE_DICT_TIMEOUT_MS = 3000;
+const FREE_DICT_TIMEOUT_MS = 2500;
 const DATAMUSE_TIMEOUT_MS = 3000;
 
 /**
@@ -740,54 +740,58 @@ export default async function handler(request: Request): Promise<Response> {
     });
   }
 
-  // ── Tier 2: Free Dictionary.
-  // Resolve the headword — dictionary wins; lemmatizer only proposes. ──
+  // ── Tier 2: Datamuse (keyless, reliable, returns IPA + multi-sense). ──
+  // Tried before Free Dictionary because the latter currently returns 502 for
+  // most requests; waiting on it added 3-6s to every word Merriam-Webster's
+  // learner dictionary doesn't carry. Datamuse almost always answers in <1s.
   const candidates = candidateLemmas(word);
+  let response: BackendResponse | null = await fetchFromDatamuse(word, target);
+  if (!response && candidates.length > 0) {
+    response = await fetchFromDatamuse(candidates[0], target);
+  }
 
-  // One round-trip for the raw word, one for the best candidate — in parallel,
-  // so the extra accuracy costs no latency.
-  const [rawEntry, candEntry] = await Promise.all([
-    fetchFreeDict(word),
-    candidates.length > 0 ? fetchFreeDict(candidates[0]) : Promise.resolve(null),
-  ]);
+  // ── Tier 3: Free Dictionary (richer audio, but flaky) — last resort only. ──
+  // Only reached when Datamuse has no answer; the circuit breaker then skips
+  // it fast if it's down, so the 502s no longer stall the lookup.
+  if (!response) {
+    const [rawEntry, candEntry] = await Promise.all([
+      fetchFreeDict(word),
+      candidates.length > 0 ? fetchFreeDict(candidates[0]) : Promise.resolve(null),
+    ]);
 
-  let chosen: FreeEntry | null = null;
-  let baseForm = '';
+    let chosen: FreeEntry | null = null;
+    let baseForm = '';
 
-  if (rawEntry) {
-    const pointer = dictionaryBaseForm(rawEntry, candidates);
-    if (pointer && pointer !== word) {
-      // The dictionary itself says this is an inflected form — follow it.
-      const target0 =
-        candEntry && candEntry.word?.toLowerCase() === pointer
-          ? candEntry
-          : await fetchFreeDict(pointer);
-      chosen = target0 ?? rawEntry;
-      baseForm = (target0?.word || pointer).toLowerCase();
-    } else {
-      chosen = rawEntry;
-      baseForm = (rawEntry.word || word).toLowerCase();
+    if (rawEntry) {
+      const pointer = dictionaryBaseForm(rawEntry, candidates);
+      if (pointer && pointer !== word) {
+        // The dictionary itself says this is an inflected form — follow it.
+        const target0 =
+          candEntry && candEntry.word?.toLowerCase() === pointer
+            ? candEntry
+            : await fetchFreeDict(pointer);
+        chosen = target0 ?? rawEntry;
+        baseForm = (target0?.word || pointer).toLowerCase();
+      } else {
+        chosen = rawEntry;
+        baseForm = (rawEntry.word || word).toLowerCase();
+      }
+    } else if (candEntry) {
+      // Raw word is not a headword (e.g. "aren't"), and the dictionary confirmed
+      // our candidate is real → safe to use it as the base form.
+      chosen = candEntry;
+      baseForm = (candEntry.word || candidates[0]).toLowerCase();
     }
-  } else if (candEntry) {
-    // Raw word is not a headword (e.g. "aren't"), and the dictionary confirmed
-    // our candidate is real → safe to use it as the base form.
-    chosen = candEntry;
-    baseForm = (candEntry.word || candidates[0]).toLowerCase();
+
+    response = chosen ? await freeEntryToBackend(chosen, target, baseForm) : null;
+
+    if (!response && candidates.length > 1) {
+      // Try the remaining proposals in parallel; first validated one wins.
+      const rest = await Promise.all(candidates.slice(1, 4).map((c) => fetchFreeDict(c)));
+      const hit = rest.find((e): e is FreeEntry => !!e);
+      if (hit) response = await freeEntryToBackend(hit, target, (hit.word || '').toLowerCase());
+    }
   }
-
-  let response: BackendResponse | null = chosen
-    ? await freeEntryToBackend(chosen, target, baseForm)
-    : null;
-
-  if (!response && candidates.length > 1) {
-    // Try the remaining proposals in parallel; first validated one wins.
-    const rest = await Promise.all(candidates.slice(1, 4).map((c) => fetchFreeDict(c)));
-    const hit = rest.find((e): e is FreeEntry => !!e);
-    if (hit) response = await freeEntryToBackend(hit, target, (hit.word || '').toLowerCase());
-  }
-
-  if (!response) response = await fetchFromDatamuse(word, target);
-  if (!response && candidates.length > 0) response = await fetchFromDatamuse(candidates[0], target);
 
   if (!response) {
     return jsonResponse({ error: 'not found' }, 404, origin);

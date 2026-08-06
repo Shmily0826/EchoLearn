@@ -82,26 +82,23 @@ const WordDictionaryPopup: React.FC<WordDictionaryPopupProps> = ({
     setLoading(true);
     setError(false);
     setDefinitionCn('');
+
+    // The one-line Chinese gloss is independent of the dictionary fetch, so
+    // start it in parallel. Definitions already arrive server-translated; this
+    // just adds a concise equivalent at the same time instead of after an
+    // extra round-trip (which previously made each popup feel ~1s slower).
+    if (showChinese) {
+      translateWordFast(currentWord, lang as TranslateLang)
+        .then((cn) => { if (!cancelled && cn) setDefinitionCn(cn); })
+        .catch(() => { /* silent */ });
+    }
+
     lookupWord(currentWord).then((result) => {
       if (cancelled) return;
       if (result) {
         setEntry(result);
-        // Fast Google-translate layer for the one-line Chinese equivalent.
-        // Definitions are already translated server-side; this is just a concise
-        // word gloss, so speed matters more than sentence-context nuance here.
-        if (showChinese) {
-          translateWordFast(currentWord, lang as TranslateLang).then((cn) => {
-            if (!cancelled && cn) setDefinitionCn(cn);
-          }).catch(() => { /* silent */ });
-        }
       } else {
         setError(true);
-        // Still try to translate the word itself, but only in Chinese mode.
-        if (showChinese) {
-          translateWordFast(currentWord, lang as TranslateLang).then((cn) => {
-            if (!cancelled && cn) setDefinitionCn(cn);
-          }).catch(() => { /* silent */ });
-        }
       }
       setLoading(false);
     });
