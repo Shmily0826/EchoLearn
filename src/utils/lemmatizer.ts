@@ -310,6 +310,55 @@ const BASE_ER_WORDS = new Set([
   'tender', 'upper', 'utter', 'weak', 'wild', 'wise',
 ]);
 
+/**
+ * Stems of regular past-tense verbs whose base form ends in silent -e.
+ * When we see word = stem + "ed", we must restore the -e to get the lemma.
+ * Example: liked → stem "lik" → lemma "like".
+ *
+ * We default to the bare stem for all other -ed words so we don't create
+ * bogus lemmas like "trusted" → "truste" or "played" → "playe".
+ */
+const ED_STEM_ADD_E = new Set([
+  // -ike / -ike
+  'lik', 'bik', 'hik', 'pik', 'spik', 'strik', 'snik',
+  // -oke / -oke
+  'hop', 'rop', 'mop', 'cop', 'pop', 'jok', 'smok', 'chok', 'provok', 'invok', 'revok',
+  // -ake / -ake
+  'bak', 'fak', 'lak', 'mak', 'rak', 'sak', 'tak', 'wak', 'shak', 'tak',
+  // -uke / -yke
+  'us',
+  // -ace / -ice
+  'fac', 'rac', 'plac', 'trac', 'pac', 'spac',
+  'pric', 'slic',
+  // -ise / -ize / -aze / -ase
+  'rais', 'prais', 'blaz', 'gaz', 'amaz',
+  // -ose / -use
+  'clos', 'chos', 'refus', 'confus', 'accus', 'excus', 'us',
+  // -ite / -ate / -ute
+  'invit', 'wait', 'writ', 'bit', 'fit', 'hit', 'kit', 'pit', 'sit', 'wit', 'split',
+  'hat', 'rat', 'dat', 'fat', 'gat', 'mat', 'bat', 'sat',
+  'cut', 'shut',
+  // -ide
+  'decid', 'divid', 'provid', 'confid', 'glid', 'slid', 'rid', 'hid',
+  // -ine
+  'defin', 'refin', 'confin',
+  // -ipe / -ype
+  'wip', 'rip', 'dip', 'hip', 'sip', 'tip', 'pip', 'grip', 'trip', 'strip', 'typ',
+  // -ire
+  'fir', 'hir', 'tir', 'wir', 'mir', 'desir', 'requir', 'inspir', 'expir',
+  // -ive / -ove
+  'liv', 'giv', 'div', 'driv', 'striv', 'thriv', 'arriv', 'believ', 'achiev', 'receiv', 'perceiv', 'conceiv',
+  'lov', 'mov', 'prov', 'approv', 'improv',
+  // -are / -ere / -ore / -ure
+  'car', 'dar', 'far', 'scar', 'spar', 'star', 'bar', 'compar', 'prepar', 'declar', 'repair',
+  'bor', 'cor', 'gor', 'por', 'snor', 'stor',
+  'cur', 'lur',
+  // -ase / -ese / -ise / -ose / -use
+  'chas', 'phas', 'pleas', 'creas', 'decreas',
+  // others
+  'siz', 'forc', 'not',
+]);
+
 // ── Suffix rules ────────────────────────────────────────────────────
 
 /** Consonant-vowel-consonant pattern check for doubling rules. */
@@ -393,15 +442,14 @@ function tryVerbForm(word: string): string | null {
     if (stem.length >= 2 && stem[stem.length - 1] === stem[stem.length - 2] && hasCVCEnding(stem)) {
       return stem.slice(0, -1);
     }
-    // liked → like (stem ends with e-like pattern)
-    if (stem.length >= 2) {
-      // Try stem + e first if stem doesn't end in a vowel
-      const lastChar = stem[stem.length - 1];
-      if (!'aeiou'.includes(lastChar) && lastChar !== 'e') {
-        return stem + 'e';
-      }
-      return stem;
+    // liked → like (the base form ended in silent -e: like → liked).
+    // The old rule added 'e' for every consonant-ending stem, producing
+    // wrong lemmas like "trusted" → "truste". We now default to the bare
+    // stem and only restore -e for known stems where it is correct.
+    if (ED_STEM_ADD_E.has(stem)) {
+      return stem + 'e';
     }
+    return stem;
   }
 
   // -es (verb 3rd person singular) — tries → try, goes → go (goes is in irregular table)
@@ -521,18 +569,69 @@ export function lemmatize(word: string): string {
   // Handled before inflection rules because the apostrophe blocks suffix matching.
   if (lower.includes("'")) {
     const CONTRACTIONS: Record<string, string> = {
-      "won't": 'will',
-      "can't": 'can',
-      "shan't": 'shall',
+      // be
       "ain't": 'be',
+      "aren't": 'be',
+      "isn't": 'be',
+      "wasn't": 'be',
+      "weren't": 'be',
+      "i'm": 'be',
+      // do
+      "don't": 'do',
+      "doesn't": 'do',
+      "didn't": 'do',
+      // have
+      "haven't": 'have',
+      "hasn't": 'have',
+      "hadn't": 'have',
+      "i've": 'have',
+      "you've": 'have',
+      "we've": 'have',
+      "they've": 'have',
+      // will / would
+      "won't": 'will',
+      "wouldn't": 'will',
+      "i'll": 'will',
+      "you'll": 'will',
+      "we'll": 'will',
+      "they'll": 'will',
+      "he'll": 'will',
+      "she'll": 'will',
+      "it'll": 'will',
+      "i'd": 'would',
+      "you'd": 'would',
+      "we'd": 'would',
+      "they'd": 'would',
+      "he'd": 'would',
+      "she'd": 'would',
+      "it'd": 'would',
+      // can / could / shall / should / must
+      "can't": 'can',
+      "couldn't": 'can',
+      "shan't": 'shall',
+      "shouldn't": 'shall',
+      "mustn't": 'must',
+      // pronoun + is/has (keep pronoun)
+      "it's": 'it',
+      "that's": 'that',
+      "what's": 'what',
+      "here's": 'here',
+      "there's": 'there',
+      "where's": 'where',
+      "who's": 'who',
+      "how's": 'how',
+      "he's": 'he',
+      "she's": 'she',
+      "you're": 'you',
+      "we're": 'we',
+      "they're": 'they',
+      // let's
+      "let's": 'let',
     };
     if (CONTRACTIONS[lower]) return CONTRACTIONS[lower];
+    // Fallback: strip everything after the apostrophe (e.g. "gov't" → "gov").
     const base = lower.split("'")[0];
-    if (base.length >= 1) {
-      // "don't" → "don" → "do"; "isn't" → "isn" → "is"
-      if (base.endsWith('n')) return base.slice(0, -1);
-      return base;
-    }
+    if (base.length >= 1) return base;
   }
 
   // 1. Irregular forms (highest priority)

@@ -333,9 +333,9 @@ const TranscriptViewer: React.FC<TranscriptViewerProps> = ({
               </p>
             )}
 
-            {/* Part of speech — hidden when the multi-sense list below already labels each row */}
+            {/* Part of speech — hidden when the list below already labels each row */}
             {dictEntry?.partOfSpeech &&
-              !(dictEntry.definitionsEn && dictEntry.definitionsEn.length > 1) && (
+              !(dictEntry.definitionsEn && dictEntry.definitionsEn.length > 0) && (
                 <span className="inline-block text-[11px] px-2 py-0.5 bg-indigo-50 dark:bg-indigo-950 text-indigo-600 rounded-full font-medium mb-2">
                   {dictEntry.partOfSpeech}
                 </span>
