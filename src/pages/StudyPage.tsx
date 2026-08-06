@@ -408,16 +408,23 @@ const StudyPage: React.FC = () => {
     const tick = () => {
       if (cancelled) return;
       const pending = pendingSeekRef.current;
-      if (!pending) return;
-      if (pending.videoId !== videoId) return; // a different video is loading
 
-      if (playerRef.current) {
+      if (pending && pending.videoId === videoId && playerRef.current) {
         playerRef.current.seekTo(pending.seconds);
         playerRef.current.playVideo();
         pendingSeekRef.current = null;
         return;
       }
-      if (++attempts < 40) window.setTimeout(tick, 150); // give up after ~6s
+
+      // Keep polling rather than bailing out: the request, the session switch
+      // and the iframe becoming ready arrive in no guaranteed order.
+      if (++attempts < 40) {
+        window.setTimeout(tick, 150);
+      } else if (pending && pending.videoId === videoId) {
+        // Player never came up — drop the request so it cannot fire later and
+        // yank the user out of an unrelated video.
+        pendingSeekRef.current = null;
+      }
     };
 
     const id = window.setTimeout(tick, 100);
