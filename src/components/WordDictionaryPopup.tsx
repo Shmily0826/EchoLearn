@@ -48,7 +48,7 @@ const WordDictionaryPopup: React.FC<WordDictionaryPopupProps> = ({
 }) => {
   const [currentWord, setCurrentWord] = useState(initialWord);
   const [wordHistory, setWordHistory] = useState<string[]>([]);
-  const [entry, setEntry] = useState<DictionaryEntry | null>(null);
+  const [entry, setEntry] = useState<(DictionaryEntry & { lemma?: string }) | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(false);
   const [definitionCn, setDefinitionCn] = useState('');
@@ -177,6 +177,14 @@ const WordDictionaryPopup: React.FC<WordDictionaryPopupProps> = ({
             </button>
           )}
           <span className="text-lg font-bold text-gray-800 dark:text-gray-200">{currentWord}</span>
+          {entry?.lemma && (
+            <span
+              className="text-xs font-normal text-gray-400 dark:text-gray-500"
+              title="Base form (lemma)"
+            >
+              ← {entry.lemma}
+            </span>
+          )}
           {entry?.phonetic && (
             <span className="text-sm text-gray-400 dark:text-gray-500 font-mono">
               <span className="text-[10px] mr-0.5 opacity-70">IPA</span>
@@ -195,12 +203,13 @@ const WordDictionaryPopup: React.FC<WordDictionaryPopupProps> = ({
           </button>
         </div>
 
-        {/* Part of speech */}
-        {entry?.partOfSpeech && (
-          <span className="inline-block text-[11px] px-2 py-0.5 bg-indigo-50 dark:bg-indigo-950 text-indigo-600 rounded-full font-medium mb-2">
-            {entry.partOfSpeech}
-          </span>
-        )}
+        {/* Part of speech — hidden when the multi-sense list below already labels each row */}
+        {entry?.partOfSpeech &&
+          !(entry.definitionsEn && entry.definitionsEn.length > 1) && (
+            <span className="inline-block text-[11px] px-2 py-0.5 bg-indigo-50 dark:bg-indigo-950 text-indigo-600 rounded-full font-medium mb-2">
+              {entry.partOfSpeech}
+            </span>
+          )}
 
         {/* Loading */}
         {loading && (
@@ -216,10 +225,28 @@ const WordDictionaryPopup: React.FC<WordDictionaryPopupProps> = ({
         {/* Dictionary result */}
         {entry && !loading && (
           <div className="mb-3">
-            {entry.definitionEn && (
-              <p className="text-sm text-gray-700 dark:text-gray-300 leading-relaxed">
-                <ClickableDefinition text={entry.definitionEn} onWordClick={handleLookupWord} />
-              </p>
+            {entry.definitionsEn && entry.definitionsEn.length > 0 ? (
+              <ul className="space-y-1.5">
+                {entry.definitionsEn.map((d, i) => (
+                  <li
+                    key={i}
+                    className="text-sm text-gray-700 dark:text-gray-300 leading-relaxed"
+                  >
+                    {d.pos && (
+                      <span className="inline-block text-[10px] px-1.5 py-0.5 mr-1.5 align-middle bg-indigo-50 dark:bg-indigo-950 text-indigo-600 dark:text-indigo-400 rounded font-medium">
+                        {d.pos}
+                      </span>
+                    )}
+                    <ClickableDefinition text={d.definition} onWordClick={handleLookupWord} />
+                  </li>
+                ))}
+              </ul>
+            ) : (
+              entry.definitionEn && (
+                <p className="text-sm text-gray-700 dark:text-gray-300 leading-relaxed">
+                  <ClickableDefinition text={entry.definitionEn} onWordClick={handleLookupWord} />
+                </p>
+              )
             )}
             {showChinese && definitionCn && (
               <p className="text-sm text-indigo-600 dark:text-indigo-400 leading-relaxed mt-1">{definitionCn}</p>

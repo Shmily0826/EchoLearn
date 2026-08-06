@@ -153,21 +153,63 @@ async function freeEntryToBackend(entry: FreeEntry, target: string): Promise<Bac
   const meanings = entry.meanings || [];
   if (meanings.length === 0) return null;
   const translateNeeded = target !== 'en' && target !== 'en-US';
+
+  // Bound the work: up to 3 POS, up to 2 definitions per POS (Free Dictionary's
+  // most-common senses). This exposes the common definition to the popup while
+  // keeping Google gtx translation calls bounded.
+  const MAX_POS = 3;
+  const MAX_DEFS_PER_POS = 2;
+
+  type Task = { pos: string; original: string };
+  const tasks: Task[] = [];
+  const seen = new Set<string>(); // dedupe exact duplicate definitions within a POS
+  for (const m of meanings.slice(0, MAX_POS)) {
+    const pos = m.partOfSpeech || '';
+    if (!m.definitions || m.definitions.length === 0) continue;
+    for (const d of m.definitions.slice(0, MAX_DEFS_PER_POS)) {
+      const original = d.definition || '';
+      if (!original) continue;
+      const key = `${pos}::${original}`;
+      if (seen.has(key)) continue;
+      seen.add(key);
+      tasks.push({ pos, original });
+    }
+  }
+  if (tasks.length === 0) return null;
+
+  // Translate all definitions in parallel (much faster than sequential await).
+  const translated = await Promise.all(
+    tasks.map(async (t) => {
+      if (!translateNeeded) return t.original;
+      try {
+        return await translateWithGoogle(t.original, 'en', target);
+      } catch {
+        return t.original; // keep English on failure
+      }
+    }),
+  );
+
+  // Group translations back by POS, preserving source order.
+  const grouped = new Map<string, string[]>();
+  for (let i = 0; i < tasks.length; i++) {
+    const { pos } = tasks[i];
+    const arr = grouped.get(pos) || [];
+    arr.push(translated[i]);
+    grouped.set(pos, arr);
+  }
+
   const out: BackendEntry[] = [];
   let order = 0;
-  for (const m of meanings) {
-    if (!m.definitions || m.definitions.length === 0) continue;
-    const def = m.definitions[0];
-    let translated = def.definition || '';
-    if (translateNeeded && translated) {
-      try { translated = await translateWithGoogle(translated, 'en', target); } catch { /* keep English on failure */ }
-    }
+  for (const [pos, defs] of grouped) {
     out.push({
-      pos: m.partOfSpeech || '',
-      definitions: [{ display_order: order++, definitions_json: { definition: translated } }],
+      pos,
+      definitions: defs.map((definition) => ({
+        display_order: order++,
+        definitions_json: { definition },
+      })),
     });
   }
-  if (out.length === 0) return null;
+
   const { ipa, audio } = extractPhonetic(entry);
   // 省事版 (simple variant): Free Dictionary does not cleanly separate UK/US IPA,
   // so we use the one available IPA for both fields.

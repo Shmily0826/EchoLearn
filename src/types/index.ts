@@ -28,6 +28,11 @@ export interface DictionaryEntry {
   audioUrl: string;
   partOfSpeech: string;
   definitionEn: string;
+  /** All (POS, definition) pairs from the backend, in source order. The first
+   *  entry is duplicated as `definitionEn` + `partOfSpeech` for backward
+   *  compatibility. When the backend returns a single entry, this array has
+   *  length 1 and behaves like the old `definitionEn`. */
+  definitionsEn?: Array<{ pos: string; definition: string }>;
   example: string;
   synonyms: string[];
   antonyms: string[];

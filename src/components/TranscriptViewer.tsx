@@ -58,7 +58,7 @@ const TranscriptViewer: React.FC<TranscriptViewerProps> = ({
 }) => {
   const { t, lang } = useI18n();
   const [popup, setPopup] = useState<WordPopupState | null>(null);
-  const [dictEntry, setDictEntry] = useState<DictionaryEntry | null>(null);
+  const [dictEntry, setDictEntry] = useState<(DictionaryEntry & { lemma?: string }) | null>(null);
   const [dictLoading, setDictLoading] = useState(false);
   const [dictError, setDictError] = useState(false);
   const [translation, setTranslation] = useState('');
@@ -286,11 +286,19 @@ const TranscriptViewer: React.FC<TranscriptViewerProps> = ({
                 <path strokeLinecap="round" strokeLinejoin="round" d="M6 18L18 6M6 6l12 12" />
               </svg>
             </button>
-            {/* Word + phonetic */}
+            {/* Word + phonetic + base-form */}
             <div className="flex items-center gap-2 mb-1">
               <span className="text-lg font-bold text-gray-800 dark:text-gray-200">
                 {popup.word}
               </span>
+              {dictEntry?.lemma && (
+                <span
+                  className="text-xs font-normal text-gray-400 dark:text-gray-500"
+                  title="Base form (lemma)"
+                >
+                  ← {dictEntry.lemma}
+                </span>
+              )}
               {dictEntry?.phonetic && (
                 <span className="text-sm text-gray-400 dark:text-gray-500 font-mono">
                   <span className="text-[10px] mr-0.5 opacity-70">IPA</span>
@@ -325,12 +333,13 @@ const TranscriptViewer: React.FC<TranscriptViewerProps> = ({
               </p>
             )}
 
-            {/* Part of speech */}
-            {dictEntry?.partOfSpeech && (
-              <span className="inline-block text-[11px] px-2 py-0.5 bg-indigo-50 dark:bg-indigo-950 text-indigo-600 rounded-full font-medium mb-2">
-                {dictEntry.partOfSpeech}
-              </span>
-            )}
+            {/* Part of speech — hidden when the multi-sense list below already labels each row */}
+            {dictEntry?.partOfSpeech &&
+              !(dictEntry.definitionsEn && dictEntry.definitionsEn.length > 1) && (
+                <span className="inline-block text-[11px] px-2 py-0.5 bg-indigo-50 dark:bg-indigo-950 text-indigo-600 rounded-full font-medium mb-2">
+                  {dictEntry.partOfSpeech}
+                </span>
+              )}
 
             {/* Loading state */}
             {dictLoading && (
@@ -355,10 +364,28 @@ const TranscriptViewer: React.FC<TranscriptViewerProps> = ({
             {/* Dictionary result */}
             {dictEntry && !dictLoading && (
               <div className="mb-3">
-                {dictEntry.definitionEn && (
-                  <p className="text-sm text-gray-700 dark:text-gray-300 leading-relaxed">
-                    {dictEntry.definitionEn}
-                  </p>
+                {dictEntry.definitionsEn && dictEntry.definitionsEn.length > 0 ? (
+                  <ul className="space-y-1.5">
+                    {dictEntry.definitionsEn.map((d, i) => (
+                      <li
+                        key={i}
+                        className="text-sm text-gray-700 dark:text-gray-300 leading-relaxed"
+                      >
+                        {d.pos && (
+                          <span className="inline-block text-[10px] px-1.5 py-0.5 mr-1.5 align-middle bg-indigo-50 dark:bg-indigo-950 text-indigo-600 dark:text-indigo-400 rounded font-medium">
+                            {d.pos}
+                          </span>
+                        )}
+                        {d.definition}
+                      </li>
+                    ))}
+                  </ul>
+                ) : (
+                  dictEntry.definitionEn && (
+                    <p className="text-sm text-gray-700 dark:text-gray-300 leading-relaxed">
+                      {dictEntry.definitionEn}
+                    </p>
+                  )
                 )}
                 {dictEntry.example && (
                   <p className="text-xs text-gray-400 dark:text-gray-500 mt-1.5 italic leading-relaxed">

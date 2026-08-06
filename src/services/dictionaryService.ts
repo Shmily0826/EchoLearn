@@ -88,12 +88,25 @@ async function fetchFromBackend(
     const firstDef = firstEntry?.definitions?.[0]?.definitions_json?.definition ?? '';
     const phonetic = raw.ipa_uk || raw.ipa_us;
 
+    // Flatten every (POS, definition) the backend returned so the popup can
+    // show all common senses (the most common fix for "wrong sense" complaints).
+    const definitionsEn: Array<{ pos: string; definition: string }> = [];
+    for (const entry of raw.entries) {
+      if (!entry?.definitions) continue;
+      for (const d of entry.definitions) {
+        const text = d?.definitions_json?.definition;
+        if (!text) continue;
+        definitionsEn.push({ pos: entry.pos || '', definition: text });
+      }
+    }
+
     return {
       word: cleaned,
       phonetic,
       audioUrl: raw.audio_url || '',
       partOfSpeech: firstEntry?.pos || '',
       definitionEn: firstDef,
+      definitionsEn: definitionsEn.length > 0 ? definitionsEn : undefined,
       example: '',
       synonyms: [],
       antonyms: [],
