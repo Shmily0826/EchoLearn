@@ -1310,11 +1310,15 @@ const StudyPage: React.FC = () => {
 
           {/* Right: Transcript — always visible on desktop, tab-gated on mobile */}
           <div translate="no" className="notranslate hidden lg:flex flex-1 flex-col min-w-0 h-[calc(100vh-160px)]">
-            {/* Toolbar — footer below transcript content */}
-            <div className="flex-shrink-0 order-2 flex items-center justify-between px-2 py-1 border-t border-gray-200 dark:border-slate-700 gap-1 sm:gap-2">
-              <h2 className="text-[10px] font-semibold text-gray-600 dark:text-gray-400 uppercase tracking-wider whitespace-nowrap shrink-0">
+            {/* Panel header */}
+            <div className="flex-shrink-0 order-1 px-3 py-2 border-b border-gray-200 dark:border-slate-700">
+              <h2 className="text-xs font-semibold text-gray-600 dark:text-gray-400 uppercase tracking-wider">
                 {t('study.transcript')}
               </h2>
+            </div>
+
+            {/* Toolbar — footer below transcript content */}
+            <div className="flex-shrink-0 order-3 flex items-center justify-end px-2 py-1 border-t border-gray-200 dark:border-slate-700 gap-1 sm:gap-2">
               <div className="flex items-center gap-1.5 sm:gap-3 flex-wrap">
                 {/* Caption fetch status */}
                 {fetchingCaption && (
@@ -1431,8 +1435,8 @@ const StudyPage: React.FC = () => {
               </div>
             </div>
 
-            {/* Scrollable content area — fills full height from top */}
-            <div className="flex-1 overflow-y-auto min-h-0 pr-1 order-1">
+            {/* Scrollable content area — fills the space between header and toolbar */}
+            <div className="flex-1 overflow-y-auto min-h-0 pr-1 order-2">
             {displayLines.length > 0 ? (
               <TranscriptViewer
                 lines={displayLines}

@@ -47,4 +47,5 @@ android/app/google-services.json
 # Local tooling / agent workspace (not part of the app)
 .firebase/
 .workbuddy/
+taste-variants/
 

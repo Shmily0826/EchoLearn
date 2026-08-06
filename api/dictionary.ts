@@ -144,7 +144,26 @@ interface BackendResponse {
 const MAX_POS = 4;
 const MAX_DEFS_PER_POS = 2;
 
-type DefTask = { pos: string; original: string };
+type DefTask = { pos: string; original: string; preposition?: string };
+
+/**
+ * Merriam-Webster learner's definitions often end with a collocation note such
+ * as " —often + to". Google Translate turns that into Chinese garbage like
+ * "——经常+" and drops the preposition. Strip the note before translating and
+ * re-append a clean, localized marker afterwards.
+ */
+function extractCollocation(def: string): { cleaned: string; preposition?: string } {
+  const match = def.match(/\s*[-—–]\s*often\s+\+\s+(\w+)\s*$/i);
+  if (match) {
+    return { cleaned: def.slice(0, match.index).trimEnd(), preposition: match[1].toLowerCase() };
+  }
+  return { cleaned: def };
+}
+
+function collocationNote(prep: string, target: string): string {
+  if (target.startsWith('zh')) return `（常与 ${prep} 连用）`;
+  return ` (often + ${prep})`;
+}
 
 /**
  * Translate every definition in parallel, then group back by part of speech
@@ -153,8 +172,15 @@ type DefTask = { pos: string; original: string };
 async function buildEntries(tasks: DefTask[], target: string): Promise<BackendEntry[]> {
   const translateNeeded = target !== 'en' && target !== 'en-US';
 
+  // Extract MW collocation notes (e.g. "—often + to") before translation so
+  // they don't become "——经常+" in Chinese.
+  const prepared = tasks.map((t) => {
+    const { cleaned, preposition } = extractCollocation(t.original);
+    return { ...t, original: cleaned, preposition };
+  });
+
   const translated = await Promise.all(
-    tasks.map(async (t) => {
+    prepared.map(async (t) => {
       if (!translateNeeded) return t.original;
       try {
         return await translateWithGoogle(t.original, 'en', target);
@@ -165,10 +191,11 @@ async function buildEntries(tasks: DefTask[], target: string): Promise<BackendEn
   );
 
   const grouped = new Map<string, string[]>();
-  for (let i = 0; i < tasks.length; i++) {
-    const arr = grouped.get(tasks[i].pos) || [];
-    arr.push(translated[i]);
-    grouped.set(tasks[i].pos, arr);
+  for (let i = 0; i < prepared.length; i++) {
+    const arr = grouped.get(prepared[i].pos) || [];
+    const note = prepared[i].preposition ? collocationNote(prepared[i].preposition!, target) : '';
+    arr.push(translated[i] + note);
+    grouped.set(prepared[i].pos, arr);
   }
 
   const out: BackendEntry[] = [];
@@ -613,27 +640,34 @@ async function fetchFromDatamuse(word: string, target: string): Promise<BackendR
     }
     if (tasks.length === 0) return null;
 
+    // Extract collocation notes before translating, same as the MW path.
+    const prepared = tasks.map((t) => {
+      const { cleaned, preposition } = extractCollocation(t.original);
+      return { ...t, original: cleaned, preposition };
+    });
+
     // Translate every sense in parallel — sequential calls were the main
     // reason the fallback felt sluggish.
-    let texts = tasks.map((t) => t.original);
+    let texts = prepared.map((t) => t.original);
     if (target !== 'en' && target !== 'en-US') {
       texts = await Promise.all(
-        tasks.map((t) =>
+        prepared.map((t) =>
           translateWithGoogle(t.original, 'en', target).catch(() => t.original),
         ),
       );
     }
 
     const byPos = new Map<string, BackendEntry>();
-    tasks.forEach((task, i) => {
+    prepared.forEach((task, i) => {
       let entry = byPos.get(task.pos);
       if (!entry) {
         entry = { pos: task.pos, definitions: [] };
         byPos.set(task.pos, entry);
       }
+      const note = task.preposition ? collocationNote(task.preposition, target) : '';
       entry.definitions.push({
         display_order: entry.definitions.length,
-        definitions_json: { definition: texts[i] },
+        definitions_json: { definition: texts[i] + note },
       });
     });
 
