@@ -1,13 +1,20 @@
 /**
  * Vercel Edge Function — Dictionary lookup.
  *
- * Server-side pipeline that mirrors linkertube's /api/backend/dictionary/lookup:
- *   1. Lemmatize the input word (reuses src/utils/lemmatizer — single source of
- *      truth, includes the -er base-form fix).
- *   2. Fetch the base form from Free Dictionary API (no CORS issues server-side).
- *   3. Translate each primary definition to `target` via the shared Google gtx
- *      helper (same one used by /api/translate).
- *   4. Normalize into { ipa_uk, ipa_us, audio_url, base_form, entries }.
+ * Server-side pipeline that mirrors linkertube's /api/backend/dictionary/lookup.
+ *
+ * DESIGN: the dictionary is the source of truth for the base form.
+ * Our hand-rolled lemmatizer only *proposes* candidates; a candidate is used
+ * only if Free Dictionary actually has a headword for it. This is what stops
+ * bugs like "trusted -> truste" from ever reaching the UI.
+ *
+ *   1. Fetch the raw clicked word AND the lemmatizer's best candidate in parallel.
+ *   2. If the raw entry is really just an inflection pointer ("simple past tense
+ *      of trust", "comparative of fast"), follow that pointer — the dictionary
+ *      told us the true base form.
+ *   3. Otherwise keep whichever real headword we found (raw first, candidate next).
+ *   4. Translate the definitions to `target` via the shared Google gtx helper.
+ *   5. Normalize into { ipa_uk, ipa_us, audio_url, base_form, entries }.
  *
  * Falls back to Datamuse if Free Dictionary has no entry.
  *
@@ -149,7 +156,95 @@ function extractPhonetic(entry: FreeEntry): { ipa: string; audio: string } {
   return { ipa, audio };
 }
 
-async function freeEntryToBackend(entry: FreeEntry, target: string): Promise<BackendResponse | null> {
+// ── Lemma resolution — the dictionary is the source of truth ──
+
+/**
+ * Matches a definition that is purely an inflection pointer, e.g.
+ *   "simple past tense and past participle of trust"
+ *   "comparative form of fast: more fast"
+ *   "plural of leaf"
+ * Capture group 1 is the base form the dictionary itself points at.
+ */
+const INFLECTION_POINTER_RE =
+  /^\s*(?:the\s+)?(?:simple\s+past\s+tense|past\s+tense|past\s+participle|present\s+participle|third[-\s]person\s+singular[^.]*?|plural|singular|comparative(?:\s+form)?|superlative(?:\s+form)?|gerund|inflected\s+form|alternative\s+(?:form|spelling))\b[^.]*?\bof\s+["'\u201c\u2018]?([a-z][a-z'\u2019-]+)/i;
+
+function isInflectionDef(text: string | undefined): boolean {
+  return !!text && INFLECTION_POINTER_RE.test(text);
+}
+
+function pointerTarget(text: string | undefined): string | null {
+  if (!text) return null;
+  const m = INFLECTION_POINTER_RE.exec(text);
+  return m ? m[1].toLowerCase() : null;
+}
+
+/**
+ * Ask the dictionary entry itself for the base form.
+ *
+ * We only trust the pointer when it is high-confidence:
+ *   a) it is the very first definition of the entry (the dictionary's primary
+ *      reading of this word), or
+ *   b) it agrees with what our lemmatizer independently proposed.
+ * This avoids hijacking words like "saw" (noun: a tool) just because a rare
+ * "past tense of see" sense is buried further down.
+ */
+function dictionaryBaseForm(entry: FreeEntry, candidates: string[]): string | null {
+  const meanings = entry.meanings || [];
+  if (meanings.length === 0) return null;
+
+  const first = meanings[0]?.definitions?.[0]?.definition;
+  const firstPointer = pointerTarget(first);
+  if (firstPointer && firstPointer !== entry.word?.toLowerCase()) return firstPointer;
+
+  const candSet = new Set(candidates);
+  for (const m of meanings) {
+    for (const d of m.definitions || []) {
+      const p = pointerTarget(d.definition);
+      if (p && candSet.has(p)) return p;
+    }
+  }
+  return null;
+}
+
+/**
+ * Cheap morphological guesses. These are *proposals only* — each one is
+ * validated against the dictionary before it can become the displayed lemma.
+ */
+function candidateLemmas(word: string): string[] {
+  const out: string[] = [];
+  const push = (w: string | undefined): void => {
+    if (!w) return;
+    const c = w.toLowerCase();
+    if (c === word || c.length < 2 || out.includes(c)) return;
+    out.push(c);
+  };
+
+  try { push(lemmatize(word)); } catch { /* lemmatizer is best-effort */ }
+
+  if (word.endsWith('ies') && word.length > 4) push(word.slice(0, -3) + 'y');
+  if (word.endsWith('ed') && word.length > 3) {
+    const stem = word.slice(0, -2);
+    push(stem);            // trusted -> trust
+    push(word.slice(0, -1)); // liked -> like
+    if (stem.length > 2 && stem[stem.length - 1] === stem[stem.length - 2]) push(stem.slice(0, -1)); // stopped -> stop
+  }
+  if (word.endsWith('ing') && word.length > 4) {
+    const stem = word.slice(0, -3);
+    push(stem);       // talking -> talk
+    push(stem + 'e'); // making -> make
+    if (stem.length > 2 && stem[stem.length - 1] === stem[stem.length - 2]) push(stem.slice(0, -1)); // running -> run
+  }
+  if (word.endsWith('es') && word.length > 3) push(word.slice(0, -2));
+  if (word.endsWith('s') && !word.endsWith('ss') && word.length > 3) push(word.slice(0, -1));
+
+  return out.slice(0, 4);
+}
+
+async function freeEntryToBackend(
+  entry: FreeEntry,
+  target: string,
+  baseFormOverride?: string,
+): Promise<BackendResponse | null> {
   const meanings = entry.meanings || [];
   if (meanings.length === 0) return null;
   const translateNeeded = target !== 'en' && target !== 'en-US';
@@ -166,7 +261,12 @@ async function freeEntryToBackend(entry: FreeEntry, target: string): Promise<Bac
   for (const m of meanings.slice(0, MAX_POS)) {
     const pos = m.partOfSpeech || '';
     if (!m.definitions || m.definitions.length === 0) continue;
-    for (const d of m.definitions.slice(0, MAX_DEFS_PER_POS)) {
+    // Push bare "past tense of X" style pointers to the back — a learner wants
+    // the real meaning first, not a grammar note.
+    const ordered = [...m.definitions].sort(
+      (a, b) => Number(isInflectionDef(a.definition)) - Number(isInflectionDef(b.definition)),
+    );
+    for (const d of ordered.slice(0, MAX_DEFS_PER_POS)) {
       const original = d.definition || '';
       if (!original) continue;
       const key = `${pos}::${original}`;
@@ -213,7 +313,14 @@ async function freeEntryToBackend(entry: FreeEntry, target: string): Promise<Bac
   const { ipa, audio } = extractPhonetic(entry);
   // 省事版 (simple variant): Free Dictionary does not cleanly separate UK/US IPA,
   // so we use the one available IPA for both fields.
-  return { ipa_uk: ipa, ipa_us: ipa, audio_url: audio, base_form: entry.word || '', entries: out };
+  return {
+    ipa_uk: ipa,
+    ipa_us: ipa,
+    audio_url: audio,
+    // Always a real dictionary headword — never a lemmatizer guess.
+    base_form: baseFormOverride || entry.word || '',
+    entries: out,
+  };
 }
 
 // ── Datamuse fallback ─────────────────────────────────────────
@@ -272,17 +379,53 @@ export default async function handler(request: Request): Promise<Response> {
     return jsonResponse({ error: 'Invalid word' }, 400, origin);
   }
 
-  const base = lemmatize(word);
+  // ── Resolve the headword. Dictionary wins; lemmatizer only proposes. ──
+  const candidates = candidateLemmas(word);
 
-  let response: BackendResponse | null = await fetchFreeDict(base).then((e) =>
-    e ? freeEntryToBackend(e, target) : null,
-  );
-  if (!response) response = await fetchFromDatamuse(base, target);
-  if (!response && base !== word) {
-    // Last resort: try the original (un-lemmatized) word.
-    response = (await fetchFreeDict(word).then((e) => (e ? freeEntryToBackend(e, target) : null))) ?? null;
-    if (!response) response = await fetchFromDatamuse(word, target);
+  // One round-trip for the raw word, one for the best candidate — in parallel,
+  // so the extra accuracy costs no latency.
+  const [rawEntry, candEntry] = await Promise.all([
+    fetchFreeDict(word),
+    candidates.length > 0 ? fetchFreeDict(candidates[0]) : Promise.resolve(null),
+  ]);
+
+  let chosen: FreeEntry | null = null;
+  let baseForm = '';
+
+  if (rawEntry) {
+    const pointer = dictionaryBaseForm(rawEntry, candidates);
+    if (pointer && pointer !== word) {
+      // The dictionary itself says this is an inflected form — follow it.
+      const target0 =
+        candEntry && candEntry.word?.toLowerCase() === pointer
+          ? candEntry
+          : await fetchFreeDict(pointer);
+      chosen = target0 ?? rawEntry;
+      baseForm = (target0?.word || pointer).toLowerCase();
+    } else {
+      chosen = rawEntry;
+      baseForm = (rawEntry.word || word).toLowerCase();
+    }
+  } else if (candEntry) {
+    // Raw word is not a headword (e.g. "aren't"), and the dictionary confirmed
+    // our candidate is real → safe to use it as the base form.
+    chosen = candEntry;
+    baseForm = (candEntry.word || candidates[0]).toLowerCase();
   }
+
+  let response: BackendResponse | null = chosen
+    ? await freeEntryToBackend(chosen, target, baseForm)
+    : null;
+
+  if (!response && candidates.length > 1) {
+    // Try the remaining proposals in parallel; first validated one wins.
+    const rest = await Promise.all(candidates.slice(1, 4).map((c) => fetchFreeDict(c)));
+    const hit = rest.find((e): e is FreeEntry => !!e);
+    if (hit) response = await freeEntryToBackend(hit, target, (hit.word || '').toLowerCase());
+  }
+
+  if (!response) response = await fetchFromDatamuse(word, target);
+  if (!response && candidates.length > 0) response = await fetchFromDatamuse(candidates[0], target);
 
   if (!response) {
     return jsonResponse({ error: 'not found' }, 404, origin);
