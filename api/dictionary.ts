@@ -453,12 +453,20 @@ function mwRelated(query: string, hw: string, primaryHw: string): boolean {
 let mwLastStatus = 'unused';
 
 /**
- * Env values pasted through a dashboard often arrive wrapped in quotes or with
- * a stray newline. Those characters get percent-encoded into the query string
- * and MW rejects the request, which looks exactly like "no result".
+ * Env values pasted through a dashboard arrive with all sorts of extra baggage
+ * — quotes, a trailing newline, the `MW_LEARNERS_KEY=` prefix, or a label like
+ * "Learner's Dictionary: <key>". All of it gets percent-encoded into the query
+ * string, MW answers with an HTML error page, and the JSON parse blows up in a
+ * way that is indistinguishable from "this word is not in the dictionary".
+ *
+ * The key is always a UUID, so pull that out and ignore whatever surrounds it.
  */
+const UUID_RE = /[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}/i;
+
 function readMwKey(): string {
-  return (process.env.MW_LEARNERS_KEY || '').trim().replace(/^["']|["']$/g, '').trim();
+  const raw = (process.env.MW_LEARNERS_KEY || '').trim();
+  const uuid = raw.match(UUID_RE);
+  return uuid ? uuid[0] : raw.replace(/^["']|["']$/g, '').trim();
 }
 
 async function fetchMerriamWebster(word: string, target: string): Promise<BackendResponse | null> {
@@ -651,8 +659,11 @@ async function fetchFromDatamuse(word: string, target: string): Promise<BackendR
 function diagHeaders(source: string | undefined): Record<string, string> {
   return {
     'X-Dict-Source': source || 'none',
-    // Length only — enough to spot a truncated or quote-wrapped paste.
-    'X-Dict-Mw-Key': readMwKey() ? `configured-${readMwKey().length}` : 'missing',
+    // Lengths only — enough to spot a truncated or padded paste. `raw` is what
+    // Vercel holds, the first number is what we actually send.
+    'X-Dict-Mw-Key': readMwKey()
+      ? `len-${readMwKey().length}-raw-${(process.env.MW_LEARNERS_KEY || '').trim().length}`
+      : 'missing',
     'X-Dict-Mw-Status': mwLastStatus,
     'X-Dict-Fd-Breaker': fdAvailable() ? 'closed' : 'open',
   };
