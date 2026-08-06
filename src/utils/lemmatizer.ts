@@ -250,6 +250,66 @@ const DO_NOT_LEMMATIZE = new Set([
   'yes', 'his', 'its', 'has', 'was',
 ]);
 
+/**
+ * Common English words ending in -er that are BASE FORMS (not comparative
+ * adjectives). The -er stripping rule in tryAdjectiveForm must skip these,
+ * otherwise "water" → "wate", "mother" → "mothe", "back" → "ba", etc.
+ *
+ * Covers: high-frequency nouns, verbs, adverbs, prepositions, pronouns,
+ * determiners, and agent nouns (driver/writer/teacher) where the -er is
+ * part of the base form.
+ */
+const BASE_ER_WORDS = new Set([
+  // ── Ultra-high-frequency function / content words ──
+  'back', 'over', 'under', 'ever', 'never', 'here', 'there', 'where',
+  'after', 'other', 'either', 'neither', 'rather', 'whether',
+
+  // ── Common nouns ──
+  'water', 'paper', 'letter', 'number', 'member', 'mother', 'father',
+  'sister', 'brother', 'doctor', 'corner', 'flower', 'office', 'order',
+  'power', 'river', 'table', 'tree', 'winter', 'summer', 'dinner',
+  'latter', 'matter', 'butter', 'pepper', 'silver', 'finger', 'hair',
+  'air', 'answer', 'cover', 'danger', 'door', 'floor', 'flower',
+  'game', 'ground', 'hammer', 'horse', 'house', 'kitchen', 'ladder',
+  'master', 'metal', 'mirror', 'monster', 'month', 'mother', 'name',
+  'nation', 'number', 'object', 'offer', 'owner', 'page', 'pancake',
+  'paper', 'party', 'pattern', 'picture', 'place', 'planet', 'plant',
+  'plastic', 'player', 'pocket', 'police', 'poster', 'present', 'problem',
+  'produce', 'program', 'property', 'question', 'race', 'radio', 'range',
+  'record', 'region', 'result', 'river', 'role', 'rule', 'salt', 'scene',
+  'sense', 'server', 'side', 'signal', 'sister', 'size', 'society',
+  'soldier', 'source', 'space', 'speech', 'spirit', 'square', 'stage',
+  'star', 'station', 'stone', 'story', 'street', 'strength', 'system',
+  'table', 'taste', 'teacher', 'technology', 'temperature', 'term', 'test',
+  'text', 'theory', 'thing', 'thought', 'thread', 'today', 'together',
+  'tomorrow', 'tooth', 'top', 'total', 'touch', 'town', 'trade', 'trail',
+  'train', 'transport', 'tree', 'trouble', 'truth', 'turn', 'type', 'under',
+  'unit', 'value', 'variety', 'version', 'view', 'village', 'voice',
+  'waste', 'watch', 'water', 'week', 'weight', 'wind', 'window', 'winter',
+  'woman', 'wood', 'word', 'worker', 'world', 'writer', 'year',
+
+  // ── Agent nouns (-er IS the base form, not a comparative suffix) ──
+  'user', 'player', 'viewer', 'reader', 'owner', 'driver', 'worker',
+  'farmer', 'writer', 'speaker', 'leader', 'teacher', 'cleaner', 'keeper',
+  'manager', 'partner', 'customer', 'dancer', 'fighter', 'helper',
+  'lawyer', 'lover', 'officer', 'painter', 'reporter', 'runner',
+  'singer', 'winner', 'cooker', 'builder', 'gardener', 'holder',
+  'maker', 'owner', 'player', 'poster', 'ruler', 'seller', 'shopper',
+  'starter', 'thinker', 'user', 'viewer', 'voter', 'waiter', 'walker',
+  'worker', 'writer',
+
+  // ── Adverbs / prepositions / determiners ──
+  'earlier', 'former', 'later', 'upper', 'lower', 'inner', 'outer',
+
+  // ── Adjectives that end in -er but are base forms ──
+  'anger', 'bitter', 'clever', 'corner', 'cruel', 'dirty', 'eager',
+  'fair', 'false', 'fierce', 'foreign', 'forever', 'former', 'full',
+  'green', 'handsome', 'hungry', 'inner', 'keen', 'later', 'lesser',
+  'lower', 'mad', 'modern', 'outer', 'poor', 'proper', 'raw', 'real',
+  'rear', 'sour', 'special', 'strange', 'super', 'thick', 'thin',
+  'tender', 'upper', 'utter', 'weak', 'wild', 'wise',
+]);
+
 // ── Suffix rules ────────────────────────────────────────────────────
 
 /** Consonant-vowel-consonant pattern check for doubling rules. */
@@ -374,6 +434,10 @@ function tryVerbForm(word: string): string | null {
 
 /** Try to strip comparative / superlative adjective suffixes. */
 function tryAdjectiveForm(word: string): string | null {
+  // ── Guard: skip known base-form -er words entirely ──
+  // "water", "mother", "back", "driver" etc. are NOT comparatives.
+  if (BASE_ER_WORDS.has(word)) return null;
+
   // -iest → -y (happiest → happy)
   if (word.endsWith('iest') && word.length > 5) {
     return word.slice(0, -4) + 'y';
@@ -385,18 +449,20 @@ function tryAdjectiveForm(word: string): string | null {
   // -est (biggest → big, nicest → nice)
   if (word.endsWith('est') && word.length > 4) {
     const stem = word.slice(0, -3);
+    // CVC doubling: biggest → big (not bigg)
     if (stem.length >= 2 && stem[stem.length - 1] === stem[stem.length - 2] && hasCVCEnding(stem)) {
       return stem.slice(0, -1);
     }
     if (stem.length >= 2) {
       const lastChar = stem[stem.length - 1];
       if (!'aeiou'.includes(lastChar) && lastChar !== 'e') {
-        return stem + 'e';
+        // Superlative from e-less stem: fastest→fast (not faste).
+        return stem;
       }
       return stem;
     }
   }
-  // -er (bigger → big, nicer → nice)
+  // -er (bigger → big, nicer → nice, faster → fast)
   if (word.endsWith('er') && word.length > 3) {
     const stem = word.slice(0, -2);
     if (stem.length >= 2 && stem[stem.length - 1] === stem[stem.length - 2] && hasCVCEnding(stem)) {
@@ -405,9 +471,12 @@ function tryAdjectiveForm(word: string): string | null {
     if (stem.length >= 2) {
       const lastChar = stem[stem.length - 1];
       if (!'aeiou'.includes(lastChar) && lastChar !== 'e') {
-        return stem + 'e';
+        // Regular comparative from e-less stem: faster→fast, harder→hard.
+        // Return the bare stem — do NOT append 'e' (that produces "faste").
+        return stem;
       }
-      return stem;
+      // Vowel-ending stem (e.g. "free" → "freer"? rare; safer to skip)
+      return null;
     }
   }
   return null;
@@ -439,6 +508,12 @@ export function lemmatize(word: string): string {
 
   // Skip short words, numbers, and words in the do-not-lemmatize set
   if (lower.length <= 2 || /^\d/.test(lower) || DO_NOT_LEMMATIZE.has(lower)) {
+    return lower;
+  }
+
+  // Base-form -er words: "water", "mother", "back" etc. must not be treated
+  // as comparatives. Catch this early before any suffix rule touches them.
+  if (BASE_ER_WORDS.has(lower)) {
     return lower;
   }
 

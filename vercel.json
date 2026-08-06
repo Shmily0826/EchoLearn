@@ -5,6 +5,7 @@
     { "source": "/api/transcript", "destination": "/api/transcript" },
     { "source": "/api/ai", "destination": "/api/ai" },
     { "source": "/api/translate", "destination": "/api/translate" },
+    { "source": "/api/dictionary", "destination": "/api/dictionary" },
     { "source": "/(.*)", "destination": "/index.html" }
   ]
 }

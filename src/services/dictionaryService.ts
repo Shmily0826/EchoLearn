@@ -4,16 +4,27 @@ import { KNOWN_PROPER_NOUNS, isKnownProperNoun } from '../utils/properNouns';
 
 export { isKnownProperNoun };
 
-// v2: invalidates older caches that may have been poisoned with permanent
-// `null` (miss) entries during Free Dictionary API outages.
-const CACHE_KEY = 'echolearn_dictionary_cache_v2';
-const API_BASE = 'https://api.dictionaryapi.dev/api/v2/entries/en';
+/**
+ * v4: primary path is the self-hosted backend /api/dictionary, which does
+ * server-side lemmatization (reusing src/utils/lemmatizer) + Free Dictionary
+ * fetch + server translation + CDN caching, and returns a linkertube-shaped
+ * payload { ipa_uk, ipa_us, audio_url, base_form, entries }.
+ *
+ * If the backend is unreachable (e.g. `vercel dev` is not running locally, or
+ * the edge function is down) we fall back to the previous client-side Free
+ * Dictionary + Datamuse racing so the popup never hard-fails.
+ */
+
+const CACHE_KEY = 'echolearn_dictionary_cache_v4';
+const API_BASE = '/api/dictionary';
+
+const FREE_DICT_BASE = 'https://api.dictionaryapi.dev/api/v2/entries/en';
 const DATAMUSE_BASE = 'https://api.datamuse.com/words';
 
 // ── Cache helpers ──────────────────────────────────────────────
 
 interface CacheStore {
-  [word: string]: DictionaryEntry | null; // null = known miss (avoids retrying)
+  [key: string]: DictionaryEntry & { lemma?: string }; // only successful lookups; never store null/miss
 }
 
 function loadCache(): CacheStore {
@@ -40,7 +51,61 @@ function cleanWord(word: string): string {
   return word.replace(/^[^\w]+|[^\w]+$/g, '').toLowerCase();
 }
 
-// ── API response types (Free Dictionary API) ───────────────────
+// ── Backend response type (mirrors linkertube shape) ───────────
+
+interface BackendDefinition {
+  display_order: number;
+  definitions_json: { definition: string };
+}
+interface BackendEntry {
+  pos: string;
+  definitions: BackendDefinition[];
+}
+interface BackendResponse {
+  ipa_uk: string;
+  ipa_us: string;
+  audio_url: string;
+  base_form: string;
+  entries: BackendEntry[];
+}
+
+// ── Primary: backend lookup ────────────────────────────────────
+
+async function fetchFromBackend(
+  cleaned: string,
+  target: string,
+): Promise<(DictionaryEntry & { lemma?: string }) | null> {
+  try {
+    const url =
+      `${API_BASE}?word=${encodeURIComponent(cleaned)}` +
+      `&source=en&target=${encodeURIComponent(target)}`;
+    const res = await fetch(url, { signal: AbortSignal.timeout(8000) });
+    if (!res.ok) return null; // 404 / backend error → fall back below
+    const raw: BackendResponse = await res.json();
+    if (!raw.entries || raw.entries.length === 0) return null;
+
+    const firstEntry = raw.entries[0];
+    const firstDef = firstEntry?.definitions?.[0]?.definitions_json?.definition ?? '';
+    const phonetic = raw.ipa_uk || raw.ipa_us;
+
+    return {
+      word: cleaned,
+      phonetic,
+      audioUrl: raw.audio_url || '',
+      partOfSpeech: firstEntry?.pos || '',
+      definitionEn: firstDef,
+      example: '',
+      synonyms: [],
+      antonyms: [],
+      provider: 'EchoLearn Dictionary API',
+      lemma: raw.base_form && raw.base_form !== cleaned ? raw.base_form : undefined,
+    };
+  } catch {
+    return null;
+  }
+}
+
+// ── Fallback: client-side Free Dictionary + Datamuse (v3 logic) ──
 
 interface ApiPhonetic {
   text?: string;
@@ -69,29 +134,23 @@ interface ApiEntry {
   sourceUrls?: string[];
 }
 
-// ── Main lookup function ───────────────────────────────────────
-
 /**
- * Build the ordered list of spelling variants to try for a cleaned word.
- * Tries the lemma first, then the original, plus hyphen-part and -ly-adverb
- * best-effort variants so more subtitle words resolve to a definition.
+ * Build ordered spelling variants to try for a cleaned word.
+ * Tries lemma first, then original, plus hyphen parts and -ly root.
  */
 function buildCandidates(cleaned: string): string[] {
   const seen = new Set<string>();
   const out: string[] = [];
   const push = (w: string) => {
     const lw = w.toLowerCase();
-    if (lw && !seen.has(lw)) {
-      seen.add(lw);
-      out.push(lw);
-    }
+    if (lw && !seen.has(lw)) { seen.add(lw); out.push(lw); }
   };
 
   const lemma = lemmatize(cleaned);
   push(lemma);
   push(cleaned);
 
-  // Hyphenated compounds: try each part and the de-hyphenated form
+  // Hyphenated compounds
   if (cleaned.includes('-')) {
     for (const part of cleaned.split('-')) {
       if (part) push(lemmatize(part));
@@ -99,7 +158,7 @@ function buildCandidates(cleaned: string): string[] {
     push(cleaned.replace(/-/g, ''));
   }
 
-  // -ly adverbs: best-effort adjective root (tried last, after the adverb itself)
+  // -ly adverbs: try adjective root as last resort
   if (cleaned.endsWith('ly') && cleaned.length > 4) {
     push(cleaned.slice(0, -2));
   }
@@ -107,38 +166,25 @@ function buildCandidates(cleaned: string): string[] {
   return out;
 }
 
-/**
- * Look up a word across the Free Dictionary API (primary) and Datamuse (fallback).
- * Returns a DictionaryEntry on success, or null if no source had the word.
- * Results are cached in localStorage to avoid repeated requests.
- */
-export async function lookupWord(word: string): Promise<(DictionaryEntry & { lemma?: string }) | null> {
-  const cleaned = cleanWord(word);
-  if (!cleaned) return null;
-  // Skip the dictionary API for known brands / abbreviations / proper nouns —
-  // they are never in the free dictionaries, so this avoids a wasted request.
-  if (KNOWN_PROPER_NOUNS.has(cleaned)) return null;
-
-  for (const candidate of buildCandidates(cleaned)) {
-    const result = await fetchEntry(candidate);
-    if (result) {
-      // Expose the form we actually resolved to, if different from the clicked word
-      const lemma = candidate === cleaned ? undefined : candidate;
-      return { ...result, lemma };
-    }
+async function fetchFromFreeDict(word: string): Promise<DictionaryEntry | null> {
+  try {
+    const res = await fetch(`${FREE_DICT_BASE}/${encodeURIComponent(word)}`, {
+      signal: AbortSignal.timeout(8000),
+    });
+    if (!res.ok) return null;
+    const data: ApiEntry[] = await res.json();
+    if (!Array.isArray(data) || data.length === 0) return null;
+    return parseFreeDictEntry(data[0]);
+  } catch {
+    return null;
   }
-
-  return null;
 }
 
-/**
- * Second free dictionary source (Datamuse, WordNet-backed, no API key, CORS-enabled).
- * Used as a fallback when the primary Free Dictionary API has no entry.
- * Returns a minimal DictionaryEntry (definition + part of speech only).
- */
 async function fetchFromDatamuse(word: string): Promise<DictionaryEntry | null> {
   try {
-    const res = await fetch(`${DATAMUSE_BASE}?sp=${encodeURIComponent(word)}&md=d&max=10`);
+    const res = await fetch(`${DATAMUSE_BASE}?sp=${encodeURIComponent(word)}&md=d&max=10`, {
+      signal: AbortSignal.timeout(6000),
+    });
     if (!res.ok) return null;
     const data = await res.json();
     if (!Array.isArray(data) || data.length === 0) return null;
@@ -152,10 +198,7 @@ async function fetchFromDatamuse(word: string): Promise<DictionaryEntry | null> 
     if (!hit) return null;
 
     const POS_MAP: Record<string, string> = {
-      n: 'noun',
-      v: 'verb',
-      adj: 'adjective',
-      adv: 'adverb',
+      n: 'noun', v: 'verb', adj: 'adjective', adv: 'adverb',
     };
     const firstDef = hit.defs![0];
     const tab = firstDef.indexOf('\t');
@@ -163,7 +206,7 @@ async function fetchFromDatamuse(word: string): Promise<DictionaryEntry | null> 
     const defText = (tab >= 0 ? firstDef.slice(tab + 1) : firstDef).trim();
 
     return {
-      word: hit.word!,
+      word: hit.word ?? word,
       phonetic: '',
       audioUrl: '',
       partOfSpeech: POS_MAP[posAbbr] ?? '',
@@ -178,84 +221,17 @@ async function fetchFromDatamuse(word: string): Promise<DictionaryEntry | null> 
   }
 }
 
-// Session-only miss memory (not persisted). Prevents re-querying the same
-// missing word repeatedly within a session, WITHOUT permanently poisoning
-// localStorage with `null` if an upstream API was temporarily down.
-const sessionMisses = new Set<string>();
-
-/** Fetch a single entry from cache or API. Returns null on miss. */
-async function fetchEntry(word: string): Promise<DictionaryEntry | null> {
-  const cache = loadCache();
-  if (word in cache) {
-    return cache[word]; // a persisted, found entry (we no longer persist misses)
-  }
-  if (sessionMisses.has(word)) {
-    return null;
-  }
-
-  try {
-    const response = await fetch(`${API_BASE}/${encodeURIComponent(word)}`);
-    const ok = response.ok;
-    let data: ApiEntry[] = [];
-    if (ok) {
-      try {
-        data = await response.json();
-      } catch {
-        data = [];
-      }
-    }
-
-    if (!ok || !Array.isArray(data) || data.length === 0) {
-      // Primary source missed — try a second free dictionary source before giving up.
-      const fallback = await fetchFromDatamuse(word);
-      if (fallback) {
-        cache[word] = fallback;
-        saveCache(cache);
-        return fallback;
-      }
-      // Both sources missed. Only remember for this session — never persist a
-      // `null`, so a transient outage can't permanently mark a word "not found".
-      sessionMisses.add(word);
-      return null;
-    }
-
-    const entry = parseApiEntry(data[0]);
-    cache[word] = entry;
-    saveCache(cache);
-    return entry;
-  } catch {
-    // Network error — don't cache at all (might succeed later)
-    return null;
-  }
-}
-
-/**
- * Parse the first API entry into our DictionaryEntry format.
- * Picks the first meaningful definition across all parts of speech.
- */
-function parseApiEntry(raw: ApiEntry): DictionaryEntry {
-  // Find phonetic: prefer one with both text and audio
+function parseFreeDictEntry(raw: ApiEntry): DictionaryEntry {
   let phonetic = '';
   let audioUrl = '';
   if (raw.phonetics) {
-    const withAudio = raw.phonetics.find(
-      (p) => p.audio && p.audio.length > 0,
-    );
+    const withAudio = raw.phonetics.find((p) => p.audio && p.audio.length > 0);
     const withText = raw.phonetics.find((p) => p.text && p.text.length > 0);
-    if (withAudio) {
-      audioUrl = withAudio.audio || '';
-      phonetic = withAudio.text || '';
-    }
-    if (!phonetic && withText) {
-      phonetic = withText.text || '';
-    }
-    // Fallback: raw.phonetic field
-    if (!phonetic) {
-      phonetic = raw.phonetic || '';
-    }
+    if (withAudio) { audioUrl = withAudio.audio || ''; phonetic = withAudio.text || ''; }
+    if (!phonetic && withText) phonetic = withText.text ?? '';
+    if (!phonetic) phonetic = raw.phonetic || '';
   }
 
-  // Find first meaningful definition
   let partOfSpeech = '';
   let definitionEn = '';
   let example = '';
@@ -265,7 +241,6 @@ function parseApiEntry(raw: ApiEntry): DictionaryEntry {
   if (raw.meanings && raw.meanings.length > 0) {
     const meaning = raw.meanings[0];
     partOfSpeech = meaning.partOfSpeech || '';
-
     if (meaning.definitions && meaning.definitions.length > 0) {
       const def = meaning.definitions[0];
       definitionEn = def.definition || '';
@@ -282,8 +257,108 @@ function parseApiEntry(raw: ApiEntry): DictionaryEntry {
     partOfSpeech,
     definitionEn,
     example,
-    synonyms: synonyms.slice(0, 8),  // limit to keep data small
+    synonyms: synonyms.slice(0, 8),
     antonyms: antonyms.slice(0, 8),
     provider: 'Free Dictionary API',
   };
+}
+
+async function fetchEntryParallel(word: string): Promise<DictionaryEntry | null> {
+  const cache = loadCache();
+  if (word in cache) return cache[word];
+  if (sessionMisses.has(word)) return null;
+
+  try {
+    const [freeDictResult, datamuseResult] = await Promise.allSettled([
+      fetchFromFreeDict(word),
+      fetchFromDatamuse(word),
+    ]);
+
+    const freeDict = freeDictResult.status === 'fulfilled' ? freeDictResult.value : null;
+    const datamuse = datamuseResult.status === 'fulfilled' ? datamuseResult.value : null;
+
+    const winner = freeDict ?? datamuse;
+    if (winner) {
+      cache[word] = winner;
+      saveCache(cache);
+      return winner;
+    }
+
+    sessionMisses.add(word);
+    saveSessionMisses(sessionMisses);
+    return null;
+  } catch {
+    return null;
+  }
+}
+
+// ── Session miss cache (in-memory only, survives page reload via
+//   sessionStorage for reduced re-fetching within a browsing session) ──
+
+const SESSION_KEY = 'echolearn_dict_session_misses_v4';
+
+function loadSessionMisses(): Set<string> {
+  try {
+    const raw = sessionStorage.getItem(SESSION_KEY);
+    return raw ? new Set(JSON.parse(raw)) : new Set();
+  } catch {
+    return new Set();
+  }
+}
+
+function saveSessionMisses(s: Set<string>): void {
+  try {
+    sessionStorage.setItem(SESSION_KEY, JSON.stringify([...s]));
+  } catch { /* sessionStorage unavailable */ }
+}
+
+let sessionMisses = loadSessionMisses();
+
+// ── Main lookup ───────────────────────────────────────────────
+
+/**
+ * Look up a word.
+ *
+ * 1. Backend /api/dictionary (server-side lemmatization + translation + cache).
+ *    `target` selects the translation language (default 'zh-CN'). Results are
+ *    cached per (word, target).
+ * 2. If the backend is unavailable, fall back to client-side Free Dictionary +
+ *    Datamuse racing (English only) so the popup still works in local dev.
+ */
+export async function lookupWord(
+  word: string,
+  target = 'zh-CN',
+): Promise<(DictionaryEntry & { lemma?: string }) | null> {
+  const cleaned = cleanWord(word);
+  if (!cleaned) return null;
+
+  // Known proper nouns / brands — skip all APIs
+  if (KNOWN_PROPER_NOUNS.has(cleaned)) return null;
+
+  const cache = loadCache();
+  const backendKey = `${cleaned}:${target}`;
+
+  // 1. Backend (primary)
+  if (backendKey in cache) return cache[backendKey];
+  const backend = await fetchFromBackend(cleaned, target);
+  if (backend) {
+    cache[backendKey] = backend;
+    saveCache(cache);
+    const lemma = backend.lemma && backend.lemma !== cleaned ? backend.lemma : undefined;
+    return { ...backend, lemma };
+  }
+
+  // 2. Fallback (client-side) — note: English only, no server translation
+  for (const candidate of buildCandidates(cleaned)) {
+    const result = await fetchEntryParallel(candidate);
+    if (result) {
+      const lemma = candidate === cleaned ? undefined : candidate;
+      const cached: DictionaryEntry & { lemma?: string } = { ...result, lemma };
+      cache[candidate] = cached;
+      saveCache(cache);
+      return cached;
+    }
+  }
+
+  return null;
 }
