@@ -25,6 +25,10 @@ export interface TranscriptData {
 export interface DictionaryEntry {
   word: string;
   phonetic: string;
+  /** British IPA, when the source distinguishes it (Merriam-Webster does). */
+  phoneticUk?: string;
+  /** American IPA, when the source distinguishes it. */
+  phoneticUs?: string;
   audioUrl: string;
   partOfSpeech: string;
   definitionEn: string;

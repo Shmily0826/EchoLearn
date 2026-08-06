@@ -67,7 +67,15 @@ interface BackendResponse {
   audio_url: string;
   base_form: string;
   entries: BackendEntry[];
+  source?: 'merriam-webster' | 'free-dictionary' | 'datamuse';
 }
+
+/** Human-readable provider label, used for attribution in the popup. */
+const PROVIDER_LABELS: Record<string, string> = {
+  'merriam-webster': 'Merriam-Webster',
+  'free-dictionary': 'Free Dictionary',
+  datamuse: 'Datamuse',
+};
 
 // ── Primary: backend lookup ────────────────────────────────────
 
@@ -86,7 +94,9 @@ async function fetchFromBackend(
 
     const firstEntry = raw.entries[0];
     const firstDef = firstEntry?.definitions?.[0]?.definitions_json?.definition ?? '';
-    const phonetic = raw.ipa_uk || raw.ipa_us;
+    // Prefer US as the single-line phonetic (matches the TTS voice we use),
+    // but keep both so the popup can show "UK … US …" when they differ.
+    const phonetic = raw.ipa_us || raw.ipa_uk;
 
     // Flatten every (POS, definition) the backend returned so the popup can
     // show all common senses (the most common fix for "wrong sense" complaints).
@@ -103,6 +113,8 @@ async function fetchFromBackend(
     return {
       word: cleaned,
       phonetic,
+      phoneticUk: raw.ipa_uk || undefined,
+      phoneticUs: raw.ipa_us || undefined,
       audioUrl: raw.audio_url || '',
       partOfSpeech: firstEntry?.pos || '',
       definitionEn: firstDef,
@@ -110,7 +122,7 @@ async function fetchFromBackend(
       example: '',
       synonyms: [],
       antonyms: [],
-      provider: 'EchoLearn Dictionary API',
+      provider: raw.source ? PROVIDER_LABELS[raw.source] ?? raw.source : 'EchoLearn Dictionary API',
       lemma: raw.base_form && raw.base_form !== cleaned ? raw.base_form : undefined,
     };
   } catch {

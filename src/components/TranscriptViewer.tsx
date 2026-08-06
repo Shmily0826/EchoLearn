@@ -299,11 +299,26 @@ const TranscriptViewer: React.FC<TranscriptViewerProps> = ({
                   ← {dictEntry.lemma}
                 </span>
               )}
-              {dictEntry?.phonetic && (
-                <span className="text-sm text-gray-400 dark:text-gray-500 font-mono">
-                  <span className="text-[10px] mr-0.5 opacity-70">IPA</span>
-                  {dictEntry.phonetic}
+              {/* Real UK/US split when the source provides both (Merriam-Webster),
+                  otherwise a single IPA. */}
+              {dictEntry?.phoneticUk &&
+              dictEntry?.phoneticUs &&
+              dictEntry.phoneticUk !== dictEntry.phoneticUs ? (
+                <span className="flex items-center gap-1.5 text-sm text-gray-400 dark:text-gray-500 font-mono">
+                  <span>
+                    <span className="text-[10px] mr-0.5 opacity-70">UK</span>/{dictEntry.phoneticUk}/
+                  </span>
+                  <span>
+                    <span className="text-[10px] mr-0.5 opacity-70">US</span>/{dictEntry.phoneticUs}/
+                  </span>
                 </span>
+              ) : (
+                dictEntry?.phonetic && (
+                  <span className="text-sm text-gray-400 dark:text-gray-500 font-mono">
+                    <span className="text-[10px] mr-0.5 opacity-70">IPA</span>
+                    {dictEntry.phonetic}
+                  </span>
+                )
               )}
               <button
                 onClick={handlePlayAudio}
@@ -417,6 +432,18 @@ const TranscriptViewer: React.FC<TranscriptViewerProps> = ({
                       </span>
                     ))}
                   </div>
+                )}
+                {/* Attribution — required by the Merriam-Webster free tier. */}
+                {dictEntry.provider === 'Merriam-Webster' && (
+                  <a
+                    href="https://www.learnersdictionary.com"
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    onClick={(e) => e.stopPropagation()}
+                    className="block mt-2 text-[10px] text-gray-400 dark:text-gray-500 hover:text-indigo-500 transition-colors"
+                  >
+                    Powered by Merriam-Webster Learner&apos;s Dictionary
+                  </a>
                 )}
               </div>
             )}

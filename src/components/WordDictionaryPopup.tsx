@@ -185,11 +185,24 @@ const WordDictionaryPopup: React.FC<WordDictionaryPopupProps> = ({
               ← {entry.lemma}
             </span>
           )}
-          {entry?.phonetic && (
-            <span className="text-sm text-gray-400 dark:text-gray-500 font-mono">
-              <span className="text-[10px] mr-0.5 opacity-70">IPA</span>
-              {entry.phonetic}
+          {/* Real UK/US split when the source provides both (Merriam-Webster),
+              otherwise a single IPA. */}
+          {entry?.phoneticUk && entry?.phoneticUs && entry.phoneticUk !== entry.phoneticUs ? (
+            <span className="flex items-center gap-1.5 text-sm text-gray-400 dark:text-gray-500 font-mono">
+              <span>
+                <span className="text-[10px] mr-0.5 opacity-70">UK</span>/{entry.phoneticUk}/
+              </span>
+              <span>
+                <span className="text-[10px] mr-0.5 opacity-70">US</span>/{entry.phoneticUs}/
+              </span>
             </span>
+          ) : (
+            entry?.phonetic && (
+              <span className="text-sm text-gray-400 dark:text-gray-500 font-mono">
+                <span className="text-[10px] mr-0.5 opacity-70">IPA</span>
+                {entry.phonetic}
+              </span>
+            )
           )}
           <button
             onClick={handlePlayAudio}
@@ -283,6 +296,18 @@ const WordDictionaryPopup: React.FC<WordDictionaryPopupProps> = ({
                   </button>
                 ))}
               </div>
+            )}
+            {/* Attribution — required by the Merriam-Webster free tier. */}
+            {entry.provider === 'Merriam-Webster' && (
+              <a
+                href="https://www.learnersdictionary.com"
+                target="_blank"
+                rel="noopener noreferrer"
+                onClick={(e) => e.stopPropagation()}
+                className="block mt-2 text-[10px] text-gray-400 dark:text-gray-500 hover:text-indigo-500 transition-colors"
+              >
+                Powered by Merriam-Webster Learner&apos;s Dictionary
+              </a>
             )}
           </div>
         )}

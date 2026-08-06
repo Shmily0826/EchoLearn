@@ -125,6 +125,55 @@ interface BackendResponse {
   audio_url: string;
   base_form: string;
   entries: BackendEntry[];
+  /** Which upstream produced this result — drives UI attribution. */
+  source?: 'merriam-webster' | 'free-dictionary' | 'datamuse';
+}
+
+// ── Shared definition builder ─────────────────────────────────
+
+/** Bound the work so translation stays fast and MW/gtx quotas stay healthy. */
+const MAX_POS = 4;
+const MAX_DEFS_PER_POS = 2;
+
+type DefTask = { pos: string; original: string };
+
+/**
+ * Translate every definition in parallel, then group back by part of speech
+ * while preserving source order.
+ */
+async function buildEntries(tasks: DefTask[], target: string): Promise<BackendEntry[]> {
+  const translateNeeded = target !== 'en' && target !== 'en-US';
+
+  const translated = await Promise.all(
+    tasks.map(async (t) => {
+      if (!translateNeeded) return t.original;
+      try {
+        return await translateWithGoogle(t.original, 'en', target);
+      } catch {
+        return t.original; // keep English on failure
+      }
+    }),
+  );
+
+  const grouped = new Map<string, string[]>();
+  for (let i = 0; i < tasks.length; i++) {
+    const arr = grouped.get(tasks[i].pos) || [];
+    arr.push(translated[i]);
+    grouped.set(tasks[i].pos, arr);
+  }
+
+  const out: BackendEntry[] = [];
+  let order = 0;
+  for (const [pos, defs] of grouped) {
+    out.push({
+      pos,
+      definitions: defs.map((definition) => ({
+        display_order: order++,
+        definitions_json: { definition },
+      })),
+    });
+  }
+  return out;
 }
 
 // ── Free Dictionary fetch + normalize ─────────────────────────
@@ -247,16 +296,8 @@ async function freeEntryToBackend(
 ): Promise<BackendResponse | null> {
   const meanings = entry.meanings || [];
   if (meanings.length === 0) return null;
-  const translateNeeded = target !== 'en' && target !== 'en-US';
 
-  // Bound the work: up to 3 POS, up to 2 definitions per POS (Free Dictionary's
-  // most-common senses). This exposes the common definition to the popup while
-  // keeping Google gtx translation calls bounded.
-  const MAX_POS = 3;
-  const MAX_DEFS_PER_POS = 2;
-
-  type Task = { pos: string; original: string };
-  const tasks: Task[] = [];
+  const tasks: DefTask[] = [];
   const seen = new Set<string>(); // dedupe exact duplicate definitions within a POS
   for (const m of meanings.slice(0, MAX_POS)) {
     const pos = m.partOfSpeech || '';
@@ -277,39 +318,7 @@ async function freeEntryToBackend(
   }
   if (tasks.length === 0) return null;
 
-  // Translate all definitions in parallel (much faster than sequential await).
-  const translated = await Promise.all(
-    tasks.map(async (t) => {
-      if (!translateNeeded) return t.original;
-      try {
-        return await translateWithGoogle(t.original, 'en', target);
-      } catch {
-        return t.original; // keep English on failure
-      }
-    }),
-  );
-
-  // Group translations back by POS, preserving source order.
-  const grouped = new Map<string, string[]>();
-  for (let i = 0; i < tasks.length; i++) {
-    const { pos } = tasks[i];
-    const arr = grouped.get(pos) || [];
-    arr.push(translated[i]);
-    grouped.set(pos, arr);
-  }
-
-  const out: BackendEntry[] = [];
-  let order = 0;
-  for (const [pos, defs] of grouped) {
-    out.push({
-      pos,
-      definitions: defs.map((definition) => ({
-        display_order: order++,
-        definitions_json: { definition },
-      })),
-    });
-  }
-
+  const out = await buildEntries(tasks, target);
   const { ipa, audio } = extractPhonetic(entry);
   // 省事版 (simple variant): Free Dictionary does not cleanly separate UK/US IPA,
   // so we use the one available IPA for both fields.
@@ -320,6 +329,151 @@ async function freeEntryToBackend(
     // Always a real dictionary headword — never a lemmatizer guess.
     base_form: baseFormOverride || entry.word || '',
     entries: out,
+    source: 'free-dictionary',
+  };
+}
+
+// ── Merriam-Webster Learner's Dictionary (primary, when key present) ──
+
+/**
+ * MW's Learner's Dictionary is written for ESL learners: senses are ordered by
+ * how common they are (not by etymology), so it fixes the "first definition is
+ * an obscure sense" problem that Free Dictionary has.
+ *
+ * It also solves lemmatization for free: querying "trusted" returns the "trust"
+ * entry with meta.stems listing every inflected form. And unlike Free
+ * Dictionary it labels the British pronunciation explicitly (l: "British"),
+ * giving us genuine UK/US IPA.
+ *
+ * Requires MW_LEARNERS_KEY (free, non-commercial, 1000 req/day). When the env
+ * var is absent this whole layer is skipped and we fall back to Free Dictionary.
+ */
+const MW_BASE = 'https://dictionaryapi.com/api/v3/references/learners/json';
+const MW_AUDIO_BASE = 'https://media.merriam-webster.com/audio/prons/en/us/mp3';
+
+interface MwPron { ipa?: string; l?: string; sound?: { audio?: string } }
+interface MwEntry {
+  meta?: { id?: string; src?: string; stems?: string[] };
+  hwi?: { hw?: string; prs?: MwPron[]; altprs?: MwPron[] };
+  fl?: string;
+  shortdef?: string[];
+}
+
+/** MW's audio files live in a subdirectory derived from the filename. */
+function mwAudioUrl(audio: string): string {
+  if (!audio) return '';
+  let sub: string;
+  if (audio.startsWith('bix')) sub = 'bix';
+  else if (audio.startsWith('gg')) sub = 'gg';
+  else if (/^[^a-zA-Z]/.test(audio)) sub = 'number';
+  else sub = audio[0];
+  return `${MW_AUDIO_BASE}/${sub}/${audio}.mp3`;
+}
+
+/** MW marks syllable breaks with '*' in the headword (e.g. "beau*ti*ful"). */
+function mwHeadword(entry: MwEntry): string {
+  return (entry.hwi?.hw || '').replace(/\*/g, '').trim().toLowerCase();
+}
+
+function mwProns(entry: MwEntry): MwPron[] {
+  return entry.hwi?.prs || entry.hwi?.altprs || [];
+}
+
+/**
+ * MW's stems list is generous — querying "went" also matches "unnoticed"
+ * (because "went unnoticed" is a listed phrase). Keep an entry only when its
+ * headword is plausibly the same lexeme as the query.
+ *
+ * `primaryHw` is MW's own top-ranked headword, which we always trust: that is
+ * what rescues irregular forms our prefix test cannot see (went → go).
+ */
+function mwRelated(query: string, hw: string, primaryHw: string): boolean {
+  if (!hw) return false;
+  if (hw === query || hw === primaryHw) return true;
+  // run/running, child/children, stop/stopped, trust/trusted, fast/faster …
+  const [short, long] = hw.length <= query.length ? [hw, query] : [query, hw];
+  return short.length >= 2 && long.startsWith(short);
+}
+
+async function fetchMerriamWebster(word: string, target: string): Promise<BackendResponse | null> {
+  const key = process.env.MW_LEARNERS_KEY;
+  if (!key) return null;
+
+  let data: unknown;
+  try {
+    const res = await fetch(`${MW_BASE}/${encodeURIComponent(word)}?key=${encodeURIComponent(key)}`, {
+      signal: AbortSignal.timeout(8000),
+    });
+    if (!res.ok) return null;
+    data = await res.json();
+  } catch {
+    return null;
+  }
+
+  // A miss returns [] or an array of spelling suggestions (plain strings).
+  if (!Array.isArray(data) || data.length === 0 || typeof data[0] === 'string') return null;
+
+  // Keep only real learner entries that actually cover the queried word.
+  // meta.stems is MW's own inflection list, so this is the dictionary telling
+  // us "trusted belongs to trust" — no guessing on our side.
+  // Drop stub entries (no shortdef, e.g. the bare "went" cross-reference) and
+  // anything that does not actually cover the queried word.
+  const covering = (data as MwEntry[]).filter((e) => {
+    if (!Array.isArray(e.shortdef) || e.shortdef.length === 0) return false;
+    const stems = (e.meta?.stems || []).map((s) => s.toLowerCase());
+    return stems.includes(word) || mwHeadword(e) === word;
+  });
+  if (covering.length === 0) return null;
+
+  // MW ranks the best match first — use it as the anchor, then keep only
+  // same-lexeme entries so noise like "went" → "unnoticed" cannot leak in.
+  const primaryHw = mwHeadword(covering[0]);
+  const entries = covering.filter((e) => mwRelated(word, mwHeadword(e), primaryHw));
+  if (entries.length === 0) return null;
+
+  // Definitions: up to MAX_POS parts of speech, MAX_DEFS_PER_POS senses each.
+  const tasks: DefTask[] = [];
+  const perPos = new Map<string, number>();
+  for (const e of entries) {
+    const pos = (e.fl || '').trim();
+    if (perPos.size >= MAX_POS && !perPos.has(pos)) continue;
+    for (const raw of e.shortdef || []) {
+      const used = perPos.get(pos) || 0;
+      if (used >= MAX_DEFS_PER_POS) break;
+      // MW prefixes usage notes with an em dash, e.g. "—used as a contraction of".
+      const original = raw.replace(/^[\s—–-]+/, '').trim();
+      if (!original) continue;
+      perPos.set(pos, used + 1);
+      tasks.push({ pos, original });
+    }
+  }
+  if (tasks.length === 0) return null;
+
+  // Pronunciation: MW flags the British variant, everything else is US.
+  let ipaUs = '';
+  let ipaUk = '';
+  let audio = '';
+  for (const e of entries) {
+    for (const p of mwProns(e)) {
+      const isBritish = (p.l || '').toLowerCase().includes('british');
+      if (isBritish) { if (!ipaUk && p.ipa) ipaUk = p.ipa; }
+      else if (!ipaUs && p.ipa) ipaUs = p.ipa;
+      if (!audio && p.sound?.audio) audio = mwAudioUrl(p.sound.audio);
+    }
+    if (ipaUs && ipaUk && audio) break;
+  }
+
+  const out = await buildEntries(tasks, target);
+  if (out.length === 0) return null;
+
+  return {
+    ipa_uk: ipaUk || ipaUs,
+    ipa_us: ipaUs || ipaUk,
+    audio_url: audio,
+    // MW's own headword — authoritative base form.
+    base_form: mwHeadword(entries[0]) || word,
+    entries: out,
+    source: 'merriam-webster',
   };
 }
 
@@ -349,6 +503,7 @@ async function fetchFromDatamuse(word: string, target: string): Promise<BackendR
     return {
       ipa_uk: '', ipa_us: '', audio_url: '', base_form: word,
       entries: [{ pos: POS_MAP[posAbbr] ?? '', definitions: [{ display_order: 0, definitions_json: { definition: translated } }] }],
+      source: 'datamuse',
     };
   } catch {
     return null;
@@ -379,7 +534,22 @@ export default async function handler(request: Request): Promise<Response> {
     return jsonResponse({ error: 'Invalid word' }, 400, origin);
   }
 
-  // ── Resolve the headword. Dictionary wins; lemmatizer only proposes. ──
+  // ── Tier 1: Merriam-Webster Learner's (best sense ordering + real UK/US IPA).
+  // Skipped automatically when MW_LEARNERS_KEY is not configured.
+  const mw = await fetchMerriamWebster(word, target);
+  if (mw) {
+    return new Response(JSON.stringify(mw), {
+      status: 200,
+      headers: {
+        'Content-Type': 'application/json',
+        'Cache-Control': 's-maxage=86400, stale-while-revalidate=604800',
+        ...corsHeaders(origin),
+      },
+    });
+  }
+
+  // ── Tier 2: Free Dictionary.
+  // Resolve the headword — dictionary wins; lemmatizer only proposes. ──
   const candidates = candidateLemmas(word);
 
   // One round-trip for the raw word, one for the best candidate — in parallel,
