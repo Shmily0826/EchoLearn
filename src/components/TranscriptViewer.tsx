@@ -6,6 +6,20 @@ import { lemmatize } from '../utils/lemmatizer';
 import { lookupWord, isKnownProperNoun } from '../services/dictionaryService';
 import { translateWordFast } from '../services/translationService';
 
+/** Speak a word using the browser's built-in TTS (free, no network/API key). */
+function speakWord(word: string): void {
+  try {
+    const synth = window.speechSynthesis;
+    const u = new SpeechSynthesisUtterance(word);
+    u.lang = 'en-US';
+    u.rate = 0.9;
+    synth.cancel();
+    synth.speak(u);
+  } catch {
+    /* speech synthesis unavailable */
+  }
+}
+
 interface TranscriptViewerProps {
   lines: TranscriptLine[];
   videoId: string;
@@ -200,9 +214,16 @@ const TranscriptViewer: React.FC<TranscriptViewerProps> = ({
 
   const handlePlayAudio = (e: React.MouseEvent) => {
     e.stopPropagation();
+    const word = popup?.word;
+    if (!word) return;
+    // Prefer the source recording when Free Dictionary provides one,
+    // otherwise fall back to the browser's built-in TTS (always available,
+    // no network) so pronunciation always works.
     if (dictEntry?.audioUrl) {
       const audio = new Audio(dictEntry.audioUrl);
-      audio.play().catch(() => { /* ignore autoplay errors */ });
+      audio.play().catch(() => { speakWord(word); });
+    } else {
+      speakWord(word);
     }
   };
 
@@ -272,21 +293,20 @@ const TranscriptViewer: React.FC<TranscriptViewerProps> = ({
               </span>
               {dictEntry?.phonetic && (
                 <span className="text-sm text-gray-400 dark:text-gray-500 font-mono">
+                  <span className="text-[10px] mr-0.5 opacity-70">IPA</span>
                   {dictEntry.phonetic}
                 </span>
               )}
-              {dictEntry?.audioUrl && (
-                <button
-                  onClick={handlePlayAudio}
-                  title="Play pronunciation"
-                  className="p-1 text-indigo-500 hover:text-indigo-700 hover:bg-indigo-50 rounded-full transition-colors cursor-pointer"
-                >
+              <button
+                onClick={handlePlayAudio}
+                title="Play pronunciation (TTS)"
+                className="p-1 text-indigo-500 hover:text-indigo-700 hover:bg-indigo-50 rounded-full transition-colors cursor-pointer"
+              >
                   <svg className="w-4 h-4" fill="currentColor" viewBox="0 0 24 24">
                     <path d="M11.5 3.75a.75.75 0 011.085-.674l6.75 3.5a.75.75 0 010 1.348l-6.75 3.5a.75.75 0 01-1.085-.674V3.75z" />
                     <path d="M3.5 8.75a.75.75 0 011.085-.674l6.75 3.5a.75.75 0 010 1.348l-6.75 3.5A.75.75 0 013.5 15.75V8.75z" />
                   </svg>
                 </button>
-              )}
             </div>
 
             {/* Translation (Chinese) — primary fast layer for zh mode */}

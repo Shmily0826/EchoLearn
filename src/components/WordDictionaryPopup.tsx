@@ -5,6 +5,20 @@ import { translateWord } from '../services/translationService';
 import { useI18n } from '../i18n/I18nContext';
 import ClickableDefinition from './ClickableDefinition';
 
+/** Speak a word using the browser's built-in TTS (free, no network/API key). */
+function speakWord(word: string): void {
+  try {
+    const synth = window.speechSynthesis;
+    const u = new SpeechSynthesisUtterance(word);
+    u.lang = 'en-US';
+    u.rate = 0.9;
+    synth.cancel();
+    synth.speak(u);
+  } catch {
+    /* speech synthesis unavailable */
+  }
+}
+
 interface WordDictionaryPopupProps {
   /** The word to look up */
   word: string;
@@ -119,8 +133,13 @@ const WordDictionaryPopup: React.FC<WordDictionaryPopupProps> = ({
 
   const handlePlayAudio = (e: React.MouseEvent) => {
     e.stopPropagation();
+    // Prefer the source recording when Free Dictionary provides one,
+    // otherwise fall back to the browser's built-in TTS (always available,
+    // no network) so pronunciation always works.
     if (entry?.audioUrl) {
-      new Audio(entry.audioUrl).play().catch(() => {});
+      new Audio(entry.audioUrl).play().catch(() => speakWord(currentWord));
+    } else {
+      speakWord(currentWord);
     }
   };
 
@@ -159,20 +178,21 @@ const WordDictionaryPopup: React.FC<WordDictionaryPopupProps> = ({
           )}
           <span className="text-lg font-bold text-gray-800 dark:text-gray-200">{currentWord}</span>
           {entry?.phonetic && (
-            <span className="text-sm text-gray-400 dark:text-gray-500 font-mono">{entry.phonetic}</span>
+            <span className="text-sm text-gray-400 dark:text-gray-500 font-mono">
+              <span className="text-[10px] mr-0.5 opacity-70">IPA</span>
+              {entry.phonetic}
+            </span>
           )}
-          {entry?.audioUrl && (
-            <button
-              onClick={handlePlayAudio}
-              title="Play pronunciation"
-              className="p-1 text-indigo-500 hover:text-indigo-700 hover:bg-indigo-50 rounded-full transition-colors cursor-pointer"
-            >
+          <button
+            onClick={handlePlayAudio}
+            title="Play pronunciation (TTS)"
+            className="p-1 text-indigo-500 hover:text-indigo-700 hover:bg-indigo-50 rounded-full transition-colors cursor-pointer"
+          >
               <svg className="w-4 h-4" fill="currentColor" viewBox="0 0 24 24">
                 <path d="M11.5 3.75a.75.75 0 011.085-.674l6.75 3.5a.75.75 0 010 1.348l-6.75 3.5a.75.75 0 01-1.085-.674V3.75z" />
                 <path d="M3.5 8.75a.75.75 0 011.085-.674l6.75 3.5a.75.75 0 010 1.348l-6.75 3.5A.75.75 0 013.5 15.75V8.75z" />
               </svg>
             </button>
-          )}
         </div>
 
         {/* Part of speech */}
