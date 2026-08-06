@@ -11,6 +11,7 @@ import { parseYouTubeId, parseStartTime } from '../utils/youtube';
 import { detectPlatform, parseBilibiliId, parseBilibiliStartTime, parseBilibiliPage } from '../utils/bilibili';
 import { normalizeTranscriptToSentences } from '../utils/transcriptNormalizer';
 import { lemmatize } from '../utils/lemmatizer';
+import { SEEK_REQUEST_EVENT, type SeekRequestDetail } from '../utils/jumpToSource';
 import { analyzeTranscript } from '../services/aiAnalysis';
 import { trackEvent } from '../services/analytics';
 import { fetchYouTubeTranscript } from '../services/youtubeTranscript';
@@ -171,6 +172,12 @@ const StudyPage: React.FC = () => {
   const [playbackRate, setPlaybackRate] = useState(
     () => Number(localStorage.getItem('echolearn_playback_rate')) || 1,
   );
+
+  // ── Deep-link seek ("jump to where I learned this word") ───
+  // Vocabulary/Sentences pages dispatch SEEK_REQUEST_EVENT. If the requested
+  // video is already the one playing we seek immediately; otherwise we hold the
+  // request until that video's player is mounted.
+  const pendingSeekRef = useRef<SeekRequestDetail | null>(null);
 
   // ── Playback position memory ───────────────────────────────
   const lastPosSaveRef = useRef(0);
@@ -377,6 +384,45 @@ const StudyPage: React.FC = () => {
     setVocabulary(loadVocabulary());
     setSentences(loadSentences());
   }, [pathname]);
+
+  // ── Deep-link seek requests from Vocabulary / Sentences ────
+  useEffect(() => {
+    const handler = (e: Event) => {
+      const detail = (e as CustomEvent<SeekRequestDetail>).detail;
+      if (!detail?.videoId) return;
+      // Queue it; the effect below drains the queue as soon as the matching
+      // player is live. This covers both "same video" and "still loading".
+      pendingSeekRef.current = detail;
+    };
+    window.addEventListener(SEEK_REQUEST_EVENT, handler);
+    return () => window.removeEventListener(SEEK_REQUEST_EVENT, handler);
+  }, []);
+
+  // Apply a queued seek once the right video's player is ready. Retries briefly
+  // because the YouTube iframe API needs a moment after a session switch.
+  useEffect(() => {
+    if (!videoId) return;
+    let cancelled = false;
+    let attempts = 0;
+
+    const tick = () => {
+      if (cancelled) return;
+      const pending = pendingSeekRef.current;
+      if (!pending) return;
+      if (pending.videoId !== videoId) return; // a different video is loading
+
+      if (playerRef.current) {
+        playerRef.current.seekTo(pending.seconds);
+        playerRef.current.playVideo();
+        pendingSeekRef.current = null;
+        return;
+      }
+      if (++attempts < 40) window.setTimeout(tick, 150); // give up after ~6s
+    };
+
+    const id = window.setTimeout(tick, 100);
+    return () => { cancelled = true; window.clearTimeout(id); };
+  }, [videoId, pathname]);
 
   // ── Poll current playback time every 100ms + save position ──
   useEffect(() => {

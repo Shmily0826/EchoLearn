@@ -40,6 +40,15 @@ const RATE_LIMIT_WINDOW_MS = 60_000;
 const RATE_LIMIT_MAX = 120;
 
 /**
+ * Upstream timeouts. These are deliberately tight: a word popup that takes 8s
+ * is useless to a learner, and every tier here has a fallback behind it, so
+ * giving up early is strictly better than waiting.
+ */
+const MW_TIMEOUT_MS = 4000;
+const FREE_DICT_TIMEOUT_MS = 3000;
+const DATAMUSE_TIMEOUT_MS = 3000;
+
+/**
  * Translation targets we allow — prevents this endpoint being abused as a free
  * open translation proxy.
  */
@@ -178,16 +187,58 @@ async function buildEntries(tasks: DefTask[], target: string): Promise<BackendEn
 
 // ── Free Dictionary fetch + normalize ─────────────────────────
 
+/**
+ * Free Dictionary (dictionaryapi.dev) is a free community service and goes down
+ * regularly — it has been returning 502 for every request at times. Each lookup
+ * fires up to 5 requests at it, so when it is down we were burning ~1.5s per
+ * word waiting for failures before reaching Datamuse.
+ *
+ * A tiny circuit breaker fixes that: after a couple of consecutive infrastructure
+ * failures we stop calling it for a while. 404 ("word not found") is a valid
+ * answer, not a failure, so it never trips the breaker.
+ */
+const FD_BREAKER_THRESHOLD = 2;
+const FD_BREAKER_COOLDOWN_MS = 60_000;
+let fdFailures = 0;
+let fdOpenUntil = 0;
+
+function fdAvailable(): boolean {
+  if (Date.now() < fdOpenUntil) return false;
+  return true;
+}
+function fdNoteFailure(): void {
+  if (++fdFailures >= FD_BREAKER_THRESHOLD) {
+    fdOpenUntil = Date.now() + FD_BREAKER_COOLDOWN_MS;
+    fdFailures = 0;
+  }
+}
+function fdNoteSuccess(): void {
+  fdFailures = 0;
+  fdOpenUntil = 0;
+}
+
 async function fetchFreeDict(lemma: string): Promise<FreeEntry | null> {
+  if (!fdAvailable()) return null;
   try {
     const res = await fetch(`${FREE_DICT_BASE}/${encodeURIComponent(lemma)}`, {
-      signal: AbortSignal.timeout(8000),
+      signal: AbortSignal.timeout(FREE_DICT_TIMEOUT_MS),
     });
-    if (!res.ok) return null;
+    // 404 = no such word (a real answer). 5xx/429 = the service is unwell.
+    if (res.status >= 500 || res.status === 429) {
+      fdNoteFailure();
+      return null;
+    }
+    if (!res.ok) {
+      fdNoteSuccess();
+      return null;
+    }
     const data = (await res.json()) as FreeEntry[];
+    fdNoteSuccess();
     if (!Array.isArray(data) || data.length === 0) return null;
     return data[0];
   } catch {
+    // Timeout or network error — infrastructure problem.
+    fdNoteFailure();
     return null;
   }
 }
@@ -402,7 +453,7 @@ async function fetchMerriamWebster(word: string, target: string): Promise<Backen
   let data: unknown;
   try {
     const res = await fetch(`${MW_BASE}/${encodeURIComponent(word)}?key=${encodeURIComponent(key)}`, {
-      signal: AbortSignal.timeout(8000),
+      signal: AbortSignal.timeout(MW_TIMEOUT_MS),
     });
     if (!res.ok) return null;
     data = await res.json();
@@ -479,30 +530,91 @@ async function fetchMerriamWebster(word: string, target: string): Promise<Backen
 
 // ── Datamuse fallback ─────────────────────────────────────────
 
+/**
+ * Datamuse encodes pronunciation with `md=r&ipa=1`, e.g. `ipa_pron:hʌɫˈoʊ`.
+ * It is machine-generated from CMUdict, so it uses a few symbols that look
+ * wrong to learners (dark-l `ɫ`, `ɝ`/`ɚ` r-colored vowels). Normalise them to
+ * the notation dictionaries actually print.
+ */
+function normalizeIpa(raw: string): string {
+  return raw
+    .replace(/ɫ/g, 'l')
+    .replace(/ɝ/g, 'ɜr')
+    .replace(/ɚ/g, 'ər')
+    .trim();
+}
+
+/** Pull a `prefix:value` tag out of Datamuse's flat tag list. */
+function datamuseTag(tags: string[] | undefined, prefix: string): string {
+  const hit = (tags || []).find((t) => t.startsWith(`${prefix}:`));
+  return hit ? hit.slice(prefix.length + 1).trim() : '';
+}
+
 async function fetchFromDatamuse(word: string, target: string): Promise<BackendResponse | null> {
   try {
-    const res = await fetch(`${DATAMUSE_BASE}?sp=${encodeURIComponent(word)}&md=d&max=10`, {
-      signal: AbortSignal.timeout(6000),
+    // md=d definitions · md=p part of speech · md=r pronunciation · ipa=1 → IPA
+    // instead of ARPABET. This is the only tier that works without an API key,
+    // so it must still carry phonetics.
+    const res = await fetch(`${DATAMUSE_BASE}?sp=${encodeURIComponent(word)}&md=dpr&ipa=1&max=10`, {
+      signal: AbortSignal.timeout(DATAMUSE_TIMEOUT_MS),
     });
     if (!res.ok) return null;
     const data = await res.json();
     const hit = (Array.isArray(data) ? data : []).find(
       (d: { word?: string; defs?: string[] }) =>
         d.word?.toLowerCase() === word.toLowerCase() && Array.isArray(d.defs) && d.defs.length > 0,
-    );
+    ) as { word?: string; defs?: string[]; tags?: string[] } | undefined;
     if (!hit) return null;
-    const POS_MAP: Record<string, string> = { n: 'noun', v: 'verb', adj: 'adjective', adv: 'adverb' };
-    const firstDef = hit.defs![0];
-    const tab = firstDef.indexOf('\t');
-    const posAbbr = tab >= 0 ? firstDef.slice(0, tab) : '';
-    const defText = (tab >= 0 ? firstDef.slice(tab + 1) : firstDef).trim();
-    let translated = defText;
-    if (target !== 'en' && target !== 'en-US') {
-      try { translated = await translateWithGoogle(defText, 'en', target); } catch { /* keep English on failure */ }
+
+    const POS_MAP: Record<string, string> = {
+      n: 'noun', v: 'verb', adj: 'adjective', adv: 'adverb', u: '',
+    };
+
+    // Datamuse defs look like "adj\treliable". Group them by part of speech so
+    // the popup shows the same multi-sense layout as the MW tier.
+    const tasks: DefTask[] = [];
+    for (const rawDef of hit.defs!) {
+      const tab = rawDef.indexOf('\t');
+      const posAbbr = tab >= 0 ? rawDef.slice(0, tab) : '';
+      const text = (tab >= 0 ? rawDef.slice(tab + 1) : rawDef).trim();
+      if (!text) continue;
+      const pos = POS_MAP[posAbbr] ?? '';
+      if (tasks.filter((t) => t.pos === pos).length >= MAX_DEFS_PER_POS) continue;
+      if (!tasks.some((t) => t.pos === pos) && new Set(tasks.map((t) => t.pos)).size >= MAX_POS) continue;
+      tasks.push({ pos, original: text });
+      if (tasks.length >= MAX_POS * MAX_DEFS_PER_POS) break;
     }
+    if (tasks.length === 0) return null;
+
+    // Translate every sense in parallel — sequential calls were the main
+    // reason the fallback felt sluggish.
+    let texts = tasks.map((t) => t.original);
+    if (target !== 'en' && target !== 'en-US') {
+      texts = await Promise.all(
+        tasks.map((t) =>
+          translateWithGoogle(t.original, 'en', target).catch(() => t.original),
+        ),
+      );
+    }
+
+    const byPos = new Map<string, BackendEntry>();
+    tasks.forEach((task, i) => {
+      let entry = byPos.get(task.pos);
+      if (!entry) {
+        entry = { pos: task.pos, definitions: [] };
+        byPos.set(task.pos, entry);
+      }
+      entry.definitions.push({
+        display_order: entry.definitions.length,
+        definitions_json: { definition: texts[i] },
+      });
+    });
+
+    const ipa = normalizeIpa(datamuseTag(hit.tags, 'ipa_pron'));
     return {
-      ipa_uk: '', ipa_us: '', audio_url: '', base_form: word,
-      entries: [{ pos: POS_MAP[posAbbr] ?? '', definitions: [{ display_order: 0, definitions_json: { definition: translated } }] }],
+      // CMUdict is a US pronunciation dictionary, so only claim US here.
+      ipa_uk: '', ipa_us: ipa, audio_url: '', base_form: word,
+      entries: [...byPos.values()],
       source: 'datamuse',
     };
   } catch {
@@ -511,6 +623,19 @@ async function fetchFromDatamuse(word: string, target: string): Promise<BackendR
 }
 
 // ── Handler ───────────────────────────────────────────────────
+
+/**
+ * Non-secret diagnostics on the response headers. Lets us tell "MW key is
+ * missing on Vercel" apart from "MW is rate-limited" apart from "Free
+ * Dictionary is down" with a single `curl -i`, without ever echoing the key.
+ */
+function diagHeaders(source: string | undefined): Record<string, string> {
+  return {
+    'X-Dict-Source': source || 'none',
+    'X-Dict-Mw-Key': process.env.MW_LEARNERS_KEY ? 'configured' : 'missing',
+    'X-Dict-Fd-Breaker': fdAvailable() ? 'closed' : 'open',
+  };
+}
 
 export default async function handler(request: Request): Promise<Response> {
   const origin = request.headers.get('Origin');
@@ -543,6 +668,7 @@ export default async function handler(request: Request): Promise<Response> {
       headers: {
         'Content-Type': 'application/json',
         'Cache-Control': 's-maxage=86400, stale-while-revalidate=604800',
+        ...diagHeaders(mw.source),
         ...corsHeaders(origin),
       },
     });
@@ -606,6 +732,7 @@ export default async function handler(request: Request): Promise<Response> {
     headers: {
       'Content-Type': 'application/json',
       'Cache-Control': 's-maxage=86400, stale-while-revalidate=604800',
+      ...diagHeaders(response.source),
       ...corsHeaders(origin),
     },
   });

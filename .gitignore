@@ -10,6 +10,8 @@ lerna-debug.log*
 node_modules
 dist
 dist-ssr
+# Throwaway output dir used to verify a production build without touching dist/
+dist_verify
 *.local
 
 # Environment files (may contain API keys)

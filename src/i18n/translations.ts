@@ -227,6 +227,8 @@ const translations: Record<string, Record<Lang, string>> = {
   'vocab.az':            { en: 'A - Z', zh: 'A - Z' },
   'vocab.reviewSoonest': { en: 'Review soonest', zh: '复习最紧迫' },
   'vocab.mostReviewed':  { en: 'Most reviewed', zh: '复习最多' },
+  'vocab.cardView':      { en: 'Card view', zh: '卡片视图' },
+  'vocab.listView':      { en: 'List view', zh: '列表视图' },
   'vocab.noWords':       { en: 'No words saved yet. Click any word in a transcript to add it.', zh: '还没有保存词汇。点击字幕中的任意单词添加。' },
   'vocab.noMatch':       { en: 'No matching words.', zh: '没有匹配的词汇。' },
   'vocab.delete':        { en: 'Delete', zh: '删除' },
@@ -259,9 +261,9 @@ const translations: Record<string, Record<Lang, string>> = {
   'sent.editTransPh':    { en: 'Enter your notes...', zh: '输入中文翻译...' },
   'sent.editTransTitle': { en: 'Click to edit notes', zh: '点击编辑翻译' },
   'sent.save':           { en: 'Save', zh: '保存' },
-  'sent.myOwn':          { en: 'My Own Sentence', zh: '我的造句' },
-  'sent.clickWrite':     { en: 'Click to write your own sentence...', zh: '点击写一个自己的句子...' },
-  'sent.writePh':        { en: 'Write your own sentence using the same pattern...', zh: '用相同句型写一个自己的句子...' },
+  'sent.myOwn':          { en: 'My Notes', zh: '我的笔记' },
+  'sent.clickWrite':     { en: 'Click to add notes...', zh: '点击添加笔记...' },
+  'sent.writePh':        { en: 'Write your notes, examples, or mnemonics here...', zh: '在这里写笔记、例句或助记...' },
   'sent.cancel':         { en: 'Cancel', zh: '取消' },
 
   // ── Review ───────────────────────────────────────────────

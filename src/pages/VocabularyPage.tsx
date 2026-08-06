@@ -12,10 +12,12 @@ import {
 import WordDictionaryPopup from '../components/WordDictionaryPopup';
 import { exportVocabularyCSV, exportVocabularyPDF } from '../services/exportService';
 import { translateWords } from '../services/translationService';
+import { jumpToSource, formatTimestamp, youtubeUrlAt } from '../utils/jumpToSource';
 import type { VocabularyItem, VideoStudySession } from '../types';
 
 type FilterMode = 'all' | 'mastered' | 'unmastered';
 type SortMode = 'newest' | 'az' | 'review' | 'most-reviewed';
+type ViewMode = 'card' | 'list';
 
 interface DictPopupState {
   word: string;
@@ -54,6 +56,7 @@ const VocabularyPage: React.FC = () => {
   const [search, setSearch] = useState('');
   const [filter, setFilter] = useState<FilterMode>('all');
   const [sort, setSort] = useState<SortMode>('newest');
+  const [viewMode, setViewMode] = useState<ViewMode>('card');
   const [editingId, setEditingId] = useState<string | null>(null);
   const [editMeaning, setEditMeaning] = useState('');
   const [dictPopup, setDictPopup] = useState<DictPopupState | null>(null);
@@ -83,6 +86,21 @@ const VocabularyPage: React.FC = () => {
 
   const getVideoTitle = (item: VocabularyItem) =>
     item.sourceVideoTitle || titleMap.get(item.sourceVideoId) || item.sourceVideoId;
+
+  /**
+   * Jump back to the exact moment in the video where this word was saved.
+   * Falls back to YouTube when the study session has since been deleted.
+   */
+  const handleJumpToSource = useCallback(
+    (item: VocabularyItem) => {
+      if (!item.sourceVideoId) return;
+      const { ok } = jumpToSource(item.sourceVideoId, item.sourceTimestamp, navigate);
+      if (!ok) {
+        window.open(youtubeUrlAt(item.sourceVideoId, item.sourceTimestamp), '_blank', 'noopener');
+      }
+    },
+    [navigate],
+  );
 
   const handleRemove = useCallback((id: string) => {
     if (!window.confirm(t('vocab.deleteConfirm'))) return;
@@ -276,19 +294,37 @@ const VocabularyPage: React.FC = () => {
             </button>
           ))}
         </div>
-        <select
-          value={sort}
-          onChange={(e) => setSort(e.target.value as SortMode)}
-          className="text-xs text-gray-500 dark:text-gray-400 border border-gray-200 dark:border-slate-700 rounded-lg px-2 py-1.5 focus:outline-none focus:ring-1 focus:ring-indigo-400 cursor-pointer dark:bg-slate-800"
-        >
-          <option value="newest">{t('vocab.newest')}</option>
-          <option value="az">{t('vocab.az')}</option>
-          <option value="review">{t('vocab.reviewSoonest')}</option>
-          <option value="most-reviewed">{t('vocab.mostReviewed')}</option>
-        </select>
+        <div className="flex items-center gap-2">
+          <select
+            value={sort}
+            onChange={(e) => setSort(e.target.value as SortMode)}
+            className="text-xs text-gray-500 dark:text-gray-400 border border-gray-200 dark:border-slate-700 rounded-lg px-2 py-1.5 focus:outline-none focus:ring-1 focus:ring-indigo-400 cursor-pointer dark:bg-slate-800"
+          >
+            <option value="newest">{t('vocab.newest')}</option>
+            <option value="az">{t('vocab.az')}</option>
+            <option value="review">{t('vocab.reviewSoonest')}</option>
+            <option value="most-reviewed">{t('vocab.mostReviewed')}</option>
+          </select>
+          <button
+            onClick={() => setViewMode(viewMode === 'card' ? 'list' : 'card')}
+            className="text-xs text-gray-500 dark:text-gray-400 border border-gray-200 dark:border-slate-700 rounded-lg px-2.5 py-1.5 hover:bg-gray-50 dark:hover:bg-slate-900 transition-colors cursor-pointer flex items-center gap-1"
+            title={viewMode === 'card' ? t('vocab.listView') : t('vocab.cardView')}
+          >
+            {viewMode === 'card' ? (
+              <svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                <path strokeLinecap="round" strokeLinejoin="round" d="M3.75 6.75h16.5M3.75 12h16.5m-16.5 5.25h16.5" />
+              </svg>
+            ) : (
+              <svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                <path strokeLinecap="round" strokeLinejoin="round" d="M3.75 6A2.25 2.25 0 016 3.75h2.25A2.25 2.25 0 0110.5 6v1.5a2.25 2.25 0 01-2.25 2.25H6a2.25 2.25 0 01-2.25-2.25V6zM3.75 15.75A2.25 2.25 0 016 13.5h2.25a2.25 2.25 0 012.25 2.25V18a2.25 2.25 0 01-2.25 2.25H6A2.25 2.25 0 013.75 18v-2.25zM13.5 6a2.25 2.25 0 012.25-2.25H18A2.25 2.25 0 0120.25 6v1.5A2.25 2.25 0 0118 10.5h-2.25a2.25 2.25 0 01-2.25-2.25V6zM13.5 15.75a2.25 2.25 0 012.25-2.25H18a2.25 2.25 0 012.25 2.25V18A2.25 2.25 0 0118 20.25h-2.25A2.25 2.25 0 0113.5 18v-2.25z" />
+              </svg>
+            )}
+            <span className="hidden sm:inline">{viewMode === 'card' ? t('vocab.listView') : t('vocab.cardView')}</span>
+          </button>
+        </div>
       </div>
 
-      {/* Cards */}
+      {/* Cards / List */}
       {filtered.length === 0 ? (
         <div className="bg-white dark:bg-slate-800 rounded-xl border border-gray-200 dark:border-slate-700 shadow-sm p-10 text-center">
           <p className="text-gray-400 dark:text-gray-500 text-sm">
@@ -297,7 +333,7 @@ const VocabularyPage: React.FC = () => {
               : t('vocab.noMatch')}
           </p>
         </div>
-      ) : (
+      ) : viewMode === 'card' ? (
         <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3">
           {filtered.map((item) => (
             <div
@@ -404,9 +440,30 @@ const VocabularyPage: React.FC = () => {
               {/* Footer: source + date + toggle */}
               <div className="mt-3 pt-2 border-t border-gray-100 dark:border-slate-700 space-y-1.5">
                 <div className="flex items-center gap-2 min-w-0">
-                  <span className="text-[10px] text-gray-400 truncate flex-1 min-w-0" title={getVideoTitle(item)}>
-                    {getVideoTitle(item)}
-                  </span>
+                  {item.sourceVideoId ? (
+                    <button
+                      type="button"
+                      onClick={() => handleJumpToSource(item)}
+                      title={`${getVideoTitle(item)}${
+                        item.sourceTimestamp !== undefined ? ` @ ${formatTimestamp(item.sourceTimestamp)}` : ''
+                      }`}
+                      className="group flex items-center gap-1 text-[10px] text-gray-400 hover:text-indigo-600 dark:hover:text-indigo-400 truncate flex-1 min-w-0 cursor-pointer transition-colors"
+                    >
+                      <svg className="w-3 h-3 shrink-0" fill="currentColor" viewBox="0 0 20 20" aria-hidden="true">
+                        <path d="M6.3 4.2a1 1 0 011.02.05l7 4.5a1 1 0 010 1.7l-7 4.5A1 1 0 015.8 14.1V5.5a1 1 0 01.5-.87z" />
+                      </svg>
+                      <span className="truncate group-hover:underline">{getVideoTitle(item)}</span>
+                      {item.sourceTimestamp !== undefined && (
+                        <span className="shrink-0 font-mono opacity-80">
+                          {formatTimestamp(item.sourceTimestamp)}
+                        </span>
+                      )}
+                    </button>
+                  ) : (
+                    <span className="text-[10px] text-gray-400 truncate flex-1 min-w-0">
+                      {getVideoTitle(item)}
+                    </span>
+                  )}
                   <span className="text-[10px] text-gray-400 shrink-0">
                     {new Date(item.addedAt).toLocaleDateString()}
                   </span>
@@ -442,6 +499,136 @@ const VocabularyPage: React.FC = () => {
               )}
             </div>
           ))}
+        </div>
+      ) : (
+        /* ── List view ── */
+        <div className="bg-white dark:bg-slate-800 border border-gray-200 dark:border-slate-700 rounded-xl overflow-hidden">
+          <table className="w-full text-sm">
+            <thead>
+              <tr className="border-b border-gray-100 dark:border-slate-700 text-left">
+                <th className="px-4 py-2.5 text-xs font-medium text-gray-400 dark:text-gray-500">{t('vocab.title')}</th>
+                <th className="px-4 py-2.5 text-xs font-medium text-gray-400 dark:text-gray-500 hidden sm:table-cell">{t('vocab.searchPh')}</th>
+                <th className="px-4 py-2.5 text-xs font-medium text-gray-400 dark:text-gray-500 hidden md:table-cell">Context</th>
+                <th className="px-4 py-2.5 text-xs font-medium text-gray-400 dark:text-gray-500 hidden lg:table-cell">Source</th>
+                <th className="px-4 py-2.5 text-xs font-medium text-gray-400 dark:text-gray-500 text-right whitespace-nowrap">Review</th>
+                <th className="px-2 py-2.5 w-8"></th>
+              </tr>
+            </thead>
+            <tbody>
+              {filtered.map((item) => {
+                const rl = reviewLabel(item.nextReviewAt, item.mastered, t);
+                return (
+                  <tr
+                    key={item.id}
+                    className={`border-b border-gray-50 dark:border-slate-700/50 last:border-b-0 hover:bg-gray-50 dark:hover:bg-slate-700/40 transition-colors ${
+                      item.mastered ? 'opacity-60' : ''
+                    }`}
+                  >
+                    <td className="px-4 py-2.5">
+                      <div className="flex items-center gap-2 min-w-0">
+                        <span
+                          onClick={(e) => handleWordClick(item.word, item.context, e)}
+                          className="font-semibold text-gray-800 dark:text-gray-200 truncate cursor-pointer hover:text-indigo-600 transition-colors"
+                          title="Look up in dictionary"
+                        >
+                          {item.word}
+                        </span>
+                        {item.phonetic && (
+                          <span className="text-xs text-gray-400 font-mono shrink-0">{item.phonetic}</span>
+                        )}
+                        {item.audioUrl && (
+                          <button
+                            onClick={(e) => { e.stopPropagation(); new Audio(item.audioUrl).play().catch(() => {}); }}
+                            className="shrink-0 p-0.5 text-indigo-400 hover:text-indigo-600 cursor-pointer"
+                          >
+                            <svg className="w-3 h-3" fill="currentColor" viewBox="0 0 24 24">
+                              <path d="M11.5 3.75a.75.75 0 011.085-.674l6.75 3.5a.75.75 0 010 1.348l-6.75 3.5a.75.75 0 01-1.085-.674V3.75z" />
+                              <path d="M3.5 8.75a.75.75 0 011.085-.674l6.75 3.5a.75.75 0 010 1.348l-6.75 3.5A.75.75 0 013.5 15.75V8.75z" />
+                            </svg>
+                          </button>
+                        )}
+                        {item.mastered && (
+                          <span className="shrink-0 px-1 py-0.5 text-[9px] font-medium bg-green-100 dark:bg-green-900/40 text-green-700 rounded">
+                            {t('vocab.masteredBadge')}
+                          </span>
+                        )}
+                      </div>
+                    </td>
+                    <td className="px-4 py-2.5 hidden sm:table-cell">
+                      {editingId === item.id ? (
+                        <input
+                          type="text"
+                          value={editMeaning}
+                          onChange={(e) => setEditMeaning(e.target.value)}
+                          onKeyDown={(e) => { if (e.key === 'Enter') handleSaveMeaning(item.id); if (e.key === 'Escape') handleCancelEdit(); }}
+                          autoFocus
+                          className="w-full max-w-[160px] px-2 py-0.5 text-xs border border-indigo-300 rounded focus:outline-none focus:ring-1 focus:ring-indigo-400"
+                        />
+                      ) : (
+                        <span
+                          className="text-gray-600 dark:text-gray-300 cursor-pointer hover:text-indigo-600 line-clamp-1"
+                          onClick={() => handleStartEdit(item)}
+                          title="Click to edit"
+                        >
+                          {item.meaningCn || <span className="text-gray-400 italic">{t('vocab.clickAdd')}</span>}
+                        </span>
+                      )}
+                    </td>
+                    <td className="px-4 py-2.5 hidden md:table-cell">
+                      <span className="text-gray-500 dark:text-gray-400 line-clamp-1" title={item.context}>
+                        &ldquo;{item.context}&rdquo;
+                      </span>
+                    </td>
+                    <td className="px-4 py-2.5 hidden lg:table-cell">
+                      {item.sourceVideoId ? (
+                        <button
+                          type="button"
+                          onClick={() => handleJumpToSource(item)}
+                          title={`${getVideoTitle(item)}${
+                            item.sourceTimestamp !== undefined ? ` @ ${formatTimestamp(item.sourceTimestamp)}` : ''
+                          }`}
+                          className="group flex items-center gap-1 text-[11px] text-gray-400 hover:text-indigo-600 dark:hover:text-indigo-400 max-w-full cursor-pointer transition-colors"
+                        >
+                          <svg className="w-3 h-3 shrink-0" fill="currentColor" viewBox="0 0 20 20" aria-hidden="true">
+                            <path d="M6.3 4.2a1 1 0 011.02.05l7 4.5a1 1 0 010 1.7l-7 4.5A1 1 0 015.8 14.1V5.5a1 1 0 01.5-.87z" />
+                          </svg>
+                          <span className="truncate group-hover:underline">{getVideoTitle(item)}</span>
+                          {item.sourceTimestamp !== undefined && (
+                            <span className="shrink-0 font-mono opacity-80">
+                              {formatTimestamp(item.sourceTimestamp)}
+                            </span>
+                          )}
+                        </button>
+                      ) : (
+                        <span className="text-[11px] text-gray-400 truncate block" title={getVideoTitle(item)}>
+                          {getVideoTitle(item)}
+                        </span>
+                      )}
+                    </td>
+                    <td className="px-4 py-2.5 text-right whitespace-nowrap">
+                      <div className="flex items-center justify-end gap-2">
+                        <span className={`text-[11px] font-medium ${rl.color}`}>{rl.text}</span>
+                        {!item.mastered && (
+                          <span className="text-[9px] text-gray-400">{item.reviewCount}/5</span>
+                        )}
+                      </div>
+                    </td>
+                    <td className="px-2 py-2.5">
+                      <button
+                        onClick={() => handleRemove(item.id)}
+                        className="text-gray-300 hover:text-red-500 transition-colors cursor-pointer"
+                        title={t('vocab.delete')}
+                      >
+                        <svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                          <path strokeLinecap="round" strokeLinejoin="round" d="M14.74 9l-.346 9m-4.788 0L9.26 9m9.968-3.21c.342.052.682.107 1.022.166m-1.022-.165L18.16 19.673a2.25 2.25 0 01-2.244 2.077H8.084a2.25 2.25 0 01-2.244-2.077L4.577 5.969c-.318-.892-.512-1.828-.577-2.777M5.964 4.91c.067-.455.186-.902.35-1.332M5.964 4.91a8.236 8.236 0 001.33 0m-1.33 0L5.97 3.396A2.25 2.25 0 018.184 1.5h7.632a2.25 2.25 0 012.214 1.896l.27 1.514" />
+                        </svg>
+                      </button>
+                    </td>
+                  </tr>
+                );
+              })}
+            </tbody>
+          </table>
         </div>
       )}
     </div>
