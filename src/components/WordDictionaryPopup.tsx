@@ -1,7 +1,7 @@
 import { useState, useEffect, useRef, useCallback } from 'react';
 import type { DictionaryEntry } from '../types';
 import { lookupWord, isKnownProperNoun } from '../services/dictionaryService';
-import { translateWord } from '../services/translationService';
+import { translateWordFast, type TranslateLang } from '../services/translationService';
 import { useI18n } from '../i18n/I18nContext';
 import ClickableDefinition from './ClickableDefinition';
 
@@ -29,8 +29,6 @@ interface WordDictionaryPopupProps {
   onClose: () => void;
   /** Optional: additional content below dictionary data (e.g. "Add to vocabulary" button) */
   actions?: React.ReactNode;
-  /** Optional: the sentence/phrase the word appeared in, used to disambiguate translation */
-  context?: string;
 }
 
 /**
@@ -44,7 +42,6 @@ const WordDictionaryPopup: React.FC<WordDictionaryPopupProps> = ({
   y,
   onClose,
   actions,
-  context,
 }) => {
   const [currentWord, setCurrentWord] = useState(initialWord);
   const [wordHistory, setWordHistory] = useState<string[]>([]);
@@ -89,12 +86,11 @@ const WordDictionaryPopup: React.FC<WordDictionaryPopupProps> = ({
       if (cancelled) return;
       if (result) {
         setEntry(result);
-        // Only call DeepSeek for the Chinese translation in Chinese mode.
-        // Prefer the real sentence context (if the caller supplied it) so
-        // polysemous words are translated with the right sense.
+        // Fast Google-translate layer for the one-line Chinese equivalent.
+        // Definitions are already translated server-side; this is just a concise
+        // word gloss, so speed matters more than sentence-context nuance here.
         if (showChinese) {
-          const ctx = context || result.definitionEn || '';
-          translateWord(currentWord, ctx).then((cn) => {
+          translateWordFast(currentWord, lang as TranslateLang).then((cn) => {
             if (!cancelled && cn) setDefinitionCn(cn);
           }).catch(() => { /* silent */ });
         }
@@ -102,7 +98,7 @@ const WordDictionaryPopup: React.FC<WordDictionaryPopupProps> = ({
         setError(true);
         // Still try to translate the word itself, but only in Chinese mode.
         if (showChinese) {
-          translateWord(currentWord, context).then((cn) => {
+          translateWordFast(currentWord, lang as TranslateLang).then((cn) => {
             if (!cancelled && cn) setDefinitionCn(cn);
           }).catch(() => { /* silent */ });
         }

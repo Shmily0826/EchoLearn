@@ -1312,7 +1312,7 @@ const StudyPage: React.FC = () => {
           <div translate="no" className="notranslate hidden lg:flex flex-1 flex-col min-w-0 h-[calc(100vh-160px)]">
             {/* Toolbar — footer below transcript content */}
             <div className="flex-shrink-0 order-2 flex items-center justify-between px-2 py-1 border-t border-gray-200 dark:border-slate-700 gap-1 sm:gap-2">
-              <h2 className="text-[10px] font-semibold text-gray-600 dark:text-gray-400 uppercase tracking-wider">
+              <h2 className="text-[10px] font-semibold text-gray-600 dark:text-gray-400 uppercase tracking-wider whitespace-nowrap shrink-0">
                 {t('study.transcript')}
               </h2>
               <div className="flex items-center gap-1.5 sm:gap-3 flex-wrap">
@@ -1625,7 +1625,6 @@ const VocabularyList: React.FC<{
       {dictPopup && (
         <WordDictionaryPopup
           word={dictPopup.word}
-          context={dictPopup.context}
           x={dictPopup.x}
           y={dictPopup.y}
           onClose={() => setDictPopup(null)}

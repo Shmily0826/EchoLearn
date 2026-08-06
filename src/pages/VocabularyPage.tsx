@@ -209,7 +209,6 @@ const VocabularyPage: React.FC = () => {
       {dictPopup && (
         <WordDictionaryPopup
           word={dictPopup.word}
-          context={dictPopup.context}
           x={dictPopup.x}
           y={dictPopup.y}
           onClose={() => setDictPopup(null)}
