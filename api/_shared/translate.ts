@@ -31,6 +31,10 @@ export async function translateWithGoogle(
 
   const res = await fetch(url, {
     headers: { 'User-Agent': 'Mozilla/5.0 (compatible; EchoLearn/1.0)' },
+    // Unofficial endpoint can stall; never let a slow translate block the
+    // whole lookup. Callers already fall back to the original English text
+    // on rejection, so a timeout just means "show it untranslated".
+    signal: AbortSignal.timeout(2500),
   });
   if (!res.ok) throw new Error(`Google translate HTTP ${res.status}`);
 
