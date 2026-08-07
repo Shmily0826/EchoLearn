@@ -137,6 +137,24 @@ const TranscriptViewer: React.FC<TranscriptViewerProps> = ({
       if (cancelled) return;
       if (entry) {
         setDictEntry(entry);
+        // Headword gloss now arrives in the same response — show it instantly.
+        if (showChinese) {
+          if (entry.wordCn) {
+            setTranslation(entry.wordCn);
+            setTranslationLoading(false);
+          } else {
+            // Safety net: backend didn't supply a gloss — try Google gtx only
+            // (never DeepSeek, whose ~3s wait made popups feel slow).
+            setTranslationLoading(true);
+            translateWordFast(popup.word, 'zh', 'en', { noDeepSeekFallback: true })
+              .then((result) => {
+                if (cancelled) return;
+                setTranslation(result);
+                setTranslationLoading(false);
+              })
+              .catch(() => setTranslationLoading(false));
+          }
+        }
       } else {
         setDictError(true);
       }
@@ -147,21 +165,12 @@ const TranscriptViewer: React.FC<TranscriptViewerProps> = ({
   }, [popup]);
 
   // Fast translation layer for the inline popup (Chinese mode only).
-  // Tries the keyless Google gtx proxy first, falls back to DeepSeek.
-  // Translations are cached in translationService, so repeats are instant.
+  // The headword gloss now comes from the dictionary response (server-translated,
+  // same round-trip), so a separate translate call is only a Google-only fallback.
   useEffect(() => {
-    if (!popup || !showChinese) return;
+    if (!popup) return;
     setTranslation('');
-    setTranslationLoading(true);
-
-    let cancelled = false;
-    translateWordFast(popup.word, 'zh', 'en').then((result) => {
-      if (cancelled) return;
-      setTranslation(result);
-      setTranslationLoading(false);
-    });
-
-    return () => { cancelled = true; };
+    setTranslationLoading(false);
   }, [popup, showChinese]);
 
   const handleWordClick = (

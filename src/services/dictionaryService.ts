@@ -68,6 +68,7 @@ interface BackendResponse {
   base_form: string;
   entries: BackendEntry[];
   source?: 'merriam-webster' | 'free-dictionary' | 'datamuse';
+  word_translation?: string;
 }
 
 /** Human-readable provider label, used for attribution in the popup. */
@@ -123,6 +124,7 @@ async function fetchFromBackend(
       synonyms: [],
       antonyms: [],
       provider: raw.source ? PROVIDER_LABELS[raw.source] ?? raw.source : 'EchoLearn Dictionary API',
+      wordCn: raw.word_translation || undefined,
       lemma: raw.base_form && raw.base_form !== cleaned ? raw.base_form : undefined,
     };
   } catch {

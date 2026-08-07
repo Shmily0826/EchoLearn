@@ -211,6 +211,7 @@ export async function translateWordFast(
   word: string,
   targetLang: TranslateLang = 'zh',
   sourceLang = 'en',
+  options: { noDeepSeekFallback?: boolean } = {},
 ): Promise<string> {
   const w = word.trim().toLowerCase();
   if (!w) return '';
@@ -240,10 +241,14 @@ export async function translateWordFast(
       }
     }
   } catch {
-    // Network / proxy error → fall through to DeepSeek.
+    // Network / proxy error → fall through to DeepSeek (unless disabled).
   }
 
-  // Fallback layer: DeepSeek (slower, but reliable for context + rare words).
+  // Fallback layer: DeepSeek (slower, ~2-3s, but reliable for context + rare
+  // words). Callers in the inline popups disable this so a slow/empty Google
+  // response can never stall the lookup — the backend already returns the
+  // headword translation inline, so the gloss is optional there.
+  if (options.noDeepSeekFallback) return '';
   const fallback = await translateWord(word, undefined, lang);
   if (fallback) {
     cache[cacheKey] = fallback;
