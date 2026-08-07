@@ -185,6 +185,44 @@ const StudyPage: React.FC = () => {
   // request until that video's player is mounted.
   const pendingSeekRef = useRef<SeekRequestDetail | null>(null);
 
+  // Tracks which videoId the currently-displayed title actually belongs to.
+  // We only re-fetch the real title when the loaded video CHANGES, so a title
+  // left over from a previously-viewed video can never leak onto a new one.
+  // (This was the root cause of a Chinese title showing on an English video on
+  // mobile: the old `if (!sessionTitle)` guard skipped the refresh whenever a
+  // stale title was already present.)
+  const titleSyncedForRef = useRef<string | null>(null);
+
+  const refreshTitleForVideo = useCallback(
+    (
+      url: string,
+      sessionId: string,
+      vid: string,
+      fetcher: (u: string) => Promise<{ title: string } | null>,
+    ) => {
+      if (titleSyncedForRef.current === vid) return; // title already correct for this video
+      titleSyncedForRef.current = vid;
+      setSessionTitle(url); // immediate fallback = raw URL
+      fetcher(url)
+        .then((info) => {
+          if (!info?.title) return;
+          setSessionTitle(info.title);
+          setSession((prev) => {
+            if (prev && prev.id === sessionId) {
+              const u = { ...prev, title: info.title };
+              saveCurrentSession(u);
+              return u;
+            }
+            return prev;
+          });
+        })
+        .catch(() => {
+          /* keep the URL fallback if the title lookup fails */
+        });
+    },
+    [],
+  );
+
   // ── Playback position memory ───────────────────────────────
   const lastPosSaveRef = useRef(0);
   const [resumeToast, setResumeToast] = useState<string | null>(null);
@@ -221,12 +259,11 @@ const StudyPage: React.FC = () => {
       }
       setBiliPage(undefined);
 
-      // If title looks like a URL, try fetching the real title
-      if (saved.title.startsWith('http') || saved.title === saved.youtubeUrl) {
-        getVideoTitle(saved.youtubeUrl).then((info) => {
-          if (info?.title) setSessionTitle(info.title);
-        });
-      }
+      // Always sync the displayed title to the loaded video. This heals a
+      // stale title left from a previously-viewed video (root cause of a
+      // Chinese title showing on an English video on mobile) while keeping a
+      // user-edited title for the same video.
+      refreshTitleForVideo(saved.youtubeUrl, saved.id, saved.youtubeId, getVideoTitle);
 
       // Migrate: use transcriptData if available, else treat legacy transcriptLines as rawBlocks
       if (saved.transcriptData) {
@@ -330,11 +367,7 @@ const StudyPage: React.FC = () => {
     setStreamChars(0);
     setCaptionError(null);
 
-    if (saved.title.startsWith('http') || saved.title === saved.youtubeUrl) {
-      getVideoTitle(saved.youtubeUrl).then((info) => {
-        if (info?.title) setSessionTitle(info.title);
-      });
-    }
+    refreshTitleForVideo(saved.youtubeUrl, saved.id, saved.youtubeId, getVideoTitle);
 
     if (saved.transcriptData) {
       setRawBlocks(saved.transcriptData.rawBlocks);
@@ -683,22 +716,7 @@ const StudyPage: React.FC = () => {
       setSentenceLines([]);
       setAnalysis(null);
 
-      if (!sessionTitle) {
-        setSessionTitle(urlInput.trim());
-        getBilibiliVideoTitle(id).then((info) => {
-          if (info?.title) {
-            setSessionTitle(info.title);
-            setSession((prev) => {
-              if (prev && prev.id === fresh.id) {
-                const u = { ...prev, title: info.title };
-                saveCurrentSession(u);
-                return u;
-              }
-              return prev;
-            });
-          }
-        });
-      }
+      refreshTitleForVideo(urlInput, fresh.id, id, () => getBilibiliVideoTitle(id));
 
       setFetchingCaption(true);
       setCaptionError(null);
@@ -732,22 +750,9 @@ const StudyPage: React.FC = () => {
       setSentenceLines([]);
       setAnalysis(null);
 
-      if (!sessionTitle) {
-        setSessionTitle(urlInput.trim());
-        getVideoTitle(urlInput).then((info) => {
-          if (info?.title) {
-            setSessionTitle(info.title);
-            setSession((prev) => {
-              if (prev && prev.id === fresh.id) {
-                const u = { ...prev, title: info.title };
-                saveCurrentSession(u);
-                return u;
-              }
-              return prev;
-            });
-          }
-        });
-      }
+      // Always refresh the title for the newly pasted video. Don't gate on an
+      // empty sessionTitle — that let a stale title leak across videos.
+      refreshTitleForVideo(urlInput, fresh.id, id, getVideoTitle);
 
       setFetchingCaption(true);
       setCaptionError(null);
@@ -935,7 +940,10 @@ const StudyPage: React.FC = () => {
               <input
                 type="text"
                 value={sessionTitle}
-                onChange={(e) => setSessionTitle(e.target.value)}
+                onChange={(e) => {
+                  setSessionTitle(e.target.value);
+                  titleSyncedForRef.current = videoId;
+                }}
                 onBlur={() => {
                   if (videoId && rawBlocks.length > 0) {
                     persistSession(videoId, urlInput.trim(), rawBlocks, sentenceLines, sessionTitle);
