@@ -156,6 +156,12 @@ const StudyPage: React.FC = () => {
   // Auto-fetch status
   const [fetchingCaption, setFetchingCaption] = useState(false);
   const [captionError, setCaptionError] = useState<string | null>(null);
+  // Distinguish a genuine "this video has no captions" from a network/blocked
+  // failure — the backend throws the same error shape for both, so we sniff the
+  // message to give the user a precise reason instead of a generic error.
+  const isNoCaptions =
+    !!captionError &&
+    /^No captions\/subtitles available/i.test(captionError.trim());
 
   // Analysis error state
   const [analysisError, setAnalysisError] = useState<string | null>(null);
@@ -1306,6 +1312,58 @@ const StudyPage: React.FC = () => {
                 />
               </div>
             )}
+
+            {/* ── Mobile subtitle status — below the video on small screens ──
+                On phones the desktop transcript column (hidden lg:flex) is not
+                rendered, so loading / no-captions / manual-import states must be
+                shown here, otherwise the user sees a blank area after pasting a URL. */}
+            {videoId && !displayLines.length && fetchingCaption && (
+              <div className="lg:hidden mt-2 bg-white dark:bg-slate-800 rounded-xl border border-gray-200 dark:border-slate-700 shadow-sm px-4 py-7 flex flex-col items-center justify-center text-gray-400 dark:text-gray-500">
+                <svg className="animate-spin w-7 h-7 mb-3 text-indigo-400" fill="none" viewBox="0 0 24 24">
+                  <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
+                  <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z" />
+                </svg>
+                <p className="text-sm">{t('study.fetchingFull')}</p>
+                <p className="text-xs mt-1 text-gray-300 dark:text-gray-500">{t('study.mayTake')}</p>
+              </div>
+            )}
+
+            {videoId && !displayLines.length && captionError && (
+              <div className="lg:hidden mt-2 bg-white dark:bg-slate-800 rounded-xl border border-red-200 dark:border-red-800 shadow-sm px-4 py-5">
+                <div className="flex flex-col items-center text-center">
+                  <svg className="w-7 h-7 text-red-400 mb-2" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.5}>
+                    <path strokeLinecap="round" strokeLinejoin="round" d="M12 9v3.75m9-.75a9 9 0 11-18 0 9 9 0 0118 0zm-9 3.75h.008v.008H12v-.008z" />
+                  </svg>
+                  <p className="text-sm text-red-600 dark:text-red-400 font-medium mb-1">
+                    {isNoCaptions ? t('study.captionNoneTitle') : t('study.captionErrorFriendly')}
+                  </p>
+                  <p className="text-xs text-gray-500 dark:text-gray-400 mb-3">
+                    {isNoCaptions ? t('study.captionNoneReason') : t('study.captionErrorSuggestions')}
+                  </p>
+                  <div className="flex gap-3">
+                    <button
+                      onClick={handleReloadTranscript}
+                      className="text-xs text-indigo-500 hover:text-indigo-700 dark:hover:text-indigo-300 cursor-pointer"
+                    >
+                      {t('study.retry')}
+                    </button>
+                    <span className="text-gray-300 dark:text-gray-600">|</span>
+                    <button
+                      onClick={() => setCaptionError(null)}
+                      className="text-xs text-indigo-500 hover:text-indigo-700 dark:hover:text-indigo-300 cursor-pointer"
+                    >
+                      {t('study.dismiss')}
+                    </button>
+                  </div>
+                </div>
+              </div>
+            )}
+
+            {videoId && !displayLines.length && !fetchingCaption && !captionError && (
+              <div className="lg:hidden mt-2">
+                <TranscriptImporter onImport={handleImportTranscript} />
+              </div>
+            )}
           </div>
 
           {/* Right: Transcript — always visible on desktop, tab-gated on mobile */}
@@ -1466,8 +1524,12 @@ const StudyPage: React.FC = () => {
                   <svg className="w-8 h-8 text-red-400 mx-auto mb-2" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.5}>
                     <path strokeLinecap="round" strokeLinejoin="round" d="M12 9v3.75m9-.75a9 9 0 11-18 0 9 9 0 0118 0zm-9 3.75h.008v.008H12v-.008z" />
                   </svg>
-                  <p className="text-sm text-red-600 dark:text-red-400 font-medium mb-1">{t('study.captionErrorFriendly')}</p>
-                  <p className="text-xs text-gray-500 dark:text-gray-400 mb-3">{t('study.captionErrorSuggestions')}</p>
+                  <p className="text-sm text-red-600 dark:text-red-400 font-medium mb-1">
+                    {isNoCaptions ? t('study.captionNoneTitle') : t('study.captionErrorFriendly')}
+                  </p>
+                  <p className="text-xs text-gray-500 dark:text-gray-400 mb-3">
+                    {isNoCaptions ? t('study.captionNoneReason') : t('study.captionErrorSuggestions')}
+                  </p>
                   <details className="text-left mt-2">
                     <summary className="text-xs text-gray-400 dark:text-gray-500 cursor-pointer hover:text-gray-600 dark:hover:text-gray-300">{t('study.captionErrorDetails')}</summary>
                     <p className="text-xs text-red-500/50 dark:text-red-400/40 mt-1 whitespace-pre-line break-all">{captionError}</p>

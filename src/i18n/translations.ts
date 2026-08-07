@@ -190,6 +190,8 @@ const translations: Record<string, Record<Lang, string>> = {
   'study.dismiss':       { en: 'Dismiss & use manual import', zh: '忽略并使用手动导入' },
   'study.captionErrorFriendly': { en: 'Unable to fetch captions for this video', zh: '暂时无法获取该视频的字幕' },
   'study.captionErrorSuggestions': { en: 'Try again later, try a different video, or upload a subtitle file (SRT/VTT) manually.', zh: '你可以稍后重试、尝试其他视频，或手动上传字幕文件（SRT/VTT）。' },
+  'study.captionNoneTitle': { en: 'This video has no subtitles', zh: '该视频没有字幕' },
+  'study.captionNoneReason': { en: 'The creator may not have added captions, or only auto-generated captions exist that we could not retrieve. You can upload an SRT/VTT file.', zh: '视频作者可能未添加字幕，或只有我们暂时无法获取的自动字幕。你可以手动上传 SRT/VTT 字幕文件。' },
   'study.captionErrorDetails': { en: 'Technical details', zh: '技术详情' },
   'study.noVideo':       { en: 'No video loaded yet.', zh: '尚未加载视频。' },
   'study.loadToStart':   { en: 'Load a YouTube video to get started.', zh: '加载一个 YouTube 视频开始学习。' },
