@@ -94,7 +94,11 @@ const WordDictionaryPopup: React.FC<WordDictionaryPopupProps> = ({
         .catch(() => { /* silent */ });
     }
 
-    lookupWord(currentWord).then((result) => {
+    // Pass the page language as the translation target: English mode asks the
+    // API for English definitions (no server translation, fast), Chinese mode
+    // asks for Chinese. Previously this was hardcoded to zh-CN, so the popup
+    // always showed Chinese definitions even after switching to English.
+    lookupWord(currentWord, showChinese ? 'zh-CN' : 'en').then((result) => {
       if (cancelled) return;
       if (result) {
         setEntry(result);

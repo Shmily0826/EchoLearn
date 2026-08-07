@@ -1821,7 +1821,7 @@ const MobileTranscriptPanel: React.FC<{
   onRemoveSentence: (id: string) => void;
   onSeekTo: (seconds: number) => void;
 }> = ({ lines, activeLineIndex, videoId, videoTitle, savedWords, savedSentences, savedSentenceIds, onAddVocabulary, onAddSentence, onRemoveSentence, onSeekTo }) => {
-  const { t } = useI18n();
+  const { t, lang } = useI18n();
   const containerRef = useRef<HTMLDivElement>(null);
   const activeRef = useRef<HTMLDivElement>(null);
   const userScrolled = useRef(false);
@@ -1877,20 +1877,25 @@ const MobileTranscriptPanel: React.FC<{
   }, [popup]);
 
   // Dictionary lookup when dictCurrentWord changes
+  const showChinese = lang === 'zh';
   useEffect(() => {
     if (!dictCurrentWord) return;
     setDictEntry(null);
     setDictLoading(true);
     setDictError(false);
     let cancelled = false;
-    lookupWord(dictCurrentWord).then((entry) => {
+    // Pass the page language as the translation target: English mode asks the
+    // API for English definitions (fast, no server translation), Chinese mode
+    // asks for Chinese. Previously hardcoded to zh-CN, so the popup always
+    // showed Chinese definitions even after switching to English.
+    lookupWord(dictCurrentWord, showChinese ? 'zh-CN' : 'en').then((entry) => {
       if (cancelled) return;
       if (entry) setDictEntry(entry);
       else setDictError(true);
       setDictLoading(false);
     });
     return () => { cancelled = true; };
-  }, [dictCurrentWord]);
+  }, [dictCurrentWord, showChinese]);
 
   // Look up a word from definition (push current to history)
   const handleDictWordClick = useCallback((w: string) => {
@@ -1926,14 +1931,27 @@ const MobileTranscriptPanel: React.FC<{
     setDictWordHistory([]);
   }, []);
 
-  const handleAddWord = useCallback(() => {
+  const handleAddWord = useCallback(async () => {
     if (!popup || !dictCurrentWord) return;
     const lemma = lemmatize(dictCurrentWord);
+    // Always store the Chinese meaning for later review, even in English study
+    // mode where the popup shows English definitions. In Chinese mode the shown
+    // definition already is Chinese; in English mode we fetch the Chinese entry
+    // (usually served from the local dictionary cache).
+    let meaningCn = showChinese ? (dictEntry?.definitionEn || '') : '';
+    if (!meaningCn) {
+      try {
+        const cnEntry = await lookupWord(lemma, 'zh-CN');
+        meaningCn = cnEntry?.definitionEn || '';
+      } catch {
+        /* keep empty */
+      }
+    }
     const item: VocabularyItem = {
       id: `vocab_${Date.now()}`,
       word: lemma,
       lemma,
-      meaningCn: dictEntry?.definitionEn || '',
+      meaningCn,
       context: popup.context,
       sourceVideoId: videoId,
       sourceVideoTitle: videoTitle,
@@ -1954,7 +1972,7 @@ const MobileTranscriptPanel: React.FC<{
     };
     onAddVocabulary(item);
     setPopup(null);
-  }, [popup, dictCurrentWord, dictEntry, videoId, videoTitle, onAddVocabulary]);
+  }, [popup, dictCurrentWord, dictEntry, showChinese, videoId, videoTitle, onAddVocabulary]);
 
   const handleAddSentence = useCallback((line: TranscriptLine) => {
     const item: SentenceItem = {

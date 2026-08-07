@@ -133,7 +133,11 @@ const TranscriptViewer: React.FC<TranscriptViewerProps> = ({
     setDictError(false);
 
     let cancelled = false;
-    lookupWord(popup.word).then((entry) => {
+    // Pass the page language as the translation target so English mode asks the
+    // API for English definitions (fast, no server translation) and Chinese mode
+    // asks for Chinese. Previously hardcoded to zh-CN, so the popup always
+    // showed Chinese definitions even after switching to English.
+    lookupWord(popup.word, showChinese ? 'zh-CN' : 'en').then((entry) => {
       if (cancelled) return;
       if (entry) {
         setDictEntry(entry);
@@ -158,7 +162,7 @@ const TranscriptViewer: React.FC<TranscriptViewerProps> = ({
     });
 
     return () => { cancelled = true; };
-  }, [popup]);
+  }, [popup, showChinese]);
 
   // Fast translation layer for the inline popup (Chinese mode only).
   // The headword gloss now comes from the dictionary response (server-translated,
