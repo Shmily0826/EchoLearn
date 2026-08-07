@@ -41,8 +41,6 @@ export interface DictionaryEntry {
   synonyms: string[];
   antonyms: string[];
   provider: string;
-  /** One-line translation of the headword (from the backend, same response). */
-  wordCn?: string;
 }
 
 /** A vocabulary item saved by the user */

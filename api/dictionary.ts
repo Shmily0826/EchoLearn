@@ -136,11 +136,6 @@ interface BackendResponse {
   entries: BackendEntry[];
   /** Which upstream produced this result — drives UI attribution. */
   source?: 'merriam-webster' | 'free-dictionary' | 'datamuse';
-  /** One-line translation of the headword itself (for the popup gloss).
-   *  Translated server-side in the same request so the popup never has to
-   *  fire a second /api/translate call (which previously fell back to DeepSeek
-   *  and made each lookup feel ~3s slower). */
-  word_translation?: string;
 }
 
 // ── Shared definition builder ─────────────────────────────────
@@ -730,22 +725,11 @@ export default async function handler(request: Request): Promise<Response> {
     return jsonResponse({ error: 'Invalid word' }, 400, origin);
   }
 
-  // Translate the headword itself (for the popup's one-line gloss). Runs in
-  // parallel with the dictionary tiers below so it adds no extra round-trip —
-  // the popup then gets the gloss from this single response instead of firing
-  // a second /api/translate request (which previously fell back to DeepSeek
-  // and made each lookup feel ~3s slower).
-  const needWordCn = target !== 'en' && target !== 'en-US';
-  const wordCnPromise = needWordCn
-    ? translateWithGoogle(word, 'en', target).catch(() => '')
-    : Promise.resolve('');
-
   // ── Tier 1: Merriam-Webster Learner's (best sense ordering + real UK/US IPA).
   // Skipped automatically when MW_LEARNERS_KEY is not configured.
   const mw = await fetchMerriamWebster(word, target);
   if (mw) {
-    const wordCn = await wordCnPromise;
-    return new Response(JSON.stringify({ ...mw, word_translation: wordCn }), {
+    return new Response(JSON.stringify(mw), {
       status: 200,
       headers: {
         'Content-Type': 'application/json',
@@ -813,8 +797,7 @@ export default async function handler(request: Request): Promise<Response> {
     return jsonResponse({ error: 'not found' }, 404, origin);
   }
 
-  const wordCn = await wordCnPromise;
-  return new Response(JSON.stringify({ ...response, word_translation: wordCn }), {
+  return new Response(JSON.stringify(response), {
     status: 200,
     headers: {
       'Content-Type': 'application/json',

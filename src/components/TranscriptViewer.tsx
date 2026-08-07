@@ -137,23 +137,19 @@ const TranscriptViewer: React.FC<TranscriptViewerProps> = ({
       if (cancelled) return;
       if (entry) {
         setDictEntry(entry);
-        // Headword gloss now arrives in the same response — show it instantly.
+        // One-line Chinese gloss via the keyless Google gtx proxy. The
+        // noDeepSeekFallback option means a slow/empty Google response can
+        // never stall the popup the way DeepSeek (~3s) used to. The defs
+        // already show instantly from the backend response.
         if (showChinese) {
-          if (entry.wordCn) {
-            setTranslation(entry.wordCn);
-            setTranslationLoading(false);
-          } else {
-            // Safety net: backend didn't supply a gloss — try Google gtx only
-            // (never DeepSeek, whose ~3s wait made popups feel slow).
-            setTranslationLoading(true);
-            translateWordFast(popup.word, 'zh', 'en', { noDeepSeekFallback: true })
-              .then((result) => {
-                if (cancelled) return;
-                setTranslation(result);
-                setTranslationLoading(false);
-              })
-              .catch(() => setTranslationLoading(false));
-          }
+          setTranslationLoading(true);
+          translateWordFast(popup.word, 'zh', 'en', { noDeepSeekFallback: true })
+            .then((result) => {
+              if (cancelled) return;
+              setTranslation(result);
+              setTranslationLoading(false);
+            })
+            .catch(() => setTranslationLoading(false));
         }
       } else {
         setDictError(true);

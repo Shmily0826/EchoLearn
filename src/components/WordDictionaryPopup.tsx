@@ -83,27 +83,25 @@ const WordDictionaryPopup: React.FC<WordDictionaryPopupProps> = ({
     setError(false);
     setDefinitionCn('');
 
+    // The one-line Chinese gloss is fetched in parallel with the dictionary
+    // lookup. It uses the keyless Google gtx proxy ONLY (noDeepSeekFallback) so
+    // a slow/empty Google response can never stall the popup the way the old
+    // DeepSeek fallback (~3s) used to. The main definitions arrive from
+    // /api/dictionary in ~170ms and are not blocked by this call.
+    if (showChinese) {
+      translateWordFast(currentWord, lang as TranslateLang, 'en', { noDeepSeekFallback: true })
+        .then((cn) => { if (!cancelled && cn) setDefinitionCn(cn); })
+        .catch(() => { /* silent */ });
+    }
+
     lookupWord(currentWord).then((result) => {
       if (cancelled) return;
       if (result) {
         setEntry(result);
-        // The one-line headword gloss now arrives inside this same response
-        // (translated server-side), so it shows instantly with the definitions
-        // — no second /api/translate round-trip that could stall the popup.
-        setDefinitionCn(result.wordCn || '');
       } else {
         setError(true);
       }
       setLoading(false);
-
-      // Safety net: if the backend didn't supply a gloss (older build or a
-      // non-Chinese target), try Google gtx — but never DeepSeek, whose ~3s
-      // wait is exactly what made lookups feel slow before.
-      if (result && !result.wordCn && showChinese) {
-        translateWordFast(currentWord, lang as TranslateLang, 'en', { noDeepSeekFallback: true })
-          .then((cn) => { if (!cancelled && cn) setDefinitionCn(cn); })
-          .catch(() => { /* silent */ });
-      }
     });
     return () => { cancelled = true; };
   }, [currentWord, showChinese]);
