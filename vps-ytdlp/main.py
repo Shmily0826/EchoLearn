@@ -50,7 +50,7 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-YTDLP_TIMEOUT = int(os.environ.get("YTDLP_TIMEOUT", "90"))
+YTDLP_TIMEOUT = int(os.environ.get("YTDLP_TIMEOUT", "180"))
 YTDLP_PROXY = os.environ.get("YTDLP_PROXY") or ""
 YTDLP_API_KEY = os.environ.get("YTDLP_API_KEY") or ""
 YTDLP_CACHE_TTL = int(os.environ.get("YTDLP_CACHE_TTL", "3600"))  # seconds
@@ -216,7 +216,7 @@ def _run_ytdlp(video_id: str, lang: str):
                 "--sub-langs",
                 sub_langs,
                 "--sub-format",
-                "json3/vtt",
+                "vtt",
                 "--quiet",
                 "--no-warnings",
                 "--no-playlist",
