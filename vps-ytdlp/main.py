@@ -43,9 +43,12 @@ JSON API is reachable cleanly). yt-dlp's Bilibili extractor fetches that page
 first, so Bilibili extraction must go through the residential proxy to bypass
 the 412. Quota impact is modest at EchoLearn's scale (~30 MB per audio).
 
-Note on ASR: Bilibili gates *subtitle tracks* behind a login, but audio streams
-are served to anonymous clients. Transcribing the audio therefore sidesteps the
-login wall entirely — no SESSDATA cookie needed.
+Note on Bilibili transcripts: Bilibili gates *subtitle tracks* behind a login,
+but audio streams are served to anonymous clients. With a SESSDATA cookie in
+YTDLP_COOKIES, the transcript route can fetch the real (or auto) subtitle tracks
+— this is the preferred, fast, free path. When that fails (no cookie, or a video
+with no subtitle track), the caller falls back to ASR, which sidesteps the login
+wall by transcribing the audio instead — no SESSDATA cookie needed for that.
 """
 
 import json
@@ -114,12 +117,19 @@ def _host_allowed(target_url: str) -> bool:
 
 
 def _site_args(target_url: str) -> list:
-    """Per-site yt-dlp flags: proxy for YouTube and Bilibili, cookies for the rest."""
+    """Per-site yt-dlp flags.
+
+    - The residential proxy is applied to YouTube and Bilibili (Bilibili's watch
+      page returns HTTP 412 from datacenter IPs).
+    - Cookies (YTDLP_COOKIES, e.g. a Bilibili SESSDATA jar) are applied whenever
+      the file exists. Bilibili only exposes subtitle tracks to logged-in
+      sessions, so the cookie is what unlocks real subtitles there — without it
+      the transcript route falls through to ASR.
+    """
     args: list = []
-    if _is_youtube(target_url) or _is_bilibili(target_url):
-        if YTDLP_PROXY:
-            args += ["--proxy", YTDLP_PROXY]
-    elif YTDLP_COOKIES and os.path.exists(YTDLP_COOKIES):
+    if YTDLP_PROXY and (_is_youtube(target_url) or _is_bilibili(target_url)):
+        args += ["--proxy", YTDLP_PROXY]
+    if YTDLP_COOKIES and os.path.exists(YTDLP_COOKIES):
         args += ["--cookies", YTDLP_COOKIES]
     return args
 
@@ -235,7 +245,13 @@ def _vtt_time_to_sec(s: str) -> float:
 
 
 def _read_subtitle_file(td: str):
-    """Return (lines, language, is_auto) for the first usable subtitle file."""
+    """Return (lines, language, is_auto) for the best usable subtitle file.
+
+    Hand-written subtitles are preferred over auto-generated ones; this matters
+    most for Bilibili, where real tracks (when present) are far cleaner than the
+    auto captions.
+    """
+    parsed = []
     for fname in sorted(os.listdir(td)):
         path = os.path.join(td, fname)
         if fname.endswith(".json3"):
@@ -259,8 +275,13 @@ def _read_subtitle_file(td: str):
         m = re.search(r"\.([a-zA-Z]{2}(?:-[A-Za-z]+)?(?:-orig)?)\.(?:json3|vtt)$", fname)
         language = m.group(1) if m else "en"
         is_auto = "auto" in fname or "-orig" in fname
-        return lines, language, is_auto
-    return None
+        parsed.append((is_auto, language, lines))
+    if not parsed:
+        return None
+    # Real (False) sorts before auto (True); stable within each group.
+    parsed.sort(key=lambda c: c[0])
+    is_auto, language, lines = parsed[0]
+    return lines, language, is_auto
 
 
 # ── yt-dlp invocation ────────────────────────────────────────────
