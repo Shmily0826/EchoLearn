@@ -23,19 +23,25 @@ Response shape (matches the EchoLearn web/Worker contract):
 Environment
   YTDLP_TIMEOUT   subprocess hard timeout in seconds (default 90)
   YTDLP_PROXY     optional upstream proxy passed to yt-dlp (e.g. a residential
-                  proxy endpoint) for videos YouTube blocks even from datacenter
-  YTDLP_API_KEY   if set, /api/transcript requires header X-Api-Key to match
+                  proxy endpoint). Applied to YouTube and Bilibili — the latter
+                  needs it because Bilibili's watch page returns HTTP 412 from
+                  datacenter IPs (even though its JSON API is reachable without it)
+  YTDLP_API_KEY   if set, /api/transcript and /api/asr require header X-Api-Key to match
   YTDLP_CACHE_TTL in-memory cache TTL in seconds for fetched transcripts (default 3600)
   YTDLP_COOKIES   optional path to a Netscape cookies.txt used for non-YouTube
                   sites. Bilibili only exposes subtitle tracks to logged-in
                   sessions, so a SESSDATA cookie is required there.
+  YTDLP_RETRIES   number of yt-dlp subprocess attempts before giving up (default 5).
+                  Useful when the residential proxy tunnel drops mid-transfer.
   GROQ_API_KEY    enables /api/asr (Whisper transcription via Groq)
   GROQ_MODEL      Groq speech model (default whisper-large-v3-turbo)
   ASR_MAX_DURATION  reject ASR requests longer than this many seconds (default 1800)
 
-Note on the proxy: YTDLP_PROXY is only applied to YouTube URLs. Bilibili has no
-datacenter-IP block, and routing it through a metered residential proxy would
-burn quota for no benefit.
+Note on the proxy: YTDLP_PROXY is applied to YouTube and Bilibili URLs. The
+Bilibili *watch page* returns HTTP 412 from the VPS datacenter IP (only its
+JSON API is reachable cleanly). yt-dlp's Bilibili extractor fetches that page
+first, so Bilibili extraction must go through the residential proxy to bypass
+the 412. Quota impact is modest at EchoLearn's scale (~30 MB per audio).
 
 Note on ASR: Bilibili gates *subtitle tracks* behind a login, but audio streams
 are served to anonymous clients. Transcribing the audio therefore sidesteps the
@@ -76,6 +82,7 @@ YTDLP_PROXY = os.environ.get("YTDLP_PROXY") or ""
 YTDLP_API_KEY = os.environ.get("YTDLP_API_KEY") or ""
 YTDLP_CACHE_TTL = int(os.environ.get("YTDLP_CACHE_TTL", "3600"))  # seconds
 YTDLP_COOKIES = os.environ.get("YTDLP_COOKIES") or ""
+YTDLP_RETRIES = int(os.environ.get("YTDLP_RETRIES", "5"))  # yt-dlp subprocess attempts
 
 GROQ_API_KEY = os.environ.get("GROQ_API_KEY") or ""
 GROQ_MODEL = os.environ.get("GROQ_MODEL", "whisper-large-v3-turbo")
@@ -94,6 +101,10 @@ def _is_youtube(target_url: str) -> bool:
     return "youtube.com" in target_url or "youtu.be" in target_url
 
 
+def _is_bilibili(target_url: str) -> bool:
+    return "bilibili.com" in target_url or "b23.tv" in target_url
+
+
 def _host_allowed(target_url: str) -> bool:
     """Only let known hosts through so the endpoint can't be used as an
     open yt-dlp relay for arbitrary sites."""
@@ -103,9 +114,9 @@ def _host_allowed(target_url: str) -> bool:
 
 
 def _site_args(target_url: str) -> list:
-    """Per-site yt-dlp flags: proxy for YouTube only, cookies for the rest."""
+    """Per-site yt-dlp flags: proxy for YouTube and Bilibili, cookies for the rest."""
     args: list = []
-    if _is_youtube(target_url):
+    if _is_youtube(target_url) or _is_bilibili(target_url):
         if YTDLP_PROXY:
             args += ["--proxy", YTDLP_PROXY]
     elif YTDLP_COOKIES and os.path.exists(YTDLP_COOKIES):
@@ -316,14 +327,28 @@ def _fetch_meta(target_url: str) -> dict:
         target_url,
     ]
     cmd += _site_args(target_url)
-    try:
-        proc = subprocess.run(
-            cmd, capture_output=True, text=True, timeout=YTDLP_TIMEOUT
-        )
-    except subprocess.TimeoutExpired:
-        raise HTTPException(status_code=504, detail="Metadata lookup timed out")
 
-    if proc.returncode != 0 or not proc.stdout.strip():
+    # The residential proxy is flaky for large Bilibili watch pages (tunnel
+    # drops with IncompleteRead). A fresh process often lands on a stable IP.
+    proc = None
+    last_err = ""
+    for attempt in range(1, YTDLP_RETRIES + 1):
+        try:
+            proc = subprocess.run(
+                cmd, capture_output=True, text=True, timeout=YTDLP_TIMEOUT
+            )
+        except subprocess.TimeoutExpired:
+            raise HTTPException(status_code=504, detail="Metadata lookup timed out")
+        if proc.returncode == 0 and proc.stdout.strip():
+            break
+        last_err = proc.stderr.strip().splitlines()[-1] if proc.stderr else ""
+        if attempt == YTDLP_RETRIES:
+            detail = "Could not fetch video info"
+            if last_err:
+                detail += f" ({last_err})"
+            raise HTTPException(status_code=404, detail=detail)
+
+    if proc is None or proc.returncode != 0 or not proc.stdout.strip():
         raise HTTPException(status_code=404, detail="Could not fetch video info")
 
     try:
@@ -389,15 +414,24 @@ def _download_audio(target_url: str, td: str) -> Optional[str]:
         target_url,
     ]
     cmd += _site_args(target_url)
-    try:
-        subprocess.run(
-            cmd, cwd=td, capture_output=True, text=True, timeout=YTDLP_TIMEOUT
-        )
-    except subprocess.TimeoutExpired:
-        return None
-    for fname in sorted(os.listdir(td)):
-        if fname.endswith(".mp3"):
-            return os.path.join(td, fname)
+
+    for attempt in range(1, YTDLP_RETRIES + 1):
+        # Clear any partial download from a previous flaky attempt so the
+        # --no-overwrites flag doesn't skip because of a broken fragment.
+        for fname in os.listdir(td):
+            try:
+                os.remove(os.path.join(td, fname))
+            except OSError:
+                pass
+        try:
+            subprocess.run(
+                cmd, cwd=td, capture_output=True, text=True, timeout=YTDLP_TIMEOUT
+            )
+        except subprocess.TimeoutExpired:
+            return None
+        for fname in sorted(os.listdir(td)):
+            if fname.endswith(".mp3"):
+                return os.path.join(td, fname)
     return None
 
 

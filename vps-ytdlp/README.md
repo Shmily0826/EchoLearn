@@ -32,7 +32,7 @@ residential proxy for most videos**. The user's PC no longer has to stay on.
 ### Option A — plain Python (simplest)
 
 ```bash
-python -m venv .venv && source .venv/bin/activate
+python -m venv venv && source venv/bin/activate
 pip install -r requirements.txt
 uvicorn main:app --host 0.0.0.0 --port 8000
 ```
@@ -54,7 +54,7 @@ After=network.target
 
 [Service]
 WorkingDirectory=/opt/echolearn-ytdlp
-ExecStart=/opt/echolearn-ytdlp/.venv/bin/uvicorn main:app --host 127.0.0.1 --port 8000
+ExecStart=/opt/echolearn-ytdlp/venv/bin/uvicorn main:app --host 127.0.0.1 --port 80
 Restart=always
 Environment=YTDLP_TIMEOUT=90
 
@@ -71,12 +71,14 @@ sudo systemctl enable --now echolearn-ytdlp
 | Var | Default | Purpose |
 |---|---|---|
 | `YTDLP_TIMEOUT` | `90` | Hard timeout (s) for the yt-dlp subprocess |
-| `YTDLP_PROXY` | _(empty)_ | Upstream proxy passed to yt-dlp (e.g. a residential proxy endpoint). Use only if YouTube blocks even the TVHTML5 client from your VPS IP |
+| `YTDLP_PROXY` | _(empty)_ | Upstream proxy passed to yt-dlp (e.g. a residential proxy endpoint). Applied to **YouTube and Bilibili**. Needed for Bilibili always (its watch page 412s from datacenter IPs); for YouTube only when `TVHTML5` is blocked from the VPS IP |
 | `YTDLP_API_KEY` | _(empty)_ | If set, `/api/transcript` and `/api/asr` require header `X-Api-Key` to match. Set this **and** the Worker's `YTDLP_API_KEY` to the same value |
 | `GROQ_API_KEY` | _(empty)_ | Enables `/api/asr`. Get a free key at groq.com. Without it the ASR route returns 503 |
 | `GROQ_MODEL` | `whisper-large-v3-turbo` | Groq speech model. Language is **auto-detected** (no hint) so English content on Bilibili stays correct |
 | `GROQ_TIMEOUT` | `180` | Hard timeout (s) for the Groq upload + transcribe call |
 | `ASR_MAX_DURATION` | `1800` | Reject `/api/asr` requests for videos longer than this many seconds (30 min). Keeps Groq free-tier quota sane |
+| `YTDLP_RETRIES` | `5` | yt-dlp subprocess attempts before giving up. Raise (e.g. 8–10) if the residential proxy tunnel drops mid-transfer on Bilibili (`IncompleteRead`) |
+| `YTDLP_COOKIES` | _(empty)_ | Optional Netscape `cookies.txt` for non-YouTube sites. Unused for Bilibili, which now routes via `YTDLP_PROXY` |
 
 ## Expose it to the CF Worker
 
@@ -85,7 +87,7 @@ already uses Cloudflare:
 
 1. Add a DNS `A` record, e.g. `yt-api.echo-learn.uk` → your VPS public IP.
 2. Set the Cloudflare proxy (orange cloud) on so Cloudflare terminates TLS;
-   your origin can stay plain HTTP on port 8000.
+   your origin can stay plain HTTP on port 80.
 3. In the CF Worker, set the secret:
 
    ```bash
@@ -112,7 +114,7 @@ sudo apt update && sudo apt install -y python3-venv python3-pip ffmpeg
 sudo mkdir -p /opt/echolearn-ytdlp && sudo chown $USER /opt/echolearn-ytdlp
 # copy vps-ytdlp/* into /opt/echolearn-ytdlp, then:
 cd /opt/echolearn-ytdlp
-python3 -m venv .venv && source .venv/bin/activate
+python3 -m venv venv && source venv/bin/activate
 pip install -r requirements.txt
 
 # generate an API key, reuse the same value on the Worker
@@ -124,14 +126,14 @@ sudo systemctl enable --now echolearn-ytdlp
 curl http://localhost:8000/api/health
 ```
 
-Cloudflare wiring (orange-cloud + Origin Rule so the origin can stay on :8000):
+Cloudflare wiring (orange-cloud; the service listens on `:80`, which is
+Cloudflare's default HTTP origin port, so no Origin Rule is required):
 
 1. DNS `A`: `yt-api.echo-learn.uk` → VPS public IP (proxy on / orange cloud).
-2. SSL/TLS → Overview → mode **Flexible** (Cloudflare→origin over HTTP :8000).
-3. Rules → Origin Rules → if hostname = `yt-api.echo-learn.uk`,
-   **Set destination port = 8000**.
-4. OCI Security List: inbound **TCP 8000** (optionally restrict to Cloudflare
-   IP ranges).
+2. SSL/TLS → Overview → mode **Flexible** (Cloudflare→origin over HTTP :80).
+3. VPS / OCI firewall: inbound **TCP 80** (optionally restrict to Cloudflare
+   IP ranges). To use a non-standard port instead, add a Cloudflare Origin Rule
+   that rewrites the destination port to match the service.
 5. Worker secrets, then deploy:
 
    ```bash
@@ -153,10 +155,14 @@ working when your PC is off.
   Duration is capped at `ASR_MAX_DURATION` (default 30 min) and the uploaded
   file is transcoded to 16 kHz mono 32 kbps mp3 (≈24 MB for 30 min, under
   Groq's 25 MB free-tier ceiling).
-- **Proxy is only for YouTube audio that YouTube blocks even from the VPS IP.**
-  For YouTube, `YTDLP_PROXY` (e.g. the Proxy-Cheap residential endpoint) is
-  still passed through to yt-dlp; it is intentionally *not* applied to
-  Bilibili, which has no datacenter-IP block.
+- **Proxy is applied to YouTube _and_ Bilibili.** `YTDLP_PROXY` (e.g. the
+  Proxy-Cheap residential endpoint) is passed to yt-dlp for both. YouTube needs
+  it only when the `TVHTML5` client is blocked from the VPS IP, but Bilibili
+  *always* needs it: its watch page returns **HTTP 412** from any datacenter IP,
+  and yt-dlp's Bilibili extractor fetches that page first. (Bilibili's JSON API
+  is fine without the proxy — only the webpage is blocked.) Because the
+  residential tunnel is flaky for large Bilibili pages (`IncompleteRead` drops
+  mid-transfer), raise `YTDLP_RETRIES` if you see intermittent 404s on Bilibili.
 - Keep yt-dlp updated: `pip install -U yt-dlp`. YouTube changes often; the
   community fixes it within hours.
 - A 1 vCPU / 1 GB VPS is plenty — yt-dlp is lightweight.
