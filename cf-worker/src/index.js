@@ -341,16 +341,57 @@ async function handleBilibili(url, env) {
   }
 
   const result = await fetchViaYtDlp(null, lang, env, console.log, bilibiliUrl);
-  if (!result) {
-    return jsonResponse(
-      {
-        error: 'No transcript available for this Bilibili video',
-        hint: 'Bilibili only exposes subtitle tracks to logged-in sessions. Set YTDLP_COOKIES on the VPS to a cookies.txt containing SESSDATA.',
-      },
-      404
-    );
+  if (result) return jsonResponse(result);
+
+  // Bilibili hides subtitle tracks from anonymous sessions, so a miss here is
+  // the norm rather than the exception. Audio, however, is served without a
+  // login — transcribing it sidesteps the wall entirely.
+  const asr = await fetchViaVpsAsr(bilibiliUrl, env, console.log);
+  if (asr) return jsonResponse(asr);
+
+  return jsonResponse(
+    {
+      error: 'No transcript available for this Bilibili video',
+      hint: 'Subtitle tracks are login-gated and Whisper transcription did not succeed (video may exceed the ASR duration limit, or the Groq quota is exhausted).',
+    },
+    404
+  );
+}
+
+/**
+ * Transcribe audio through the VPS /api/asr endpoint (yt-dlp + Groq Whisper).
+ *
+ * Preferred over the Worker-side Whisper strategy because the VPS pulls audio
+ * with yt-dlp directly instead of relying on public Piped/Invidious instances.
+ */
+async function fetchViaVpsAsr(targetUrl, env, log = console.log) {
+  if (!env.YTDLP_API_URL) return null;
+
+  const base = env.YTDLP_API_URL.replace(/\/+$/, '');
+  const endpoint = `${base}/api/asr?url=${encodeURIComponent(targetUrl)}`;
+  const headers = {};
+  if (env.YTDLP_API_KEY) headers['X-Api-Key'] = env.YTDLP_API_KEY;
+
+  try {
+    // Download + transcode + transcribe runs synchronously on the VPS; a
+    // 30 min video takes well under a minute but the ceiling is generous.
+    const resp = await fetchWithTimeout(endpoint, { headers }, 240000);
+    if (!resp.ok) {
+      const detail = await resp.text();
+      log(`VPS ASR: HTTP ${resp.status}: ${detail.substring(0, 200)}`);
+      return null;
+    }
+    const data = await resp.json();
+    if (!Array.isArray(data?.lines) || data.lines.length === 0) {
+      log('VPS ASR: empty transcript');
+      return null;
+    }
+    log(`VPS ASR: got ${data.lines.length} segments (${data.language})`);
+    return data;
+  } catch (err) {
+    log(`VPS ASR: request failed: ${err.message}`);
+    return null;
   }
-  return jsonResponse(result);
 }
 
 // ── InnerTube player API strategy (multi-client) ─────────────

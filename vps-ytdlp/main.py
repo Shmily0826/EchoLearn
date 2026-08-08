@@ -9,6 +9,7 @@ without a residential proxy for the vast majority of videos.
 Endpoints
   GET /api/transcript?videoId=<id>&lang=<en>
   GET /api/transcript?url=<any yt-dlp supported url>&lang=<zh-CN>
+  GET /api/asr?url=<any yt-dlp supported url>
   GET /api/info?url=<any yt-dlp supported url>
   GET /api/health
 
@@ -28,10 +29,17 @@ Environment
   YTDLP_COOKIES   optional path to a Netscape cookies.txt used for non-YouTube
                   sites. Bilibili only exposes subtitle tracks to logged-in
                   sessions, so a SESSDATA cookie is required there.
+  GROQ_API_KEY    enables /api/asr (Whisper transcription via Groq)
+  GROQ_MODEL      Groq speech model (default whisper-large-v3-turbo)
+  ASR_MAX_DURATION  reject ASR requests longer than this many seconds (default 1800)
 
 Note on the proxy: YTDLP_PROXY is only applied to YouTube URLs. Bilibili has no
 datacenter-IP block, and routing it through a metered residential proxy would
 burn quota for no benefit.
+
+Note on ASR: Bilibili gates *subtitle tracks* behind a login, but audio streams
+are served to anonymous clients. Transcribing the audio therefore sidesteps the
+login wall entirely — no SESSDATA cookie needed.
 """
 
 import json
@@ -41,6 +49,9 @@ import subprocess
 import sys
 import tempfile
 import time
+import urllib.error
+import urllib.request
+import uuid
 from collections import OrderedDict
 from typing import Optional
 
@@ -65,6 +76,15 @@ YTDLP_PROXY = os.environ.get("YTDLP_PROXY") or ""
 YTDLP_API_KEY = os.environ.get("YTDLP_API_KEY") or ""
 YTDLP_CACHE_TTL = int(os.environ.get("YTDLP_CACHE_TTL", "3600"))  # seconds
 YTDLP_COOKIES = os.environ.get("YTDLP_COOKIES") or ""
+
+GROQ_API_KEY = os.environ.get("GROQ_API_KEY") or ""
+GROQ_MODEL = os.environ.get("GROQ_MODEL", "whisper-large-v3-turbo")
+GROQ_ENDPOINT = "https://api.groq.com/openai/v1/audio/transcriptions"
+GROQ_TIMEOUT = int(os.environ.get("GROQ_TIMEOUT", "180"))
+# Groq's free tier rejects files above 25 MB. At 16 kHz mono 32 kbps that is
+# roughly 108 minutes of audio, so ASR_MAX_DURATION is the binding limit.
+GROQ_MAX_BYTES = 25 * 1024 * 1024
+ASR_MAX_DURATION = int(os.environ.get("ASR_MAX_DURATION", "1800"))  # 30 min
 
 _VIDEO_ID_RE = re.compile(r"^[a-zA-Z0-9_-]{6,15}$")
 _ALLOWED_HOSTS = ("youtube.com", "youtu.be", "bilibili.com", "b23.tv")
@@ -278,6 +298,179 @@ def _run_ytdlp(video_id_or_url: str, lang: str, *, is_url: bool = False):
         return None
 
 
+def _fetch_meta(target_url: str) -> dict:
+    """Title / uploader / duration / thumbnail via `yt-dlp -J`, memoised."""
+    cached = _cache_get(target_url, "__info__")
+    if cached is not None:
+        return cached
+
+    cmd = [
+        sys.executable,
+        "-m",
+        "yt_dlp",
+        "--skip-download",
+        "--dump-single-json",
+        "--no-playlist",
+        "--quiet",
+        "--no-warnings",
+        target_url,
+    ]
+    cmd += _site_args(target_url)
+    try:
+        proc = subprocess.run(
+            cmd, capture_output=True, text=True, timeout=YTDLP_TIMEOUT
+        )
+    except subprocess.TimeoutExpired:
+        raise HTTPException(status_code=504, detail="Metadata lookup timed out")
+
+    if proc.returncode != 0 or not proc.stdout.strip():
+        raise HTTPException(status_code=404, detail="Could not fetch video info")
+
+    try:
+        meta = json.loads(proc.stdout)
+    except json.JSONDecodeError:
+        raise HTTPException(status_code=502, detail="Malformed metadata")
+
+    payload = {
+        "title": meta.get("title") or "",
+        "ownerName": meta.get("uploader") or meta.get("channel") or "",
+        "duration": meta.get("duration") or 0,
+        "thumbnail": meta.get("thumbnail") or "",
+    }
+    _cache_put(target_url, "__info__", payload)
+    return payload
+
+
+# ── Whisper ASR via Groq ─────────────────────────────────────────
+
+def _multipart(fields: dict, filename: str, blob: bytes, content_type: str):
+    """Minimal multipart/form-data encoder.
+
+    Hand-rolled so the service keeps its three-package dependency list and can
+    be redeployed by copying a single file — no pip install on the VPS.
+    """
+    boundary = "----EchoLearn" + uuid.uuid4().hex
+    body = bytearray()
+    for key, value in fields.items():
+        body += f"--{boundary}\r\n".encode()
+        body += f'Content-Disposition: form-data; name="{key}"\r\n\r\n'.encode()
+        body += f"{value}\r\n".encode()
+    body += f"--{boundary}\r\n".encode()
+    body += (
+        f'Content-Disposition: form-data; name="file"; filename="{filename}"\r\n'
+    ).encode()
+    body += f"Content-Type: {content_type}\r\n\r\n".encode()
+    body += blob
+    body += b"\r\n"
+    body += f"--{boundary}--\r\n".encode()
+    return bytes(body), f"multipart/form-data; boundary={boundary}"
+
+
+def _download_audio(target_url: str, td: str) -> Optional[str]:
+    """Grab the audio track and transcode to 16 kHz mono mp3 (Whisper's native
+    sample rate — anything richer just inflates the upload)."""
+    cmd = [
+        sys.executable,
+        "-m",
+        "yt_dlp",
+        "-f",
+        "bestaudio/best",
+        "--extract-audio",
+        "--audio-format",
+        "mp3",
+        "--postprocessor-args",
+        "ffmpeg:-ar 16000 -ac 1 -b:a 32k",
+        "--no-playlist",
+        "--quiet",
+        "--no-warnings",
+        "--no-overwrites",
+        "-o",
+        os.path.join(td, "audio.%(ext)s"),
+        target_url,
+    ]
+    cmd += _site_args(target_url)
+    try:
+        subprocess.run(
+            cmd, cwd=td, capture_output=True, text=True, timeout=YTDLP_TIMEOUT
+        )
+    except subprocess.TimeoutExpired:
+        return None
+    for fname in sorted(os.listdir(td)):
+        if fname.endswith(".mp3"):
+            return os.path.join(td, fname)
+    return None
+
+
+def _groq_transcribe(path: str) -> dict:
+    """Send one audio file to Groq Whisper and return the EchoLearn payload.
+
+    The language is deliberately auto-detected rather than hinted: the point of
+    ASR on Bilibili is the English-language content hosted there, and pinning
+    the hint to zh would wreck exactly those videos.
+    """
+    with open(path, "rb") as fh:
+        blob = fh.read()
+
+    if len(blob) > GROQ_MAX_BYTES:
+        raise HTTPException(
+            status_code=413,
+            detail=f"Audio is {len(blob) // 1024 // 1024} MB, over the 25 MB Groq limit",
+        )
+
+    body, content_type = _multipart(
+        {"model": GROQ_MODEL, "response_format": "verbose_json"},
+        "audio.mp3",
+        blob,
+        "audio/mpeg",
+    )
+    req = urllib.request.Request(
+        GROQ_ENDPOINT,
+        data=body,
+        headers={
+            "Authorization": f"Bearer {GROQ_API_KEY}",
+            "Content-Type": content_type,
+        },
+        method="POST",
+    )
+
+    try:
+        with urllib.request.urlopen(req, timeout=GROQ_TIMEOUT) as resp:
+            raw = json.load(resp)
+    except urllib.error.HTTPError as exc:
+        detail = exc.read().decode("utf-8", "ignore")[:200]
+        # Surface 429 as-is so callers can distinguish "out of quota" from
+        # "this video simply cannot be transcribed".
+        status = 429 if exc.code == 429 else 502
+        raise HTTPException(status_code=status, detail=f"Groq HTTP {exc.code}: {detail}")
+    except Exception as exc:  # noqa: BLE001 - network errors are all equivalent here
+        raise HTTPException(status_code=502, detail=f"Groq request failed: {exc}")
+
+    segments = raw.get("segments") or []
+    lines = [
+        {
+            "id": f"yt_{i + 1}",
+            "start": round(float(seg.get("start") or 0), 3),
+            "end": round(float(seg.get("end") or 0), 3),
+            "text": (seg.get("text") or "").strip(),
+        }
+        for i, seg in enumerate(segments)
+        if (seg.get("text") or "").strip()
+    ]
+
+    if not lines:
+        text = (raw.get("text") or "").strip()
+        if not text:
+            raise HTTPException(status_code=404, detail="Whisper returned no speech")
+        lines = [{"id": "yt_1", "start": 0, "end": 0, "text": text}]
+
+    return {
+        "lines": lines,
+        "language": raw.get("language") or "unknown",
+        "isAutoGenerated": True,
+        "source": "asr",
+    }
+
+
 # ── Routes ───────────────────────────────────────────────────────
 
 @app.get("/api/transcript")
@@ -344,50 +537,64 @@ def info(
         if provided != YTDLP_API_KEY:
             raise HTTPException(status_code=401, detail="Unauthorized")
 
-    cached = _cache_get(url, "__info__")
+    return JSONResponse(_fetch_meta(url))
+
+
+@app.get("/api/asr")
+def asr(
+    url: str = Query(...),
+    request: Request = None,
+):
+    """Transcribe a video's audio with Whisper.
+
+    This is the fallback for videos that expose no subtitle track at all — most
+    notably Bilibili, which serves audio anonymously but hides subtitle tracks
+    behind a login.
+    """
+    if not GROQ_API_KEY:
+        raise HTTPException(status_code=503, detail="ASR not configured (no GROQ_API_KEY)")
+
+    if not _host_allowed(url):
+        raise HTTPException(status_code=400, detail="Unsupported url host")
+
+    if YTDLP_API_KEY:
+        provided = (request.headers.get("X-Api-Key") or "") if request else ""
+        if provided != YTDLP_API_KEY:
+            raise HTTPException(status_code=401, detail="Unauthorized")
+
+    # ASR costs real quota, so a cache hit is worth much more here than on the
+    # subtitle routes.
+    cached = _cache_get(url, "__asr__")
     if cached is not None:
         return JSONResponse(cached)
 
-    cmd = [
-        sys.executable,
-        "-m",
-        "yt_dlp",
-        "--skip-download",
-        "--dump-single-json",
-        "--no-playlist",
-        "--quiet",
-        "--no-warnings",
-        url,
-    ]
-    cmd += _site_args(url)
-    try:
-        proc = subprocess.run(
-            cmd, capture_output=True, text=True, timeout=YTDLP_TIMEOUT
+    duration = int(_fetch_meta(url).get("duration") or 0)
+    if duration > ASR_MAX_DURATION:
+        raise HTTPException(
+            status_code=413,
+            detail=(
+                f"Video is {duration // 60} min, over the "
+                f"{ASR_MAX_DURATION // 60} min ASR limit"
+            ),
         )
-    except subprocess.TimeoutExpired:
-        raise HTTPException(status_code=504, detail="Metadata lookup timed out")
 
-    if proc.returncode != 0 or not proc.stdout.strip():
-        raise HTTPException(status_code=404, detail="Could not fetch video info")
+    with tempfile.TemporaryDirectory() as td:
+        audio_path = _download_audio(url, td)
+        if not audio_path:
+            raise HTTPException(status_code=502, detail="Could not download audio")
+        payload = _groq_transcribe(audio_path)
 
-    try:
-        meta = json.loads(proc.stdout)
-    except json.JSONDecodeError:
-        raise HTTPException(status_code=502, detail="Malformed metadata")
-
-    payload = {
-        "title": meta.get("title") or "",
-        "ownerName": meta.get("uploader") or meta.get("channel") or "",
-        "duration": meta.get("duration") or 0,
-        "thumbnail": meta.get("thumbnail") or "",
-    }
-    _cache_put(url, "__info__", payload)
+    _cache_put(url, "__asr__", payload)
     return JSONResponse(payload)
 
 
 @app.get("/api/health")
 def health():
-    return {"status": "ok"}
+    return {
+        "status": "ok",
+        "asr": bool(GROQ_API_KEY),
+        "asrMaxDuration": ASR_MAX_DURATION,
+    }
 
 
 if __name__ == "__main__":
