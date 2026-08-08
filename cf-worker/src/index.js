@@ -287,10 +287,43 @@ async function handleBilibili(url, env) {
     return jsonResponse({ error: 'Missing bvid parameter' }, 400);
   }
 
+  const bilibiliUrl = `https://www.bilibili.com/video/${encodeURIComponent(bvid)}`;
+
   if (info) {
+    // Bilibili answers Cloudflare Worker egress IPs with HTTP 412, so ask the
+    // VPS (normal datacenter IP, not blocked) first and only fall back to a
+    // direct call — with browser-ish headers — if the VPS is unavailable.
+    if (env.YTDLP_API_URL) {
+      try {
+        const base = env.YTDLP_API_URL.replace(/\/+$/, '');
+        const headers = {};
+        if (env.YTDLP_API_KEY) headers['X-Api-Key'] = env.YTDLP_API_KEY;
+        const resp = await fetchWithTimeout(
+          `${base}/api/info?url=${encodeURIComponent(bilibiliUrl)}`,
+          { headers },
+          30000
+        );
+        if (resp.ok) return jsonResponse(await resp.json());
+      } catch (_) {
+        /* fall through to the direct call below */
+      }
+    }
+
     const apiUrl = `https://api.bilibili.com/x/web-interface/view?bvid=${encodeURIComponent(bvid)}`;
     try {
-      const resp = await fetchWithTimeout(apiUrl, {}, 10000);
+      const resp = await fetchWithTimeout(
+        apiUrl,
+        {
+          headers: {
+            'User-Agent':
+              'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
+            Referer: 'https://www.bilibili.com/',
+            Origin: 'https://www.bilibili.com',
+            'Accept-Language': 'zh-CN,zh;q=0.9',
+          },
+        },
+        10000
+      );
       if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
       const data = await resp.json();
       if (data?.code !== 0) throw new Error(data?.message || 'Bilibili API error');
@@ -307,10 +340,15 @@ async function handleBilibili(url, env) {
     return jsonResponse({ error: 'Bilibili transcript proxy not configured' }, 503);
   }
 
-  const bilibiliUrl = `https://www.bilibili.com/video/${encodeURIComponent(bvid)}`;
   const result = await fetchViaYtDlp(null, lang, env, console.log, bilibiliUrl);
   if (!result) {
-    return jsonResponse({ error: 'No transcript available for this Bilibili video' }, 404);
+    return jsonResponse(
+      {
+        error: 'No transcript available for this Bilibili video',
+        hint: 'Bilibili only exposes subtitle tracks to logged-in sessions. Set YTDLP_COOKIES on the VPS to a cookies.txt containing SESSDATA.',
+      },
+      404
+    );
   }
   return jsonResponse(result);
 }
