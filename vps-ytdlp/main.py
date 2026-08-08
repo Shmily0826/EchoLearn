@@ -25,7 +25,9 @@ Environment
   YTDLP_PROXY     optional upstream proxy passed to yt-dlp (e.g. a residential
                   proxy endpoint). Applied to YouTube and Bilibili — the latter
                   needs it because Bilibili's watch page returns HTTP 412 from
-                  datacenter IPs (even though its JSON API is reachable without it)
+                  datacenter IPs (even though its JSON API is reachable without it).
+                  Also used for Groq calls: Groq blocks many VPS/datacenter IPs
+                  with HTTP 403 (error 1010), so the residential exit fixes that too.
   YTDLP_API_KEY   if set, /api/transcript and /api/asr require header X-Api-Key to match
   YTDLP_CACHE_TTL in-memory cache TTL in seconds for fetched transcripts (default 3600)
   YTDLP_COOKIES   optional path to a Netscape cookies.txt used for non-YouTube
@@ -488,11 +490,23 @@ def _groq_transcribe(path: str) -> dict:
         method="POST",
     )
 
+    # Groq blocks many datacenter/VPS IP ranges with HTTP 403 (error 1010), so
+    # route the call through the residential proxy when configured — the same
+    # one yt-dlp uses for Bilibili. This is the standard fix for
+    # "Groq HTTP 403: error code: 1010" originating from a cloud server.
+    opener = (
+        urllib.request.build_opener(
+            urllib.request.ProxyHandler({"https": YTDLP_PROXY})
+        )
+        if YTDLP_PROXY
+        else urllib.request.build_opener()
+    )
+
     try:
-        with urllib.request.urlopen(req, timeout=GROQ_TIMEOUT) as resp:
+        with opener.open(req, timeout=GROQ_TIMEOUT) as resp:
             raw = json.load(resp)
     except urllib.error.HTTPError as exc:
-        detail = exc.read().decode("utf-8", "ignore")[:200]
+        detail = exc.read().decode("utf-8", "ignore")[:400]
         # Surface 429 as-is so callers can distinguish "out of quota" from
         # "this video simply cannot be transcribed".
         status = 429 if exc.code == 429 else 502
