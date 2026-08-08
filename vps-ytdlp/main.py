@@ -26,8 +26,8 @@ Environment
                   proxy endpoint). Applied to YouTube and Bilibili — the latter
                   needs it because Bilibili's watch page returns HTTP 412 from
                   datacenter IPs (even though its JSON API is reachable without it).
-                  Also used for Groq calls: Groq blocks many VPS/datacenter IPs
-                  with HTTP 403 (error 1010), so the residential exit fixes that too.
+                  NOT used for Groq: Groq works directly from this VPS, and the
+                  proxy only adds a flaky hop (Broken pipe).
   YTDLP_API_KEY   if set, /api/transcript and /api/asr require header X-Api-Key to match
   YTDLP_CACHE_TTL in-memory cache TTL in seconds for fetched transcripts (default 3600)
   YTDLP_COOKIES   optional path to a Netscape cookies.txt used for non-YouTube
@@ -490,29 +490,35 @@ def _groq_transcribe(path: str) -> dict:
         method="POST",
     )
 
-    # Groq blocks many datacenter/VPS IP ranges with HTTP 403 (error 1010), so
-    # route the call through the residential proxy when configured — the same
-    # one yt-dlp uses for Bilibili. This is the standard fix for
-    # "Groq HTTP 403: error code: 1010" originating from a cloud server.
-    opener = (
-        urllib.request.build_opener(
-            urllib.request.ProxyHandler({"https": YTDLP_PROXY})
-        )
-        if YTDLP_PROXY
-        else urllib.request.build_opener()
-    )
-
-    try:
-        with opener.open(req, timeout=GROQ_TIMEOUT) as resp:
-            raw = json.load(resp)
-    except urllib.error.HTTPError as exc:
-        detail = exc.read().decode("utf-8", "ignore")[:400]
-        # Surface 429 as-is so callers can distinguish "out of quota" from
-        # "this video simply cannot be transcribed".
-        status = 429 if exc.code == 429 else 502
-        raise HTTPException(status_code=status, detail=f"Groq HTTP {exc.code}: {detail}")
-    except Exception as exc:  # noqa: BLE001 - network errors are all equivalent here
-        raise HTTPException(status_code=502, detail=f"Groq request failed: {exc}")
+    # Groq works directly from this VPS (verified end-to-end with no proxy),
+    # and routing it through the residential proxy only adds a flaky hop
+    # (Broken pipe / IncompleteRead). Call it directly and retry a couple of
+    # times to absorb Groq's occasional transient 403/abuse throttle on the
+    # free tier.
+    raw = None
+    last_err = ""
+    for attempt in range(1, 3):
+        try:
+            with urllib.request.urlopen(req, timeout=GROQ_TIMEOUT) as resp:
+                raw = json.load(resp)
+            break
+        except urllib.error.HTTPError as exc:
+            last_err = exc.read().decode("utf-8", "ignore")[:400]
+            # Surface 429 (out of quota) as-is; other HTTP errors may be
+            # transient, so retry once.
+            if exc.code == 429:
+                raise HTTPException(status_code=429, detail=f"Groq HTTP 429: {last_err}")
+            if attempt < 2:
+                time.sleep(1)
+                continue
+            status = 502
+            raise HTTPException(status_code=status, detail=f"Groq HTTP {exc.code}: {last_err}")
+        except Exception as exc:  # noqa: BLE001 - transient network blips
+            last_err = str(exc)
+            if attempt < 2:
+                time.sleep(1)
+                continue
+            raise HTTPException(status_code=502, detail=f"Groq request failed: {exc}")
 
     segments = raw.get("segments") or []
     lines = [
