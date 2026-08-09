@@ -102,6 +102,12 @@ export interface VideoStudySession {
   lastPosition?: number;             // last playback position in seconds (for resume)
 }
 
+/** A single part (分p) of a multi-part Bilibili video. */
+export interface BiliPart {
+  index: number;                  // 1-based part number
+  title: string;                  // part title (e.g. "001 在电子商城 BestBuy")
+}
+
 // ── AI Analysis ────────────────────────────────────────────
 
 /** A vocabulary word suggested by AI analysis */

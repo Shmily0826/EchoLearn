@@ -111,6 +111,43 @@ def _is_bilibili(target_url: str) -> bool:
     return "bilibili.com" in target_url or "b23.tv" in target_url
 
 
+def _extract_bvid(target_url: str):
+    """Pull the BV id out of a Bilibili URL (or return None)."""
+    m = re.search(r"(BV[0-9A-Za-z]+)", target_url)
+    return m.group(1) if m else None
+
+
+def _bilibili_parts(bvid: str):
+    """Return the part list for a Bilibili video via its public view API.
+
+    The view API (api.bilibili.com/x/web-interface/view) answers the VPS
+    datacenter IP fine — only the *watch page* returns HTTP 412 — so no
+    proxy is needed. Returns {"partCount": N, "parts": [{"index", "title"}]}
+    or None on any failure (the caller then simply skips the part picker).
+    """
+    api = f"https://api.bilibili.com/x/web-interface/view?bvid={bvid}"
+    req = urllib.request.Request(
+        api,
+        headers={
+            "User-Agent": (
+                "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 "
+                "(KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"
+            ),
+            "Referer": "https://www.bilibili.com/",
+        },
+    )
+    try:
+        with urllib.request.urlopen(req, timeout=10) as resp:
+            data = json.loads(resp.read().decode("utf-8", "ignore"))
+    except Exception:
+        return None
+    if data.get("code") != 0:
+        return None
+    pages = (data.get("data") or {}).get("pages") or []
+    parts = [{"index": p.get("page"), "title": p.get("part") or ""} for p in pages]
+    return {"partCount": len(parts), "parts": parts}
+
+
 def _host_allowed(target_url: str) -> bool:
     """Only let known hosts through so the endpoint can't be used as an
     open yt-dlp relay for arbitrary sites."""
@@ -649,7 +686,18 @@ def info(
         if provided != YTDLP_API_KEY:
             raise HTTPException(status_code=401, detail="Unauthorized")
 
-    return JSONResponse(_fetch_meta(url))
+    payload = _fetch_meta(url)
+    # Surface the multi-part (分p) list so the frontend can render a part
+    # picker. The view API answers the VPS IP directly (no proxy), and a
+    # failure here is non-fatal — the picker just won't appear.
+    if _is_bilibili(url):
+        bvid = _extract_bvid(url)
+        if bvid:
+            parts = _bilibili_parts(bvid)
+            if parts:
+                payload["partCount"] = parts["partCount"]
+                payload["parts"] = parts["parts"]
+    return JSONResponse(payload)
 
 
 @app.get("/api/asr")

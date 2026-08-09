@@ -167,6 +167,7 @@ const translations: Record<string, Record<Lang, string>> = {
   'study.urlPh':         { en: 'Paste YouTube URL...', zh: '粘贴 YouTube 链接...' },
   'study.loadVideo':     { en: 'Load Video', zh: '加载视频' },
   'study.clear':         { en: 'Clear', zh: '清空' },
+  'study.selectPart':    { en: 'Part', zh: '分P' },
   'study.pasteStart':    { en: 'Paste a YouTube URL above to start', zh: '在上方粘贴 YouTube 链接开始' },
   'study.subtitles':     { en: 'Subtitles', zh: '字幕' },
   'study.transcript':    { en: 'Transcript', zh: '字幕文本' },

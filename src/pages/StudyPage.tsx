@@ -46,6 +46,7 @@ import type {
   VocabularyItem,
   SentenceItem,
   VideoStudySession,
+  BiliPart,
   AIAnalysisResult,
   VideoPlatform,
 } from '../types';
@@ -118,6 +119,7 @@ const StudyPage: React.FC = () => {
   const [sessionTitle, setSessionTitle] = useState('');
   const [platform, setPlatform] = useState<VideoPlatform>('youtube');
   const [biliPage, setBiliPage] = useState<number | undefined>(undefined);
+  const [biliParts, setBiliParts] = useState<BiliPart[] | undefined>(undefined);
 
   // Transcript state — raw caption blocks + sentence-level lines
   const [rawBlocks, setRawBlocks] = useState<TranscriptLine[]>([]);
@@ -192,21 +194,31 @@ const StudyPage: React.FC = () => {
   // mobile: the old `if (!sessionTitle)` guard skipped the refresh whenever a
   // stale title was already present.)
   const titleSyncedForRef = useRef<string | null>(null);
+  // Remembers the last fetched Bilibili part list so switching sessions on the
+  // same video doesn't lose the picker (the title fetch is skipped in that case).
+  const partsCacheRef = useRef<{ vid: string; parts: BiliPart[] } | null>(null);
 
   const refreshTitleForVideo = useCallback(
     (
       url: string,
       sessionId: string,
       vid: string,
-      fetcher: (u: string) => Promise<{ title: string } | null>,
+      fetcher: (u: string) => Promise<{ title: string; partCount?: number; parts?: BiliPart[] } | null>,
     ) => {
-      if (titleSyncedForRef.current === vid) return; // title already correct for this video
+      if (titleSyncedForRef.current === vid) {
+        // title already correct for this video — just restore the cached parts
+        if (partsCacheRef.current?.vid === vid) setBiliParts(partsCacheRef.current.parts);
+        return;
+      }
       titleSyncedForRef.current = vid;
       setSessionTitle(url); // immediate fallback = raw URL
       fetcher(url)
         .then((info) => {
-          if (!info?.title) return;
-          setSessionTitle(info.title);
+        if (!info?.title) return;
+        const parts = info.parts && info.parts.length ? info.parts : undefined;
+        partsCacheRef.current = parts ? { vid, parts } : null;
+        setBiliParts(parts);
+        setSessionTitle(info.title);
           setSession((prev) => {
             if (prev && prev.id === sessionId) {
               const u = { ...prev, title: info.title };
@@ -263,7 +275,14 @@ const StudyPage: React.FC = () => {
       // stale title left from a previously-viewed video (root cause of a
       // Chinese title showing on an English video on mobile) while keeping a
       // user-edited title for the same video.
-      refreshTitleForVideo(saved.youtubeUrl, saved.id, saved.youtubeId, getVideoTitle);
+      refreshTitleForVideo(
+        saved.youtubeUrl,
+        saved.id,
+        saved.youtubeId,
+        saved.platform === 'bilibili'
+          ? () => getBilibiliVideoTitle(saved.youtubeId, saved.biliPage)
+          : getVideoTitle,
+      );
 
       // Migrate: use transcriptData if available, else treat legacy transcriptLines as rawBlocks
       if (saved.transcriptData) {
@@ -363,11 +382,19 @@ const StudyPage: React.FC = () => {
       setTimeout(() => setResumeToast(null), 5000);
     }
     setBiliPage(saved.biliPage);
+    setBiliParts(undefined);
     setAnalysis(null);
     setStreamChars(0);
     setCaptionError(null);
 
-    refreshTitleForVideo(saved.youtubeUrl, saved.id, saved.youtubeId, getVideoTitle);
+    refreshTitleForVideo(
+      saved.youtubeUrl,
+      saved.id,
+      saved.youtubeId,
+      saved.platform === 'bilibili'
+        ? () => getBilibiliVideoTitle(saved.youtubeId, saved.biliPage)
+        : getVideoTitle,
+    );
 
     if (saved.transcriptData) {
       setRawBlocks(saved.transcriptData.rawBlocks);
@@ -713,6 +740,7 @@ const StudyPage: React.FC = () => {
       setVideoId(id);
       setStartTime(st);
       setBiliPage(pg);
+      setBiliParts(undefined);
       setRawBlocks([]);
       setSentenceLines([]);
       setAnalysis(null);
@@ -747,6 +775,7 @@ const StudyPage: React.FC = () => {
       setVideoId(id);
       setStartTime(st);
       setBiliPage(undefined);
+      setBiliParts(undefined);
       setRawBlocks([]);
       setSentenceLines([]);
       setAnalysis(null);
@@ -790,6 +819,7 @@ const StudyPage: React.FC = () => {
     setCaptionError(null);
     setPlatform('youtube');
     setBiliPage(undefined);
+    setBiliParts(undefined);
   }, []);
 
   // ── Reload transcript for the current video ────────────────
@@ -818,6 +848,55 @@ const StudyPage: React.FC = () => {
       })
       .finally(() => setFetchingCaption(false));
   }, [videoId, platform, session]);
+
+  // ── Switch Bilibili part (分p) ────────────────────────────
+  const handleBiliPartChange = useCallback(
+    (e: React.ChangeEvent<HTMLSelectElement>) => {
+      const part = parseInt(e.target.value, 10);
+      if (!videoId || !part || part === (biliPage ?? 1)) return;
+      setBiliPage(part);
+      // Drop the previous part's transcript/analysis immediately so nothing stale shows.
+      setRawBlocks([]);
+      setSentenceLines([]);
+      setAnalysis(null);
+      // Each 分p is a different lesson, so retitle from the part list (no network call).
+      const partTitle = biliParts?.find((p) => p.index === part)?.title?.trim();
+      if (partTitle) setSessionTitle(partTitle);
+      // Persist the chosen part right away — a reload should reopen the same part
+      // even if the transcript fetch below fails.
+      if (session) {
+        const withPart = { ...session, biliPage: part, ...(partTitle ? { title: partTitle } : {}) };
+        saveCurrentSession(withPart);
+        setSession(withPart);
+      }
+      setFetchingCaption(true);
+      setCaptionError(null);
+      fetchBilibiliTranscript(videoId, undefined, part)
+        .then(({ lines }) => {
+          if (lines.length > 0) {
+            const sLines = normalizeTranscriptToSentences(lines);
+            setRawBlocks(lines);
+            setSentenceLines(sLines);
+            setSession((prev) => {
+              if (!prev) return prev;
+              const updated = {
+                ...prev,
+                biliPage: part,
+                transcriptLines: lines,
+                transcriptData: { rawBlocks: lines, sentenceLines: sLines },
+              };
+              saveCurrentSession(updated);
+              return updated;
+            });
+          }
+        })
+        .catch((err) => {
+          setCaptionError(err instanceof Error ? err.message : 'Failed to load this part');
+        })
+        .finally(() => setFetchingCaption(false));
+    },
+    [videoId, session, biliPage, biliParts],
+  );
 
   // ── Toggle session completion status ───────────────────────
   const handleToggleComplete = useCallback(() => {
@@ -1019,7 +1098,33 @@ const StudyPage: React.FC = () => {
           <div className="w-full lg:w-[55%] flex-shrink-0">
             {videoId ? (
               platform === 'bilibili' ? (
-                <BilibiliEmbed ref={playerRef} bvid={videoId} page={biliPage} startTime={startTime} />
+                <>
+                  {biliParts && biliParts.length > 1 && (
+                    <div className="mb-2 flex items-center gap-2">
+                      <label
+                        htmlFor="bili-part-select"
+                        className="text-xs sm:text-sm text-gray-500 dark:text-gray-400 flex-shrink-0"
+                      >
+                        {t('study.selectPart')}
+                      </label>
+                      <select
+                        id="bili-part-select"
+                        value={biliPage ?? 1}
+                        onChange={handleBiliPartChange}
+                        disabled={fetchingCaption}
+                        className="flex-1 min-w-0 px-2 py-1.5 text-xs sm:text-sm bg-white dark:bg-slate-800 border border-gray-200 dark:border-slate-700 rounded-lg text-gray-700 dark:text-gray-200 focus:outline-none focus:ring-2 focus:ring-indigo-400 disabled:opacity-60 cursor-pointer truncate"
+                      >
+                        {biliParts.map((p) => (
+                          <option key={p.index} value={p.index}>
+                            P{p.index}
+                            {p.title ? ` · ${p.title}` : ''}
+                          </option>
+                        ))}
+                      </select>
+                    </div>
+                  )}
+                  <BilibiliEmbed ref={playerRef} bvid={videoId} page={biliPage} startTime={startTime} />
+                </>
               ) : (
                 <YouTubeEmbed ref={playerRef} youtubeId={videoId} startTime={startTime} playbackRate={playbackRate} />
               )

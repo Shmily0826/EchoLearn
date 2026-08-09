@@ -331,9 +331,12 @@ async function handleBilibili(url, env) {
       if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
       const data = await resp.json();
       if (data?.code !== 0) throw new Error(data?.message || 'Bilibili API error');
+      const pages = data.data?.pages || [];
       return jsonResponse({
         title: data.data?.title || '',
         ownerName: data.data?.owner?.name || '',
+        partCount: data.data?.videos || pages.length || 0,
+        parts: pages.map((p) => ({ index: p.page, title: p.part || '' })),
       });
     } catch (err) {
       return jsonResponse({ error: err.message }, 502);

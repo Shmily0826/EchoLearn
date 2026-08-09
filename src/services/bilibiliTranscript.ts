@@ -1,4 +1,4 @@
-import type { TranscriptLine } from '../types';
+import type { TranscriptLine, BiliPart } from '../types';
 
 /**
  * Bilibili transcript fetcher.
@@ -62,7 +62,7 @@ export async function fetchBilibiliTranscript(
 export async function getBilibiliVideoTitle(
   bvid: string,
   part?: number,
-): Promise<{ title: string; ownerName: string } | null> {
+): Promise<{ title: string; ownerName: string; partCount?: number; parts?: BiliPart[] } | null> {
   try {
     const url = `${CF_WORKER_URL}/api/bilibili?bvid=${encodeURIComponent(
       bvid,
@@ -73,10 +73,14 @@ export async function getBilibiliVideoTitle(
     const data = (await resp.json()) as {
       title?: string;
       ownerName?: string;
+      partCount?: number;
+      parts?: BiliPart[];
     };
     return {
       title: data.title || '',
       ownerName: data.ownerName || '',
+      partCount: data.partCount,
+      parts: data.parts,
     };
   } catch {
     return null;

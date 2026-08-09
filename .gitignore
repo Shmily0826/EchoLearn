@@ -49,3 +49,7 @@ android/app/google-services.json
 .workbuddy/
 taste-variants/
 
+
+# Python bytecode (vps-ytdlp local compile checks)
+__pycache__/
+*.pyc
