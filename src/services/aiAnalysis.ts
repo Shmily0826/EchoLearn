@@ -250,9 +250,76 @@ async function callDeepSeek(
     throw new Error('Empty response from DeepSeek');
   }
 
-  // Parse and validate the JSON response
-  const parsed = JSON.parse(content) as Record<string, unknown>;
+  // Parse and validate the JSON response. Models sometimes emit literal control
+  // characters (e.g. raw newlines or tabs) inside JSON string values even when
+  // response_format is json_object; JSON.parse rejects those. We sanitize only
+  // control chars that appear inside quoted strings, leaving structural
+  // whitespace outside strings untouched.
+  const parsed = parseJsonLenient(content);
   return validateResult(parsed);
+}
+
+/**
+ * Parse JSON, auto-fixing unescaped control characters inside string literals.
+ * This is a best-effort recovery for LLM output that is "almost" valid JSON.
+ */
+function parseJsonLenient(raw: string): Record<string, unknown> {
+  try {
+    return JSON.parse(raw) as Record<string, unknown>;
+  } catch {
+    const sanitized = sanitizeControlCharsInJsonStrings(raw);
+    return JSON.parse(sanitized) as Record<string, unknown>;
+  }
+}
+
+/** Escape literal control characters that appear inside JSON string literals. */
+function sanitizeControlCharsInJsonStrings(input: string): string {
+  let out = '';
+  let inString = false;
+  let escape = false;
+  for (let i = 0; i < input.length; i++) {
+    const ch = input[i];
+    const code = ch.charCodeAt(0);
+    if (escape) {
+      out += ch;
+      escape = false;
+      continue;
+    }
+    if (ch === '\\') {
+      out += ch;
+      escape = true;
+      continue;
+    }
+    if (ch === '"') {
+      out += ch;
+      inString = !inString;
+      continue;
+    }
+    if (inString && code >= 0x00 && code <= 0x1f) {
+      switch (ch) {
+        case '\b':
+          out += '\\b';
+          break;
+        case '\f':
+          out += '\\f';
+          break;
+        case '\n':
+          out += '\\n';
+          break;
+        case '\r':
+          out += '\\r';
+          break;
+        case '\t':
+          out += '\\t';
+          break;
+        default:
+          out += '\\u' + code.toString(16).padStart(4, '0');
+      }
+    } else {
+      out += ch;
+    }
+  }
+  return out;
 }
 
 /** Strip surrounding quotes/apostrophes and trim a word. */
