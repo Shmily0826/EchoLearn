@@ -168,8 +168,8 @@ const WordDictionaryPopup: React.FC<WordDictionaryPopupProps> = ({
             <path strokeLinecap="round" strokeLinejoin="round" d="M6 18L18 6M6 6l12 12" />
           </svg>
         </button>
-        {/* Word + phonetic + back button */}
-        <div className="flex items-center gap-2 mb-1">
+        {/* Word header */}
+        <div className="flex flex-wrap items-baseline gap-x-2 gap-y-1 mb-1">
           {wordHistory.length > 0 && (
             <button
               onClick={handleGoBack}
@@ -190,25 +190,6 @@ const WordDictionaryPopup: React.FC<WordDictionaryPopupProps> = ({
               ← {entry.lemma}
             </span>
           )}
-          {/* Real UK/US split when the source provides both (Merriam-Webster),
-              otherwise a single IPA. */}
-          {entry?.phoneticUk && entry?.phoneticUs && entry.phoneticUk !== entry.phoneticUs ? (
-            <span className="flex items-center gap-1.5 text-sm text-gray-400 dark:text-gray-500 font-mono">
-              <span>
-                <span className="text-[10px] mr-0.5 opacity-70">UK</span>/{entry.phoneticUk}/
-              </span>
-              <span>
-                <span className="text-[10px] mr-0.5 opacity-70">US</span>/{entry.phoneticUs}/
-              </span>
-            </span>
-          ) : (
-            entry?.phonetic && (
-              <span className="text-sm text-gray-400 dark:text-gray-500 font-mono">
-                <span className="text-[10px] mr-0.5 opacity-70">IPA</span>
-                {entry.phonetic}
-              </span>
-            )
-          )}
           <button
             onClick={handlePlayAudio}
             title="Play pronunciation (TTS)"
@@ -220,6 +201,35 @@ const WordDictionaryPopup: React.FC<WordDictionaryPopupProps> = ({
             </svg>
           </button>
         </div>
+
+        {/* Phonetic — on its own line with nowrap so long IPA doesn't break in half */}
+        {entry && !loading && (
+          <div className="mb-1.5">
+            {entry.phoneticUk && entry.phoneticUs && entry.phoneticUk !== entry.phoneticUs ? (
+              <div className="flex items-center gap-3 text-sm text-gray-400 dark:text-gray-500 font-mono whitespace-nowrap overflow-hidden">
+                <span className="shrink-0">
+                  <span className="text-[10px] mr-0.5 opacity-70">UK</span>/{entry.phoneticUk}/
+                </span>
+                <span className="shrink-0">
+                  <span className="text-[10px] mr-0.5 opacity-70">US</span>/{entry.phoneticUs}/
+                </span>
+              </div>
+            ) : (
+              entry?.phonetic && (
+                <span className="text-sm text-gray-400 dark:text-gray-500 font-mono whitespace-nowrap">
+                  <span className="text-[10px] mr-0.5 opacity-70">IPA</span>/{entry.phonetic}/
+                </span>
+              )
+            )}
+          </div>
+        )}
+
+        {/* One-line Chinese translation at the top of the dictionary content */}
+        {showChinese && definitionCn && !loading && entry && (
+          <p className="text-sm text-indigo-600 dark:text-indigo-400 leading-relaxed mb-2">
+            {definitionCn}
+          </p>
+        )}
 
         {/* Part of speech — hidden when the list below already labels each row */}
         {entry?.partOfSpeech &&
@@ -265,9 +275,6 @@ const WordDictionaryPopup: React.FC<WordDictionaryPopupProps> = ({
                   {entry.definitionEn}
                 </p>
               )
-            )}
-            {showChinese && definitionCn && (
-              <p className="text-sm text-indigo-600 dark:text-indigo-400 leading-relaxed mt-1">{definitionCn}</p>
             )}
             {entry.example && (
               <p className="text-xs text-gray-400 dark:text-gray-500 mt-1.5 italic leading-relaxed">
