@@ -91,6 +91,7 @@ export interface VideoStudySession {
   youtubeUrl: string;                // the original URL the user pasted (also used for bilibili)
   youtubeId: string;                 // extracted video ID (11-char for YT, BV ID for Bilibili)
   platform?: VideoPlatform;          // defaults to 'youtube' if undefined (backward compat)
+  biliPage?: number;                 // Bilibili multi-part (分p) selector, when the video is multi-part
   title: string;                     // user-editable title (defaults to URL)
   transcriptLines: TranscriptLine[]; // the parsed transcript for this video (legacy)
   transcriptData?: TranscriptData;   // normalized data (rawBlocks + sentenceLines)

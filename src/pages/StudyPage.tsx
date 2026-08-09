@@ -257,7 +257,7 @@ const StudyPage: React.FC = () => {
         setResumeToast(t('study.resumedAt', { time: `${mins}:${String(secs).padStart(2, '0')}` }));
         setTimeout(() => setResumeToast(null), 5000);
       }
-      setBiliPage(undefined);
+      setBiliPage(saved.biliPage);
 
       // Always sync the displayed title to the loaded video. This heals a
       // stale title left from a previously-viewed video (root cause of a
@@ -288,7 +288,7 @@ const StudyPage: React.FC = () => {
         setFetchingCaption(true);
         setCaptionError(null);
         const fetcher = (saved.platform === 'bilibili')
-          ? fetchBilibiliTranscript(saved.youtubeId)
+          ? fetchBilibiliTranscript(saved.youtubeId, undefined, saved.biliPage)
           : fetchYouTubeTranscript(saved.youtubeId);
         fetcher
           .then(({ lines }) => {
@@ -362,7 +362,7 @@ const StudyPage: React.FC = () => {
       setResumeToast(t('study.resumedAt', { time: `${mins}:${String(secs).padStart(2, '0')}` }));
       setTimeout(() => setResumeToast(null), 5000);
     }
-    setBiliPage(undefined);
+    setBiliPage(saved.biliPage);
     setAnalysis(null);
     setStreamChars(0);
     setCaptionError(null);
@@ -394,7 +394,7 @@ const StudyPage: React.FC = () => {
       setFetchingCaption(true);
       setCaptionError(null);
       const fetcher = (saved.platform === 'bilibili')
-        ? fetchBilibiliTranscript(saved.youtubeId)
+        ? fetchBilibiliTranscript(saved.youtubeId, undefined, saved.biliPage)
         : fetchYouTubeTranscript(saved.youtubeId);
       fetcher
         .then(({ lines }) => {
@@ -705,6 +705,7 @@ const StudyPage: React.FC = () => {
       }
 
       const fresh = makeFreshSession(id, urlInput.trim(), 'bilibili');
+      fresh.biliPage = pg;
       if (!session) trackEvent('video_studied', { platform: 'bilibili' });
       saveCurrentSession(fresh);
       setSession(fresh);
@@ -716,11 +717,11 @@ const StudyPage: React.FC = () => {
       setSentenceLines([]);
       setAnalysis(null);
 
-      refreshTitleForVideo(urlInput, fresh.id, id, () => getBilibiliVideoTitle(id));
+      refreshTitleForVideo(urlInput, fresh.id, id, () => getBilibiliVideoTitle(id, pg));
 
       setFetchingCaption(true);
       setCaptionError(null);
-      fetchBilibiliTranscript(id)
+      fetchBilibiliTranscript(id, undefined, pg)
         .then(({ lines }) => {
           if (lines.length > 0) persistTranscriptInto(fresh, lines);
         })
@@ -797,7 +798,7 @@ const StudyPage: React.FC = () => {
     setCaptionError(null);
     setFetchingCaption(true);
     const fetcher = platform === 'bilibili'
-      ? fetchBilibiliTranscript(videoId)
+      ? fetchBilibiliTranscript(videoId, undefined, biliPage)
       : fetchYouTubeTranscript(videoId);
     fetcher
       .then(({ lines }) => {
