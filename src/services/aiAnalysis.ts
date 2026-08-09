@@ -250,26 +250,72 @@ async function callDeepSeek(
     throw new Error('Empty response from DeepSeek');
   }
 
-  // Parse and validate the JSON response. Models sometimes emit literal control
-  // characters (e.g. raw newlines or tabs) inside JSON string values even when
-  // response_format is json_object; JSON.parse rejects those. We sanitize only
-  // control chars that appear inside quoted strings, leaving structural
-  // whitespace outside strings untouched.
+  // Parse and validate the JSON response. Models can return imperfect JSON:
+  // wrapped in markdown code fences, followed by trailing prose, or containing
+  // unescaped control characters inside string values. We recover from all.
   const parsed = parseJsonLenient(content);
   return validateResult(parsed);
 }
 
 /**
- * Parse JSON, auto-fixing unescaped control characters inside string literals.
- * This is a best-effort recovery for LLM output that is "almost" valid JSON.
+ * Parse JSON from an LLM response that may be imperfect. Recovery steps:
+ *   1. try the raw string as-is
+ *   2. strip markdown code fences (```json … ```)
+ *   3. extract the outermost balanced {…} / […] and sanitize control chars
+ * If everything fails, throw with a short head of the raw response so the
+ * caller can surface it in the fallback banner for debugging.
  */
 function parseJsonLenient(raw: string): Record<string, unknown> {
-  try {
-    return JSON.parse(raw) as Record<string, unknown>;
-  } catch {
-    const sanitized = sanitizeControlCharsInJsonStrings(raw);
-    return JSON.parse(sanitized) as Record<string, unknown>;
+  const tryParse = (s: string): Record<string, unknown> | null => {
+    try {
+      return JSON.parse(s) as Record<string, unknown>;
+    } catch {
+      return null;
+    }
+  };
+
+  const direct = tryParse(raw);
+  if (direct) return direct;
+
+  const stripped = raw
+    .replace(/^```(?:json)?\s*\n?/i, '')
+    .replace(/\n?```\s*$/i, '')
+    .trim();
+  const strippedResult = tryParse(stripped);
+  if (strippedResult) return strippedResult;
+
+  const extracted = extractBalancedJson(stripped);
+  if (extracted) {
+    const sanitized = sanitizeControlCharsInJsonStrings(extracted);
+    const extractedResult = tryParse(sanitized);
+    if (extractedResult) return extractedResult;
   }
+
+  const head = raw.replace(/\s+/g, ' ').slice(0, 160);
+  throw new Error(`Could not parse DeepSeek JSON. Head: ${head}`);
+}
+
+/** Pull the first balanced {...} or [...] substring out of a string. */
+function extractBalancedJson(input: string): string | null {
+  const firstObj = input.indexOf('{');
+  const firstArr = input.indexOf('[');
+  let start = -1;
+  let closeChar = '}';
+  if (firstObj === -1 && firstArr === -1) return null;
+  if (firstObj === -1) {
+    start = firstArr;
+    closeChar = ']';
+  } else if (firstArr === -1) {
+    start = firstObj;
+  } else if (firstArr < firstObj) {
+    start = firstArr;
+    closeChar = ']';
+  } else {
+    start = firstObj;
+  }
+  const end = input.lastIndexOf(closeChar);
+  if (end <= start) return null;
+  return input.slice(start, end + 1);
 }
 
 /** Escape literal control characters that appear inside JSON string literals. */
