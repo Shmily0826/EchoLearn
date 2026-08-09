@@ -8,7 +8,9 @@ import type {
   SentenceItem,
 } from '../types';
 import { tomorrowMs } from '../utils/storage';
+import { lemmatize } from '../utils/lemmatizer';
 import ClickableRichText from './ClickableRichText';
+import WordDictionaryPopup from './WordDictionaryPopup';
 
 interface AIAnalysisPanelProps {
   analysis: AIAnalysisResult;
@@ -32,6 +34,8 @@ const AIAnalysisPanel: React.FC<AIAnalysisPanelProps> = ({
   onClose,
 }) => {
   const [collapsed, setCollapsed] = useState(false);
+  const [dictPopup, setDictPopup] = useState<{ word: string; x: number; y: number } | null>(null);
+  const [displayedWord, setDisplayedWord] = useState('');
   const { t, lang } = useI18n();
 
   const handleAddVocab = (sug: VocabularySuggestion) => {
@@ -68,6 +72,34 @@ const AIAnalysisPanel: React.FC<AIAnalysisPanelProps> = ({
     onAddSentence(item);
   };
 
+  const handleTermClick = (word: string, e: React.MouseEvent) => {
+    e.stopPropagation();
+    const rect = (e.currentTarget as HTMLElement).getBoundingClientRect();
+    setDisplayedWord(word);
+    setDictPopup({ word, x: rect.left + rect.width / 2, y: rect.top - 8 });
+  };
+
+  const handleAddPopupWord = () => {
+    const word = displayedWord || dictPopup?.word;
+    if (!word) return;
+    const lemma = lemmatize(word);
+    onAddVocabulary({
+      id: `vocab_${Date.now()}_${Math.random().toString(36).slice(2, 6)}`,
+      word: lemma,
+      lemma,
+      meaningCn: '',
+      context: '',
+      sourceVideoId: videoId,
+      sourceVideoTitle: videoTitle,
+      addedAt: Date.now(),
+      mastered: false,
+      reviewCount: 0,
+      lastReviewedAt: 0,
+      nextReviewAt: tomorrowMs(),
+    });
+    setDictPopup(null);
+  };
+
   return (
     <div className="mt-6 bg-white dark:bg-slate-800 rounded-xl border border-gray-200 dark:border-slate-700 shadow-sm overflow-hidden">
       {/* Header */}
@@ -101,6 +133,27 @@ const AIAnalysisPanel: React.FC<AIAnalysisPanelProps> = ({
 
       {!collapsed && (
         <div className="p-5 space-y-6">
+        {dictPopup && (
+          <WordDictionaryPopup
+            word={dictPopup.word}
+            x={dictPopup.x}
+            y={dictPopup.y}
+            onClose={() => setDictPopup(null)}
+            onWordChange={setDisplayedWord}
+            actions={
+              savedWords.has((displayedWord || dictPopup.word).toLowerCase()) ? (
+                <span className="text-xs text-amber-600 dark:text-amber-400 font-medium">{t('ai.saved')}</span>
+              ) : (
+                <button
+                  onClick={handleAddPopupWord}
+                  className="w-full px-3 py-2 text-sm bg-amber-50 dark:bg-amber-900/50 text-amber-700 dark:text-amber-300 rounded-lg hover:bg-amber-100 dark:hover:bg-amber-800 transition-colors font-medium cursor-pointer"
+                >
+                  {t('ai.add')}
+                </button>
+              )
+            }
+          />
+        )}
         {/* Summaries */}
         <div className={lang === 'zh' ? 'grid grid-cols-1 md:grid-cols-2 gap-4' : ''}>
           <div className="bg-gray-50 dark:bg-slate-900 rounded-lg p-4">
@@ -185,7 +238,14 @@ const AIAnalysisPanel: React.FC<AIAnalysisPanelProps> = ({
                 return (
                   <div key={sug.word} className="bg-amber-50 dark:bg-amber-950/30 border border-amber-200 dark:border-amber-800 rounded-lg p-3">
                     <div className="flex items-start justify-between mb-1">
-                      <span className="text-base font-semibold text-amber-800 dark:text-amber-300">{sug.word}</span>
+                      <button
+                        type="button"
+                        onClick={(e) => handleTermClick(sug.word, e)}
+                        className="text-base font-semibold text-amber-800 dark:text-amber-300 hover:text-amber-900 dark:hover:text-amber-200 hover:underline cursor-pointer bg-transparent border-0 p-0 text-left"
+                        title={t('ai.clickWordDict')}
+                      >
+                        {sug.word}
+                      </button>
                       {saved ? (
                         <span className="text-[10px] text-amber-600 dark:text-amber-400 font-medium">{t('ai.saved')}</span>
                       ) : (

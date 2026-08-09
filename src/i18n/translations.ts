@@ -403,6 +403,7 @@ const translations: Record<string, Record<Lang, string>> = {
   'ai.sentences':        { en: 'Useful Sentences', zh: '实用句子' },
   'ai.saved':            { en: 'Saved', zh: '已保存' },
   'ai.add':              { en: '+ Add', zh: '+ 添加' },
+  'ai.clickWordDict':    { en: 'Click to look up in dictionary', zh: '点击查词' },
   'ai.localSummary':     { en: 'This transcript contains approximately {wordCount} words across {sentenceCount} sentences. (AI API unavailable — showing local analysis.)', zh: '本字幕约 {wordCount} 词，共 {sentenceCount} 句。（AI 服务不可用，显示本地分析结果。）' },
   'ai.localNoTranslation': { en: '(Local analysis — no translation)', zh: '(本地分析 — 无翻译)' },
   'ai.localReasonVocab': { en: '{level}-level vocabulary.', zh: '{level} 级别词汇。' },
