@@ -202,6 +202,7 @@ const translations: Record<string, Record<Lang, string>> = {
   'study.vocabTab':      { en: 'Vocabulary', zh: '词汇' },
   'study.sentTab':       { en: 'Key Sentences', zh: '重点句子' },
   'study.clickWord':     { en: 'Click any word in the transcript to add it to your vocabulary.', zh: '点击字幕中的任意单词添加到词汇本。' },
+  'study.clickWordDict': { en: 'Click to look up in dictionary', zh: '点击查词' },
   'study.clickSent':     { en: 'Click any sentence in the transcript to save it as a key sentence.', zh: '点击字幕中的任意句子保存为重点句子。' },
   'study.remove':        { en: 'Remove', zh: '移除' },
   'study.noSubtitles':   { en: 'No subtitles available', zh: '暂无字幕' },
