@@ -197,6 +197,7 @@ async function callDeepSeek(
       ],
       temperature: 0.4,
       response_format: { type: 'json_object' },
+      max_tokens: 4096,
       stream: useStreaming,
     }),
   });
@@ -213,14 +214,20 @@ async function callDeepSeek(
     const reader = response.body.getReader();
     const decoder = new TextDecoder();
     let accumulated = '';
+    // Buffer for SSE lines that span across two network chunks. Without this,
+    // a `data:` line split on a chunk boundary is dropped (its tail is never
+    // parsed), which silently truncates the model output mid-word.
+    let lineBuffer = '';
 
     while (true) {
       const { done, value } = await reader.read();
-      if (done) break;
+      const raw = decoder.decode(value, { stream: !done });
+      lineBuffer += raw;
 
-      const raw = decoder.decode(value, { stream: true });
-      const lines = raw.split('\n');
-      for (const line of lines) {
+      let nlIndex: number;
+      while ((nlIndex = lineBuffer.indexOf('\n')) !== -1) {
+        const line = lineBuffer.slice(0, nlIndex);
+        lineBuffer = lineBuffer.slice(nlIndex + 1);
         if (!line.startsWith('data: ')) continue;
         const dataStr = line.slice(6).trim();
         if (dataStr === '[DONE]') continue;
@@ -236,6 +243,29 @@ async function callDeepSeek(
         } catch {
           // skip malformed SSE chunks
         }
+      }
+
+      if (done) {
+        // Flush any remaining partial line (no trailing newline).
+        const tail = lineBuffer.trim();
+        if (tail.startsWith('data: ')) {
+          const dataStr = tail.slice(6).trim();
+          if (dataStr && dataStr !== '[DONE]') {
+            try {
+              const json = JSON.parse(dataStr) as {
+                choices?: Array<{ delta?: { content?: string } }>;
+              };
+              const delta = json.choices?.[0]?.delta?.content;
+              if (delta) {
+                accumulated += delta;
+                onChunk(delta);
+              }
+            } catch {
+              // ignore incomplete final chunk
+            }
+          }
+        }
+        break;
       }
     }
 
