@@ -13,7 +13,11 @@ import { db } from '../lib/firebase';
 
 /** Requests go through the server-side proxy at /api/ai (API key stays server-side). */
 const DEEPSEEK_ENDPOINT = '/api/ai';
-const DEEPSEEK_MODEL = 'deepseek-v4-flash';
+// NOTE: previously 'deepseek-v4-flash', but that is a REASONING model — it returns
+// a large reasoning_content block that we discard, wastes tokens, is slow (~50s),
+// and is more prone to truncating the JSON on long transcripts. 'deepseek-chat' is
+// the non-reasoning chat model: faster, cheaper, and produces cleaner JSON.
+const DEEPSEEK_MODEL = 'deepseek-chat';
 
 /** Max characters of transcript to send (keeps tokens reasonable). */
 const MAX_TRANSCRIPT_CHARS = 12000;
