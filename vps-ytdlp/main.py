@@ -111,6 +111,22 @@ def _is_bilibili(target_url: str) -> bool:
     return "bilibili.com" in target_url or "b23.tv" in target_url
 
 
+def _is_english(language: Optional[str]) -> bool:
+    """Whether a subtitle language code denotes English (incl. Bilibili 'ai-en')."""
+    l = (language or "").lower()
+    return l in ("en", "ai-en") or l.startswith("en")
+
+
+def _lang_rank(language: Optional[str]) -> int:
+    """Sort rank for subtitle language: English first, then Chinese, then rest."""
+    l = (language or "").lower()
+    if l in ("en", "ai-en") or l.startswith("en"):
+        return 0
+    if l.startswith("zh") or l == "ai-zh":
+        return 1
+    return 2
+
+
 def _extract_bvid(target_url: str):
     """Pull the BV id out of a Bilibili URL (or return None)."""
     m = re.search(r"(BV[0-9A-Za-z]+)", target_url)
@@ -318,8 +334,14 @@ def _read_subtitle_file(td: str):
         parsed.append((is_auto, language, lines))
     if not parsed:
         return None
-    # Real (False) sorts before auto (True); stable within each group.
-    parsed.sort(key=lambda c: c[0])
+    # Real (False) sorts before auto (True), and within each group we prefer an
+    # English track so the English-learning transcript is used whenever one
+    # exists (covers Bilibili "ai-en" as well as standard "en"/"en-US").
+    def sort_key(c):
+        is_auto, language, _ = c
+        return (is_auto, _lang_rank(language))
+
+    parsed.sort(key=sort_key)
     is_auto, language, lines = parsed[0]
     return lines, language, is_auto
 
@@ -356,47 +378,50 @@ def _playlist_flag(part: Optional[int]) -> list:
 
 
 def _run_ytdlp(video_id_or_url: str, lang: str, *, is_url: bool = False, part: Optional[int] = None):
-    base = lang.split("-")[0]
     target_url = video_id_or_url if is_url else f"https://www.youtube.com/watch?v={video_id_or_url}"
     with tempfile.TemporaryDirectory() as td:
         out_tmpl = os.path.join(td, "%(id)s")
-        # Try the exact requested lang, then its base code with variants
-        # (covers en-US / en-orig auto captions).
-        for sub_langs in (lang, f"{base}.*"):
-            cmd = [
-                sys.executable,
-                "-m",
-                "yt_dlp",
-                "--skip-download",
-                "--write-subs",
-                "--write-auto-subs",
-                "--sub-langs",
-                sub_langs,
-                "--sub-format",
-                "vtt",
-                "--quiet",
-                "--no-warnings",
-                *_playlist_flag(part),
-                "--no-overwrites",
-                "-o",
-                out_tmpl,
-                target_url,
-            ]
-            cmd += _site_args(target_url)
-            try:
-                subprocess.run(
-                    cmd,
-                    cwd=td,
-                    capture_output=True,
-                    text=True,
-                    timeout=YTDLP_TIMEOUT,
-                )
-            except subprocess.TimeoutExpired:
-                continue
-            result = _read_subtitle_file(td)
-            if result:
-                return result
-        return None
+        # Request a broad language set so we capture English (en / ai-en) and
+        # Chinese (zh-CN / ai-zh) tracks. Bilibili tags its AI subtitles as
+        # "ai-zh" / "ai-en", which a naive "zh.*" filter (used previously)
+        # never matched — so those videos fell through to the slow Whisper ASR
+        # even when a perfectly good subtitle track existed. _read_subtitle_file
+        # then prefers an English track for the learning use case.
+        sub_langs = "en,ai-en,zh-CN,ai-zh,en.*,zh.*,ai.*"  # ECHOLEARN_BILI_SUB_LANGS
+        cmd = [
+            sys.executable,
+            "-m",
+            "yt_dlp",
+            "--skip-download",
+            "--write-subs",
+            "--write-auto-subs",
+            "--sub-langs",
+            sub_langs,
+            "--sub-format",
+            "vtt",
+            "--quiet",
+            "--no-warnings",
+            *_playlist_flag(part),
+            "--no-overwrites",
+            "-o",
+            out_tmpl,
+            target_url,
+        ]
+        cmd += _site_args(target_url)
+        try:
+            subprocess.run(
+                cmd,
+                cwd=td,
+                capture_output=True,
+                text=True,
+                timeout=YTDLP_TIMEOUT,
+            )
+        except subprocess.TimeoutExpired:
+            return None
+        result = _read_subtitle_file(td)
+        if result:
+            return result
+    return None
 
 
 def _fetch_meta(target_url: str, part: Optional[int] = None) -> dict:
@@ -652,6 +677,15 @@ def transcript(
         return JSONResponse(cached)
 
     result = _run_ytdlp(clean_target, lang, is_url=is_url, part=part)
+
+    # Bilibili videos often expose only a Chinese AI subtitle ("ai-zh"). The app
+    # is for English learners, so a Chinese-only transcript is useless for
+    # vocabulary work. Treat a non-English-only result as "no usable transcript"
+    # so the caller falls back to ASR (which returns an English transcript).
+    # Videos that DO carry an English/ai-en track are served directly (fast).
+    if result and _is_bilibili(clean_target) and not _is_english(result[1]):  # ECHOLEARN_BILI_ENGLISH_GATE
+        result = None
+
     if not result:
         raise HTTPException(
             status_code=404, detail="No transcript available for this video"
