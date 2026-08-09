@@ -6,7 +6,6 @@ import TranscriptViewer from '../components/TranscriptViewer';
 import TranscriptImporter from '../components/TranscriptImporter';
 import AIAnalysisPanel from '../components/AIAnalysisPanel';
 import WordDictionaryPopup from '../components/WordDictionaryPopup';
-import ClickableDefinition from '../components/ClickableDefinition';
 import { parseYouTubeId, parseStartTime } from '../utils/youtube';
 import { detectPlatform, parseBilibiliId, parseBilibiliStartTime, parseBilibiliPage } from '../utils/bilibili';
 import { normalizeTranscriptToSentences } from '../utils/transcriptNormalizer';
@@ -2216,7 +2215,7 @@ const MobileTranscriptPanel: React.FC<{
               <div className="mb-3">
                 {dictEntry.definitionEn && (
                   <p className="text-sm text-gray-700 dark:text-gray-300 leading-relaxed">
-                    <ClickableDefinition text={dictEntry.definitionEn} onWordClick={handleDictWordClick} />
+                    {dictEntry.definitionEn}
                   </p>
                 )}
                 {dictEntry.example && <p className="text-xs text-gray-400 mt-1.5 italic">&ldquo;{dictEntry.example}&rdquo;</p>}

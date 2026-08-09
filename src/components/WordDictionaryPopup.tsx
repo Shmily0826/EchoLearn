@@ -3,7 +3,6 @@ import type { DictionaryEntry } from '../types';
 import { lookupWord, isKnownProperNoun } from '../services/dictionaryService';
 import { translateWordFast, type TranslateLang } from '../services/translationService';
 import { useI18n } from '../i18n/I18nContext';
-import ClickableDefinition from './ClickableDefinition';
 
 /** Speak a word using the browser's built-in TTS (free, no network/API key). */
 function speakWord(word: string): void {
@@ -256,14 +255,14 @@ const WordDictionaryPopup: React.FC<WordDictionaryPopupProps> = ({
                         {d.pos}
                       </span>
                     )}
-                    <ClickableDefinition text={d.definition} onWordClick={handleLookupWord} />
+                    {d.definition}
                   </li>
                 ))}
               </ul>
             ) : (
               entry.definitionEn && (
                 <p className="text-sm text-gray-700 dark:text-gray-300 leading-relaxed">
-                  <ClickableDefinition text={entry.definitionEn} onWordClick={handleLookupWord} />
+                  {entry.definitionEn}
                 </p>
               )
             )}
