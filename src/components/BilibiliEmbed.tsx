@@ -5,24 +5,29 @@ interface BilibiliEmbedProps {
   bvid: string;
   page?: number;
   startTime?: number;
+  playbackRate?: number;
 }
 
 /**
  * Bilibili video player using the official embed iframe.
  *
  * Limitations vs YouTube:
- * - No real-time currentTime polling (Bilibili iframe has no JS API)
- * - seekTo reloads the iframe with a new `t` parameter
- * - Auto-scroll transcript sync does not work; user clicks timestamps to seek
+ * - The Bilibili embed iframe has no JS API, so we cannot read the real
+ *   playback position. To keep the transcript auto-scroll in sync we run an
+ *   internal "playback clock" that advances while the user is playing (driven
+ *   by the play/pause control rendered below). It is an estimate — not
+ *   frame-accurate — and pauses when the user seeks or presses pause.
+ * - seekTo reloads the iframe with a new `t` parameter.
  */
 const BilibiliEmbed = forwardRef<PlayerHandle, BilibiliEmbedProps>(
-  ({ bvid, page, startTime }, ref) => {
+  ({ bvid, page, startTime, playbackRate = 1 }, ref) => {
     const iframeRef = useRef<HTMLIFrameElement>(null);
     const [currentTime, setCurrentTime] = useState(startTime || 0);
     const [playing, setPlaying] = useState(false);
-    const timerRef = useRef<ReturnType<typeof setInterval> | null>(null);
+    const lastTickRef = useRef<number>(0);
+    const rateRef = useRef(playbackRate);
+    rateRef.current = playbackRate;
 
-    // Build the embed URL
     const buildEmbedUrl = useCallback((seekTo?: number) => {
       const params = new URLSearchParams({
         bvid,
@@ -37,18 +42,23 @@ const BilibiliEmbed = forwardRef<PlayerHandle, BilibiliEmbedProps>(
 
     const [embedUrl, setEmbedUrl] = useState(() => buildEmbedUrl(startTime));
 
-    // Approximate timer while "playing" (incremental — not real playback time)
+    const postToIframe = useCallback((msg: object) => {
+      iframeRef.current?.contentWindow?.postMessage(JSON.stringify(msg), '*');
+    }, []);
+
+    // Internal playback clock — advances `currentTime` in real time (scaled by
+    // playback rate) while "playing". This is what drives the transcript
+    // auto-scroll, since the iframe gives us no real time updates.
     useEffect(() => {
-      if (playing) {
-        timerRef.current = setInterval(() => {
-          setCurrentTime((prev) => prev + 1);
-        }, 1000);
-      } else {
-        if (timerRef.current) clearInterval(timerRef.current);
-      }
-      return () => {
-        if (timerRef.current) clearInterval(timerRef.current);
-      };
+      if (!playing) return;
+      lastTickRef.current = Date.now();
+      const id = setInterval(() => {
+        const now = Date.now();
+        const delta = (now - lastTickRef.current) / 1000;
+        lastTickRef.current = now;
+        setCurrentTime((prev) => prev + delta * rateRef.current);
+      }, 250);
+      return () => clearInterval(id);
     }, [playing]);
 
     // When bvid changes, reload the iframe
@@ -58,38 +68,38 @@ const BilibiliEmbed = forwardRef<PlayerHandle, BilibiliEmbedProps>(
       setPlaying(false);
     }, [bvid, startTime, buildEmbedUrl]);
 
+    const togglePlay = useCallback(() => {
+      setPlaying((p) => {
+        const next = !p;
+        postToIframe({ type: next ? 'play' : 'pause' });
+        return next;
+      });
+    }, [postToIframe]);
+
     useImperativeHandle(ref, () => ({
       playVideo() {
         setPlaying(true);
-        // Try postMessage play command (may not work on all Bilibili player versions)
-        iframeRef.current?.contentWindow?.postMessage(
-          JSON.stringify({ type: 'play' }),
-          '*',
-        );
+        postToIframe({ type: 'play' });
       },
       pauseVideo() {
         setPlaying(false);
-        iframeRef.current?.contentWindow?.postMessage(
-          JSON.stringify({ type: 'pause' }),
-          '*',
-        );
+        postToIframe({ type: 'pause' });
       },
       seekTo(seconds: number) {
-        setPlaying(false);
+        // keep the current play state across the reload
         setCurrentTime(seconds);
-        // Reload iframe with the new seek time
         setEmbedUrl(buildEmbedUrl(seconds));
       },
       getCurrentTime() {
         return currentTime;
       },
       setPlaybackRate(_rate: number) {
-        // Bilibili iframe embed does not support programmatic playback rate control
+        // applied via the playbackRate prop (rateRef) for the clock only
       },
       getPlaybackRate() {
-        return 1;
+        return rateRef.current;
       },
-    }), [currentTime, buildEmbedUrl]);
+    }), [currentTime, buildEmbedUrl, postToIframe]);
 
     return (
       <div className="relative w-full" style={{ paddingBottom: '56.25%' }}>
@@ -103,6 +113,30 @@ const BilibiliEmbed = forwardRef<PlayerHandle, BilibiliEmbedProps>(
           frameBorder="0"
           title="Bilibili video player"
         />
+        {/* Play/pause control — also drives transcript auto-scroll sync */}
+        <button
+          type="button"
+          onClick={togglePlay}
+          title={playing ? 'Pause' : 'Play (syncs the transcript)'}
+          className="absolute bottom-3 left-3 z-10 flex items-center gap-1.5 rounded-full bg-black/70 px-3 py-1.5 text-white text-xs font-medium shadow-lg backdrop-blur hover:bg-black/80 transition-colors cursor-pointer"
+        >
+          {playing ? (
+            <svg className="w-3.5 h-3.5" viewBox="0 0 24 24" fill="currentColor">
+              <rect x="6" y="5" width="4" height="14" rx="1" />
+              <rect x="14" y="5" width="4" height="14" rx="1" />
+            </svg>
+          ) : (
+            <svg className="w-3.5 h-3.5" viewBox="0 0 24 24" fill="currentColor">
+              <path d="M8 5v14l11-7z" />
+            </svg>
+          )}
+          {playing ? 'Pause' : 'Play'}
+        </button>
+        {!playing && (
+          <span className="absolute bottom-4 left-24 z-10 text-[11px] text-white/80 bg-black/50 rounded px-2 py-0.5 pointer-events-none">
+            Tap Play to sync transcript
+          </span>
+        )}
       </div>
     );
   },

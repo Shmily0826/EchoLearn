@@ -186,6 +186,7 @@ const translations: Record<string, Record<Lang, string>> = {
   'study.sentence':      { en: 'Sentence', zh: '整句' },
   'study.sentences':     { en: 'sentences', zh: '句' },
   'study.fetchingFull':  { en: 'Fetching captions from YouTube...', zh: '正在从 YouTube 获取字幕...' },
+  'study.fetchingFullBili': { en: 'Fetching captions from Bilibili...', zh: '正在从 B 站获取字幕...' },
   'study.mayTake':       { en: 'This may take a few seconds', zh: '可能需要几秒钟' },
   'study.fetchFailed':   { en: 'Caption auto-fetch failed', zh: '字幕自动获取失败' },
   'study.pasteManual':   { en: 'You can paste or upload the transcript manually below.', zh: '您可以在下方手动粘贴或上传字幕。' },

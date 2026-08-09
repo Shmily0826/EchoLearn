@@ -1122,7 +1122,7 @@ const StudyPage: React.FC = () => {
                       </select>
                     </div>
                   )}
-                  <BilibiliEmbed ref={playerRef} bvid={videoId} page={biliPage} startTime={startTime} />
+                  <BilibiliEmbed ref={playerRef} bvid={videoId} page={biliPage} startTime={startTime} playbackRate={playbackRate} />
                 </>
               ) : (
                 <YouTubeEmbed ref={playerRef} youtubeId={videoId} startTime={startTime} playbackRate={playbackRate} />
