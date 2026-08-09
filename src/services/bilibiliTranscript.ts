@@ -24,14 +24,16 @@ interface TranscriptFetchResult {
  *
  * @param bvid Bilibili video ID (e.g. "BV1GJ411x7hT")
  * @param lang Preferred subtitle language (default: "zh-CN")
+ * @param part Optional 1-based part number for multi-part (分p) videos
  */
 export async function fetchBilibiliTranscript(
   bvid: string,
   lang: string = 'zh-CN',
+  part?: number,
 ): Promise<TranscriptFetchResult> {
   const url = `${CF_WORKER_URL}/api/bilibili?bvid=${encodeURIComponent(
     bvid,
-  )}&lang=${encodeURIComponent(lang)}`;
+  )}&lang=${encodeURIComponent(lang)}${part ? `&p=${part}` : ''}`;
 
   const resp = await fetch(url);
   const body = await resp.text().catch(() => '');
@@ -59,11 +61,12 @@ export async function fetchBilibiliTranscript(
  */
 export async function getBilibiliVideoTitle(
   bvid: string,
+  part?: number,
 ): Promise<{ title: string; ownerName: string } | null> {
   try {
     const url = `${CF_WORKER_URL}/api/bilibili?bvid=${encodeURIComponent(
       bvid,
-    )}&info=1`;
+    )}&info=1${part ? `&p=${part}` : ''}`;
     const resp = await fetch(url);
     if (!resp.ok) return null;
 

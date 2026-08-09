@@ -61,6 +61,7 @@ import sys
 import tempfile
 import time
 import urllib.error
+import urllib.parse
 import urllib.request
 import uuid
 from collections import OrderedDict
@@ -288,7 +289,36 @@ def _read_subtitle_file(td: str):
 
 # ── yt-dlp invocation ────────────────────────────────────────────
 
-def _run_ytdlp(video_id_or_url: str, lang: str, *, is_url: bool = False):
+def _extract_part(raw_url: str):
+    """Pull a Bilibili `?p=N` part selector out of a URL.
+
+    Returns (clean_url, part) where clean_url has the selector stripped and
+    part is an int (>1) or None. yt-dlp then selects the part via
+    --playlist-items rather than the URL param, which is unambiguous.
+    """
+    parsed = urllib.parse.urlparse(raw_url)
+    qs = urllib.parse.parse_qs(parsed.query)
+    part = None
+    if "p" in qs:
+        try:
+            part = int(qs["p"][0])
+        except (ValueError, IndexError):
+            part = None
+        kept = {k: v for k, v in qs.items() if k != "p"}
+        new_qs = urllib.parse.urlencode(kept, doseq=True)
+        parsed = parsed._replace(query=new_qs)
+        raw_url = urllib.parse.urlunparse(parsed)
+    return raw_url, (part if part and part > 1 else None)
+
+
+def _playlist_flag(part: Optional[int]) -> list:
+    """yt-dlp flag selecting a specific playlist entry, or opting out."""
+    if part and part > 1:
+        return ["--playlist-items", str(part)]
+    return ["--no-playlist"]
+
+
+def _run_ytdlp(video_id_or_url: str, lang: str, *, is_url: bool = False, part: Optional[int] = None):
     base = lang.split("-")[0]
     target_url = video_id_or_url if is_url else f"https://www.youtube.com/watch?v={video_id_or_url}"
     with tempfile.TemporaryDirectory() as td:
@@ -309,7 +339,7 @@ def _run_ytdlp(video_id_or_url: str, lang: str, *, is_url: bool = False):
                 "vtt",
                 "--quiet",
                 "--no-warnings",
-                "--no-playlist",
+                *_playlist_flag(part),
                 "--no-overwrites",
                 "-o",
                 out_tmpl,
@@ -332,7 +362,7 @@ def _run_ytdlp(video_id_or_url: str, lang: str, *, is_url: bool = False):
         return None
 
 
-def _fetch_meta(target_url: str) -> dict:
+def _fetch_meta(target_url: str, part: Optional[int] = None) -> dict:
     """Title / uploader / duration / thumbnail via `yt-dlp -J`, memoised."""
     cached = _cache_get(target_url, "__info__")
     if cached is not None:
@@ -344,7 +374,7 @@ def _fetch_meta(target_url: str) -> dict:
         "yt_dlp",
         "--skip-download",
         "--dump-single-json",
-        "--no-playlist",
+        *_playlist_flag(part),
         "--quiet",
         "--no-warnings",
         target_url,
@@ -414,7 +444,7 @@ def _multipart(fields: dict, filename: str, blob: bytes, content_type: str):
     return bytes(body), f"multipart/form-data; boundary={boundary}"
 
 
-def _download_audio(target_url: str, td: str) -> Optional[str]:
+def _download_audio(target_url: str, td: str, part: Optional[int] = None) -> Optional[str]:
     """Grab the audio track and transcode to 16 kHz mono mp3 (Whisper's native
     sample rate — anything richer just inflates the upload)."""
     cmd = [
@@ -428,7 +458,7 @@ def _download_audio(target_url: str, td: str) -> Optional[str]:
         "mp3",
         "--postprocessor-args",
         "ffmpeg:-ar 16000 -ac 1 -b:a 32k",
-        "--no-playlist",
+        *_playlist_flag(part),
         "--quiet",
         "--no-warnings",
         "--no-overwrites",
@@ -564,9 +594,12 @@ def transcript(
         raise HTTPException(status_code=400, detail="Missing videoId or url")
 
     is_url = bool(url)
+    clean_target = target
+    part = None
     if is_url:
         if not _host_allowed(url):
             raise HTTPException(status_code=400, detail="Unsupported url host")
+        clean_target, part = _extract_part(url)
     elif not _VIDEO_ID_RE.match(video_id or ""):
         raise HTTPException(status_code=400, detail="Invalid videoId")
 
@@ -581,7 +614,7 @@ def transcript(
     if cached is not None:
         return JSONResponse(cached)
 
-    result = _run_ytdlp(target, lang, is_url=is_url)
+    result = _run_ytdlp(clean_target, lang, is_url=is_url, part=part)
     if not result:
         raise HTTPException(
             status_code=404, detail="No transcript available for this video"
@@ -630,10 +663,12 @@ def asr(
     notably Bilibili, which serves audio anonymously but hides subtitle tracks
     behind a login.
     """
+    clean_url, part = _extract_part(url)
+
     if not GROQ_API_KEY:
         raise HTTPException(status_code=503, detail="ASR not configured (no GROQ_API_KEY)")
 
-    if not _host_allowed(url):
+    if not _host_allowed(clean_url):
         raise HTTPException(status_code=400, detail="Unsupported url host")
 
     if YTDLP_API_KEY:
@@ -647,7 +682,7 @@ def asr(
     if cached is not None:
         return JSONResponse(cached)
 
-    duration = int(_fetch_meta(url).get("duration") or 0)
+    duration = int(_fetch_meta(clean_url, part).get("duration") or 0)
     if duration > ASR_MAX_DURATION:
         raise HTTPException(
             status_code=413,
@@ -658,7 +693,7 @@ def asr(
         )
 
     with tempfile.TemporaryDirectory() as td:
-        audio_path = _download_audio(url, td)
+        audio_path = _download_audio(clean_url, td, part)
         if not audio_path:
             raise HTTPException(status_code=502, detail="Could not download audio")
         payload = _groq_transcribe(audio_path)

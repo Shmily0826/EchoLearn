@@ -282,12 +282,16 @@ async function handleBilibili(url, env) {
   const bvid = url.searchParams.get('bvid');
   const lang = url.searchParams.get('lang') || 'zh-CN';
   const info = url.searchParams.get('info') === '1';
+  const part = url.searchParams.get('p');
 
   if (!bvid) {
     return jsonResponse({ error: 'Missing bvid parameter' }, 400);
   }
 
-  const bilibiliUrl = `https://www.bilibili.com/video/${encodeURIComponent(bvid)}`;
+  let bilibiliUrl = `https://www.bilibili.com/video/${encodeURIComponent(bvid)}`;
+  // Bilibili multi-part (分p) videos: forward the part selector so the VPS
+  // yt-dlp downloads the requested part instead of always part 1.
+  if (part) bilibiliUrl += `?p=${encodeURIComponent(part)}`;
 
   if (info) {
     // Bilibili answers Cloudflare Worker egress IPs with HTTP 412, so ask the
