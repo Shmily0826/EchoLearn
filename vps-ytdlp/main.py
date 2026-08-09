@@ -486,6 +486,10 @@ def _groq_transcribe(path: str) -> dict:
         headers={
             "Authorization": f"Bearer {GROQ_API_KEY}",
             "Content-Type": content_type,
+            # Groq sits behind Cloudflare, which bans the default
+            # "Python-urllib/3.x" UA with HTTP 403 / error 1010. Send a
+            # non-default UA so the request is accepted.
+            "User-Agent": "EchoLearn-VPS/1.0 (groq-asr)",
         },
         method="POST",
     )
