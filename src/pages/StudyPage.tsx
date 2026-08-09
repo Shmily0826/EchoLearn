@@ -1706,6 +1706,7 @@ const StudyPage: React.FC = () => {
             <AIAnalysisPanel
               analysis={analysis}
               videoId={videoId || 'unknown'}
+              videoTitle={sessionTitle}
               onAddVocabulary={handleAddVocabulary}
               onAddSentence={handleAddSentence}
               savedWords={savedWords}

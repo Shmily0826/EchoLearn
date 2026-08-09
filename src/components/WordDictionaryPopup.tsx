@@ -29,6 +29,8 @@ interface WordDictionaryPopupProps {
   onClose: () => void;
   /** Optional: additional content below dictionary data (e.g. "Add to vocabulary" button) */
   actions?: React.ReactNode;
+  /** Optional: called whenever the internally-displayed word changes (e.g. recursive lookup). */
+  onWordChange?: (word: string) => void;
 }
 
 /**
@@ -42,6 +44,7 @@ const WordDictionaryPopup: React.FC<WordDictionaryPopupProps> = ({
   y,
   onClose,
   actions,
+  onWordChange,
 }) => {
   const [currentWord, setCurrentWord] = useState(initialWord);
   const [wordHistory, setWordHistory] = useState<string[]>([]);
@@ -60,6 +63,11 @@ const WordDictionaryPopup: React.FC<WordDictionaryPopupProps> = ({
     setCurrentWord(initialWord);
     setWordHistory([]);
   }, [initialWord]);
+
+  // Notify parent when the displayed word changes (e.g. user clicks a synonym).
+  useEffect(() => {
+    onWordChange?.(currentWord);
+  }, [currentWord, onWordChange]);
 
   // Close on outside click
   useEffect(() => {
