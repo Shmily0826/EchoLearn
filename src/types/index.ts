@@ -141,6 +141,10 @@ export interface AIAnalysisResult {
   sentenceSuggestions: SentenceSuggestion[];
   learningTasks: LearningTask[];
   note?: string;  // optional message, e.g. "only found N words at this level"
+  /** Present only when the live DeepSeek call failed and we fell back to
+   *  local analysis. Holds the real error so the UI can surface it instead of
+   *  a generic "AI API unavailable" banner. */
+  error?: string;
 }
 
 // ── Channel & Daily Plan ────────────────────────────────────

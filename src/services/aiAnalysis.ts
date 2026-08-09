@@ -436,7 +436,13 @@ export async function analyzeTranscript(
     if (cacheKey) void setCachedAnalysis(cacheKey, result);
     return result;
   } catch (err) {
+    const msg = err instanceof Error ? err.message : String(err);
     console.warn('[aiAnalysis] DeepSeek API failed, falling back to local analysis:', err);
-    return localFallback(transcriptText, minLevel, maxLevel, vocabCount, sentenceCount, lang);
+    const fallback = localFallback(transcriptText, minLevel, maxLevel, vocabCount, sentenceCount, lang);
+    // Surface the real error so the user can see WHY it failed (not just a
+    // generic banner). The production build strips console.*, so the UI must
+    // carry the message explicitly. Include the model name so we can tell
+    // whether a stale cached bundle is still sending the old model.
+    return { ...fallback, error: `[${DEEPSEEK_MODEL}] ${msg.slice(0, 460)}` };
   }
 }

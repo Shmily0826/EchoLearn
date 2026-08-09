@@ -8,10 +8,12 @@ import type {
   SentenceItem,
 } from '../types';
 import { tomorrowMs } from '../utils/storage';
+import ClickableRichText from './ClickableRichText';
 
 interface AIAnalysisPanelProps {
   analysis: AIAnalysisResult;
   videoId: string;
+  videoTitle?: string;
   onAddVocabulary: (item: VocabularyItem) => void;
   onAddSentence: (item: SentenceItem) => void;
   savedWords: Set<string>;
@@ -22,6 +24,7 @@ interface AIAnalysisPanelProps {
 const AIAnalysisPanel: React.FC<AIAnalysisPanelProps> = ({
   analysis,
   videoId,
+  videoTitle,
   onAddVocabulary,
   onAddSentence,
   savedWords,
@@ -102,7 +105,15 @@ const AIAnalysisPanel: React.FC<AIAnalysisPanelProps> = ({
         <div className={lang === 'zh' ? 'grid grid-cols-1 md:grid-cols-2 gap-4' : ''}>
           <div className="bg-gray-50 dark:bg-slate-900 rounded-lg p-4">
             <h4 className="text-xs font-semibold text-gray-500 dark:text-gray-400 uppercase tracking-wider mb-2">{t('ai.summaryEn')}</h4>
-            <p className="text-sm text-gray-700 dark:text-gray-300 leading-relaxed">{analysis.summaryEn}</p>
+            <p className="text-sm text-gray-700 dark:text-gray-300 leading-relaxed">
+              <ClickableRichText
+                text={analysis.summaryEn}
+                videoId={videoId}
+                videoTitle={videoTitle}
+                savedWords={savedWords}
+                onAddVocabulary={onAddVocabulary}
+              />
+            </p>
           </div>
           {lang === 'zh' && (
           <div className="bg-gray-50 dark:bg-slate-900 rounded-lg p-4">
@@ -122,6 +133,23 @@ const AIAnalysisPanel: React.FC<AIAnalysisPanelProps> = ({
           </div>
         )}
 
+        {/* Error banner — shown when the live DeepSeek call failed and we fell
+            back to local analysis. Surfaces the REAL error instead of a generic
+            "AI API unavailable" message so the failure is diagnosable. */}
+        {analysis.error && (
+          <div className="flex items-start gap-2 bg-red-50 dark:bg-red-950/30 border border-red-200 dark:border-red-800 rounded-lg px-4 py-3">
+            <svg className="w-4 h-4 text-red-500 shrink-0 mt-0.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+              <path strokeLinecap="round" strokeLinejoin="round" d="M12 9v3.75m9-.75a9 9 0 11-18 0 9 9 0 0118 0zm-9 3.75h.008v.008H12v-.008z" />
+            </svg>
+            <div className="min-w-0">
+              <p className="text-sm text-red-700 dark:text-red-400 font-medium">
+                {lang === 'zh' ? 'AI 分析失败（已回退到本地分析）：' : 'AI analysis failed (fell back to local):'}
+              </p>
+              <p className="text-xs text-red-600 dark:text-red-400 mt-1 font-mono break-words leading-relaxed">{analysis.error}</p>
+            </div>
+          </div>
+        )}
+
         {/* Key Takeaways */}
         {analysis.keyTakeaways.length > 0 && (
           <div>
@@ -132,7 +160,15 @@ const AIAnalysisPanel: React.FC<AIAnalysisPanelProps> = ({
                   <span className="flex-shrink-0 w-5 h-5 rounded-full bg-indigo-100 text-indigo-600 flex items-center justify-center text-[10px] font-bold mt-0.5">
                     {i + 1}
                   </span>
-                  <span className="leading-relaxed">{takeaway}</span>
+                  <span className="leading-relaxed">
+                    <ClickableRichText
+                      text={takeaway}
+                      videoId={videoId}
+                      videoTitle={videoTitle}
+                      savedWords={savedWords}
+                      onAddVocabulary={onAddVocabulary}
+                    />
+                  </span>
                 </div>
               ))}
             </div>
@@ -161,7 +197,17 @@ const AIAnalysisPanel: React.FC<AIAnalysisPanelProps> = ({
                         </button>
                       )}
                     </div>
-                    <p className="text-[11px] text-gray-500 dark:text-gray-400 line-clamp-2 leading-relaxed">&ldquo;{sug.context}&rdquo;</p>
+                    <p className="text-[11px] text-gray-500 dark:text-gray-400 line-clamp-2 leading-relaxed">
+                      &ldquo;
+                      <ClickableRichText
+                        text={sug.context}
+                        videoId={videoId}
+                        videoTitle={videoTitle}
+                        savedWords={savedWords}
+                        onAddVocabulary={onAddVocabulary}
+                      />
+                      &rdquo;
+                    </p>
                     <p className="text-[10px] text-gray-400 dark:text-gray-500 mt-1">{sug.reason}</p>
                   </div>
                 );
@@ -180,7 +226,15 @@ const AIAnalysisPanel: React.FC<AIAnalysisPanelProps> = ({
                 return (
                   <div key={sug.text} className="bg-violet-50 dark:bg-indigo-950/40 border border-violet-200 dark:border-indigo-700 rounded-lg p-3">
                     <div className="flex items-start justify-between gap-3">
-                      <p className="text-sm text-violet-800 dark:text-indigo-200 leading-relaxed flex-1">{sug.text}</p>
+                      <p className="text-sm text-violet-800 dark:text-indigo-200 leading-relaxed flex-1">
+                        <ClickableRichText
+                          text={sug.text}
+                          videoId={videoId}
+                          videoTitle={videoTitle}
+                          savedWords={savedWords}
+                          onAddVocabulary={onAddVocabulary}
+                        />
+                      </p>
                       {saved ? (
                         <span className="text-[10px] text-violet-600 dark:text-indigo-400 font-medium whitespace-nowrap">{t('ai.saved')}</span>
                       ) : (
