@@ -10,6 +10,7 @@ Endpoints
   GET /api/transcript?videoId=<id>&lang=<en>
   GET /api/transcript?url=<any yt-dlp supported url>&lang=<zh-CN>
   GET /api/asr?url=<any yt-dlp supported url>
+  GET /api/audio?url=<any yt-dlp supported url>  (mp3 stream for audio-only mode)
   GET /api/info?url=<any yt-dlp supported url>
   GET /api/health
 
@@ -53,6 +54,7 @@ with no subtitle track), the caller falls back to ASR, which sidesteps the login
 wall by transcribing the audio instead — no SESSDATA cookie needed for that.
 """
 
+import hashlib
 import json
 import os
 import re
@@ -69,7 +71,7 @@ from typing import Optional
 
 from fastapi import FastAPI, HTTPException, Query, Request
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import JSONResponse
+from fastapi.responses import FileResponse, JSONResponse
 
 app = FastAPI(title="EchoLearn yt-dlp transcript service")
 
@@ -101,6 +103,12 @@ ASR_MAX_DURATION = int(os.environ.get("ASR_MAX_DURATION", "1800"))  # 30 min
 
 _VIDEO_ID_RE = re.compile(r"^[a-zA-Z0-9_-]{6,15}$")
 _ALLOWED_HOSTS = ("youtube.com", "youtu.be", "bilibili.com", "b23.tv")
+
+# Persistent on-disk cache for extracted audio (audio-only player). Keyed by a
+# hash of the target URL + part so repeat plays are served instantly without
+# re-downloading. The Cloudflare Worker streams these files to the browser.
+AUDIO_CACHE_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), "audio_cache")
+os.makedirs(AUDIO_CACHE_DIR, exist_ok=True)
 
 
 def _is_youtube(target_url: str) -> bool:
@@ -550,6 +558,62 @@ def _download_audio(target_url: str, td: str, part: Optional[int] = None) -> Opt
     return None
 
 
+def _audio_cache_path(target_url: str, part: Optional[int]) -> str:
+    """Stable cache filename for a (url, part) pair."""
+    key = f"{target_url}|p={part}"
+    digest = hashlib.md5(key.encode("utf-8")).hexdigest()
+    return os.path.join(AUDIO_CACHE_DIR, f"{digest}.mp3")
+
+
+def _extract_playback_audio(target_url: str, part: Optional[int] = None) -> Optional[str]:
+    """Download the audio track at a *listenable* bitrate and cache it on disk.
+
+    Unlike _download_audio (which targets Whisper at 16 kHz/32 kbps), this keeps
+    full sample rate and 128 kbps so the in-app audio-only player sounds normal.
+    Returns the cached .mp3 path, or None on failure.
+    """
+    out_path = _audio_cache_path(target_url, part)
+    if os.path.exists(out_path) and os.path.getsize(out_path) > 0:
+        return out_path
+
+    cmd = [
+        sys.executable,
+        "-m",
+        "yt_dlp",
+        "-f",
+        "bestaudio/best",
+        "--extract-audio",
+        "--audio-format",
+        "mp3",
+        "--postprocessor-args",
+        "ffmpeg:-ar 44100 -ac 2 -b:a 128k",
+        *_playlist_flag(part),
+        "--quiet",
+        "--no-warnings",
+        "-o",
+        out_path,
+        target_url,
+    ]
+    cmd += _site_args(target_url)
+
+    for attempt in range(1, YTDLP_RETRIES + 1):
+        # Clear any partial file so a fresh attempt isn't skipped.
+        try:
+            if os.path.exists(out_path):
+                os.remove(out_path)
+        except OSError:
+            pass
+        try:
+            subprocess.run(
+                cmd, cwd=AUDIO_CACHE_DIR, capture_output=True, text=True, timeout=YTDLP_TIMEOUT
+            )
+        except subprocess.TimeoutExpired:
+            return None
+        if os.path.exists(out_path) and os.path.getsize(out_path) > 0:
+            return out_path
+    return None
+
+
 def _groq_transcribe(path: str) -> dict:
     """Send one audio file to Groq Whisper and return the EchoLearn payload.
 
@@ -782,6 +846,41 @@ def asr(
 
     _cache_put(url, "__asr__", payload)
     return JSONResponse(payload)
+
+
+@app.get("/api/audio")
+def audio(
+    url: str = Query(...),
+    request: Request = None,
+):
+    """Stream a video's audio track (mp3) for the in-app audio-only player.
+
+    Cached on disk by URL+part so repeat plays are instant. The Cloudflare
+    Worker proxies this endpoint to the browser, where a native <audio>
+    element plays it and drives transcript sync via its currentTime.
+    """
+    clean_url, part = _extract_part(url)
+
+    if not _host_allowed(clean_url):
+        raise HTTPException(status_code=400, detail="Unsupported url host")
+
+    if YTDLP_API_KEY:
+        provided = (request.headers.get("X-Api-Key") or "") if request else ""
+        if provided != YTDLP_API_KEY:
+            raise HTTPException(status_code=401, detail="Unauthorized")
+
+    path = _audio_cache_path(clean_url, part)
+    if not (os.path.exists(path) and os.path.getsize(path) > 0):
+        path = _extract_playback_audio(clean_url, part)
+    if not path:
+        raise HTTPException(status_code=502, detail="Could not extract audio")
+
+    return FileResponse(
+        path,
+        media_type="audio/mpeg",
+        filename=os.path.basename(path),
+        content_disposition_type="inline",
+    )
 
 
 @app.get("/api/health")
