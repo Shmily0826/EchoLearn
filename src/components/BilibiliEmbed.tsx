@@ -5,28 +5,40 @@ interface BilibiliEmbedProps {
   bvid: string;
   page?: number;
   startTime?: number;
+  /** Total duration in seconds, used to size the sync scrubber. */
+  duration?: number;
   playbackRate?: number;
 }
 
+const fmtTime = (s: number) => {
+  const total = Math.max(0, Math.floor(s));
+  const m = Math.floor(total / 60);
+  const sec = total % 60;
+  return `${m}:${sec.toString().padStart(2, '0')}`;
+};
+
 /**
- * Bilibili video player using the official embed iframe.
+ * Bilibili player via the official embed iframe.
  *
- * Limitations vs YouTube:
- * - The Bilibili embed iframe has no JS API, so we cannot read the real
- *   playback position. To keep the transcript auto-scroll in sync we run an
- *   internal "playback clock" that advances while the user is playing (driven
- *   by the play/pause control rendered below). It is an estimate — not
- *   frame-accurate — and pauses when the user seeks or presses pause.
- * - seekTo reloads the iframe with a new `t` parameter.
+ * Hard limits vs YouTube: the Bilibili embed has no JS API, so we cannot read
+ * the real playback position, and clicking the iframe can navigate the tab
+ * away to bilibili.com. Two consequences:
+ *
+ *  1. We do NOT run a fake "playback clock" — that was the old approach and it
+ *     drifted / desynced (video paused but transcript kept moving). Instead the
+ *     user syncs transcript ↔ video with the scrubber rendered below the
+ *     player: dragging it updates `currentTime` (drives the transcript
+ *     highlight/scroll) AND seeks the real iframe (debounced reload with `t=`).
+ *     Both are always driven by the same value, so they never drift apart.
+ *  2. The iframe is sandboxed WITHOUT top-navigation, so clicking it no longer
+ *     jumps to bilibili.com while native play/pause/seek/volume controls still
+ *     work.
  */
 const BilibiliEmbed = forwardRef<PlayerHandle, BilibiliEmbedProps>(
-  ({ bvid, page, startTime, playbackRate = 1 }, ref) => {
+  ({ bvid, page, startTime, duration = 0, playbackRate = 1 }, ref) => {
     const iframeRef = useRef<HTMLIFrameElement>(null);
     const [currentTime, setCurrentTime] = useState(startTime || 0);
-    const [playing, setPlaying] = useState(false);
-    const lastTickRef = useRef<number>(0);
-    const rateRef = useRef(playbackRate);
-    rateRef.current = playbackRate;
+    const [embedUrl, setEmbedUrl] = useState(() => buildEmbedUrl(startTime));
 
     const buildEmbedUrl = useCallback((seekTo?: number) => {
       const params = new URLSearchParams({
@@ -40,102 +52,80 @@ const BilibiliEmbed = forwardRef<PlayerHandle, BilibiliEmbedProps>(
       return `https://player.bilibili.com/player.html?${params.toString()}`;
     }, [bvid, page]);
 
-    const [embedUrl, setEmbedUrl] = useState(() => buildEmbedUrl(startTime));
-
-    const postToIframe = useCallback((msg: object) => {
-      iframeRef.current?.contentWindow?.postMessage(JSON.stringify(msg), '*');
-    }, []);
-
-    // Internal playback clock — advances `currentTime` in real time (scaled by
-    // playback rate) while "playing". This is what drives the transcript
-    // auto-scroll, since the iframe gives us no real time updates.
-    useEffect(() => {
-      if (!playing) return;
-      lastTickRef.current = Date.now();
-      const id = setInterval(() => {
-        const now = Date.now();
-        const delta = (now - lastTickRef.current) / 1000;
-        lastTickRef.current = now;
-        setCurrentTime((prev) => prev + delta * rateRef.current);
-      }, 250);
-      return () => clearInterval(id);
-    }, [playing]);
-
-    // When bvid changes, reload the iframe
+    // Reload the iframe when the video itself changes.
     useEffect(() => {
       setEmbedUrl(buildEmbedUrl(startTime));
       setCurrentTime(startTime || 0);
-      setPlaying(false);
     }, [bvid, startTime, buildEmbedUrl]);
 
-    const togglePlay = useCallback(() => {
-      setPlaying((p) => {
-        const next = !p;
-        postToIframe({ type: next ? 'play' : 'pause' });
-        return next;
-      });
-    }, [postToIframe]);
+    // Scrubber: live drag updates `currentTime` (transcript follows immediately).
+    const handleScrub = (t: number) => setCurrentTime(t);
+    // Scrubber release: actually seek the real iframe by reloading with `t=`.
+    const handleScrubCommit = (t: number) => {
+      setCurrentTime(t);
+      setEmbedUrl(buildEmbedUrl(t));
+    };
 
-    useImperativeHandle(ref, () => ({
-      playVideo() {
-        setPlaying(true);
-        postToIframe({ type: 'play' });
-      },
-      pauseVideo() {
-        setPlaying(false);
-        postToIframe({ type: 'pause' });
-      },
-      seekTo(seconds: number) {
-        // keep the current play state across the reload
-        setCurrentTime(seconds);
-        setEmbedUrl(buildEmbedUrl(seconds));
-      },
-      getCurrentTime() {
-        return currentTime;
-      },
-      setPlaybackRate(_rate: number) {
-        // applied via the playbackRate prop (rateRef) for the clock only
-      },
-      getPlaybackRate() {
-        return rateRef.current;
-      },
-    }), [currentTime, buildEmbedUrl, postToIframe]);
+    useImperativeHandle(
+      ref,
+      () => ({
+        // Native Bilibili controls handle actual playback; these are no-ops.
+        playVideo() {},
+        pauseVideo() {},
+        seekTo(seconds: number) {
+          setCurrentTime(seconds);
+          setEmbedUrl(buildEmbedUrl(seconds));
+        },
+        getCurrentTime() {
+          return currentTime;
+        },
+        setPlaybackRate(_r: number) {
+          /* not controllable on the Bilibili embed */
+        },
+        getPlaybackRate() {
+          return playbackRate;
+        },
+      }),
+      [currentTime, buildEmbedUrl, playbackRate],
+    );
 
     return (
-      <div className="relative w-full" style={{ paddingBottom: '56.25%' }}>
-        <iframe
-          ref={iframeRef}
-          src={embedUrl}
-          className="absolute inset-0 w-full h-full rounded-xl"
-          allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture"
-          allowFullScreen
-          scrolling="no"
-          frameBorder="0"
-          title="Bilibili video player"
-        />
-        {/* Play/pause control — also drives transcript auto-scroll sync */}
-        <button
-          type="button"
-          onClick={togglePlay}
-          title={playing ? 'Pause' : 'Play (syncs the transcript)'}
-          className="absolute bottom-3 left-3 z-10 flex items-center gap-1.5 rounded-full bg-black/70 px-3 py-1.5 text-white text-xs font-medium shadow-lg backdrop-blur hover:bg-black/80 transition-colors cursor-pointer"
-        >
-          {playing ? (
-            <svg className="w-3.5 h-3.5" viewBox="0 0 24 24" fill="currentColor">
-              <rect x="6" y="5" width="4" height="14" rx="1" />
-              <rect x="14" y="5" width="4" height="14" rx="1" />
-            </svg>
-          ) : (
-            <svg className="w-3.5 h-3.5" viewBox="0 0 24 24" fill="currentColor">
-              <path d="M8 5v14l11-7z" />
-            </svg>
-          )}
-          {playing ? 'Pause' : 'Play'}
-        </button>
-        {!playing && (
-          <span className="absolute bottom-4 left-24 z-10 text-[11px] text-white/80 bg-black/50 rounded px-2 py-0.5 pointer-events-none">
-            Tap Play to sync transcript
-          </span>
+      <div className="w-full">
+        <div className="relative w-full" style={{ paddingBottom: '56.25%' }}>
+          <iframe
+            ref={iframeRef}
+            src={embedUrl}
+            className="absolute inset-0 w-full h-full rounded-xl bg-black"
+            sandbox="allow-scripts allow-same-origin allow-presentation allow-fullscreen allow-popups"
+            allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture"
+            allowFullScreen
+            scrolling="no"
+            frameBorder="0"
+            title="Bilibili video player"
+          />
+        </div>
+        {duration > 0 && (
+          <div className="mt-2 flex items-center gap-2 px-1">
+            <span className="text-[11px] text-gray-500 dark:text-gray-400 tabular-nums w-10 text-right">
+              {fmtTime(currentTime)}
+            </span>
+            <input
+              type="range"
+              min={0}
+              max={Math.max(duration, 1)}
+              step={1}
+              value={Math.min(currentTime, duration)}
+              onChange={(e) => handleScrub(Number(e.target.value))}
+              onMouseUp={(e) => handleScrubCommit(Number((e.target as HTMLInputElement).value))}
+              onTouchEnd={(e) => handleScrubCommit(Number((e.target as HTMLInputElement).value))}
+              onKeyUp={(e) => handleScrubCommit(Number((e.target as HTMLInputElement).value))}
+              className="flex-1 accent-indigo-500 cursor-pointer"
+              aria-label="Drag to sync transcript with the video"
+            />
+            <span className="text-[11px] text-gray-500 dark:text-gray-400 tabular-nums w-10">
+              {fmtTime(duration)}
+            </span>
+          </div>
         )}
       </div>
     );

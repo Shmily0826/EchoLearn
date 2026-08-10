@@ -248,6 +248,11 @@ const StudyPage: React.FC = () => {
   // The lines currently shown in TranscriptViewer (always sentence-level)
   const displayLines = sentenceLines;
 
+  // Rough video duration (used to size the Bilibili sync scrubber).
+  const transcriptDuration = displayLines.length
+    ? displayLines[displayLines.length - 1].end
+    : 0;
+
   // ── Restore last session on mount ──────────────────────────
   useEffect(() => {
     if (restoredRef.current) return;
@@ -1122,7 +1127,7 @@ const StudyPage: React.FC = () => {
                       </select>
                     </div>
                   )}
-                  <BilibiliEmbed ref={playerRef} bvid={videoId} page={biliPage} startTime={startTime} playbackRate={playbackRate} />
+                  <BilibiliEmbed ref={playerRef} bvid={videoId} page={biliPage} startTime={startTime} duration={transcriptDuration} playbackRate={playbackRate} />
                 </>
               ) : (
                 <YouTubeEmbed ref={playerRef} youtubeId={videoId} startTime={startTime} playbackRate={playbackRate} />
