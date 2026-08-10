@@ -368,14 +368,22 @@ _BILI_NOISE_PARAMS = {
 
 
 def _normalize_bilibili_url(raw_url: str) -> str:
-    """Strip Bilibili share/tracking params so the same video shares a cache key."""
+    """Strip Bilibili share/tracking params and trivial path variants so the same video shares a cache key."""
     parsed = urllib.parse.urlparse(raw_url)
     if parsed.netloc and "bilibili" not in parsed.netloc.lower():
         return raw_url
+    # Force canonical scheme/host and remove a trailing slash from the path
+    # (e.g. /video/BVxx/ vs /video/BVxx normalize to the same key).
+    netloc = parsed.netloc.lower()
+    if netloc.startswith("www."):
+        netloc = netloc[4:]
+    path = parsed.path
+    if path.endswith("/") and len(path) > 1:
+        path = path[:-1]
     qs = urllib.parse.parse_qs(parsed.query)
     kept = {k: v for k, v in qs.items() if k not in _BILI_NOISE_PARAMS}
     new_qs = urllib.parse.urlencode(kept, doseq=True)
-    parsed = parsed._replace(query=new_qs)
+    parsed = parsed._replace(scheme="https", netloc=netloc, path=path, query=new_qs)
     return urllib.parse.urlunparse(parsed)
 
 
