@@ -1174,7 +1174,7 @@ const StudyPage: React.FC = () => {
                 </div>
 
                 {audioMode ? (
-                  <AudioPlayer ref={playerRef} src={audioSrc ?? ''} startTime={startTime} playbackRate={playbackRate} />
+                  <AudioPlayer key={audioSrc ?? 'audio'} ref={playerRef} src={audioSrc ?? ''} startTime={startTime} playbackRate={playbackRate} />
                 ) : platform === 'bilibili' ? (
                   <>
                     {biliParts && biliParts.length > 1 && (

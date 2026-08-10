@@ -606,16 +606,86 @@ def _audio_cache_path(target_url: str, part: Optional[int]) -> str:
     return os.path.join(AUDIO_CACHE_DIR, f"{digest}.mp3")
 
 
+def _audio_duration(path: str) -> float:
+    """Return audio duration in seconds via ffprobe, or 0.0 on failure."""
+    try:
+        proc = subprocess.run(
+            [
+                "ffprobe", "-v", "error",
+                "-show_entries", "format=duration",
+                "-of", "default=noprint_wrappers=1:nokey=1",
+                path,
+            ],
+            capture_output=True, text=True, timeout=30,
+        )
+        val = proc.stdout.strip()
+        return float(val) if val else 0.0
+    except (subprocess.TimeoutExpired, ValueError, OSError):
+        return 0.0
+
+
+def _audio_meta_path(out_path: str) -> str:
+    return out_path + ".meta.json"
+
+
+def _write_audio_meta(out_path: str, expected: int) -> None:
+    """Persist the real (expected) duration next to the cached mp3 so a later
+    read can detect a truncated download without re-fetching metadata."""
+    try:
+        with open(_audio_meta_path(out_path), "w", encoding="utf-8") as fh:
+            json.dump({"expected": expected, "duration": _audio_duration(out_path)}, fh)
+    except OSError:
+        pass
+
+
+def _cache_valid(out_path: str) -> bool:
+    """True if the cached mp3 exists and isn't a clearly truncated partial.
+
+    A legacy cache written before sidecar metadata exists is trusted as-is.
+    """
+    if not (os.path.exists(out_path) and os.path.getsize(out_path) > 0):
+        return False
+    meta_path = _audio_meta_path(out_path)
+    if not os.path.exists(meta_path):
+        return True
+    try:
+        with open(meta_path, encoding="utf-8") as fh:
+            meta = json.load(fh)
+        expected = int(meta.get("expected") or 0)
+    except (OSError, json.JSONDecodeError):
+        return True
+    if expected:
+        dur = _audio_duration(out_path)
+        if dur and dur < expected * 0.5:
+            return False
+    return True
+
+
 def _extract_playback_audio(target_url: str, part: Optional[int] = None) -> Optional[str]:
     """Download the audio track at a *listenable* bitrate and cache it on disk.
 
     Unlike _download_audio (which targets Whisper at 16 kHz/32 kbps), this keeps
     full sample rate and 128 kbps so the in-app audio-only player sounds normal.
     Returns the cached .mp3 path, or None on failure.
+
+    The residential proxy is flaky and can drop mid-download, leaving a truncated
+    mp3 that still "exists" on disk. We guard against that two ways: (a) tell
+    yt-dlp to retry internally via --retries/--fragment-retries, and (b) verify
+    the extracted duration against the real video duration, re-extracting any
+    file that is clearly truncated (less than half the expected length).
     """
     out_path = _audio_cache_path(target_url, part)
-    if os.path.exists(out_path) and os.path.getsize(out_path) > 0:
+
+    def _expected_duration() -> int:
+        try:
+            return int(_fetch_meta(target_url, part).get("duration") or 0)
+        except Exception:
+            return 0
+
+    if _cache_valid(out_path):
         return out_path
+
+    expected = _expected_duration()
 
     cmd = [
         sys.executable,
@@ -628,6 +698,10 @@ def _extract_playback_audio(target_url: str, part: Optional[int] = None) -> Opti
         "mp3",
         "--postprocessor-args",
         "ffmpeg:-ar 44100 -ac 2 -b:a 128k",
+        "--retries",
+        str(YTDLP_RETRIES),
+        "--fragment-retries",
+        str(YTDLP_RETRIES),
         *_playlist_flag(part),
         "--quiet",
         "--no-warnings",
@@ -650,8 +724,19 @@ def _extract_playback_audio(target_url: str, part: Optional[int] = None) -> Opti
             )
         except subprocess.TimeoutExpired:
             return None
-        if os.path.exists(out_path) and os.path.getsize(out_path) > 0:
-            return out_path
+        if not (os.path.exists(out_path) and os.path.getsize(out_path) > 0):
+            continue
+        # Reject clearly truncated downloads (proxy dropped mid-stream).
+        if expected:
+            dur = _audio_duration(out_path)
+            if dur and dur < expected * 0.5:
+                try:
+                    os.remove(out_path)
+                except OSError:
+                    pass
+                continue
+        _write_audio_meta(out_path, expected)
+        return out_path
     return None
 
 
