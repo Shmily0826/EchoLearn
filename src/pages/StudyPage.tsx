@@ -283,6 +283,25 @@ const StudyPage: React.FC = () => {
     return `${CF_WORKER_URL}/api/audio?url=${encodeURIComponent(videoUrl)}`;
   }, [audioMode, videoId, videoUrl]);
 
+  // ── Pre-warm audio cache ───────────────────────────────────
+  // Bilibili audio extraction is slow on first request (proxy + download).
+  // Start it in the background as soon as a video is loaded so that toggling
+  // audio mode later is instant. Abort if the video changes.
+  useEffect(() => {
+    if (!videoId || !videoUrl) return;
+    const controller = new AbortController();
+    fetch(`${CF_WORKER_URL}/api/audio?url=${encodeURIComponent(videoUrl)}`, {
+      method: 'GET',
+      signal: controller.signal,
+      // Prevent the fetch from blocking other network traffic.
+      priority: 'low' as RequestPriority,
+    }).catch(() => {
+      // Swallow errors: pre-warming is best-effort; the audio player itself
+      // will show a Retry button if the user toggles on and it still fails.
+    });
+    return () => controller.abort();
+  }, [videoId, videoUrl]);
+
   // ── Restore last session on mount ──────────────────────────
   useEffect(() => {
     if (restoredRef.current) return;

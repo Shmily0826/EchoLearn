@@ -1,5 +1,6 @@
 import { forwardRef, useImperativeHandle, useRef, useState, useEffect, useCallback } from 'react';
 import type { PlayerHandle } from './YouTubeEmbed';
+import { useI18n } from '../i18n/I18nContext';
 
 export type AudioStatus = 'loading' | 'ready' | 'error';
 
@@ -31,6 +32,7 @@ const fmtTime = (s: number) => {
  */
 const AudioPlayer = forwardRef<PlayerHandle, AudioPlayerProps>(
   ({ src, startTime, playbackRate = 1, onStatusChange }, ref) => {
+    const { t } = useI18n();
     const audioRef = useRef<HTMLAudioElement>(null);
     const [currentTime, setCurrentTime] = useState(startTime || 0);
     const [duration, setDuration] = useState(0);
@@ -45,13 +47,24 @@ const AudioPlayer = forwardRef<PlayerHandle, AudioPlayerProps>(
       [onStatusChange],
     );
 
+    const [slowLoad, setSlowLoad] = useState(false);
+
     // Reset state whenever the source changes (e.g. switching videos).
     useEffect(() => {
       setCurrentTime(startTime || 0);
       setDuration(0);
       setPlaying(false);
+      setSlowLoad(false);
       setAudioStatus('loading');
     }, [src, startTime, setAudioStatus]);
+
+    // First-time Bilibili audio extraction can take 30–60s through the proxy.
+    // Let the user know the request is still alive rather than appearing frozen.
+    useEffect(() => {
+      if (status !== 'loading') return;
+      const t = setTimeout(() => setSlowLoad(true), 15000);
+      return () => clearTimeout(t);
+    }, [src, status]);
 
     // Apply playback rate to the live element.
     useEffect(() => {
@@ -129,20 +142,27 @@ const AudioPlayer = forwardRef<PlayerHandle, AudioPlayerProps>(
               <svg className="w-4 h-4 text-indigo-500 shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.8}>
                 <path strokeLinecap="round" strokeLinejoin="round" d="M9 19V6l12-3v13M9 19c0 1.1-1.34 2-3 2s-3-.9-3-2 1.34-2 3-2 3 .9 3 2zm12-3c0 1.1-1.34 2-3 2s-3-.9-3-2 1.34-2 3-2 3 .9 3 2zM9 10l12-3" />
               </svg>
-              Audio mode
+              {t('study.audioMode')}
             </div>
             <p className="text-[11px] text-gray-400 dark:text-gray-500 leading-tight">
-              Listen only — transcript scrolls in sync
+              {t('study.audioModeHint')}
             </p>
           </div>
 
           {status === 'loading' && (
-            <span className="ml-auto flex items-center gap-2 text-[11px] text-indigo-500 dark:text-indigo-300">
-              <svg className="animate-spin h-4 w-4" viewBox="0 0 24 24" fill="none">
-                <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
-                <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z" />
-              </svg>
-              Preparing…
+            <span className="ml-auto flex flex-col items-end gap-0.5">
+              <span className="flex items-center gap-2 text-[11px] text-indigo-500 dark:text-indigo-300">
+                <svg className="animate-spin h-4 w-4" viewBox="0 0 24 24" fill="none">
+                  <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
+                  <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z" />
+                </svg>
+                {t('study.audioLoading')}
+              </span>
+              {slowLoad && (
+                <span className="text-[10px] text-gray-400 dark:text-gray-500 text-right max-w-[140px]">
+                  {t('study.audioSlowLoad')}
+                </span>
+              )}
             </span>
           )}
         </div>
@@ -152,13 +172,13 @@ const AudioPlayer = forwardRef<PlayerHandle, AudioPlayerProps>(
             <svg className="w-4 h-4 shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.8}>
               <path strokeLinecap="round" strokeLinejoin="round" d="M12 9v3.75m9-.75a9 9 0 11-18 0 9 9 0 0118 0zm-9 3.75h.008v.008H12v-.008z" />
             </svg>
-            <span className="flex-1">Audio failed to load.</span>
+            <span className="flex-1">{t('study.audioError')}</span>
             <button
               type="button"
               onClick={handleRetry}
               className="px-2 py-0.5 text-xs rounded bg-red-200 dark:bg-red-800/50 text-red-800 dark:text-red-200 hover:bg-red-300 dark:hover:bg-red-700/60 transition-colors cursor-pointer"
             >
-              Retry
+              {t('study.audioRetry')}
             </button>
           </div>
         ) : (

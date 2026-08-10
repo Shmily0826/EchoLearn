@@ -356,13 +356,39 @@ def _read_subtitle_file(td: str):
 
 # ── yt-dlp invocation ────────────────────────────────────────────
 
+# Bilibili tracking/query params that should not affect cache keys or yt-dlp extraction.
+_BILI_NOISE_PARAMS = {
+    "spm_id_from",
+    "from_source",
+    "from_spmid",
+    "vd_source",
+    "seid",
+    "bvid",  # already in path; harmless but keeps URL tidy
+}
+
+
+def _normalize_bilibili_url(raw_url: str) -> str:
+    """Strip Bilibili share/tracking params so the same video shares a cache key."""
+    parsed = urllib.parse.urlparse(raw_url)
+    if parsed.netloc and "bilibili" not in parsed.netloc.lower():
+        return raw_url
+    qs = urllib.parse.parse_qs(parsed.query)
+    kept = {k: v for k, v in qs.items() if k not in _BILI_NOISE_PARAMS}
+    new_qs = urllib.parse.urlencode(kept, doseq=True)
+    parsed = parsed._replace(query=new_qs)
+    return urllib.parse.urlunparse(parsed)
+
+
 def _extract_part(raw_url: str):
     """Pull a Bilibili `?p=N` part selector out of a URL.
 
     Returns (clean_url, part) where clean_url has the selector stripped and
     part is an int (>1) or None. yt-dlp then selects the part via
     --playlist-items rather than the URL param, which is unambiguous.
+    Tracking params are also stripped so share URLs with different UTM-like
+    parameters hit the same cache entry.
     """
+    raw_url = _normalize_bilibili_url(raw_url)
     parsed = urllib.parse.urlparse(raw_url)
     qs = urllib.parse.parse_qs(parsed.query)
     part = None
@@ -559,8 +585,13 @@ def _download_audio(target_url: str, td: str, part: Optional[int] = None) -> Opt
 
 
 def _audio_cache_path(target_url: str, part: Optional[int]) -> str:
-    """Stable cache filename for a (url, part) pair."""
-    key = f"{target_url}|p={part}"
+    """Stable cache filename for a (url, part) pair.
+
+    Bilibili share URLs often carry tracking params (spm_id_from, vd_source,
+    etc.) that would otherwise fragment the cache. Normalize before hashing.
+    """
+    normalized = _normalize_bilibili_url(target_url)
+    key = f"{normalized}|p={part}"
     digest = hashlib.md5(key.encode("utf-8")).hexdigest()
     return os.path.join(AUDIO_CACHE_DIR, f"{digest}.mp3")
 

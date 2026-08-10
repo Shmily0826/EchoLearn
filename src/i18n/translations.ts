@@ -220,6 +220,7 @@ const translations: Record<string, Record<Lang, string>> = {
   'study.audioModeOn':   { en: 'On — listen without video', zh: '已开启 — 只听音频' },
   'study.audioModeHint': { en: 'Play only the audio; transcript still scrolls in sync', zh: '只播放音频，字幕依旧同步滚动' },
   'study.audioLoading':  { en: 'Preparing audio…', zh: '音频准备中…' },
+  'study.audioSlowLoad': { en: 'First Bilibili load may take 30–60s', zh: 'B站首次加载可能需要 30–60 秒' },
   'study.audioError':    { en: 'Audio failed to load', zh: '音频加载失败' },
   'study.audioRetry':    { en: 'Retry', zh: '重试' },
 
