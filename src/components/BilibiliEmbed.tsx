@@ -37,8 +37,6 @@ const fmtTime = (s: number) => {
 const BilibiliEmbed = forwardRef<PlayerHandle, BilibiliEmbedProps>(
   ({ bvid, page, startTime, duration = 0, playbackRate = 1 }, ref) => {
     const iframeRef = useRef<HTMLIFrameElement>(null);
-    const [currentTime, setCurrentTime] = useState(startTime || 0);
-    const [embedUrl, setEmbedUrl] = useState(() => buildEmbedUrl(startTime));
 
     const buildEmbedUrl = useCallback((seekTo?: number) => {
       const params = new URLSearchParams({
@@ -51,6 +49,9 @@ const BilibiliEmbed = forwardRef<PlayerHandle, BilibiliEmbedProps>(
       if (seekTo && seekTo > 0) params.set('t', String(Math.floor(seekTo)));
       return `https://player.bilibili.com/player.html?${params.toString()}`;
     }, [bvid, page]);
+
+    const [currentTime, setCurrentTime] = useState(startTime || 0);
+    const [embedUrl, setEmbedUrl] = useState(() => buildEmbedUrl(startTime));
 
     // Reload the iframe when the video itself changes.
     useEffect(() => {
