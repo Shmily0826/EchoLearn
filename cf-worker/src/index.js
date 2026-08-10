@@ -1622,7 +1622,9 @@ async function fetchViaYtDlp(videoId, lang, env, log, targetUrl = null) {
   if (env.YTDLP_API_KEY) headers['X-Api-Key'] = env.YTDLP_API_KEY;
 
   try {
-    const resp = await fetchWithTimeout(url, { headers }, 60000, env, log);
+    // Bilibili extraction must route through the flaky residential proxy and can
+    // run ~60s; give it headroom so a slow-but-valid fetch isn't cut at the edge.
+    const resp = await fetchWithTimeout(url, { headers }, 90000, env, log);
     if (resp.status === 404) {
       log('yt-dlp: 404 No transcript available');
       return null;

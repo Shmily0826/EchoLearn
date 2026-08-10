@@ -188,6 +188,8 @@ const translations: Record<string, Record<Lang, string>> = {
   'study.fetchingFull':  { en: 'Fetching captions from YouTube...', zh: '正在从 YouTube 获取字幕...' },
   'study.fetchingFullBili': { en: 'Fetching captions from Bilibili...', zh: '正在从 B 站获取字幕...' },
   'study.mayTake':       { en: 'This may take a few seconds', zh: '可能需要几秒钟' },
+  'study.mayTakeBili':   { en: 'Bilibili routes via a proxy — up to ~1 min', zh: 'B 站需经代理获取，可能最多约 1 分钟' },
+  'study.fetchingShortBili': { en: 'Fetching Bilibili…', zh: '正在获取 B 站字幕…' },
   'study.fetchFailed':   { en: 'Caption auto-fetch failed', zh: '字幕自动获取失败' },
   'study.pasteManual':   { en: 'You can paste or upload the transcript manually below.', zh: '您可以在下方手动粘贴或上传字幕。' },
   'study.retry':         { en: 'Retry', zh: '重试' },

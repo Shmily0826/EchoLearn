@@ -1405,7 +1405,7 @@ const StudyPage: React.FC = () => {
                           <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
                           <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z" />
                         </svg>
-                        {t('study.fetchingShort')}
+                        {t(platform === 'bilibili' ? 'study.fetchingShortBili' : 'study.fetchingShort')}
                       </span>
                     )}
                     {displayLines.length > 0 && (
@@ -1520,8 +1520,8 @@ const StudyPage: React.FC = () => {
                   <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
                   <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z" />
                 </svg>
-                <p className="text-sm">{t('study.fetchingFull')}</p>
-                <p className="text-xs mt-1 text-gray-300 dark:text-gray-500">{t('study.mayTake')}</p>
+                <p className="text-sm">{platform === 'bilibili' ? t('study.fetchingFullBili') : t('study.fetchingFull')}</p>
+                <p className="text-xs mt-1 text-gray-300 dark:text-gray-500">{platform === 'bilibili' ? t('study.mayTakeBili') : t('study.mayTake')}</p>
               </div>
             )}
 
@@ -1716,8 +1716,8 @@ const StudyPage: React.FC = () => {
                   <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
                   <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z" />
                 </svg>
-                <p className="text-sm">{t('study.fetchingFull')}</p>
-                <p className="text-xs mt-1 text-gray-300 dark:text-gray-500">{t('study.mayTake')}</p>
+                <p className="text-sm">{platform === 'bilibili' ? t('study.fetchingFullBili') : t('study.fetchingFull')}</p>
+                <p className="text-xs mt-1 text-gray-300 dark:text-gray-500">{platform === 'bilibili' ? t('study.mayTakeBili') : t('study.mayTake')}</p>
               </div>
             ) : captionError ? (
               <div className="flex flex-col items-center justify-center py-12">
