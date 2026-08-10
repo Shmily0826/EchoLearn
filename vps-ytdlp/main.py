@@ -372,11 +372,13 @@ def _normalize_bilibili_url(raw_url: str) -> str:
     parsed = urllib.parse.urlparse(raw_url)
     if parsed.netloc and "bilibili" not in parsed.netloc.lower():
         return raw_url
-    # Force canonical scheme/host and remove a trailing slash from the path
-    # (e.g. /video/BVxx/ vs /video/BVxx normalize to the same key).
+    # Force canonical scheme/host, keep www. for consistency with URLs the app
+    # reconstructs, and remove a trailing slash from the path (e.g. /video/BVxx/
+    # vs /video/BVxx normalize to the same key).
     netloc = parsed.netloc.lower()
-    if netloc.startswith("www."):
-        netloc = netloc[4:]
+    # Canonicalize any bilibili.com subdomain (m.bilibili.com, etc.) to www.
+    if netloc.endswith(".bilibili.com") or netloc == "bilibili.com":
+        netloc = "www.bilibili.com"
     path = parsed.path
     if path.endswith("/") and len(path) > 1:
         path = path[:-1]
