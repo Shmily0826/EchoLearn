@@ -216,6 +216,12 @@ const translations: Record<string, Record<Lang, string>> = {
   'study.markComplete':  { en: 'Mark Complete', zh: '标记完成' },
   'study.completed':     { en: 'Completed', zh: '已完成' },
   'study.resumeStudying':{ en: 'Resume', zh: '继续学习' },
+  'study.audioMode':     { en: 'Audio mode', zh: '音频模式' },
+  'study.audioModeOn':   { en: 'On — listen without video', zh: '已开启 — 只听音频' },
+  'study.audioModeHint': { en: 'Play only the audio; transcript still scrolls in sync', zh: '只播放音频，字幕依旧同步滚动' },
+  'study.audioLoading':  { en: 'Preparing audio…', zh: '音频准备中…' },
+  'study.audioError':    { en: 'Audio failed to load', zh: '音频加载失败' },
+  'study.audioRetry':    { en: 'Retry', zh: '重试' },
 
   // ── Vocabulary ───────────────────────────────────────────
   'vocab.title':         { en: 'Vocabulary', zh: '词汇' },

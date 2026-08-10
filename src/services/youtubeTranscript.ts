@@ -667,7 +667,7 @@ async function fetchViaLocalProxy(
  * Cloudflare Worker URL for server-side transcript fetching.
  * CF IPs generally have better reputation with YouTube than Vercel/datacenter IPs.
  */
-const CF_WORKER_URL = 'https://yt-transcript-proxy.rng2018520.workers.dev';
+export const CF_WORKER_URL = 'https://yt-transcript-proxy.rng2018520.workers.dev';
 
 /**
  * Cache local proxy failure so we skip it for 5 minutes after a failure.

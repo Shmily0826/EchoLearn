@@ -8,6 +8,7 @@
  *   GET /api/transcript?videoId=<id>&lang=<en>
  *   GET /api/transcript?url=<encoded-url>&lang=<en>  (generic yt-dlp URL)
  *   GET /api/bilibili?bvid=<id>&lang=<zh-CN>&info=1  (Bilibili transcript / metadata)
+ *   GET /api/audio?url=<encoded-url>  (extracted playback audio, no video — "audio mode")
  *   POST /api/yt?url=<encoded-url>  (CORS proxy for YouTube requests)
  */
 
@@ -181,6 +182,8 @@ export default {
         response = await handleTranscript(url, env);
       } else if (url.pathname === '/api/bilibili') {
         response = await handleBilibili(url, env);
+      } else if (url.pathname === '/api/audio') {
+        response = await handleAudio(url, env);
       } else if (url.pathname === '/api/yt') {
         response = await handleProxy(request, url);
       } else if (url.pathname === '/api/health') {
@@ -398,6 +401,54 @@ async function fetchViaVpsAsr(targetUrl, env, log = console.log) {
   } catch (err) {
     log(`VPS ASR: request failed: ${err.message}`);
     return null;
+  }
+}
+
+// ── /api/audio — Serve playback audio (video dropped) ──────────
+//
+// Powers the app's "audio mode" toggle. The browser plays the extracted
+// audio through a native <audio> element — real currentTime, no iframe, no
+// black-screen on control, no dead buttons — while the transcript scrolls in
+// sync exactly like the YouTube player. The VPS downloads + transcodes the
+// audio to a listenable 128 kbps stereo mp3 on first request and caches it,
+// so repeats are instant.
+async function handleAudio(url, env) {
+  if (!env.YTDLP_API_URL) {
+    return jsonResponse({ error: 'Audio service not configured' }, 503);
+  }
+  const target = url.searchParams.get('url');
+  if (!target) {
+    return jsonResponse({ error: 'Missing url parameter' }, 400);
+  }
+
+  const base = env.YTDLP_API_URL.replace(/\/+$/, '');
+  const vpsUrl = `${base}/api/audio?url=${encodeURIComponent(target)}`;
+  const headers = {};
+  if (env.YTDLP_API_KEY) headers['X-Api-Key'] = env.YTDLP_API_KEY;
+
+  try {
+    // First request triggers a download + transcode on the VPS (10–30s for a
+    // long video); afterwards it's served from cache. Use a generous timeout.
+    const resp = await fetchWithTimeout(vpsUrl, { headers }, 180000);
+    if (!resp.ok) {
+      const detail = await resp.text().catch(() => '');
+      return jsonResponse(
+        {
+          error: `Audio extraction failed (VPS ${resp.status})`,
+          detail: detail.slice(0, 300),
+        },
+        resp.status === 404 ? 404 : 502,
+      );
+    }
+    // Stream the audio straight through, preserving the VPS Content-Type
+    // (audio/mpeg) and range support. CORS is applied at the single exit point.
+    return new Response(resp.body, {
+      status: resp.status,
+      statusText: resp.statusText,
+      headers: resp.headers,
+    });
+  } catch (err) {
+    return jsonResponse({ error: `Audio request failed: ${err.message}` }, 502);
   }
 }
 

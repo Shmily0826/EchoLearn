@@ -2,6 +2,7 @@ import React, { useState, useEffect, useCallback, useMemo, useRef } from 'react'
 import { useLocation } from 'react-router-dom';
 import YouTubeEmbed, { type PlayerHandle } from '../components/YouTubeEmbed';
 import BilibiliEmbed from '../components/BilibiliEmbed';
+import AudioPlayer from '../components/AudioPlayer';
 import TranscriptViewer from '../components/TranscriptViewer';
 import TranscriptImporter from '../components/TranscriptImporter';
 import AIAnalysisPanel from '../components/AIAnalysisPanel';
@@ -13,7 +14,7 @@ import { lemmatize } from '../utils/lemmatizer';
 import { SEEK_REQUEST_EVENT, type SeekRequestDetail } from '../utils/jumpToSource';
 import { analyzeTranscript } from '../services/aiAnalysis';
 import { trackEvent } from '../services/analytics';
-import { fetchYouTubeTranscript } from '../services/youtubeTranscript';
+import { fetchYouTubeTranscript, CF_WORKER_URL } from '../services/youtubeTranscript';
 import { fetchBilibiliTranscript, getBilibiliVideoTitle } from '../services/bilibiliTranscript';
 import { translateWord } from '../services/translationService';
 import { lookupWord } from '../services/dictionaryService';
@@ -119,6 +120,15 @@ const StudyPage: React.FC = () => {
   const [platform, setPlatform] = useState<VideoPlatform>('youtube');
   const [biliPage, setBiliPage] = useState<number | undefined>(undefined);
   const [biliParts, setBiliParts] = useState<BiliPart[] | undefined>(undefined);
+
+  // Audio mode — global preference: play only the extracted audio (no video),
+  // transcript still scrolls in sync via the same PlayerHandle contract.
+  const [audioMode, setAudioMode] = useState<boolean>(
+    () => localStorage.getItem('echolearn_audio_mode') === '1',
+  );
+  useEffect(() => {
+    localStorage.setItem('echolearn_audio_mode', audioMode ? '1' : '0');
+  }, [audioMode]);
 
   // Transcript state — raw caption blocks + sentence-level lines
   const [rawBlocks, setRawBlocks] = useState<TranscriptLine[]>([]);
@@ -252,6 +262,26 @@ const StudyPage: React.FC = () => {
   const transcriptDuration = displayLines.length
     ? displayLines[displayLines.length - 1].end
     : 0;
+
+  // ── Audio mode: derived source URL ─────────────────────────
+  // Build the original watch URL (yt-dlp can consume it directly). Prefer the
+  // session's pasted URL; otherwise reconstruct from platform + id.
+  const videoUrl = useMemo(() => {
+    if (session?.youtubeUrl) return session.youtubeUrl;
+    if (platform === 'bilibili') {
+      let u = `https://www.bilibili.com/video/${videoId}`;
+      if (biliPage && biliPage > 1) u += `?p=${biliPage}`;
+      return u;
+    }
+    return `https://www.youtube.com/watch?v=${videoId}`;
+  }, [session, platform, videoId, biliPage]);
+
+  // Audio stream URL (CF Worker → VPS yt-dlp /api/audio). Only meaningful in
+  // audio mode, but cheap to compute whenever a video is loaded.
+  const audioSrc = useMemo(() => {
+    if (!audioMode || !videoId) return null;
+    return `${CF_WORKER_URL}/api/audio?url=${encodeURIComponent(videoUrl)}`;
+  }, [audioMode, videoId, videoUrl]);
 
   // ── Restore last session on mount ──────────────────────────
   useEffect(() => {
@@ -1101,37 +1131,63 @@ const StudyPage: React.FC = () => {
           {/* Left: video — always visible (mobile: above transcript, desktop: left column) */}
           <div className="w-full lg:w-[55%] flex-shrink-0">
             {videoId ? (
-              platform === 'bilibili' ? (
-                <>
-                  {biliParts && biliParts.length > 1 && (
-                    <div className="mb-2 flex items-center gap-2">
-                      <label
-                        htmlFor="bili-part-select"
-                        className="text-xs sm:text-sm text-gray-500 dark:text-gray-400 flex-shrink-0"
-                      >
-                        {t('study.selectPart')}
-                      </label>
-                      <select
-                        id="bili-part-select"
-                        value={biliPage ?? 1}
-                        onChange={handleBiliPartChange}
-                        disabled={fetchingCaption}
-                        className="flex-1 min-w-0 px-2 py-1.5 text-xs sm:text-sm bg-white dark:bg-slate-800 border border-gray-200 dark:border-slate-700 rounded-lg text-gray-700 dark:text-gray-200 focus:outline-none focus:ring-2 focus:ring-indigo-400 disabled:opacity-60 cursor-pointer truncate"
-                      >
-                        {biliParts.map((p) => (
-                          <option key={p.index} value={p.index}>
-                            P{p.index}
-                            {p.title ? ` · ${p.title}` : ''}
-                          </option>
-                        ))}
-                      </select>
-                    </div>
+              <>
+                {/* Audio mode toggle */}
+                <div className="mb-2 flex items-center gap-2">
+                  <button
+                    type="button"
+                    onClick={() => setAudioMode((v) => !v)}
+                    className={`flex items-center gap-1.5 px-3 py-1.5 text-xs sm:text-sm rounded-lg font-medium border transition-colors cursor-pointer ${
+                      audioMode
+                        ? 'bg-indigo-600 text-white border-indigo-600'
+                        : 'bg-white dark:bg-slate-800 border border-gray-200 dark:border-slate-700 text-gray-600 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-slate-700'
+                    }`}
+                    title={t('study.audioModeHint')}
+                  >
+                    <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.8}>
+                      <path strokeLinecap="round" strokeLinejoin="round" d="M9 19V6l12-3v13M9 19c0 1.1-1.34 2-3 2s-3-.9-3-2 1.34-2 3-2 3 .9 3 2zm12-3c0 1.1-1.34 2-3 2s-3-.9-3-2 1.34-2 3-2 3 .9 3 2zM9 10l12-3" />
+                    </svg>
+                    {t('study.audioMode')}
+                  </button>
+                  {audioMode && (
+                    <span className="text-[11px] text-gray-400 dark:text-gray-500">{t('study.audioModeOn')}</span>
                   )}
-                  <BilibiliEmbed ref={playerRef} bvid={videoId} page={biliPage} startTime={startTime} duration={transcriptDuration} playbackRate={playbackRate} />
-                </>
-              ) : (
-                <YouTubeEmbed ref={playerRef} youtubeId={videoId} startTime={startTime} playbackRate={playbackRate} />
-              )
+                </div>
+
+                {audioMode ? (
+                  <AudioPlayer ref={playerRef} src={audioSrc ?? ''} startTime={startTime} playbackRate={playbackRate} />
+                ) : platform === 'bilibili' ? (
+                  <>
+                    {biliParts && biliParts.length > 1 && (
+                      <div className="mb-2 flex items-center gap-2">
+                        <label
+                          htmlFor="bili-part-select"
+                          className="text-xs sm:text-sm text-gray-500 dark:text-gray-400 flex-shrink-0"
+                        >
+                          {t('study.selectPart')}
+                        </label>
+                        <select
+                          id="bili-part-select"
+                          value={biliPage ?? 1}
+                          onChange={handleBiliPartChange}
+                          disabled={fetchingCaption}
+                          className="flex-1 min-w-0 px-2 py-1.5 text-xs sm:text-sm bg-white dark:bg-slate-800 border border-gray-200 dark:border-slate-700 rounded-lg text-gray-700 dark:text-gray-200 focus:outline-none focus:ring-2 focus:ring-indigo-400 disabled:opacity-60 cursor-pointer truncate"
+                        >
+                          {biliParts.map((p) => (
+                            <option key={p.index} value={p.index}>
+                              P{p.index}
+                              {p.title ? ` · ${p.title}` : ''}
+                            </option>
+                          ))}
+                        </select>
+                      </div>
+                    )}
+                    <BilibiliEmbed ref={playerRef} bvid={videoId} page={biliPage} startTime={startTime} duration={transcriptDuration} playbackRate={playbackRate} />
+                  </>
+                ) : (
+                  <YouTubeEmbed ref={playerRef} youtubeId={videoId} startTime={startTime} playbackRate={playbackRate} />
+                )}
+              </>
             ) : (
               <div className="w-full aspect-video rounded-xl bg-gray-100 dark:bg-slate-800 border-2 border-dashed border-gray-300 dark:border-slate-600 flex items-center justify-center">
                 <div className="text-center">
