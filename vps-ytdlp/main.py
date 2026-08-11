@@ -98,8 +98,13 @@ YTDLP_RETRIES = int(os.environ.get("YTDLP_RETRIES", "5"))  # yt-dlp subprocess a
 # per-attempt subprocess timeout tightly and allow only a couple of attempts
 # with exponential backoff. A rotating residential proxy hands each attempt a
 # fresh egress IP, so a retry often completes where the previous dropped.
-AUDIO_DL_TIMEOUT = int(os.environ.get("YTDLP_AUDIO_TIMEOUT", "80"))   # hard cap per yt-dlp call
+AUDIO_DL_TIMEOUT = int(os.environ.get("YTDLP_AUDIO_TIMEOUT", "70"))   # hard cap per yt-dlp call
 AUDIO_MAX_ATTEMPTS = int(os.environ.get("YTDLP_AUDIO_RETRIES", "2"))  # attempts (+ backoff)
+# Hard wall-clock ceiling for the whole extraction (metadata + download loop).
+# Kept comfortably under the Worker's 180s so the request never 502s purely
+# because the VPS was still working — if we can't finish in time we return
+# immediately and let the frontend auto-retry with a fresh proxy IP.
+AUDIO_OVERALL_TIMEOUT = int(os.environ.get("YTDLP_AUDIO_OVERALL_TIMEOUT", "165"))
 
 GROQ_API_KEY = os.environ.get("GROQ_API_KEY") or ""
 GROQ_MODEL = os.environ.get("GROQ_MODEL", "whisper-large-v3-turbo")
@@ -477,11 +482,20 @@ def _run_ytdlp(video_id_or_url: str, lang: str, *, is_url: bool = False, part: O
     return None
 
 
-def _fetch_meta(target_url: str, part: Optional[int] = None) -> dict:
-    """Title / uploader / duration / thumbnail via `yt-dlp -J`, memoised."""
+def _fetch_meta(target_url: str, part: Optional[int] = None, *, attempts: int = None, timeout: int = None) -> dict:
+    """Title / uploader / duration / thumbnail via `yt-dlp -J`, memoised.
+
+    `attempts` / `timeout` override the global YTDLP_RETRIES / YTDLP_TIMEOUT so
+    callers with a tight deadline (e.g. the audio player, which must beat the
+    Worker's 180s window) can fail the metadata lookup faster instead of
+    burning the whole budget on a flaky proxy.
+    """
     cached = _cache_get(target_url, "__info__")
     if cached is not None:
         return cached
+
+    attempts = attempts or YTDLP_RETRIES
+    timeout = timeout or YTDLP_TIMEOUT
 
     cmd = [
         sys.executable,
@@ -500,17 +514,17 @@ def _fetch_meta(target_url: str, part: Optional[int] = None) -> dict:
     # drops with IncompleteRead). A fresh process often lands on a stable IP.
     proc = None
     last_err = ""
-    for attempt in range(1, YTDLP_RETRIES + 1):
+    for attempt in range(1, attempts + 1):
         try:
             proc = subprocess.run(
-                cmd, capture_output=True, text=True, timeout=YTDLP_TIMEOUT
+                cmd, capture_output=True, text=True, timeout=timeout
             )
         except subprocess.TimeoutExpired:
             raise HTTPException(status_code=504, detail="Metadata lookup timed out")
         if proc.returncode == 0 and proc.stdout.strip():
             break
         last_err = proc.stderr.strip().splitlines()[-1] if proc.stderr else ""
-        if attempt == YTDLP_RETRIES:
+        if attempt == attempts:
             detail = "Could not fetch video info"
             if last_err:
                 detail += f" ({last_err})"
@@ -688,8 +702,11 @@ def _extract_playback_audio(target_url: str, part: Optional[int] = None) -> Opti
     out_path = _audio_cache_path(target_url, part)
 
     def _expected_duration() -> int:
+        # Tight metadata budget: fail fast rather than burning the whole
+        # extraction window on a flaky proxy watch-page fetch. A miss just
+        # disables the truncation check below (still returns the file).
         try:
-            return int(_fetch_meta(target_url, part).get("duration") or 0)
+            return int(_fetch_meta(target_url, part, attempts=2, timeout=45).get("duration") or 0)
         except Exception:
             return 0
 
@@ -697,6 +714,11 @@ def _extract_playback_audio(target_url: str, part: Optional[int] = None) -> Opti
         return out_path
 
     expected = _expected_duration()
+
+    # Hard wall-clock ceiling so we never exceed the Worker's 180s and 502
+    # purely because the VPS was still working. Leave a margin for the Worker
+    # to stream the result back.
+    deadline = time.time() + AUDIO_OVERALL_TIMEOUT
 
     cmd = [
         sys.executable,
@@ -722,8 +744,12 @@ def _extract_playback_audio(target_url: str, part: Optional[int] = None) -> Opti
     ]
     cmd += _site_args(target_url)
 
-    backoff = 8  # seconds before the 2nd attempt; grows if more attempts allowed
+    backoff = 5  # seconds before the 2nd attempt; grows if more attempts allowed
     for attempt in range(1, AUDIO_MAX_ATTEMPTS + 1):
+        # Don't start an attempt we can't finish before the deadline — bail so
+        # the frontend can auto-retry instead of us overrunning the Worker window.
+        if time.time() + AUDIO_DL_TIMEOUT > deadline:
+            break
         # Clear any partial file so a fresh attempt isn't skipped.
         try:
             if os.path.exists(out_path):
@@ -742,7 +768,7 @@ def _extract_playback_audio(target_url: str, part: Optional[int] = None) -> Opti
         if not (os.path.exists(out_path) and os.path.getsize(out_path) > 0):
             if attempt < AUDIO_MAX_ATTEMPTS:
                 time.sleep(backoff)
-                backoff = min(backoff * 2, 30)
+                backoff = min(backoff * 2, 20)
             continue
         # Reject clearly truncated downloads (proxy dropped mid-stream).
         if expected:
@@ -754,7 +780,7 @@ def _extract_playback_audio(target_url: str, part: Optional[int] = None) -> Opti
                     pass
                 if attempt < AUDIO_MAX_ATTEMPTS:
                     time.sleep(backoff)
-                    backoff = min(backoff * 2, 30)
+                    backoff = min(backoff * 2, 20)
                 continue
         _write_audio_meta(out_path, expected)
         return out_path
@@ -780,7 +806,7 @@ def _extract_playback_audio_dedup(target_url: str, part: Optional[int]) -> Optio
         ev = _audio_inflight.get(key)
         if ev is not None:
             # Another request is extracting this exact url+part; wait for it.
-            ev.wait(timeout=AUDIO_DL_TIMEOUT * AUDIO_MAX_ATTEMPTS + 60)
+            ev.wait(timeout=AUDIO_OVERALL_TIMEOUT + 60)
             if _cache_valid(key):
                 return key
             # The other attempt failed; fall through and try ourselves.
