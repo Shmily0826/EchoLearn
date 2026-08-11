@@ -287,8 +287,11 @@ const StudyPage: React.FC = () => {
   // Bilibili audio extraction is slow on first request (proxy + download).
   // Start it in the background as soon as a video is loaded so that toggling
   // audio mode later is instant. Abort if the video changes.
+  // When audio mode is already ON at mount, the AudioPlayer itself drives the
+  // single extraction — skip the pre-warm here so we don't spawn a second
+  // concurrent yt-dlp process that fights the flaky proxy.
   useEffect(() => {
-    if (!videoId || !videoUrl) return;
+    if (!videoId || !videoUrl || audioMode) return;
     const controller = new AbortController();
     fetch(`${CF_WORKER_URL}/api/audio?url=${encodeURIComponent(videoUrl)}`, {
       method: 'GET',
@@ -1174,7 +1177,7 @@ const StudyPage: React.FC = () => {
                 </div>
 
                 {audioMode ? (
-                  <AudioPlayer key={audioSrc ?? 'audio'} ref={playerRef} src={audioSrc ?? ''} startTime={startTime} playbackRate={playbackRate} />
+                  <AudioPlayer key={audioSrc ?? 'audio'} ref={playerRef} src={audioSrc ?? ''} bilibili={platform === 'bilibili'} startTime={startTime} playbackRate={playbackRate} />
                 ) : platform === 'bilibili' ? (
                   <>
                     {biliParts && biliParts.length > 1 && (

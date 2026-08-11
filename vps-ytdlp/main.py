@@ -61,6 +61,7 @@ import re
 import subprocess
 import sys
 import tempfile
+import threading
 import time
 import urllib.error
 import urllib.parse
@@ -91,6 +92,14 @@ YTDLP_API_KEY = os.environ.get("YTDLP_API_KEY") or ""
 YTDLP_CACHE_TTL = int(os.environ.get("YTDLP_CACHE_TTL", "3600"))  # seconds
 YTDLP_COOKIES = os.environ.get("YTDLP_COOKIES") or ""
 YTDLP_RETRIES = int(os.environ.get("YTDLP_RETRIES", "5"))  # yt-dlp subprocess attempts
+
+# Audio-only extraction budgets. A single yt-dlp call can blow the Cloudflare
+# Worker's ~180s window if the residential proxy is slow, so we cap the
+# per-attempt subprocess timeout tightly and allow only a couple of attempts
+# with exponential backoff. A rotating residential proxy hands each attempt a
+# fresh egress IP, so a retry often completes where the previous dropped.
+AUDIO_DL_TIMEOUT = int(os.environ.get("YTDLP_AUDIO_TIMEOUT", "80"))   # hard cap per yt-dlp call
+AUDIO_MAX_ATTEMPTS = int(os.environ.get("YTDLP_AUDIO_RETRIES", "2"))  # attempts (+ backoff)
 
 GROQ_API_KEY = os.environ.get("GROQ_API_KEY") or ""
 GROQ_MODEL = os.environ.get("GROQ_MODEL", "whisper-large-v3-turbo")
@@ -669,10 +678,12 @@ def _extract_playback_audio(target_url: str, part: Optional[int] = None) -> Opti
     Returns the cached .mp3 path, or None on failure.
 
     The residential proxy is flaky and can drop mid-download, leaving a truncated
-    mp3 that still "exists" on disk. We guard against that two ways: (a) tell
-    yt-dlp to retry internally via --retries/--fragment-retries, and (b) verify
-    the extracted duration against the real video duration, re-extracting any
-    file that is clearly truncated (less than half the expected length).
+    mp3 that still "exists" on disk. We guard against that with a duration check
+    (re-extract any file clearly shorter than the real video) and by retrying the
+    whole download with exponential backoff — a fresh proxy IP (rotating
+    residential) often completes what the previous attempt dropped. The per-attempt
+    subprocess timeout is kept well under the Cloudflare Worker's 180s budget so a
+    failed attempt fails fast instead of burning the whole window.
     """
     out_path = _audio_cache_path(target_url, part)
 
@@ -711,7 +722,8 @@ def _extract_playback_audio(target_url: str, part: Optional[int] = None) -> Opti
     ]
     cmd += _site_args(target_url)
 
-    for attempt in range(1, YTDLP_RETRIES + 1):
+    backoff = 8  # seconds before the 2nd attempt; grows if more attempts allowed
+    for attempt in range(1, AUDIO_MAX_ATTEMPTS + 1):
         # Clear any partial file so a fresh attempt isn't skipped.
         try:
             if os.path.exists(out_path):
@@ -720,11 +732,17 @@ def _extract_playback_audio(target_url: str, part: Optional[int] = None) -> Opti
             pass
         try:
             subprocess.run(
-                cmd, cwd=AUDIO_CACHE_DIR, capture_output=True, text=True, timeout=YTDLP_TIMEOUT
+                cmd, cwd=AUDIO_CACHE_DIR, capture_output=True, text=True,
+                timeout=AUDIO_DL_TIMEOUT,
             )
         except subprocess.TimeoutExpired:
-            return None
+            # Don't burn the whole Worker budget on one hung attempt; let the
+            # backoff + next attempt (fresh proxy IP) take a shot.
+            pass
         if not (os.path.exists(out_path) and os.path.getsize(out_path) > 0):
+            if attempt < AUDIO_MAX_ATTEMPTS:
+                time.sleep(backoff)
+                backoff = min(backoff * 2, 30)
             continue
         # Reject clearly truncated downloads (proxy dropped mid-stream).
         if expected:
@@ -734,10 +752,46 @@ def _extract_playback_audio(target_url: str, part: Optional[int] = None) -> Opti
                     os.remove(out_path)
                 except OSError:
                     pass
+                if attempt < AUDIO_MAX_ATTEMPTS:
+                    time.sleep(backoff)
+                    backoff = min(backoff * 2, 30)
                 continue
         _write_audio_meta(out_path, expected)
         return out_path
     return None
+
+
+# Serialize concurrent extractions of the same audio so two requests (e.g. the
+# background pre-warm fetch and the audio player's own fetch) don't spawn two
+# yt-dlp processes that fight the flaky proxy — the second waits for the first.
+_audio_inflight_lock = threading.Lock()
+_audio_inflight: "dict[str, threading.Event]" = {}
+
+
+def _extract_playback_audio_dedup(target_url: str, part: Optional[int]) -> Optional[str]:
+    """Like _extract_playback_audio, but concurrent calls for the same url+part
+    share a single extraction. The first caller does the work; later callers wait
+    on an event and then read the resulting cache file."""
+    key = _audio_cache_path(target_url, part)
+    # Fast path: already cached (possibly by another in-flight request).
+    if _cache_valid(key):
+        return key
+    with _audio_inflight_lock:
+        ev = _audio_inflight.get(key)
+        if ev is not None:
+            # Another request is extracting this exact url+part; wait for it.
+            ev.wait(timeout=AUDIO_DL_TIMEOUT * AUDIO_MAX_ATTEMPTS + 60)
+            if _cache_valid(key):
+                return key
+            # The other attempt failed; fall through and try ourselves.
+        ev = threading.Event()
+        _audio_inflight[key] = ev
+    try:
+        return _extract_playback_audio(target_url, part)
+    finally:
+        with _audio_inflight_lock:
+            _audio_inflight.pop(key, None)
+            ev.set()
 
 
 def _groq_transcribe(path: str) -> dict:
@@ -997,7 +1051,7 @@ def audio(
 
     path = _audio_cache_path(clean_url, part)
     if not (os.path.exists(path) and os.path.getsize(path) > 0):
-        path = _extract_playback_audio(clean_url, part)
+        path = _extract_playback_audio_dedup(clean_url, part)
     if not path:
         raise HTTPException(status_code=502, detail="Could not extract audio")
 

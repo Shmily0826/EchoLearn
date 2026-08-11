@@ -427,9 +427,11 @@ async function handleAudio(url, env) {
   if (env.YTDLP_API_KEY) headers['X-Api-Key'] = env.YTDLP_API_KEY;
 
   try {
-    // First request triggers a download + transcode on the VPS (10–30s for a
-    // long video); afterwards it's served from cache. Use a generous timeout.
-    const resp = await fetchWithTimeout(vpsUrl, { headers }, 180000);
+    // First request triggers a download + transcode on the VPS; Bilibili routes
+    // through a flaky proxy and may take up to ~1–2 min. The VPS itself bounds
+    // its work to a couple of attempts + backoff, so give it a generous ceiling
+    // and stream the result straight through once it's ready.
+    const resp = await fetchWithTimeout(vpsUrl, { headers }, 200000);
     if (!resp.ok) {
       const detail = await resp.text().catch(() => '');
       return jsonResponse(

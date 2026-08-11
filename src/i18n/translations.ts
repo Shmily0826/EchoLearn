@@ -222,8 +222,10 @@ const translations: Record<string, Record<Lang, string>> = {
   'study.audioModeOn':   { en: 'On — listen without video', zh: '已开启 — 只听音频' },
   'study.audioModeHint': { en: 'Play only the audio; transcript still scrolls in sync', zh: '只播放音频，字幕依旧同步滚动' },
   'study.audioLoading':  { en: 'Preparing audio…', zh: '音频准备中…' },
-  'study.audioSlowLoad': { en: 'First Bilibili load may take 30–60s', zh: 'B站首次加载可能需要 30–60 秒' },
+  'study.audioSlowLoad': { en: 'First extraction may take up to ~1 min', zh: '首次提取最多约 1 分钟' },
+  'study.audioSlowLoadBili': { en: 'Bilibili audio downloads via a proxy — up to ~1–2 min', zh: 'B 站音频经代理下载，可能最多约 1–2 分钟' },
   'study.audioError':    { en: 'Audio failed to load', zh: '音频加载失败' },
+  'study.audioErrorHint': { en: 'Extraction failed (proxy busy) — retrying shortly…', zh: '提取失败（代理繁忙），稍后将自动重试…' },
   'study.audioRetry':    { en: 'Retry', zh: '重试' },
 
   // ── Vocabulary ───────────────────────────────────────────

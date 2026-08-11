@@ -7,6 +7,8 @@ export type AudioStatus = 'loading' | 'ready' | 'error';
 interface AudioPlayerProps {
   /** Audio stream URL (served by the CF Worker → VPS yt-dlp /api/audio). */
   src: string;
+  /** Whether the source is a Bilibili video (extraction routes via a proxy). */
+  bilibili?: boolean;
   startTime?: number;
   playbackRate?: number;
   /** Reports load state so the parent can show toasts / analytics. */
@@ -31,13 +33,19 @@ const fmtTime = (s: number) => {
  * native <audio> element.
  */
 const AudioPlayer = forwardRef<PlayerHandle, AudioPlayerProps>(
-  ({ src, startTime, playbackRate = 1, onStatusChange }, ref) => {
+  ({ src, bilibili = false, startTime, playbackRate = 1, onStatusChange }, ref) => {
     const { t } = useI18n();
     const audioRef = useRef<HTMLAudioElement>(null);
     const [currentTime, setCurrentTime] = useState(startTime || 0);
     const [duration, setDuration] = useState(0);
     const [playing, setPlaying] = useState(false);
     const [status, setStatus] = useState<AudioStatus>('loading');
+    const [slowLoad, setSlowLoad] = useState(false);
+    // Actual URL handed to the <audio> element. Starts as `src`; on a failed
+    // load we append a cache-buster so the Worker/VPS re-attempts extraction
+    // instead of replaying a cached 502 from the previous attempt.
+    const [effectiveSrc, setEffectiveSrc] = useState(src);
+    const retryCountRef = useRef(0);
 
     const setAudioStatus = useCallback(
       (s: AudioStatus, err?: string) => {
@@ -47,18 +55,18 @@ const AudioPlayer = forwardRef<PlayerHandle, AudioPlayerProps>(
       [onStatusChange],
     );
 
-    const [slowLoad, setSlowLoad] = useState(false);
-
-    // Reset state whenever the source changes (e.g. switching videos).
+    // Reset state whenever the source (video) changes.
     useEffect(() => {
       setCurrentTime(startTime || 0);
       setDuration(0);
       setPlaying(false);
       setSlowLoad(false);
+      retryCountRef.current = 0;
+      setEffectiveSrc(src);
       setAudioStatus('loading');
     }, [src, startTime, setAudioStatus]);
 
-    // First-time Bilibili audio extraction can take 30–60s through the proxy.
+    // First-time Bilibili audio extraction can take 1–2 min through the proxy.
     // Let the user know the request is still alive rather than appearing frozen.
     useEffect(() => {
       if (status !== 'loading') return;
@@ -71,6 +79,27 @@ const AudioPlayer = forwardRef<PlayerHandle, AudioPlayerProps>(
       const el = audioRef.current;
       if (el && playbackRate !== 1) el.playbackRate = playbackRate;
     }, [playbackRate]);
+
+    const triggerRetry = useCallback(
+      () => {
+        retryCountRef.current += 1;
+        const bust = `${src}${src.includes('?') ? '&' : '?'}_cb=${Date.now()}`;
+        setEffectiveSrc(bust);
+        setSlowLoad(false);
+        setAudioStatus('loading');
+        audioRef.current?.load();
+      },
+      [src, setAudioStatus],
+    );
+
+    // Auto-retry a failed extraction a couple of times: the residential proxy is
+    // flaky, and a fresh attempt (new egress IP + cache-bust) often succeeds.
+    useEffect(() => {
+      if (status !== 'error') return;
+      if (retryCountRef.current >= 2) return; // don't loop forever
+      const id = setTimeout(() => triggerRetry(), 5000);
+      return () => clearTimeout(id);
+    }, [status, triggerRetry]);
 
     const togglePlay = useCallback(() => {
       const el = audioRef.current;
@@ -106,13 +135,9 @@ const AudioPlayer = forwardRef<PlayerHandle, AudioPlayerProps>(
       [],
     );
 
-    // Retry: clear the element and force a reload by re-setting the src.
-    const handleRetry = () => {
-      const el = audioRef.current;
-      if (el) {
-        el.load();
-      }
-      setAudioStatus('loading');
+    const handleManualRetry = () => {
+      if (retryCountRef.current >= 4) retryCountRef.current = 2; // allow a couple manual retries too
+      triggerRetry();
     };
 
     return (
@@ -159,8 +184,8 @@ const AudioPlayer = forwardRef<PlayerHandle, AudioPlayerProps>(
                 {t('study.audioLoading')}
               </span>
               {slowLoad && (
-                <span className="text-[10px] text-gray-400 dark:text-gray-500 text-right max-w-[140px]">
-                  {t('study.audioSlowLoad')}
+                <span className="text-[10px] text-gray-400 dark:text-gray-500 text-right max-w-[160px]">
+                  {bilibili ? t('study.audioSlowLoadBili') : t('study.audioSlowLoad')}
                 </span>
               )}
             </span>
@@ -168,18 +193,25 @@ const AudioPlayer = forwardRef<PlayerHandle, AudioPlayerProps>(
         </div>
 
         {status === 'error' ? (
-          <div className="flex items-center gap-2 px-3 py-2 bg-red-50 dark:bg-red-950/40 border border-red-200 dark:border-red-800 rounded-lg text-sm text-red-700 dark:text-red-300">
-            <svg className="w-4 h-4 shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.8}>
-              <path strokeLinecap="round" strokeLinejoin="round" d="M12 9v3.75m9-.75a9 9 0 11-18 0 9 9 0 0118 0zm-9 3.75h.008v.008H12v-.008z" />
-            </svg>
-            <span className="flex-1">{t('study.audioError')}</span>
-            <button
-              type="button"
-              onClick={handleRetry}
-              className="px-2 py-0.5 text-xs rounded bg-red-200 dark:bg-red-800/50 text-red-800 dark:text-red-200 hover:bg-red-300 dark:hover:bg-red-700/60 transition-colors cursor-pointer"
-            >
-              {t('study.audioRetry')}
-            </button>
+          <div className="flex flex-col gap-2 px-3 py-2 bg-red-50 dark:bg-red-950/40 border border-red-200 dark:border-red-800 rounded-lg text-sm text-red-700 dark:text-red-300">
+            <div className="flex items-center gap-2">
+              <svg className="w-4 h-4 shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.8}>
+                <path strokeLinecap="round" strokeLinejoin="round" d="M12 9v3.75m9-.75a9 9 0 11-18 0 9 9 0 0118 0zm-9 3.75h.008v.008H12v-.008z" />
+              </svg>
+              <span className="flex-1">{t('study.audioError')}</span>
+              <button
+                type="button"
+                onClick={handleManualRetry}
+                className="px-2 py-0.5 text-xs rounded bg-red-200 dark:bg-red-800/50 text-red-800 dark:text-red-200 hover:bg-red-300 dark:hover:bg-red-700/60 transition-colors cursor-pointer"
+              >
+                {t('study.audioRetry')}
+              </button>
+            </div>
+            {retryCountRef.current < 2 && (
+              <span className="text-[10px] text-red-500/80 dark:text-red-400/80">
+                {t('study.audioErrorHint')}
+              </span>
+            )}
           </div>
         ) : (
           <div className="flex items-center gap-2">
@@ -208,7 +240,7 @@ const AudioPlayer = forwardRef<PlayerHandle, AudioPlayerProps>(
 
         <audio
           ref={audioRef}
-          src={src}
+          src={effectiveSrc}
           preload="auto"
           className="hidden"
           onLoadedMetadata={(e) => {
