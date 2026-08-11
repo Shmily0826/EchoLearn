@@ -227,6 +227,10 @@ const translations: Record<string, Record<Lang, string>> = {
   'study.audioError':    { en: 'Audio failed to load', zh: '音频加载失败' },
   'study.audioErrorHint': { en: 'Extraction failed (proxy busy) — retrying shortly…', zh: '提取失败（代理繁忙），稍后将自动重试…' },
   'study.audioRetry':    { en: 'Retry', zh: '重试' },
+  'study.biliUnlockControls': { en: 'Controls', zh: '控制条' },
+  'study.biliLockControls': { en: 'Done', zh: '完成' },
+  'study.biliControlsTitle': { en: 'Unlock the native control bar (volume / speed / quality / fullscreen)', zh: '解锁原生控制条（音量 / 倍速 / 清晰度 / 全屏）' },
+  'study.biliControlsHint': { en: 'Volume/speed: tap "Controls" (top-right) to unlock the native bar, tap "Done" to re-lock. Use Play + the slider to keep captions in sync.', zh: '音量/倍速：点右上角「控制条」解锁原生控制条，调完点「完成」锁定；播放与进度请用下方同步控件。' },
 
   // ── Vocabulary ───────────────────────────────────────────
   'vocab.title':         { en: 'Vocabulary', zh: '词汇' },

@@ -1,5 +1,6 @@
 import { forwardRef, useImperativeHandle, useRef, useState, useEffect, useCallback } from 'react';
 import type { PlayerHandle } from './YouTubeEmbed';
+import { useI18n } from '../i18n/I18nContext';
 
 interface BilibiliEmbedProps {
   bvid: string;
@@ -26,10 +27,19 @@ const fmtTime = (s: number) => {
  *     transcript auto-scroll. It is an estimate (not frame-accurate) and can
  *     drift over long videos; seeking resyncs it.
  *  2. Clicking the iframe navigates the framed document to bilibili.com
- *     (sandbox cannot block iframe self-navigation). So we put a transparent
- *     click-capture layer OVER the iframe (and set pointer-events:none on it)
- *     — clicks never reach the iframe, so it never navigates away. All
- *     interaction goes through our own Play/Pause control + the scrubber.
+ *     (sandbox cannot block iframe self-navigation). So by default we put a
+ *     transparent click-capture layer OVER the iframe — clicks never reach it,
+ *     so it never navigates away. Our own Play/Pause + scrubber drive playback.
+ *
+ * Native controls (volume / 倍速 / 清晰度 / 全屏): because the capture layer
+ * blocks every click, the real control bar is visible but untouchable — most
+ * painfully, a muted-by-default video can never be unmuted. To fix that the
+ * user can toggle "控制条" (top-right): the capture layer drops away and the
+ * real bar becomes fully clickable; tap again ("完成") to re-lock. While
+ * unlocked, native play/seek would desync our clock, so the hint steers the
+ * user back to the synced controls. The lock state resets on every video
+ * change and on reload (Bilibili remembers the unmuted volume per-browser, so
+ * unmuting once sticks).
  *
  * Play/Pause works by reloading the iframe with `autoplay=1|0` so the REAL
  * video starts/stops together with our clock (no "video paused but transcript
@@ -37,9 +47,13 @@ const fmtTime = (s: number) => {
  */
 const BilibiliEmbed = forwardRef<PlayerHandle, BilibiliEmbedProps>(
   ({ bvid, page, startTime, duration = 0, playbackRate = 1 }, ref) => {
+    const { t } = useI18n();
     const iframeRef = useRef<HTMLIFrameElement>(null);
     const [currentTime, setCurrentTime] = useState(startTime || 0);
     const [playing, setPlaying] = useState(false);
+    // When true, the click-capture layer is lifted so the native Bilibili
+    // control bar (volume/speed/quality/fullscreen) is clickable.
+    const [controlsUnlocked, setControlsUnlocked] = useState(false);
     const lastTickRef = useRef<number>(0);
     const rateRef = useRef(playbackRate);
     rateRef.current = playbackRate;
@@ -80,6 +94,7 @@ const BilibiliEmbed = forwardRef<PlayerHandle, BilibiliEmbedProps>(
       setEmbedUrl(buildEmbedUrl(startTime, 0));
       setCurrentTime(startTime || 0);
       setPlaying(false);
+      setControlsUnlocked(false);
     }, [bvid, startTime, buildEmbedUrl]);
 
     const togglePlay = useCallback(() => {
@@ -131,7 +146,7 @@ const BilibiliEmbed = forwardRef<PlayerHandle, BilibiliEmbedProps>(
           <iframe
             ref={iframeRef}
             src={embedUrl}
-            className="absolute inset-0 w-full h-full rounded-xl bg-black pointer-events-none"
+            className={`absolute inset-0 w-full h-full rounded-xl bg-black ${controlsUnlocked ? '' : 'pointer-events-none'}`}
             sandbox="allow-scripts allow-same-origin allow-presentation allow-fullscreen allow-popups"
             allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture"
             allowFullScreen
@@ -139,32 +154,62 @@ const BilibiliEmbed = forwardRef<PlayerHandle, BilibiliEmbedProps>(
             frameBorder="0"
             title="Bilibili video player"
           />
-          {/* Click-capture layer: the iframe never receives clicks, so it
-              cannot navigate away to bilibili.com. A single click toggles
-              play/pause. */}
-          <div
-            className="absolute inset-0 z-10 cursor-pointer"
-            onClick={togglePlay}
-            title={playing ? 'Pause' : 'Play (syncs transcript)'}
-          />
-          {/* Visible play/pause control — also drives transcript sync */}
+          {/* Click-capture layer (locked mode): the iframe never receives
+              clicks, so it cannot navigate away to bilibili.com. A single
+              click toggles our synced play/pause. Removed while unlocked so
+              the native control bar becomes usable. */}
+          {!controlsUnlocked && (
+            <div
+              className="absolute inset-0 z-10 cursor-pointer"
+              onClick={togglePlay}
+              title={playing ? 'Pause' : 'Play (syncs transcript)'}
+            />
+          )}
+          {/* Visible play/pause control — also drives transcript sync. Hidden
+              while unlocked so it doesn't cover the native bar. */}
+          {!controlsUnlocked && (
+            <button
+              type="button"
+              onClick={togglePlay}
+              title={playing ? 'Pause' : 'Play (syncs transcript)'}
+              className="absolute bottom-3 left-3 z-20 flex items-center gap-1.5 rounded-full bg-black/70 px-3 py-1.5 text-white text-xs font-medium shadow-lg backdrop-blur hover:bg-black/80 transition-colors cursor-pointer"
+            >
+              {playing ? (
+                <svg className="w-3.5 h-3.5" viewBox="0 0 24 24" fill="currentColor">
+                  <rect x="6" y="5" width="4" height="14" rx="1" />
+                  <rect x="14" y="5" width="4" height="14" rx="1" />
+                </svg>
+              ) : (
+                <svg className="w-3.5 h-3.5" viewBox="0 0 24 24" fill="currentColor">
+                  <path d="M8 5v14l11-7z" />
+                </svg>
+              )}
+              {playing ? 'Pause' : 'Play'}
+            </button>
+          )}
+          {/* Native-controls unlock toggle — always on top. Unlocked state lifts
+              the capture layer so the real volume / speed / quality / fullscreen
+              controls can be clicked. */}
           <button
             type="button"
-            onClick={togglePlay}
-            title={playing ? 'Pause' : 'Play (syncs transcript)'}
-            className="absolute bottom-3 left-3 z-20 flex items-center gap-1.5 rounded-full bg-black/70 px-3 py-1.5 text-white text-xs font-medium shadow-lg backdrop-blur hover:bg-black/80 transition-colors cursor-pointer"
+            onClick={() => setControlsUnlocked((v) => !v)}
+            title={t('study.biliControlsTitle')}
+            className={`absolute top-2.5 right-2.5 z-30 flex items-center gap-1 rounded-full px-2.5 py-1 text-[11px] font-medium shadow-lg backdrop-blur transition-colors cursor-pointer ${
+              controlsUnlocked
+                ? 'bg-indigo-600 text-white hover:bg-indigo-700'
+                : 'bg-black/70 text-white hover:bg-black/80'
+            }`}
           >
-            {playing ? (
-              <svg className="w-3.5 h-3.5" viewBox="0 0 24 24" fill="currentColor">
-                <rect x="6" y="5" width="4" height="14" rx="1" />
-                <rect x="14" y="5" width="4" height="14" rx="1" />
+            {controlsUnlocked ? (
+              <svg className="w-3.5 h-3.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2.2}>
+                <path strokeLinecap="round" strokeLinejoin="round" d="M5 13l4 4L19 7" />
               </svg>
             ) : (
-              <svg className="w-3.5 h-3.5" viewBox="0 0 24 24" fill="currentColor">
-                <path d="M8 5v14l11-7z" />
+              <svg className="w-3.5 h-3.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={1.8}>
+                <path strokeLinecap="round" strokeLinejoin="round" d="M10.5 6h9.75M10.5 6a1.5 1.5 0 11-3 0m3 0a1.5 1.5 0 10-3 0M3.75 6H7.5m3 12h9.75m-9.75 0a1.5 1.5 0 01-3 0m3 0a1.5 1.5 0 00-3 0m-3.75 0H7.5m9-6h3.75m-3.75 0a1.5 1.5 0 01-3 0m3 0a1.5 1.5 0 00-3 0m-9.75 0h9.75" />
               </svg>
             )}
-            {playing ? 'Pause' : 'Play'}
+            {controlsUnlocked ? t('study.biliLockControls') : t('study.biliUnlockControls')}
           </button>
         </div>
         {duration > 0 && (
@@ -190,6 +235,9 @@ const BilibiliEmbed = forwardRef<PlayerHandle, BilibiliEmbedProps>(
             </span>
           </div>
         )}
+        <p className="mt-1 px-1 text-[10px] leading-tight text-gray-400 dark:text-gray-500">
+          {t('study.biliControlsHint')}
+        </p>
       </div>
     );
   },
