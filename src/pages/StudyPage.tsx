@@ -1436,6 +1436,18 @@ const StudyPage: React.FC = () => {
                         )}
                       </button>
                     )}
+                    {displayLines.length > 0 && (
+                      <button
+                        onClick={handleReloadTranscript}
+                        disabled={fetchingCaption}
+                        className="flex items-center gap-1 px-2 py-0.5 text-[10px] font-medium text-gray-500 dark:text-gray-400 hover:text-indigo-500 dark:hover:text-indigo-400 disabled:opacity-50 disabled:cursor-not-allowed cursor-pointer"
+                      >
+                        <svg className={`w-2.5 h-2.5 ${fetchingCaption ? 'animate-spin' : ''}`} fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                          <path strokeLinecap="round" strokeLinejoin="round" d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" />
+                        </svg>
+                        {t('study.reloadTranscript')}
+                      </button>
+                    )}
                   </div>
                 </div>
                 {/* Mobile analysis controls — words/sents/level only */}
@@ -1687,11 +1699,12 @@ const StudyPage: React.FC = () => {
                     onClick={handleReloadTranscript}
                     disabled={fetchingCaption}
                     title={t('study.reloadTranscript')}
-                    className="p-1 text-gray-400 dark:text-gray-500 hover:text-indigo-500 dark:hover:text-indigo-400 disabled:opacity-40 disabled:cursor-not-allowed cursor-pointer"
+                    className="flex items-center gap-1 px-2 py-1 text-[11px] text-gray-500 dark:text-gray-400 hover:text-indigo-500 dark:hover:text-indigo-400 disabled:opacity-40 disabled:cursor-not-allowed cursor-pointer"
                   >
                     <svg className={`w-3.5 h-3.5 ${fetchingCaption ? 'animate-spin' : ''}`} fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
                       <path strokeLinecap="round" strokeLinejoin="round" d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" />
                     </svg>
+                    <span className="hidden sm:inline">{t('study.reloadTranscript')}</span>
                   </button>
                 )}
               </div>
