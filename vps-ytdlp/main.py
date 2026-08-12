@@ -211,6 +211,31 @@ def _site_args(target_url: str) -> list:
         args += ["--cookies", YTDLP_COOKIES]
     return args
 
+
+def _cookie_args(target_url: str) -> list:
+    """Like _site_args but cookies only — no proxy.
+
+    Used as a fallback when the residential proxy tunnel is down: with a valid
+    YouTube account cookie in YTDLP_COOKIES plus the --remote-components n-solver,
+    yt-dlp can fetch captions directly from the datacenter IP without the proxy.
+    """
+    args: list = []
+    if YTDLP_COOKIES and os.path.exists(YTDLP_COOKIES):
+        args += ["--cookies", YTDLP_COOKIES]
+    return args
+
+
+def _has_youtube_cookies() -> bool:
+    """True if the cookie jar contains a YouTube session (so the no-proxy
+    fallback is worth attempting)."""
+    if not (YTDLP_COOKIES and os.path.exists(YTDLP_COOKIES)):
+        return False
+    try:
+        with open(YTDLP_COOKIES, encoding="utf-8") as fh:
+            return any(".youtube.com" in line for line in fh)
+    except OSError:
+        return False
+
 # ── In-memory TTL cache (keyed by video_id:lang) ──────────────
 # Protects the single VPS IP from repeat YouTube hits on popular videos and
 # speeds up repeated fetches of the same video+lang. Only successful results
@@ -437,52 +462,53 @@ def _playlist_flag(part: Optional[int]) -> list:
 
 def _run_ytdlp(video_id_or_url: str, lang: str, *, is_url: bool = False, part: Optional[int] = None):
     target_url = video_id_or_url if is_url else f"https://www.youtube.com/watch?v={video_id_or_url}"
-    with tempfile.TemporaryDirectory() as td:
-        out_tmpl = os.path.join(td, "%(id)s")
-        # Request a broad language set so we capture English (en / ai-en) and
-        # Chinese (zh-CN / ai-zh) tracks. Bilibili tags its AI subtitles as
-        # "ai-zh" / "ai-en", which a naive "zh.*" filter (used previously)
-        # never matched — so those videos fell through to the slow Whisper ASR
-        # even when a perfectly good subtitle track existed. _read_subtitle_file
-        # then prefers an English track for the learning use case.
-        sub_langs = "en,ai-en,zh-CN,ai-zh,en.*,zh.*,ai.*"  # ECHOLEARN_BILI_SUB_LANGS
-        cmd = [
-            sys.executable,
-            "-m",
-            "yt_dlp",
-            "--js-runtimes",
-            "node",
-            "--remote-components",
-            "ejs:github",
-            "--skip-download",
-            "--write-subs",
-            "--write-auto-subs",
-            "--sub-langs",
-            sub_langs,
-            "--sub-format",
-            "vtt",
-            "--quiet",
-            "--no-warnings",
-            *_playlist_flag(part),
-            "--no-overwrites",
-            "-o",
-            out_tmpl,
-            target_url,
-        ]
-        cmd += _site_args(target_url)
-        try:
-            subprocess.run(
-                cmd,
-                cwd=td,
-                capture_output=True,
-                text=True,
-                timeout=YTDLP_TIMEOUT,
-            )
-        except subprocess.TimeoutExpired:
-            return None
-        result = _read_subtitle_file(td)
-        if result:
-            return result
+    sub_langs = "en,ai-en,zh-CN,ai-zh,en.*,zh.*,ai.*"  # ECHOLEARN_BILI_SUB_LANGS
+    base_cmd = [
+        sys.executable,
+        "-m",
+        "yt_dlp",
+        "--js-runtimes",
+        "node",
+        "--remote-components",
+        "ejs:github",
+        "--skip-download",
+        "--write-subs",
+        "--write-auto-subs",
+        "--sub-langs",
+        sub_langs,
+        "--sub-format",
+        "vtt",
+        "--quiet",
+        "--no-warnings",
+        *_playlist_flag(part),
+        "--no-overwrites",
+        target_url,
+    ]
+    # Primary attempt: residential proxy (Bilibili needs it for the 412 watch
+    # page; YouTube normally bypasses the bot-check via the proxy too). Fallback
+    # attempt (only when a YouTube account cookie is present): NO proxy — the
+    # cookie + --remote-components n-solver let yt-dlp fetch captions straight
+    # from the datacenter IP, recovering the common "proxy tunnel dropped" case
+    # that used to surface to the user as "No captions".
+    cmds = [base_cmd + _site_args(target_url)]
+    if _has_youtube_cookies():
+        cmds.append(base_cmd + _cookie_args(target_url))
+    for extra in cmds:
+        with tempfile.TemporaryDirectory() as td:
+            cmd = extra + ["-o", os.path.join(td, "%(id)s")]
+            try:
+                subprocess.run(
+                    cmd,
+                    cwd=td,
+                    capture_output=True,
+                    text=True,
+                    timeout=YTDLP_TIMEOUT,
+                )
+            except subprocess.TimeoutExpired:
+                continue
+            result = _read_subtitle_file(td)
+            if result:
+                return result
     return None
 
 
