@@ -809,7 +809,7 @@ export interface TranscriptFetchResult {
  * @param videoId  The 11-character YouTube video ID
  * @param lang     Preferred language code (default: 'en')
  */
-export async function fetchYouTubeTranscript(
+async function _fetchYouTubeTranscriptImpl(
   videoId: string,
   lang = 'en',
 ): Promise<TranscriptFetchResult> {
@@ -883,6 +883,28 @@ export async function fetchYouTubeTranscript(
       `or YouTube may be temporarily blocking requests from your network.\n` +
       `You can upload a subtitle file (SRT/VTT) manually.`,
   );
+}
+
+// In-flight promise cache: coalesce concurrent calls for the same
+// videoId+lang into a single network cascade, so the transcript is never
+// fetched more than once at a time (e.g. when the mount effect and the
+// navigation effect both fire, or under React StrictMode double-invocation).
+// The entry is dropped once settled, so an explicit Reload always re-fetches.
+const _transcriptFetchCache = new Map<string, Promise<TranscriptFetchResult>>();
+
+export async function fetchYouTubeTranscript(
+  videoId: string,
+  lang = 'en',
+): Promise<TranscriptFetchResult> {
+  const key = `${videoId}:${lang}`;
+  const cached = _transcriptFetchCache.get(key);
+  if (cached) return cached;
+  const p = _fetchYouTubeTranscriptImpl(videoId, lang);
+  _transcriptFetchCache.set(key, p);
+  p.finally(() => {
+    if (_transcriptFetchCache.get(key) === p) _transcriptFetchCache.delete(key);
+  }).catch(() => {});
+  return p;
 }
 
 /**
