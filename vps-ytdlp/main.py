@@ -291,48 +291,77 @@ def _parse_json3(raw: dict) -> list:
 
 
 def _parse_vtt(text: str) -> list:
-    # Strip WEBVTT header and any NOTE blocks.
-    lines = []
+    # Parse every cue (timestamp line + text) into a raw record. We keep the
+    # RAW text so we can later detect YouTube's auto-caption (ASR) overlap format.
+    cues = []
     idx = 0
-    # Split into cues by blank lines.
-    blocks = re.split(r"\n\s*\n", text)
     cue_re = re.compile(
         r"(\d{1,2}:)?\d{1,2}:\d{2}\.\d{1,3}\s*-->\s*(\d{1,2}:)?\d{1,2}:\d{2}\.\d{1,3}"
     )
-    for block in blocks:
-        block = block.strip()
-        if not block or block.startswith("WEBVTT") or block.startswith("NOTE"):
-            continue
-        parts = block.split("\n")
-        # First line may be a cue index or the timestamp; find the timestamp line.
-        ts_line = None
-        text_lines = []
-        for line in parts:
-            if cue_re.search(line):
-                ts_line = line
-            elif not line.strip().isdigit() or ts_line is None:
-                text_lines.append(line)
-        if not ts_line:
-            continue
-        m = cue_re.search(ts_line)
-        start_str, end_str = m.group(0).split("-->")
-        start = _vtt_time_to_sec(start_str.strip())
-        end = _vtt_time_to_sec(end_str.strip())
-        text = " ".join(text_lines).strip()
-        # Strip inline tags like <c>, <i>, <00:00:00.000>
-        text = re.sub(r"<[^>]+>", "", text).strip()
-        if not text:
-            continue
-        lines.append(
-            {
-                "id": f"yt_{idx + 1}",
-                "start": round(start, 3),
-                "end": round(end, 3),
-                "text": text,
-            }
+    ts_matches = list(cue_re.finditer(text))
+    for i, m in enumerate(ts_matches):
+        start = _vtt_time_to_sec(m.group(0).split("-->")[0].strip())
+        end = _vtt_time_to_sec(m.group(0).split("-->")[1].strip())
+        # The cue body runs from the end of this timestamp *line* to the start of
+        # the next one. Grouping this way is robust to the blank line YouTube
+        # sometimes inserts between a timestamp and its text (which a naive
+        # blank-line split would otherwise orphan into a timestamp-less block).
+        # We skip to after the newline so trailing timestamp params such as
+        # "align:start position:0%" are not treated as caption text.
+        nl = text.find("\n", m.end())
+        body_start = nl + 1 if nl != -1 else len(text)
+        body_end = ts_matches[i + 1].start() if i + 1 < len(ts_matches) else len(text)
+        raw = text[body_start:body_end]
+        # ASR cues carry per-word timing tags like <00:00:00.880> or <c>word</c>.
+        had_inline = bool(re.search(r"<\d\d:\d\d|<\s*c[ >]", raw))
+        cues.append(
+            {"start": round(start, 3), "end": round(end, 3), "raw": raw, "had_inline": had_inline}
         )
-        idx += 1
-    return lines
+
+    if not cues:
+        return []
+
+    # YouTube auto-captions (ASR) emit a "growing window" of text per word-timed
+    # cue (each window is a super-set of the previous one) followed by a ~0.01s
+    # "echo" cue that repeats the just-finalised line. Keeping every cue therefore
+    # produces heavily overlapping / duplicated transcript lines. Collapse them into
+    # clean, non-overlapping lines by retaining only the *new* text introduced at
+    # each window transition. Manually-written captions have no inline tags, so they
+    # fall through to the simple one-cue-per-line path below.
+    # ASR_COLLAPSE_V1
+    asr = any(c["had_inline"] for c in cues)
+    if not asr:
+        out = []
+        for c in cues:
+            t = re.sub(r"<[^>]+>", "", c["raw"]).strip()
+            if not t:
+                continue
+            out.append({"id": f"yt_{idx + 1}", "start": c["start"], "end": c["end"], "text": t})
+            idx += 1
+        return out
+
+    cues.sort(key=lambda c: c["start"])
+    out = []
+    consumed = ""
+    for c in cues:
+        t = re.sub(r"<[^>]+>", "", c["raw"]).strip()
+        if not t:
+            continue
+        if t.startswith(consumed):
+            new = t[len(consumed):].strip()
+        else:
+            # Strip the longest prefix of t that matches a suffix of what we have
+            # already absorbed (handles sentence resets / overlapping windows).
+            new = t
+            for k in range(min(len(t), len(consumed)), 0, -1):
+                if consumed.endswith(t[:k]):
+                    new = t[k:].strip()
+                    break
+        if new:
+            out.append({"id": f"yt_{idx + 1}", "start": c["start"], "end": c["end"], "text": new})
+            idx += 1
+            consumed = t
+    return out
 
 
 def _vtt_time_to_sec(s: str) -> float:
