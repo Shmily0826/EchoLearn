@@ -232,6 +232,25 @@ async function handleTranscript(url, env) {
     log('yt-dlp service returned no transcript — falling through to other strategies');
   }
 
+  // Strategy 0b: VPS Whisper ASR — when the caption path above fails (e.g. a
+  // transient YouTube bot-check on the proxy's egress IP), let the VPS pull the
+  // *audio* and transcribe it. The VPS downloads through the same residential
+  // proxy, which is far more reliable than the Worker's own Cloudflare egress
+  // IP for media, so this recovers many "no captions" cases with a real
+  // (auto-generated) transcript instead of surfacing a hard error to the user.
+  if (env && env.YTDLP_API_URL && env.GROQ_API_KEY) {
+    const vpsAsr = await fetchViaVpsAsr(
+      `https://www.youtube.com/watch?v=${videoId}`,
+      env,
+      log,
+    );
+    if (vpsAsr) {
+      if (debug) vpsAsr._debug = debugLog;
+      return jsonResponse(vpsAsr);
+    }
+    log('VPS ASR fallback returned nothing — falling through to other strategies');
+  }
+
   // Strategy 1: InnerTube player API (multi-client)
   const innerTubeResult = await fetchViaInnerTube(videoId, lang, env, log);
   if (innerTubeResult) {
