@@ -138,8 +138,9 @@ const AIAnalysisPanel: React.FC<AIAnalysisPanelProps> = ({
             word={dictPopup.word}
             x={dictPopup.x}
             y={dictPopup.y}
-            onClose={() => setDictPopup(null)}
-            onWordChange={setDisplayedWord}
+          onClose={() => setDictPopup(null)}
+          onWordChange={setDisplayedWord}
+          videoId={videoId}
             actions={
               savedWords.has((displayedWord || dictPopup.word).toLowerCase()) ? (
                 <span className="text-xs text-amber-600 dark:text-amber-400 font-medium">{t('ai.saved')}</span>

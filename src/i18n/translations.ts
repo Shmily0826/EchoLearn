@@ -430,6 +430,12 @@ const translations: Record<string, Record<Lang, string>> = {
   'transcript.wordSaved':  { en: 'Already in vocab', zh: '已在生词本中' },
   'transcript.addWord':    { en: '+ Add to Vocab', zh: '+ 加入生词本' },
 
+  // ── Word-card AI enrichment (DeepSeek, per word+video) ────
+  'wordCard.aiMeaning':       { en: 'AI meaning', zh: 'AI 释义' },
+  'wordCard.bilingualExample':{ en: 'Bilingual example', zh: '双语例句' },
+  'wordCard.aiAnalysis':      { en: 'AI context analysis', zh: 'AI 语境分析' },
+  'wordCard.aiLoading':       { en: 'AI analyzing…', zh: 'AI 分析中…' },
+
   // ── Layout ─────────────────────────────────────────────────
   'layout.switchLang':     { en: 'Switch to Chinese', zh: 'Switch to English' },
 

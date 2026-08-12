@@ -91,6 +91,8 @@ const ClickableRichText: React.FC<ClickableRichTextProps> = ({
           y={popup.y}
           onClose={() => setPopup(null)}
           onWordChange={setDisplayedWord}
+          videoId={videoId}
+          context={text}
           actions={
             isWordSaved(displayedWord || popup.word) ? (
               <span className="text-xs text-amber-600 dark:text-amber-400 font-medium">

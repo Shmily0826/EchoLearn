@@ -2,6 +2,7 @@ import { useState, useEffect, useRef, useCallback } from 'react';
 import type { DictionaryEntry } from '../types';
 import { lookupWord, isKnownProperNoun } from '../services/dictionaryService';
 import { translateWordFast, type TranslateLang } from '../services/translationService';
+import { getWordAnalysis, type WordAnalysis } from '../services/wordAnalysisService';
 import { useI18n } from '../i18n/I18nContext';
 
 /** Speak a word using the browser's built-in TTS (free, no network/API key). */
@@ -30,6 +31,10 @@ interface WordDictionaryPopupProps {
   actions?: React.ReactNode;
   /** Optional: called whenever the internally-displayed word changes (e.g. recursive lookup). */
   onWordChange?: (word: string) => void;
+  /** Optional: source video id, used to cache AI enrichment per (word, video). */
+  videoId?: string;
+  /** Optional: the sentence the word appeared in, used for contextual AI analysis. */
+  context?: string;
 }
 
 /**
@@ -44,6 +49,8 @@ const WordDictionaryPopup: React.FC<WordDictionaryPopupProps> = ({
   onClose,
   actions,
   onWordChange,
+  videoId,
+  context,
 }) => {
   const [currentWord, setCurrentWord] = useState(initialWord);
   const [wordHistory, setWordHistory] = useState<string[]>([]);
@@ -51,8 +58,11 @@ const WordDictionaryPopup: React.FC<WordDictionaryPopupProps> = ({
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(false);
   const [definitionCn, setDefinitionCn] = useState('');
+  // AI enrichment (bilingual example + contextual analysis), zh mode only.
+  const [aiAnalysis, setAiAnalysis] = useState<WordAnalysis | null>(null);
+  const [aiLoading, setAiLoading] = useState(false);
   const popupRef = useRef<HTMLDivElement>(null);
-  const { lang } = useI18n();
+  const { lang, t } = useI18n();
   // In English page mode we deliberately hide the Chinese line and skip the
   // DeepSeek call entirely (pure-English study view, saves token quota).
   const showChinese = lang === 'zh';
@@ -116,6 +126,31 @@ const WordDictionaryPopup: React.FC<WordDictionaryPopupProps> = ({
     });
     return () => { cancelled = true; };
   }, [currentWord, showChinese]);
+
+  // Fetch AI enrichment (bilingual example + contextual analysis) for the word.
+  // Chinese mode only — English study mode skips the call to save tokens.
+  // Cached per (word, videoId) in IndexedDB by the service, so repeats are free.
+  useEffect(() => {
+    if (!showChinese) {
+      setAiAnalysis(null);
+      setAiLoading(false);
+      return;
+    }
+    let cancelled = false;
+    setAiLoading(true);
+    setAiAnalysis(null);
+
+    getWordAnalysis(currentWord, { videoId, context, lang })
+      .then((res) => {
+        if (cancelled) return;
+        setAiAnalysis(res);
+        setAiLoading(false);
+      })
+      .catch(() => {
+        if (!cancelled) setAiLoading(false);
+      });
+    return () => { cancelled = true; };
+  }, [currentWord, showChinese, videoId, context, lang]);
 
   // Look up a new word from the definition (push current to history)
   const handleLookupWord = useCallback((w: string) => {
@@ -320,6 +355,45 @@ const WordDictionaryPopup: React.FC<WordDictionaryPopupProps> = ({
               >
                 Powered by Merriam-Webster Learner&apos;s Dictionary
               </a>
+            )}
+          </div>
+        )}
+
+        {/* AI enrichment: contextual meaning + bilingual example + 语境分析.
+            zh mode only; degrades to nothing if the call was skipped/failed. */}
+        {showChinese && (aiLoading || aiAnalysis) && (
+          <div className="mb-3 border-t border-gray-100 dark:border-slate-700 pt-2 mt-1">
+            {aiLoading && !aiAnalysis && (
+              <div className="flex items-center gap-2 py-1 text-xs text-gray-400">
+                <svg className="animate-spin w-3.5 h-3.5" fill="none" viewBox="0 0 24 24">
+                  <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
+                  <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z" />
+                </svg>
+                {t('wordCard.aiLoading')}
+              </div>
+            )}
+            {aiAnalysis?.meaningZh && (
+              <p className="text-sm text-gray-700 dark:text-gray-300 leading-relaxed mb-1.5">
+                <span className="text-[10px] font-medium text-indigo-500 mr-1">{t('wordCard.aiMeaning')}</span>
+                {aiAnalysis.meaningZh}
+              </p>
+            )}
+            {aiAnalysis?.exampleEn && (
+              <div className="mb-1.5">
+                <div className="text-[10px] font-medium text-indigo-500 mb-0.5">{t('wordCard.bilingualExample')}</div>
+                <p className="text-sm text-gray-700 dark:text-gray-300 leading-relaxed">{aiAnalysis.exampleEn}</p>
+                {aiAnalysis.exampleZh && (
+                  <p className="text-xs text-gray-400 dark:text-gray-500 leading-relaxed">{aiAnalysis.exampleZh}</p>
+                )}
+              </div>
+            )}
+            {aiAnalysis?.analysis && (
+              <div>
+                <div className="text-[10px] font-medium text-indigo-500 mb-0.5 flex items-center gap-1">
+                  {t('wordCard.aiAnalysis')}
+                </div>
+                <p className="text-xs text-gray-500 dark:text-gray-400 leading-relaxed">{aiAnalysis.analysis}</p>
+              </div>
             )}
           </div>
         )}

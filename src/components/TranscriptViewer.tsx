@@ -5,6 +5,7 @@ import { tomorrowMs } from '../utils/storage';
 import { lemmatize } from '../utils/lemmatizer';
 import { lookupWord, isKnownProperNoun } from '../services/dictionaryService';
 import { translateWordFast } from '../services/translationService';
+import { getWordAnalysis, type WordAnalysis } from '../services/wordAnalysisService';
 
 /** Speak a word using the browser's built-in TTS (free, no network/API key). */
 function speakWord(word: string): void {
@@ -63,6 +64,9 @@ const TranscriptViewer: React.FC<TranscriptViewerProps> = ({
   const [dictError, setDictError] = useState(false);
   const [translation, setTranslation] = useState('');
   const [translationLoading, setTranslationLoading] = useState(false);
+  // AI enrichment (bilingual example + contextual analysis), zh mode only.
+  const [aiAnalysis, setAiAnalysis] = useState<WordAnalysis | null>(null);
+  const [aiLoading, setAiLoading] = useState(false);
 
   const showChinese = lang === 'zh';
 
@@ -173,6 +177,31 @@ const TranscriptViewer: React.FC<TranscriptViewerProps> = ({
     setTranslationLoading(false);
   }, [popup, showChinese]);
 
+  // Fetch AI enrichment (bilingual example + contextual 语境分析) for the
+  // clicked word. Chinese mode only — English study mode skips the call.
+  // Keyed by (word, videoId) in IndexedDB by the service, so repeats are free.
+  useEffect(() => {
+    if (!popup) return;
+    if (!showChinese) {
+      setAiAnalysis(null);
+      setAiLoading(false);
+      return;
+    }
+    let cancelled = false;
+    setAiLoading(true);
+    setAiAnalysis(null);
+    getWordAnalysis(popup.word, { videoId, context: popup.context, lang })
+      .then((res) => {
+        if (cancelled) return;
+        setAiAnalysis(res);
+        setAiLoading(false);
+      })
+      .catch(() => {
+        if (!cancelled) setAiLoading(false);
+      });
+    return () => { cancelled = true; };
+  }, [popup, showChinese, videoId, lang]);
+
   const handleWordClick = (
     word: string,
     context: string,
@@ -197,7 +226,7 @@ const TranscriptViewer: React.FC<TranscriptViewerProps> = ({
       id: `vocab_${Date.now()}`,
       word: lemma,
       lemma,
-      meaningCn: translation || '',
+      meaningCn: aiAnalysis?.meaningZh || translation || '',
       context: popup.context,
       sourceVideoId: videoId,
       sourceVideoTitle: videoTitle,
@@ -453,6 +482,45 @@ const TranscriptViewer: React.FC<TranscriptViewerProps> = ({
                   >
                     Powered by Merriam-Webster Learner&apos;s Dictionary
                   </a>
+                )}
+              </div>
+            )}
+
+            {/* AI enrichment: contextual meaning + bilingual example + 语境分析.
+                zh mode only; degrades to nothing if the call was skipped/failed. */}
+            {showChinese && (aiLoading || aiAnalysis) && (
+              <div className="mb-3 border-t border-gray-100 dark:border-slate-700 pt-2 mt-1">
+                {aiLoading && !aiAnalysis && (
+                  <div className="flex items-center gap-2 py-1 text-xs text-gray-400">
+                    <svg className="animate-spin w-3.5 h-3.5" fill="none" viewBox="0 0 24 24">
+                      <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
+                      <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z" />
+                    </svg>
+                    {t('wordCard.aiLoading')}
+                  </div>
+                )}
+                {aiAnalysis?.meaningZh && (
+                  <p className="text-sm text-gray-700 dark:text-gray-300 leading-relaxed mb-1.5">
+                    <span className="text-[10px] font-medium text-indigo-500 mr-1">{t('wordCard.aiMeaning')}</span>
+                    {aiAnalysis.meaningZh}
+                  </p>
+                )}
+                {aiAnalysis?.exampleEn && (
+                  <div className="mb-1.5">
+                    <div className="text-[10px] font-medium text-indigo-500 mb-0.5">{t('wordCard.bilingualExample')}</div>
+                    <p className="text-sm text-gray-700 dark:text-gray-300 leading-relaxed">{aiAnalysis.exampleEn}</p>
+                    {aiAnalysis.exampleZh && (
+                      <p className="text-xs text-gray-400 dark:text-gray-500 leading-relaxed">{aiAnalysis.exampleZh}</p>
+                    )}
+                  </div>
+                )}
+                {aiAnalysis?.analysis && (
+                  <div>
+                    <div className="text-[10px] font-medium text-indigo-500 mb-0.5 flex items-center gap-1">
+                      {t('wordCard.aiAnalysis')}
+                    </div>
+                    <p className="text-xs text-gray-500 dark:text-gray-400 leading-relaxed">{aiAnalysis.analysis}</p>
+                  </div>
                 )}
               </div>
             )}
