@@ -486,12 +486,13 @@ const TranscriptViewer: React.FC<TranscriptViewerProps> = ({
               </div>
             )}
 
-            {/* AI enrichment: contextual meaning + bilingual example + 语境分析.
-                zh mode only; degrades to nothing if the call was skipped/failed. */}
+            {/* AI enrichment: bilingual example + 语境分析 (zh mode only).
+                Kept compact: no separate AI meaning line (the Google/translation line
+                above already gives the Chinese gloss), just example + context note. */}
             {showChinese && (aiLoading || aiAnalysis) && (
-              <div className="mb-3 border-t border-gray-100 dark:border-slate-700 pt-2 mt-1">
+              <div className="mb-2 border-t border-gray-100 dark:border-slate-700 pt-1.5 mt-1">
                 {aiLoading && !aiAnalysis && (
-                  <div className="flex items-center gap-2 py-1 text-xs text-gray-400">
+                  <div className="flex items-center gap-2 py-0.5 text-xs text-gray-400">
                     <svg className="animate-spin w-3.5 h-3.5" fill="none" viewBox="0 0 24 24">
                       <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
                       <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z" />
@@ -499,27 +500,19 @@ const TranscriptViewer: React.FC<TranscriptViewerProps> = ({
                     {t('wordCard.aiLoading')}
                   </div>
                 )}
-                {aiAnalysis?.meaningZh && (
-                  <p className="text-sm text-gray-700 dark:text-gray-300 leading-relaxed mb-1.5">
-                    <span className="text-[10px] font-medium text-indigo-500 mr-1">{t('wordCard.aiMeaning')}</span>
-                    {aiAnalysis.meaningZh}
-                  </p>
-                )}
                 {aiAnalysis?.exampleEn && (
-                  <div className="mb-1.5">
-                    <div className="text-[10px] font-medium text-indigo-500 mb-0.5">{t('wordCard.bilingualExample')}</div>
-                    <p className="text-sm text-gray-700 dark:text-gray-300 leading-relaxed">{aiAnalysis.exampleEn}</p>
+                  <div className="mb-1">
+                    <div className="text-[10px] font-medium text-indigo-500">{t('wordCard.bilingualExample')}</div>
+                    <p className="text-xs text-gray-700 dark:text-gray-300 leading-relaxed">{aiAnalysis.exampleEn}</p>
                     {aiAnalysis.exampleZh && (
-                      <p className="text-xs text-gray-400 dark:text-gray-500 leading-relaxed">{aiAnalysis.exampleZh}</p>
+                      <p className="text-[11px] text-gray-400 dark:text-gray-500 leading-relaxed">{aiAnalysis.exampleZh}</p>
                     )}
                   </div>
                 )}
                 {aiAnalysis?.analysis && (
                   <div>
-                    <div className="text-[10px] font-medium text-indigo-500 mb-0.5 flex items-center gap-1">
-                      {t('wordCard.aiAnalysis')}
-                    </div>
-                    <p className="text-xs text-gray-500 dark:text-gray-400 leading-relaxed">{aiAnalysis.analysis}</p>
+                    <div className="text-[10px] font-medium text-indigo-500">{t('wordCard.aiAnalysis')}</div>
+                    <p className="text-[11px] text-gray-500 dark:text-gray-400 leading-relaxed">{aiAnalysis.analysis}</p>
                   </div>
                 )}
               </div>

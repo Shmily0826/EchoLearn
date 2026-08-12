@@ -187,7 +187,7 @@ const translations: Record<string, Record<Lang, string>> = {
   'study.sentences':     { en: 'sentences', zh: '句' },
   'study.fetchingFull':  { en: 'Fetching captions from YouTube...', zh: '正在从 YouTube 获取字幕...' },
   'study.fetchingFullBili': { en: 'Fetching captions from Bilibili...', zh: '正在从 B 站获取字幕...' },
-  'study.mayTake':       { en: 'This may take a few seconds', zh: '可能需要几秒钟' },
+  'study.mayTake':       { en: 'This may take a few moments', zh: '可能需要一些时间' },
   'study.mayTakeBili':   { en: 'Bilibili routes via a proxy — up to ~1 min', zh: 'B 站需经代理获取，可能最多约 1 分钟' },
   'study.fetchingShortBili': { en: 'Fetching Bilibili…', zh: '正在获取 B 站字幕…' },
   'study.fetchFailed':   { en: 'Caption auto-fetch failed', zh: '字幕自动获取失败' },
