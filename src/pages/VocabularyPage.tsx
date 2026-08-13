@@ -238,12 +238,16 @@ const VocabularyPage: React.FC = () => {
 
   // Search + filter + sort
   const filtered = useMemo(() => {
+    const q = search.toLowerCase();
     let items = vocabulary.filter((v) => {
       const matchesSearch =
-        !search ||
-        v.word.toLowerCase().includes(search.toLowerCase()) ||
-        v.context.toLowerCase().includes(search.toLowerCase()) ||
-        v.meaningCn.toLowerCase().includes(search.toLowerCase());
+        !q ||
+        v.word.toLowerCase().includes(q) ||
+        v.context.toLowerCase().includes(q) ||
+        // English mode: search the visible English definition; Chinese mode: the Chinese meaning.
+        (lang === 'en'
+          ? (v.definitionEn?.toLowerCase().includes(q) ?? false)
+          : v.meaningCn.toLowerCase().includes(q));
       const matchesFilter =
         filter === 'all'
           ? true
@@ -271,7 +275,7 @@ const VocabularyPage: React.FC = () => {
         break;
     }
     return items;
-  }, [vocabulary, search, filter, sort]);
+  }, [vocabulary, search, filter, sort, lang]);
 
   const masteredCount = vocabulary.filter((v) => v.mastered).length;
   const dueCount = useMemo(() => {

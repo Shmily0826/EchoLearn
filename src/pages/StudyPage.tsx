@@ -1892,7 +1892,7 @@ const VocabularyList: React.FC<{
   items: VocabularyItem[];
   onRemove: (id: string) => void;
 }> = ({ items, onRemove }) => {
-  const { t } = useI18n();
+  const { t, lang } = useI18n();
   const [dictPopup, setDictPopup] = useState<DictPopupState | null>(null);
 
   const handleWordClick = (word: string, context: string | undefined, e: React.MouseEvent) => {
@@ -1944,8 +1944,14 @@ const VocabularyList: React.FC<{
                 {t('study.remove')}
               </button>
             </div>
-            {item.meaningCn && (
-              <p className="text-xs text-amber-600 dark:text-amber-400 mt-0.5">{item.meaningCn}</p>
+            {lang === 'en' ? (
+              item.definitionEn ? (
+                <p className="text-xs text-amber-600 dark:text-amber-400 mt-0.5">{item.definitionEn}</p>
+              ) : null
+            ) : (
+              item.meaningCn && (
+                <p className="text-xs text-amber-600 dark:text-amber-400 mt-0.5">{item.meaningCn}</p>
+              )
             )}
             <p className="text-xs text-gray-500 dark:text-gray-400 mt-1 line-clamp-2">
               &ldquo;
@@ -1987,7 +1993,7 @@ const SentenceList: React.FC<{
   onRemove: (id: string) => void;
   onSeek?: (seconds: number) => void;
 }> = ({ items, onRemove, onSeek }) => {
-  const { t } = useI18n();
+  const { t, lang } = useI18n();
   if (items.length === 0) {
     return (
       <p className="text-center text-gray-400 dark:text-gray-500 text-sm py-6">
@@ -2012,7 +2018,7 @@ const SentenceList: React.FC<{
               {t('study.remove')}
             </button>
           </div>
-          {item.meaningCn && (
+          {lang === 'zh' && item.meaningCn && (
             <p className="text-xs text-violet-500 dark:text-indigo-400 mt-1 leading-relaxed">{item.meaningCn}</p>
           )}
           <div className="flex items-center gap-2 mt-2">

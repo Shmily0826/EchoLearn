@@ -61,7 +61,7 @@ type TypeFilter = 'all' | 'words' | 'sentences';
 
 const ReviewPage: React.FC = () => {
   const navigate = useNavigate();
-  const { t } = useI18n();
+  const { t, lang } = useI18n();
   const { user } = useAuth();
   const syncTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const triggerCloudSync = useCallback(() => {
@@ -594,7 +594,7 @@ const ReviewPage: React.FC = () => {
                 </svg>
               </button>
             </div>
-            {meaningCn && (
+            {lang === 'zh' && meaningCn && (
               <p className="text-lg text-indigo-700 dark:text-indigo-400 font-medium mb-4">{meaningCn}</p>
             )}
             {currentCard.item.myOwnSentence && (
@@ -634,13 +634,23 @@ const ReviewPage: React.FC = () => {
             {/* Answer (hidden until revealed) */}
             {revealed ? (
               <div className="space-y-3 mb-6 animate-[fadeIn_0.2s_ease-out]">
-                {meaningCn && (
-                  <p className="text-xl text-indigo-700 dark:text-indigo-400 font-medium">{meaningCn}</p>
+                {lang === 'en' ? (
+                  currentCard.item.definitionEn ? (
+                    <p className="text-xl text-indigo-700 dark:text-indigo-400 font-medium">
+                      {currentCard.item.definitionEn}
+                    </p>
+                  ) : (
+                    <p className="text-xl text-gray-400 italic">{t('vocab.noEnglishDef')}</p>
+                  )
+                ) : (
+                  meaningCn && (
+                    <p className="text-xl text-indigo-700 dark:text-indigo-400 font-medium">{meaningCn}</p>
+                  )
                 )}
                 {context && (
                   <p className="text-sm text-gray-500 dark:text-gray-400 leading-relaxed">&ldquo;{context}&rdquo;</p>
                 )}
-                {currentCard.item.definitionEn && (
+                {lang === 'zh' && currentCard.item.definitionEn && (
                   <p className="text-sm text-gray-500 dark:text-gray-400 leading-relaxed">
                     {currentCard.item.definitionEn}
                   </p>

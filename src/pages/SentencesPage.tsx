@@ -176,11 +176,13 @@ const SentencesPage: React.FC = () => {
   }, [sentences, translateLang, triggerCloudSync]);
 
   // Search
+  const q = search.toLowerCase();
   const filtered = sentences.filter(
     (s) =>
-      !search ||
-      s.text.toLowerCase().includes(search.toLowerCase()) ||
-      s.meaningCn.toLowerCase().includes(search.toLowerCase()),
+      !q ||
+      s.text.toLowerCase().includes(q) ||
+      // English mode only searches the visible English sentence; Chinese mode also searches the meaning.
+      (lang === 'zh' && s.meaningCn.toLowerCase().includes(q)),
   );
 
   const dueCount = useMemo(() => {
