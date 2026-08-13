@@ -65,6 +65,7 @@ const VocabularyPage: React.FC = () => {
   const [editMeaning, setEditMeaning] = useState('');
   const [dictPopup, setDictPopup] = useState<DictPopupState | null>(null);
   const [dictCurrentWord, setDictCurrentWord] = useState('');
+  const [expandedContextIds, setExpandedContextIds] = useState<Set<string>>(new Set());
   const [showExport, setShowExport] = useState(false);
   const [backfilling, setBackfilling] = useState(false);
 
@@ -224,6 +225,16 @@ const VocabularyPage: React.FC = () => {
       }
     }).catch(() => { /* silent */ });
   }, [triggerCloudSync]);
+
+  /** Toggle the expand/collapse state of a card's example sentence. */
+  const toggleContextExpand = useCallback((id: string) => {
+    setExpandedContextIds((prev) => {
+      const next = new Set(prev);
+      if (next.has(id)) next.delete(id);
+      else next.add(id);
+      return next;
+    });
+  }, []);
 
   // Search + filter + sort
   const filtered = useMemo(() => {
@@ -497,11 +508,13 @@ const VocabularyPage: React.FC = () => {
                   <input
                     type="text"
                     value={editMeaning}
+                    value={editMeaning}
                     onChange={(e) => setEditMeaning(e.target.value)}
                     onKeyDown={(e) => {
                       if (e.key === 'Enter') handleSaveMeaning(item.id);
                       if (e.key === 'Escape') handleCancelEdit();
                     }}
+                    onBlur={() => handleSaveMeaning(item.id)}
                     autoFocus
                     placeholder={t('vocab.editMeaningPh')}
                     className="flex-1 px-2 py-1 text-sm border border-indigo-300 rounded focus:outline-none focus:ring-1 focus:ring-indigo-400"
@@ -523,7 +536,7 @@ const VocabularyPage: React.FC = () => {
                 </p>
               ) : (
                 <p
-                  className="text-sm text-gray-500 dark:text-gray-400 mb-2 cursor-pointer hover:text-indigo-600 transition-colors"
+                  className="text-sm text-indigo-700 dark:text-indigo-300 font-medium mb-2 cursor-pointer hover:text-indigo-800 dark:hover:text-indigo-200 transition-colors"
                   onClick={() => handleStartEdit(item)}
                   title="Click to edit meaning"
                 >
@@ -531,10 +544,24 @@ const VocabularyPage: React.FC = () => {
                 </p>
               )}
 
-              {/* Example sentence — full text (no clamp) */}
-              <p className="text-sm text-gray-600 dark:text-gray-400 leading-relaxed">
-                &ldquo;{item.context}&rdquo;
-              </p>
+              {/* Example sentence — collapsed to 3 lines with expand toggle for long ones */}
+              <div>
+                <p
+                  className={`text-sm text-gray-600 dark:text-gray-400 leading-relaxed ${
+                    expandedContextIds.has(item.id) ? '' : 'line-clamp-3'
+                  }`}
+                >
+                  &ldquo;{item.context}&rdquo;
+                </p>
+                {item.context.length > 160 && (
+                  <button
+                    onClick={() => toggleContextExpand(item.id)}
+                    className="mt-1 text-xs text-indigo-600 dark:text-indigo-400 hover:text-indigo-800 dark:hover:text-indigo-300 cursor-pointer transition-colors"
+                  >
+                    {expandedContextIds.has(item.id) ? t('wordCard.collapse') : t('wordCard.expand')}
+                  </button>
+                )}
+              </div>
 
               {/* Footer: source + date + toggle */}
               <div className="mt-3 pt-2 border-t border-gray-100 dark:border-slate-700 space-y-1.5">
@@ -601,15 +628,15 @@ const VocabularyPage: React.FC = () => {
         </div>
       ) : (
         /* ── List view ── */
-        <div className="bg-white dark:bg-slate-800 border border-gray-200 dark:border-slate-700 rounded-xl overflow-hidden">
-          <table className="w-full text-sm">
+        <div className="bg-white dark:bg-slate-800 border border-gray-200 dark:border-slate-700 rounded-xl overflow-x-auto">
+          <table className="w-full table-fixed text-sm min-w-[640px]">
             <thead>
               <tr className="border-b border-gray-100 dark:border-slate-700 text-left">
-                <th className="px-4 py-2.5 text-xs font-medium text-gray-400 dark:text-gray-500">{t('vocab.title')}</th>
-                <th className="px-4 py-2.5 text-xs font-medium text-gray-400 dark:text-gray-500 hidden sm:table-cell">{t('vocab.searchPh')}</th>
-                <th className="px-4 py-2.5 text-xs font-medium text-gray-400 dark:text-gray-500 hidden md:table-cell">Context</th>
-                <th className="px-4 py-2.5 text-xs font-medium text-gray-400 dark:text-gray-500 hidden lg:table-cell">Source</th>
-                <th className="px-4 py-2.5 text-xs font-medium text-gray-400 dark:text-gray-500 text-right whitespace-nowrap">Review</th>
+                <th className="px-4 py-2.5 text-xs font-medium text-gray-400 dark:text-gray-500 w-[22%]">{t('vocab.title')}</th>
+                <th className="px-4 py-2.5 text-xs font-medium text-gray-400 dark:text-gray-500 hidden sm:table-cell w-[18%]">{t('vocab.searchPh')}</th>
+                <th className="px-4 py-2.5 text-xs font-medium text-gray-400 dark:text-gray-500 hidden md:table-cell w-[24%]">Context</th>
+                <th className="px-4 py-2.5 text-xs font-medium text-gray-400 dark:text-gray-500 hidden lg:table-cell w-[22%]">Source</th>
+                <th className="px-4 py-2.5 text-xs font-medium text-gray-400 dark:text-gray-500 text-right whitespace-nowrap w-[14%]">Review</th>
                 <th className="px-2 py-2.5 w-8"></th>
               </tr>
             </thead>
@@ -660,6 +687,7 @@ const VocabularyPage: React.FC = () => {
                           value={editMeaning}
                           onChange={(e) => setEditMeaning(e.target.value)}
                           onKeyDown={(e) => { if (e.key === 'Enter') handleSaveMeaning(item.id); if (e.key === 'Escape') handleCancelEdit(); }}
+                          onBlur={() => handleSaveMeaning(item.id)}
                           autoFocus
                           className="w-full max-w-[160px] px-2 py-0.5 text-xs border border-indigo-300 rounded focus:outline-none focus:ring-1 focus:ring-indigo-400"
                         />
@@ -673,7 +701,7 @@ const VocabularyPage: React.FC = () => {
                         </span>
                       ) : (
                         <span
-                          className="text-gray-600 dark:text-gray-300 cursor-pointer hover:text-indigo-600 line-clamp-1"
+                          className="text-indigo-700 dark:text-indigo-300 font-medium cursor-pointer hover:text-indigo-800 dark:hover:text-indigo-200 line-clamp-1"
                           onClick={() => handleStartEdit(item)}
                           title="Click to edit"
                         >
@@ -712,7 +740,7 @@ const VocabularyPage: React.FC = () => {
                         </span>
                       )}
                     </td>
-                    <td className="px-4 py-2.5 text-right whitespace-nowrap">
+                    <td className="px-4 py-2.5 text-right">
                       <div className="flex items-center justify-end gap-2">
                         <span className={`text-[11px] font-medium ${rl.color}`}>{rl.text}</span>
                         {!item.mastered && (
