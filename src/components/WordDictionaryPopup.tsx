@@ -65,6 +65,8 @@ const WordDictionaryPopup: React.FC<WordDictionaryPopupProps> = ({
   // default and let the user expand, so the popup usually fits without scrolling.
   const [expandDefs, setExpandDefs] = useState(false);
   const DEF_LIMIT = 5;
+  // Chinese AI contextual analysis can be very verbose; collapse it by default.
+  const [expandAiAnalysis, setExpandAiAnalysis] = useState(false);
   // Dynamic vertical placement: prefer below the click, flip above if the
   // popup would overflow the bottom edge of the viewport.
   const [position, setPosition] = useState<'above' | 'below'>('below');
@@ -205,7 +207,7 @@ const WordDictionaryPopup: React.FC<WordDictionaryPopupProps> = ({
     } else {
       setPosition(spaceBelow >= spaceAbove ? 'below' : 'above');
     }
-  }, [entry, expandDefs, aiAnalysis, y, loading]);
+  }, [entry, expandDefs, expandAiAnalysis, aiAnalysis, y, loading]);
 
   // Re-evaluate placement on window resize.
   useEffect(() => {
@@ -355,8 +357,11 @@ const WordDictionaryPopup: React.FC<WordDictionaryPopupProps> = ({
                     className="mt-1.5 text-xs text-indigo-600 dark:text-indigo-400 hover:text-indigo-800 dark:hover:text-indigo-300 cursor-pointer transition-colors"
                   >
                     {expandDefs
-                      ? 'Show less'
-                      : `Show ${entry.definitionsEn.length - DEF_LIMIT} more meaning${entry.definitionsEn.length - DEF_LIMIT > 1 ? 's' : ''}`}
+                      ? t('wordCard.collapse')
+                      : t('wordCard.showMoreMeanings', {
+                          count: entry.definitionsEn.length - DEF_LIMIT,
+                          s: entry.definitionsEn.length - DEF_LIMIT > 1 ? 's' : '',
+                        })}
                   </button>
                 )}
               </>
@@ -441,7 +446,21 @@ const WordDictionaryPopup: React.FC<WordDictionaryPopupProps> = ({
             {aiAnalysis?.analysis && (
               <div>
                 <div className="text-[10px] font-medium text-indigo-500">{t('wordCard.aiAnalysis')}</div>
-                <p className="text-[11px] text-gray-500 dark:text-gray-400 leading-relaxed">{aiAnalysis.analysis}</p>
+                <p
+                  className={`text-[11px] text-gray-500 dark:text-gray-400 leading-relaxed ${
+                    expandAiAnalysis ? '' : 'line-clamp-3'
+                  }`}
+                >
+                  {aiAnalysis.analysis}
+                </p>
+                {aiAnalysis.analysis.length > 90 && (
+                  <button
+                    onClick={() => setExpandAiAnalysis((v) => !v)}
+                    className="mt-0.5 text-[11px] text-indigo-600 dark:text-indigo-400 hover:text-indigo-800 dark:hover:text-indigo-300 cursor-pointer transition-colors"
+                  >
+                    {expandAiAnalysis ? t('wordCard.collapse') : t('wordCard.expand')}
+                  </button>
+                )}
               </div>
             )}
           </div>

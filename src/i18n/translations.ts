@@ -435,6 +435,9 @@ const translations: Record<string, Record<Lang, string>> = {
   'wordCard.bilingualExample':{ en: 'Bilingual example', zh: '双语例句' },
   'wordCard.aiAnalysis':      { en: 'AI context analysis', zh: 'AI 语境分析' },
   'wordCard.aiLoading':       { en: 'AI analyzing…', zh: 'AI 分析中…' },
+  'wordCard.expand':          { en: 'Expand', zh: '展开' },
+  'wordCard.collapse':        { en: 'Collapse', zh: '收起' },
+  'wordCard.showMoreMeanings':{ en: 'Show {count} more meaning{s}', zh: '显示另外 {count} 个释义' },
 
   // ── Layout ─────────────────────────────────────────────────
   'layout.switchLang':     { en: 'Switch to Chinese', zh: 'Switch to English' },
