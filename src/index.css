@@ -91,6 +91,33 @@ button, a, select, input, [role="button"] {
   touch-action: manipulation;
 }
 
+/* ── Thin themed scrollbar for small scrollable cards (e.g. dictionary popup) */
+.thin-scrollbar::-webkit-scrollbar {
+  width: 5px;
+}
+.thin-scrollbar::-webkit-scrollbar-track {
+  background: transparent;
+}
+.thin-scrollbar::-webkit-scrollbar-thumb {
+  background-color: var(--color-border);
+  border-radius: 9999px;
+}
+.thin-scrollbar::-webkit-scrollbar-thumb:hover {
+  background-color: var(--color-text-muted);
+}
+.thin-scrollbar {
+  scrollbar-width: thin;
+  scrollbar-color: var(--color-border) transparent;
+}
+
+/* ── IPA / phonetic font stack: avoids the baseline misalignment caused by
+   forcing IPA symbols into a monospace font. Falls back through SIL fonts,
+   DejaVu, Segoe UI, and system sans-serifs. */
+.font-ipa {
+  font-family: 'Charis SIL', 'Doulos SIL', 'Gentium Plus', 'DejaVu Sans', 'Segoe UI', 'Noto Sans', Arial, sans-serif;
+  font-variant-numeric: proportional-nums;
+}
+
 /* ── Mobile landscape orientation ─────────────────────────── */
 @media (orientation: landscape) and (max-width: 1023px) {
   /* Hide bottom nav & contact bar to save vertical space */

@@ -193,7 +193,7 @@ const WordDictionaryPopup: React.FC<WordDictionaryPopupProps> = ({
       }`}
       style={{ left: Math.min(Math.max(x, 170), window.innerWidth - 170), top: shouldFlip ? y + 24 : y }}
     >
-      <div className="bg-white dark:bg-slate-800 rounded-xl shadow-xl border border-gray-200 dark:border-slate-700 p-4 min-w-[260px] max-w-[min(340px,90vw)] max-h-[70vh] overflow-y-auto relative">
+      <div className="bg-white dark:bg-slate-800 rounded-xl shadow-xl border border-gray-200 dark:border-slate-700 p-4 min-w-[260px] max-w-[min(340px,90vw)] max-h-[70vh] overflow-y-auto overflow-x-hidden relative thin-scrollbar">
         {/* Close button — visible on mobile */}
         <button
           onClick={onClose}
@@ -237,22 +237,25 @@ const WordDictionaryPopup: React.FC<WordDictionaryPopupProps> = ({
           </button>
         </div>
 
-        {/* Phonetic — on its own line with nowrap so long IPA doesn't break in half */}
+        {/* Phonetic — baseline-aligned, IPA-aware font, wraps gracefully. */}
         {entry && !loading && (
-          <div className="mb-1.5">
+          <div className="mb-1.5 flex flex-wrap items-baseline gap-x-3 gap-y-0.5">
             {entry.phoneticUk && entry.phoneticUs && entry.phoneticUk !== entry.phoneticUs ? (
-              <div className="flex items-center gap-3 text-sm text-gray-400 dark:text-gray-500 font-mono whitespace-nowrap overflow-hidden">
-                <span className="shrink-0">
-                  <span className="text-[10px] mr-0.5 opacity-70">UK</span>/{entry.phoneticUk}/
+              <>
+                <span className="inline-flex items-baseline gap-1 text-sm text-gray-400 dark:text-gray-500">
+                  <span className="text-[10px] opacity-70">UK</span>
+                  <span className="font-ipa">/{entry.phoneticUk}/</span>
                 </span>
-                <span className="shrink-0">
-                  <span className="text-[10px] mr-0.5 opacity-70">US</span>/{entry.phoneticUs}/
+                <span className="inline-flex items-baseline gap-1 text-sm text-gray-400 dark:text-gray-500">
+                  <span className="text-[10px] opacity-70">US</span>
+                  <span className="font-ipa">/{entry.phoneticUs}/</span>
                 </span>
-              </div>
+              </>
             ) : (
               entry?.phonetic && (
-                <span className="text-sm text-gray-400 dark:text-gray-500 font-mono whitespace-nowrap">
-                  <span className="text-[10px] mr-0.5 opacity-70">IPA</span>/{entry.phonetic}/
+                <span className="inline-flex items-baseline gap-1 text-sm text-gray-400 dark:text-gray-500">
+                  <span className="text-[10px] opacity-70">IPA</span>
+                  <span className="font-ipa">/{entry.phonetic}/</span>
                 </span>
               )
             )}
