@@ -12,8 +12,11 @@
  *  - ONE DeepSeek call per (word, videoId) — NOT one per field.
  *  - Goes through the hardened /api/ai proxy, so the API key stays server-side
  *    (no key in the client bundle, CORS + rate-limit enforced at the edge).
- *  - Cached in IndexedDB keyed by `word::videoId` (the "cached per word+video"
- *    requirement). TTL 30 days. Repeated clicks on the same word are free.
+ *  - Cached in IndexedDB keyed by `word::videoId::ctxHash` where `ctxHash` is a
+ *    stable hash of the (normalized) context sentence. So each distinct sentence
+ *    context gets its own analysis (no stale "first sentence wins" behavior),
+ *    while identical sentences dedupe to one entry. At most LRU_LIMIT (8) context
+ *    variants are kept per (word, video) to bound storage; TTL 30 days.
  *  - Gated to Chinese page mode (`lang === 'zh'`); English study mode skips the
  *    call entirely to save the (already tiny) token budget.
  *  - Any failure (network, rate-limit, bad JSON) degrades gracefully to null —
@@ -100,19 +103,73 @@ async function cacheGet(key: string): Promise<WordAnalysis | null> {
   });
 }
 
-async function cacheSet(key: string, data: WordAnalysis): Promise<void> {
+async function cacheSet(
+  key: string,
+  data: WordAnalysis,
+  word: string,
+  videoId?: string,
+): Promise<void> {
   const db = await openDb();
   if (!db) return;
   try {
     const tx = db.transaction(STORE, 'readwrite');
-    tx.objectStore(STORE).put({ key, data, ts: Date.now() } as CacheRecord);
+    const store = tx.objectStore(STORE);
+    const now = Date.now();
+    store.put({ key, data, ts: now } as CacheRecord);
+
+    // LRU eviction: keep at most LRU_LIMIT context variants per (word, video).
+    // All variants share the prefix `word::videoId::`, so a key-range cursor
+    // collects them, we sort by recency, and drop the oldest beyond the cap.
+    const prefix = `${word.toLowerCase().trim()}::${videoId || 'global'}::`;
+    const range = IDBKeyRange.bound(prefix, prefix + '￿');
+    const entries: CacheRecord[] = [];
+    const cur = store.openCursor(range);
+    cur.onsuccess = () => {
+      const c = cur.result;
+      if (c) {
+        entries.push(c.value as CacheRecord);
+        c.continue();
+      } else if (entries.length > LRU_LIMIT) {
+        entries.sort((a, b) => a.ts - b.ts);
+        for (const e of entries.slice(0, entries.length - LRU_LIMIT)) {
+          store.delete(e.key);
+        }
+      }
+    };
   } catch {
     // best-effort cache; ignore failures
   }
 }
 
-function cacheKey(word: string, videoId?: string): string {
-  return `${word.toLowerCase().trim()}::${videoId || 'global'}`;
+// Cap how many distinct context variants we keep per (word, video). High-frequency
+// words can appear in many sentences; this bounds IndexedDB growth while still
+// giving correct per-context analysis for the most recent lookups.
+const LRU_LIMIT = 8;
+
+/** Normalize a context sentence so identical sentences dedupe to the same key
+ *  regardless of casing / whitespace / punctuation differences. */
+function normalizeContext(ctx?: string): string {
+  if (!ctx) return '';
+  return ctx
+    .trim()
+    .toLowerCase()
+    .replace(/[^\p{L}\p{N}\s]/gu, '')
+    .replace(/\s+/g, ' ')
+    .slice(0, 300);
+}
+
+/** Stable short hash (djb2 → base36) so punctuation / length never break the key. */
+function hashString(s: string): string {
+  let h = 5381;
+  for (let i = 0; i < s.length; i++) {
+    h = ((h << 5) + h + s.charCodeAt(i)) | 0;
+  }
+  return (h >>> 0).toString(36);
+}
+
+function cacheKey(word: string, videoId?: string, context?: string): string {
+  const ctxHash = hashString(normalizeContext(context));
+  return `${word.toLowerCase().trim()}::${videoId || 'global'}::${ctxHash}`;
 }
 
 // ── In-flight dedupe (avoid charging twice for concurrent identical calls) ──
@@ -188,7 +245,7 @@ export async function getWordAnalysis(
   // English study mode: skip the AI call entirely (pure-English view, save tokens).
   if (opts.lang && opts.lang !== 'zh') return null;
 
-  const key = cacheKey(w, opts.videoId);
+  const key = cacheKey(w, opts.videoId, opts.context);
 
   // 1. Cache hit — free, instant.
   const cached = await cacheGet(key);
@@ -232,7 +289,7 @@ export async function getWordAnalysis(
       // Only cache/show if we actually got something useful.
       if (!result.meaningZh && !result.analysis && !result.exampleEn) return null;
 
-      void cacheSet(key, result);
+      void cacheSet(key, result, w, opts.videoId);
       return result;
     } catch {
       return null;

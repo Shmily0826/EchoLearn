@@ -34,7 +34,7 @@ const AIAnalysisPanel: React.FC<AIAnalysisPanelProps> = ({
   onClose,
 }) => {
   const [collapsed, setCollapsed] = useState(false);
-  const [dictPopup, setDictPopup] = useState<{ word: string; x: number; y: number } | null>(null);
+  const [dictPopup, setDictPopup] = useState<{ word: string; x: number; y: number; context?: string } | null>(null);
   const [displayedWord, setDisplayedWord] = useState('');
   const { t, lang } = useI18n();
 
@@ -72,11 +72,11 @@ const AIAnalysisPanel: React.FC<AIAnalysisPanelProps> = ({
     onAddSentence(item);
   };
 
-  const handleTermClick = (word: string, e: React.MouseEvent) => {
+  const handleTermClick = (word: string, context: string | undefined, e: React.MouseEvent) => {
     e.stopPropagation();
     const rect = (e.currentTarget as HTMLElement).getBoundingClientRect();
     setDisplayedWord(word);
-    setDictPopup({ word, x: rect.left + rect.width / 2, y: rect.top - 8 });
+    setDictPopup({ word, x: rect.left + rect.width / 2, y: rect.top - 8, context });
   };
 
   const handleAddPopupWord = () => {
@@ -138,6 +138,7 @@ const AIAnalysisPanel: React.FC<AIAnalysisPanelProps> = ({
             word={dictPopup.word}
             x={dictPopup.x}
             y={dictPopup.y}
+            context={dictPopup.context}
           onClose={() => setDictPopup(null)}
           onWordChange={setDisplayedWord}
           videoId={videoId}
@@ -241,7 +242,7 @@ const AIAnalysisPanel: React.FC<AIAnalysisPanelProps> = ({
                     <div className="flex items-start justify-between mb-1">
                       <button
                         type="button"
-                        onClick={(e) => handleTermClick(sug.word, e)}
+                        onClick={(e) => handleTermClick(sug.word, sug.context, e)}
                         className="text-base font-semibold text-amber-800 dark:text-amber-300 hover:text-amber-900 dark:hover:text-amber-200 hover:underline cursor-pointer bg-transparent border-0 p-0 text-left"
                         title={t('ai.clickWordDict')}
                       >
