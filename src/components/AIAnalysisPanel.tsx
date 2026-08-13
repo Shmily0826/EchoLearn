@@ -270,7 +270,7 @@ const AIAnalysisPanel: React.FC<AIAnalysisPanelProps> = ({
                       />
                       &rdquo;
                     </p>
-                    <p className="text-[10px] text-gray-400 dark:text-gray-500 mt-1">{sug.reason}</p>
+                    {lang === 'zh' && <p className="text-[10px] text-gray-400 dark:text-gray-500 mt-1">{sug.reason}</p>}
                   </div>
                 );
               })}
@@ -308,8 +308,8 @@ const AIAnalysisPanel: React.FC<AIAnalysisPanelProps> = ({
                         </button>
                       )}
                     </div>
-                    <p className="text-[10px] text-gray-400 dark:text-gray-400 mt-1">{sug.reason}</p>
-                    {sug.grammarNotes && (
+                    {lang === 'zh' && <p className="text-[10px] text-gray-400 dark:text-gray-400 mt-1">{sug.reason}</p>}
+                    {lang === 'zh' && sug.grammarNotes && (
                       <div className="mt-2 pt-2 border-t border-violet-100 dark:border-slate-700">
                         <p className="text-[11px] text-gray-600 dark:text-gray-300 leading-relaxed">
                           <span className="font-semibold text-sky-600 dark:text-sky-400">{lang === 'zh' ? '解析: ' : 'Analysis: '}</span>
