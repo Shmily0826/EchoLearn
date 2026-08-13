@@ -7,11 +7,13 @@ import {
   loadVocabulary,
   removeVocabularyItem,
   updateVocabularyItem,
+  addVocabularyItem,
   loadAllSessions,
 } from '../utils/storage';
 import WordDictionaryPopup from '../components/WordDictionaryPopup';
 import { exportVocabularyCSV, exportVocabularyPDF } from '../services/exportService';
-import { translateWords } from '../services/translationService';
+import { translateWords, translateWord } from '../services/translationService';
+import { isLocalNoTranslation } from '../services/aiAnalysis';
 import { jumpToSource, formatTimestamp, youtubeUrlAt } from '../utils/jumpToSource';
 import type { VocabularyItem, VideoStudySession } from '../types';
 
@@ -24,6 +26,8 @@ interface DictPopupState {
   context?: string;
   x: number;
   y: number;
+  /** True when opened from the dictionary-search card (not a saved word) — shows an "Add to vocabulary" action. */
+  fromLookup?: boolean;
 }
 
 /** Format a nextReviewAt timestamp as a short label. */
@@ -60,6 +64,7 @@ const VocabularyPage: React.FC = () => {
   const [editingId, setEditingId] = useState<string | null>(null);
   const [editMeaning, setEditMeaning] = useState('');
   const [dictPopup, setDictPopup] = useState<DictPopupState | null>(null);
+  const [dictCurrentWord, setDictCurrentWord] = useState('');
   const [showExport, setShowExport] = useState(false);
   const [backfilling, setBackfilling] = useState(false);
 
@@ -131,7 +136,7 @@ const VocabularyPage: React.FC = () => {
   };
 
   const handleBackfillTranslations = useCallback(async () => {
-    const empty = vocabulary.filter((v) => !v.meaningCn);
+    const empty = vocabulary.filter((v) => isLocalNoTranslation(v.meaningCn));
     if (empty.length === 0) return;
     setBackfilling(true);
     try {
@@ -159,6 +164,66 @@ const VocabularyPage: React.FC = () => {
       y: rect.top - 8,
     });
   };
+
+  /** Open the dictionary popup for an arbitrary (not-yet-saved) word — the "look up in dictionary" search card. */
+  const handleLookupInDictionary = (term: string, rect?: DOMRect) => {
+    const w = term.trim();
+    if (!w) return;
+    setDictCurrentWord(w);
+    setDictPopup({
+      word: w,
+      x: rect ? rect.left + rect.width / 2 : window.innerWidth / 2,
+      y: rect ? rect.top : 120,
+      fromLookup: true,
+    });
+  };
+
+  /** Save the word currently shown in the dictionary popup (used by the search-card "Add to vocabulary" action). */
+  const handleDictAddWord = useCallback((word: string) => {
+    const w = word.trim();
+    if (!w) return;
+    const alreadySaved = vocabulary.some(
+      (v) => v.word.toLowerCase() === w.toLowerCase() && v.sourceVideoId === '',
+    );
+    if (alreadySaved) {
+      setDictPopup(null);
+      return;
+    }
+    const newId = `v_${Date.now()}_${Math.random().toString(36).slice(2, 7)}`;
+    const item: VocabularyItem = {
+      id: newId,
+      word: w,
+      meaningCn: '',
+      context: '',
+      sourceVideoId: '',
+      addedAt: Date.now(),
+      mastered: false,
+      reviewCount: 0,
+      lastReviewedAt: 0,
+      nextReviewAt: 0,
+    };
+    setVocabulary(addVocabularyItem(item));
+    triggerCloudSync();
+    setDictPopup(null);
+    // Auto-translate the new entry if AI is reachable.
+    translateWord(w).then((meaningCn) => {
+      if (meaningCn && vocabulary.some((v) => v.id === newId) === false) {
+        setVocabulary(updateVocabularyItem(newId, { meaningCn }));
+        triggerCloudSync();
+      }
+    }).catch(() => { /* silent */ });
+  }, [vocabulary, triggerCloudSync]);
+
+  /** Re-translate a single item whose meaning is empty or the local-no-translation placeholder. */
+  const handleTranslateOne = useCallback((item: VocabularyItem) => {
+    if (!isLocalNoTranslation(item.meaningCn)) return;
+    translateWord(item.word, item.context).then((meaningCn) => {
+      if (meaningCn) {
+        setVocabulary(updateVocabularyItem(item.id, { meaningCn }));
+        triggerCloudSync();
+      }
+    }).catch(() => { /* silent */ });
+  }, [triggerCloudSync]);
 
   // Search + filter + sort
   const filtered = useMemo(() => {
@@ -212,6 +277,17 @@ const VocabularyPage: React.FC = () => {
           x={dictPopup.x}
           y={dictPopup.y}
           onClose={() => setDictPopup(null)}
+          onWordChange={setDictCurrentWord}
+          actions={
+            dictPopup.fromLookup ? (
+              <button
+                onClick={() => handleDictAddWord(dictCurrentWord || dictPopup.word)}
+                className="mt-3 w-full px-3 py-1.5 text-sm bg-indigo-600 text-white rounded-lg hover:bg-indigo-700 transition-colors font-medium cursor-pointer"
+              >
+                {t('study.addToVocab')}
+              </button>
+            ) : undefined
+          }
         />
       )}
 
@@ -239,7 +315,7 @@ const VocabularyPage: React.FC = () => {
             {t('vocab.review')}{dueCount > 0 ? ` (${dueCount})` : ''}
           </button>
           {/* Backfill translations */}
-          {vocabulary.some((v) => !v.meaningCn) && (
+          {vocabulary.some((v) => isLocalNoTranslation(v.meaningCn)) && (
             <button
               onClick={handleBackfillTranslations}
               disabled={backfilling}
@@ -322,6 +398,26 @@ const VocabularyPage: React.FC = () => {
           </button>
         </div>
       </div>
+
+      {/* Dictionary-search card: look up any word not yet saved */}
+      {(() => {
+        const term = search.trim();
+        const exactSaved = term !== '' && vocabulary.some((v) => v.word.toLowerCase() === term.toLowerCase());
+        if (!term || exactSaved) return null;
+        return (
+          <div className="mb-5 bg-indigo-50 dark:bg-indigo-950/40 border border-indigo-200 dark:border-indigo-800 rounded-xl p-4 flex items-center justify-between gap-3">
+            <p className="text-sm text-gray-700 dark:text-gray-300 min-w-0">
+              {t('vocab.lookupHint', { term })}
+            </p>
+            <button
+              onClick={(e) => handleLookupInDictionary(term, (e.currentTarget as HTMLElement).getBoundingClientRect())}
+              className="shrink-0 px-4 py-1.5 text-sm bg-indigo-600 text-white rounded-lg hover:bg-indigo-700 transition-colors font-medium cursor-pointer"
+            >
+              {t('vocab.lookupBtn')}
+            </button>
+          </div>
+        );
+      })()}
 
       {/* Cards / List */}
       {filtered.length === 0 ? (
@@ -417,22 +513,26 @@ const VocabularyPage: React.FC = () => {
                     {t('vocab.save')}
                   </button>
                 </div>
+              ) : isLocalNoTranslation(item.meaningCn) ? (
+                <p
+                  className="text-sm text-indigo-500 dark:text-indigo-400 mb-2 cursor-pointer hover:text-indigo-700 dark:hover:text-indigo-300 transition-colors italic"
+                  onClick={() => handleTranslateOne(item)}
+                  title="Click to translate"
+                >
+                  {item.meaningCn ? t('vocab.translateRetry') : t('vocab.clickAdd')}
+                </p>
               ) : (
                 <p
                   className="text-sm text-gray-500 dark:text-gray-400 mb-2 cursor-pointer hover:text-indigo-600 transition-colors"
                   onClick={() => handleStartEdit(item)}
                   title="Click to edit meaning"
                 >
-                  {item.meaningCn || (
-                    <span className="text-gray-400 italic text-xs">
-                      {t('vocab.clickAdd')}
-                    </span>
-                  )}
+                  {item.meaningCn}
                 </p>
               )}
 
-              {/* Example sentence */}
-              <p className="text-sm text-gray-600 dark:text-gray-400 leading-relaxed line-clamp-2">
+              {/* Example sentence — full text (no clamp) */}
+              <p className="text-sm text-gray-600 dark:text-gray-400 leading-relaxed">
                 &ldquo;{item.context}&rdquo;
               </p>
 
@@ -563,18 +663,26 @@ const VocabularyPage: React.FC = () => {
                           autoFocus
                           className="w-full max-w-[160px] px-2 py-0.5 text-xs border border-indigo-300 rounded focus:outline-none focus:ring-1 focus:ring-indigo-400"
                         />
+                      ) : isLocalNoTranslation(item.meaningCn) ? (
+                        <span
+                          className="text-indigo-500 dark:text-indigo-400 cursor-pointer hover:text-indigo-700 italic line-clamp-1"
+                          onClick={() => handleTranslateOne(item)}
+                          title="Click to translate"
+                        >
+                          {item.meaningCn ? t('vocab.translateRetry') : t('vocab.clickAdd')}
+                        </span>
                       ) : (
                         <span
                           className="text-gray-600 dark:text-gray-300 cursor-pointer hover:text-indigo-600 line-clamp-1"
                           onClick={() => handleStartEdit(item)}
                           title="Click to edit"
                         >
-                          {item.meaningCn || <span className="text-gray-400 italic">{t('vocab.clickAdd')}</span>}
+                          {item.meaningCn}
                         </span>
                       )}
                     </td>
                     <td className="px-4 py-2.5 hidden md:table-cell">
-                      <span className="text-gray-500 dark:text-gray-400 line-clamp-1" title={item.context}>
+                      <span className="text-gray-500 dark:text-gray-400 line-clamp-2" title={item.context}>
                         &ldquo;{item.context}&rdquo;
                       </span>
                     </td>

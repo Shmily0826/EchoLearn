@@ -12,7 +12,7 @@ import { detectPlatform, parseBilibiliId, parseBilibiliStartTime, parseBilibiliP
 import { normalizeTranscriptToSentences } from '../utils/transcriptNormalizer';
 import { lemmatize } from '../utils/lemmatizer';
 import { SEEK_REQUEST_EVENT, type SeekRequestDetail } from '../utils/jumpToSource';
-import { analyzeTranscript } from '../services/aiAnalysis';
+import { analyzeTranscript, isLocalNoTranslation } from '../services/aiAnalysis';
 import { trackEvent } from '../services/analytics';
 import { fetchYouTubeTranscript, CF_WORKER_URL } from '../services/youtubeTranscript';
 import { fetchBilibiliTranscript, getBilibiliVideoTitle } from '../services/bilibiliTranscript';
@@ -1028,8 +1028,8 @@ const StudyPage: React.FC = () => {
     setVocabulary(addVocabularyItem(item));
     trackEvent('word_saved');
     triggerCloudSync();
-    // Auto-translate meaningCn if empty
-    if (!item.meaningCn) {
+    // Auto-translate meaningCn if empty or still the local-no-translation placeholder
+    if (isLocalNoTranslation(item.meaningCn)) {
       translateWord(item.word, item.context).then((meaningCn) => {
         if (meaningCn) {
           setVocabulary(updateVocabularyItem(item.id, { meaningCn }));

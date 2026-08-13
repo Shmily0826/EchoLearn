@@ -9,6 +9,21 @@ import { checkAiRateLimit, rateLimitWaitSeconds } from './aiRateLimit';
 import { doc, getDoc, setDoc, serverTimestamp } from 'firebase/firestore';
 import { db } from '../lib/firebase';
 
+// ── Local-analysis "no translation" sentinel ──────────────────
+// When the live DeepSeek call fails we fall back to a local analysis and stamp
+// vocabulary/sentence suggestions with this placeholder meaning. It MUST stay in
+// sync with the i18n key `ai.localNoTranslation` (same strings, both languages).
+// Exposing it as a constant lets the rest of the app recognise the placeholder
+// and re-translate it on a later (secondary) lookup.
+export const LOCAL_NO_TRANSLATION_EN = '(Local analysis — no translation)';
+export const LOCAL_NO_TRANSLATION_ZH = '(本地分析 — 无翻译)';
+
+/** True when `value` is empty OR the local-no-translation placeholder. */
+export function isLocalNoTranslation(value: string | undefined | null): boolean {
+  if (!value) return true;
+  return value === LOCAL_NO_TRANSLATION_EN || value === LOCAL_NO_TRANSLATION_ZH;
+}
+
 // ── DeepSeek API config ──────────────────────────────────────
 
 /** Requests go through the server-side proxy at /api/ai (API key stays server-side). */
@@ -485,7 +500,7 @@ function localFallback(
     s.endsWith('.') || s.endsWith('!') || s.endsWith('?') ? s : s + '.',
   );
 
-  const noTranslation = t('ai.localNoTranslation', lang);
+  const noTranslation = lang === 'zh' ? LOCAL_NO_TRANSLATION_ZH : LOCAL_NO_TRANSLATION_EN;
   const cefrWords = extractWordsByLevel(transcriptText, minLevel, maxLevel);
   const vocabSuggestions: VocabularySuggestion[] = cefrWords
     .slice(0, vocabCount)
