@@ -44,7 +44,7 @@ function reviewLabel(nextReviewAt: number, mastered: boolean, t: (key: string, v
 
 const VocabularyPage: React.FC = () => {
   const navigate = useNavigate();
-  const { t } = useI18n();
+  const { t, lang } = useI18n();
   const { user } = useAuth();
   const syncTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const triggerCloudSync = useCallback(() => {
@@ -490,24 +490,38 @@ const VocabularyPage: React.FC = () => {
                 </button>
               </div>
 
-              {/* Part of speech + definition (if available from dictionary) */}
+              {/* Part of speech tag (dictionary data) */}
               {item.partOfSpeech && (
                 <span className="inline-block text-[10px] px-1.5 py-0.5 bg-indigo-50 dark:bg-indigo-950 text-indigo-500 rounded-full font-medium mb-1.5">
                   {item.partOfSpeech}
                 </span>
               )}
-              {item.definitionEn && (
-                <p className="text-xs text-gray-500 dark:text-gray-400 leading-relaxed mb-2 line-clamp-2">
+
+              {/* English dictionary definition: shown as a faint hint ABOVE the meaning in
+                  Chinese mode (preserving the original layout), and as the primary meaning in
+                  English mode. */}
+              {lang === 'zh' && item.definitionEn && (
+                <p className="text-xs text-gray-400 dark:text-gray-500 leading-relaxed mb-2 line-clamp-2">
                   {item.definitionEn}
                 </p>
               )}
 
-              {/* Chinese meaning — editable */}
-              {editingId === item.id ? (
+              {/* Meaning block — language aware.
+                  English mode: show the English dictionary definition (definitionEn), never the
+                  Chinese meaningCn (DESIGN RULE: English UI must not show Chinese).
+                  Chinese mode: keep the full experience (meaningCn + inline edit). */}
+              {lang === 'en' ? (
+                item.definitionEn ? (
+                  <p className="text-sm text-gray-700 dark:text-gray-300 leading-relaxed mb-2">
+                    {item.definitionEn}
+                  </p>
+                ) : (
+                  <p className="text-sm text-gray-400 italic mb-2">{t('vocab.noEnglishDef')}</p>
+                )
+              ) : editingId === item.id ? (
                 <div className="flex gap-1.5 mb-2">
                   <input
                     type="text"
-                    value={editMeaning}
                     value={editMeaning}
                     onChange={(e) => setEditMeaning(e.target.value)}
                     onKeyDown={(e) => {
@@ -681,7 +695,15 @@ const VocabularyPage: React.FC = () => {
                       </div>
                     </td>
                     <td className="px-4 py-2.5 hidden sm:table-cell">
-                      {editingId === item.id ? (
+                      {lang === 'en' ? (
+                        item.definitionEn ? (
+                          <span className="text-gray-700 dark:text-gray-300 line-clamp-1" title={item.definitionEn}>
+                            {item.definitionEn}
+                          </span>
+                        ) : (
+                          <span className="text-gray-400 italic text-xs">{t('vocab.noEnglishDef')}</span>
+                        )
+                      ) : editingId === item.id ? (
                         <input
                           type="text"
                           value={editMeaning}

@@ -15,6 +15,7 @@ import WordDictionaryPopup from '../components/WordDictionaryPopup';
 import { exportSentencesCSV, exportSentencesPDF } from '../services/exportService';
 import { translateSentences, TRANSLATE_LANGS } from '../services/translationService';
 import type { TranslateLang } from '../services/translationService';
+import { isLocalNoTranslation } from '../services/aiAnalysis';
 import type { SentenceItem, VideoStudySession } from '../types';
 
 interface DictPopupState {
@@ -43,7 +44,7 @@ function reviewLabel(nextReviewAt: number, mastered: boolean, t: (key: string, v
 
 const SentencesPage: React.FC = () => {
   const navigate = useNavigate();
-  const { t } = useI18n();
+  const { t, lang } = useI18n();
   const { user } = useAuth();
   const syncTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const triggerCloudSync = useCallback(() => {
@@ -155,7 +156,7 @@ const SentencesPage: React.FC = () => {
   }, []);
 
   const handleBackfillTranslations = useCallback(async () => {
-    const empty = sentences.filter((s) => !s.meaningCn);
+    const empty = sentences.filter((s) => isLocalNoTranslation(s.meaningCn));
     if (empty.length === 0) return;
     setBackfilling(true);
     try {
@@ -227,7 +228,7 @@ const SentencesPage: React.FC = () => {
             {t('sent.review')}{dueCount > 0 ? ` (${dueCount})` : ''}
           </button>
           {/* Backfill translations */}
-          {sentences.some((s) => !s.meaningCn) && (
+          {sentences.some((s) => isLocalNoTranslation(s.meaningCn)) && (
             <div className="flex items-center gap-1">
               <button
                 onClick={handleBackfillTranslations}
@@ -320,8 +321,17 @@ const SentencesPage: React.FC = () => {
                 </button>
               </div>
 
-              {/* Chinese meaning — editable */}
-              {editingMeaningId === item.id ? (
+              {/* Meaning — language aware.
+                  English mode: never show the Chinese translation. Sentence items have no
+                  English-definition field, so we just hide it (DESIGN RULE: English UI must not
+                  show Chinese). Chinese mode: keep the full experience (meaningCn + inline edit). */}
+              {lang === 'en' ? (
+                item.definitionEn ? (
+                  <p className="text-sm text-gray-700 dark:text-gray-300 mb-3">{item.definitionEn}</p>
+                ) : (
+                  <p className="text-sm text-gray-400 italic mb-3">{t('sent.noEnglishDef')}</p>
+                )
+              ) : editingMeaningId === item.id ? (
                 <div className="flex gap-1.5 mb-3">
                   <input
                     type="text"

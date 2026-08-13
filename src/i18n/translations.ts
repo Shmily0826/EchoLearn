@@ -265,6 +265,7 @@ const translations: Record<string, Record<Lang, string>> = {
   'vocab.unmark':        { en: 'Unmark', zh: '取消掌握' },
   'vocab.markMastered':  { en: 'Mark mastered', zh: '标记已掌握' },
   'vocab.masteredBadge': { en: 'mastered', zh: '已掌握' },
+  'vocab.noEnglishDef':  { en: 'No English definition', zh: '暂无英文释义' },
 
   // ── Sentences ────────────────────────────────────────────
   'sent.title':          { en: 'Sentence Bank', zh: '句子库' },
@@ -291,6 +292,7 @@ const translations: Record<string, Record<Lang, string>> = {
   'sent.clickWrite':     { en: 'Click to add notes...', zh: '点击添加笔记...' },
   'sent.writePh':        { en: 'Write your notes, examples, or mnemonics here...', zh: '在这里写笔记、例句或助记...' },
   'sent.cancel':         { en: 'Cancel', zh: '取消' },
+  'sent.noEnglishDef':   { en: 'Translation hidden', zh: '译文已隐藏' },
 
   // ── Review ───────────────────────────────────────────────
   'review.title':        { en: 'Review', zh: '复习' },
