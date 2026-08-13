@@ -1,4 +1,4 @@
-import { useState, useEffect, useRef, useCallback } from 'react';
+import { useState, useEffect, useRef, useCallback, useLayoutEffect } from 'react';
 import type { DictionaryEntry } from '../types';
 import { lookupWord, isKnownProperNoun } from '../services/dictionaryService';
 import { translateWordFast, type TranslateLang } from '../services/translationService';
@@ -61,6 +61,13 @@ const WordDictionaryPopup: React.FC<WordDictionaryPopupProps> = ({
   // AI enrichment (bilingual example + contextual analysis), zh mode only.
   const [aiAnalysis, setAiAnalysis] = useState<WordAnalysis | null>(null);
   const [aiLoading, setAiLoading] = useState(false);
+  // Long words (e.g. "brief") can return 10+ senses; show the first few by
+  // default and let the user expand, so the popup usually fits without scrolling.
+  const [expandDefs, setExpandDefs] = useState(false);
+  const DEF_LIMIT = 5;
+  // Dynamic vertical placement: prefer below the click, flip above if the
+  // popup would overflow the bottom edge of the viewport.
+  const [position, setPosition] = useState<'above' | 'below'>('below');
   const popupRef = useRef<HTMLDivElement>(null);
   const { lang, t } = useI18n();
   // In English page mode we deliberately hide the Chinese line and skip the
@@ -183,17 +190,51 @@ const WordDictionaryPopup: React.FC<WordDictionaryPopupProps> = ({
     }
   };
 
-  const shouldFlip = y < 280;
+  // Dynamic vertical placement: measure the rendered popup and choose whether
+  // to open it above or below the clicked word so it stays inside the viewport.
+  useLayoutEffect(() => {
+    if (!popupRef.current || loading) return;
+    const rect = popupRef.current.getBoundingClientRect();
+    const margin = 16;
+    const spaceBelow = window.innerHeight - y - margin;
+    const spaceAbove = y - margin;
+    if (rect.height <= spaceBelow) {
+      setPosition('below');
+    } else if (rect.height <= spaceAbove) {
+      setPosition('above');
+    } else {
+      setPosition(spaceBelow >= spaceAbove ? 'below' : 'above');
+    }
+  }, [entry, expandDefs, aiAnalysis, y, loading]);
+
+  // Re-evaluate placement on window resize.
+  useEffect(() => {
+    const handleResize = () => {
+      if (!popupRef.current) return;
+      const rect = popupRef.current.getBoundingClientRect();
+      const margin = 16;
+      const spaceBelow = window.innerHeight - y - margin;
+      const spaceAbove = y - margin;
+      if (rect.height <= spaceBelow) setPosition('below');
+      else if (rect.height <= spaceAbove) setPosition('above');
+      else setPosition(spaceBelow >= spaceAbove ? 'below' : 'above');
+    };
+    window.addEventListener('resize', handleResize);
+    return () => window.removeEventListener('resize', handleResize);
+  }, [y]);
 
   return (
     <div
       ref={popupRef}
       className={`fixed z-50 transform -translate-x-1/2 ${
-        shouldFlip ? '' : '-translate-y-full'
+        position === 'above' ? '-translate-y-full' : ''
       }`}
-      style={{ left: Math.min(Math.max(x, 170), window.innerWidth - 170), top: shouldFlip ? y + 24 : y }}
+      style={{
+        left: Math.min(Math.max(x, 170), window.innerWidth - 170),
+        top: position === 'above' ? y : y + 24,
+      }}
     >
-      <div className="bg-white dark:bg-slate-800 rounded-xl shadow-xl border border-gray-200 dark:border-slate-700 p-4 min-w-[260px] max-w-[min(340px,90vw)] max-h-[70vh] overflow-y-auto overflow-x-hidden relative thin-scrollbar">
+      <div className="bg-white dark:bg-slate-800 rounded-xl shadow-xl border border-gray-200 dark:border-slate-700 p-4 min-w-[260px] max-w-[min(340px,90vw)] max-h-[85vh] overflow-y-auto overflow-x-hidden relative thin-scrollbar">
         {/* Close button — visible on mobile */}
         <button
           onClick={onClose}
@@ -292,21 +333,33 @@ const WordDictionaryPopup: React.FC<WordDictionaryPopupProps> = ({
         {entry && !loading && (
           <div className="mb-3">
             {entry.definitionsEn && entry.definitionsEn.length > 0 ? (
-              <ul className="space-y-1.5">
-                {entry.definitionsEn.map((d, i) => (
-                  <li
-                    key={i}
-                    className="text-sm text-gray-700 dark:text-gray-300 leading-relaxed"
+              <>
+                <ul className="space-y-1.5">
+                  {(expandDefs ? entry.definitionsEn : entry.definitionsEn.slice(0, DEF_LIMIT)).map((d, i) => (
+                    <li
+                      key={i}
+                      className="text-sm text-gray-700 dark:text-gray-300 leading-relaxed"
+                    >
+                      {d.pos && (
+                        <span className="inline-block text-[10px] px-1.5 py-0.5 mr-1.5 align-middle bg-indigo-50 dark:bg-indigo-950 text-indigo-600 dark:text-indigo-400 rounded font-medium">
+                          {d.pos}
+                        </span>
+                      )}
+                      {d.definition}
+                    </li>
+                  ))}
+                </ul>
+                {entry.definitionsEn.length > DEF_LIMIT && (
+                  <button
+                    onClick={() => setExpandDefs((v) => !v)}
+                    className="mt-1.5 text-xs text-indigo-600 dark:text-indigo-400 hover:text-indigo-800 dark:hover:text-indigo-300 cursor-pointer transition-colors"
                   >
-                    {d.pos && (
-                      <span className="inline-block text-[10px] px-1.5 py-0.5 mr-1.5 align-middle bg-indigo-50 dark:bg-indigo-950 text-indigo-600 dark:text-indigo-400 rounded font-medium">
-                        {d.pos}
-                      </span>
-                    )}
-                    {d.definition}
-                  </li>
-                ))}
-              </ul>
+                    {expandDefs
+                      ? 'Show less'
+                      : `Show ${entry.definitionsEn.length - DEF_LIMIT} more meaning${entry.definitionsEn.length - DEF_LIMIT > 1 ? 's' : ''}`}
+                  </button>
+                )}
+              </>
             ) : (
               entry.definitionEn && (
                 <p className="text-sm text-gray-700 dark:text-gray-300 leading-relaxed">
