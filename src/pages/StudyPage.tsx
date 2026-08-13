@@ -2184,15 +2184,25 @@ const MobileTranscriptPanel: React.FC<{
   const handleAddWord = useCallback(async () => {
     if (!popup || !dictCurrentWord) return;
     const lemma = lemmatize(dictCurrentWord);
-    // Always store the Chinese meaning for later review, even in English study
-    // mode where the popup shows English definitions. In Chinese mode the shown
-    // definition already is Chinese; in English mode we fetch the Chinese entry
-    // (usually served from the local dictionary cache).
-    let meaningCn = showChinese ? (dictEntry?.definitionEn || '') : '';
-    if (!meaningCn) {
+    // Decouple stored fields from the current UI language. The popup's dictEntry
+    // is language-specific (zh-CN in Chinese mode, en in English mode), so its
+    // `definitionEn` field holds CHINESE when in Chinese mode — saving it as the
+    // English definition would leak Chinese into English mode. Always pull
+    // meaningCn from a zh-CN lookup and definitionEn (plus phonetic/audio/
+    // partOfSpeech/example/synonyms/antonyms) from an en lookup, regardless of UI
+    // language. The dictionary cache (keyed by word+target) makes the second call
+    // cheap when the word was already looked up in that language.
+    let meaningCn = '';
+    let enEntry = !showChinese && dictEntry ? dictEntry : null;
+    try {
+      const cnEntry = await lookupWord(lemma, 'zh-CN');
+      meaningCn = cnEntry?.definitionEn || '';
+    } catch {
+      /* keep empty */
+    }
+    if (!enEntry) {
       try {
-        const cnEntry = await lookupWord(lemma, 'zh-CN');
-        meaningCn = cnEntry?.definitionEn || '';
+        enEntry = await lookupWord(lemma, 'en');
       } catch {
         /* keep empty */
       }
@@ -2211,14 +2221,14 @@ const MobileTranscriptPanel: React.FC<{
       reviewCount: 0,
       lastReviewedAt: 0,
       nextReviewAt: tomorrowMs(),
-      phonetic: dictEntry?.phonetic || '',
-      audioUrl: dictEntry?.audioUrl || '',
-      partOfSpeech: dictEntry?.partOfSpeech || '',
-      definitionEn: dictEntry?.definitionEn || '',
-      example: dictEntry?.example || '',
-      synonyms: dictEntry?.synonyms || [],
-      antonyms: dictEntry?.antonyms || [],
-      dictionaryProvider: dictEntry?.provider || '',
+      phonetic: enEntry?.phonetic || '',
+      audioUrl: enEntry?.audioUrl || '',
+      partOfSpeech: enEntry?.partOfSpeech || '',
+      definitionEn: enEntry?.definitionEn || '',
+      example: enEntry?.example || '',
+      synonyms: enEntry?.synonyms || [],
+      antonyms: enEntry?.antonyms || [],
+      dictionaryProvider: enEntry?.provider || '',
     };
     onAddVocabulary(item);
     setPopup(null);

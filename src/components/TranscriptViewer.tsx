@@ -219,9 +219,21 @@ const TranscriptViewer: React.FC<TranscriptViewerProps> = ({
     });
   };
 
-  const handleAddWord = () => {
+  const handleAddWord = async () => {
     if (!popup) return;
     const lemma = lemmatize(popup.word);
+    // dictEntry is language-specific: in Chinese mode it is a zh-CN entry, whose
+    // `definitionEn` field holds Chinese. Reuse it as the English source only in
+    // English mode; otherwise fetch the en entry so definitionEn/phonetic/audio
+    // stay English regardless of UI language (prevents Chinese leaking into EN mode).
+    let enDict = !showChinese ? dictEntry : null;
+    if (!enDict) {
+      try {
+        enDict = await lookupWord(lemma, 'en');
+      } catch {
+        /* keep null */
+      }
+    }
     const item: VocabularyItem = {
       id: `vocab_${Date.now()}`,
       word: lemma,
@@ -237,14 +249,14 @@ const TranscriptViewer: React.FC<TranscriptViewerProps> = ({
       lastReviewedAt: 0,
       nextReviewAt: tomorrowMs(),
       // Merge dictionary data
-      phonetic: dictEntry?.phonetic || '',
-      audioUrl: dictEntry?.audioUrl || '',
-      partOfSpeech: dictEntry?.partOfSpeech || '',
-      definitionEn: dictEntry?.definitionEn || '',
-      example: dictEntry?.example || '',
-      synonyms: dictEntry?.synonyms || [],
-      antonyms: dictEntry?.antonyms || [],
-      dictionaryProvider: dictEntry?.provider || '',
+      phonetic: enDict?.phonetic || '',
+      audioUrl: enDict?.audioUrl || '',
+      partOfSpeech: enDict?.partOfSpeech || '',
+      definitionEn: enDict?.definitionEn || '',
+      example: enDict?.example || '',
+      synonyms: enDict?.synonyms || [],
+      antonyms: enDict?.antonyms || [],
+      dictionaryProvider: enDict?.provider || '',
     };
     onAddVocabulary(item);
     setPopup(null);
