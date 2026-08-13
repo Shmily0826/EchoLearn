@@ -24,33 +24,47 @@ function downloadBlob(content: string, filename: string, mimeType: string): void
 
 // ─── Vocabulary export ──────────────────────────────────────
 
-export function exportVocabularyCSV(items: VocabularyItem[]): void {
-  const header = 'Word,Meaning (CN),Part of Speech,Definition (EN),Context,Source Video,Date Added,Mastered,Review Count';
-  const rows = items.map((v) =>
-    [
-      v.word,
-      v.meaningCn,
-      v.partOfSpeech || '',
-      v.definitionEn || '',
-      v.context,
-      v.sourceVideoTitle || v.sourceVideoId,
-      new Date(v.addedAt).toLocaleDateString(),
-      v.mastered ? 'Yes' : 'No',
-      String(v.reviewCount),
-    ]
-      .map(escapeCSV)
-      .join(','),
-  );
+export function exportVocabularyCSV(items: VocabularyItem[], lang: 'en' | 'zh' = 'zh'): void {
+  const en = lang === 'en';
+  const header = en
+    ? 'Word,Definition (EN),Part of Speech,Context,Source Video,Date Added,Mastered,Review Count'
+    : 'Word,Meaning (CN),Part of Speech,Definition (EN),Context,Source Video,Date Added,Mastered,Review Count';
+  const rows = items.map((v) => {
+    const cols: string[] = en
+      ? [
+          v.word,
+          v.definitionEn || '',
+          v.partOfSpeech || '',
+          v.context,
+          v.sourceVideoTitle || v.sourceVideoId,
+          new Date(v.addedAt).toLocaleDateString(),
+          v.mastered ? 'Yes' : 'No',
+          String(v.reviewCount),
+        ]
+      : [
+          v.word,
+          v.meaningCn,
+          v.partOfSpeech || '',
+          v.definitionEn || '',
+          v.context,
+          v.sourceVideoTitle || v.sourceVideoId,
+          new Date(v.addedAt).toLocaleDateString(),
+          v.mastered ? 'Yes' : 'No',
+          String(v.reviewCount),
+        ];
+    return cols.map(escapeCSV).join(',');
+  });
   downloadBlob([header, ...rows].join('\n'), `echolearn_vocabulary_${dateStamp()}.csv`, 'text/csv;charset=utf-8');
 }
 
-export function exportVocabularyPDF(items: VocabularyItem[]): void {
+export function exportVocabularyPDF(items: VocabularyItem[], lang: 'en' | 'zh' = 'zh'): void {
+  const en = lang === 'en';
   const rows = items
     .map(
       (v) => `
       <tr>
         <td class="word">${esc(v.word)}</td>
-        <td>${esc(v.meaningCn || '-')}</td>
+        <td>${esc((en ? v.definitionEn : v.meaningCn) || '-')}</td>
         <td class="pos">${esc(v.partOfSpeech || '')}</td>
         <td class="ctx">${esc(truncate(v.context, 80))}</td>
         <td class="status">${v.mastered ? '✓' : `${v.reviewCount}/5`}</td>
@@ -61,7 +75,7 @@ export function exportVocabularyPDF(items: VocabularyItem[]): void {
   const html = buildPDFHTML(
     'Vocabulary List',
     `<table>
-      <thead><tr><th>Word</th><th>Meaning</th><th>POS</th><th>Context</th><th>Status</th></tr></thead>
+      <thead><tr><th>Word</th><th>${en ? 'Definition' : 'Meaning'}</th><th>POS</th><th>Context</th><th>Status</th></tr></thead>
       <tbody>${rows}</tbody>
     </table>`,
   );
@@ -70,31 +84,45 @@ export function exportVocabularyPDF(items: VocabularyItem[]): void {
 
 // ─── Sentences export ───────────────────────────────────────
 
-export function exportSentencesCSV(items: SentenceItem[]): void {
-  const header = 'Sentence,Meaning (CN),My Own Sentence,Source Video,Date Added,Mastered,Review Count';
-  const rows = items.map((s) =>
-    [
-      s.text,
-      s.meaningCn,
-      s.myOwnSentence || '',
-      s.sourceVideoTitle || s.sourceVideoId,
-      new Date(s.addedAt).toLocaleDateString(),
-      s.mastered ? 'Yes' : 'No',
-      String(s.reviewCount),
-    ]
-      .map(escapeCSV)
-      .join(','),
-  );
+export function exportSentencesCSV(items: SentenceItem[], lang: 'en' | 'zh' = 'zh'): void {
+  const en = lang === 'en';
+  // English mode: sentences have no English meaning field, so the Chinese meaning
+  // column is dropped entirely (DESIGN RULE: no Chinese in English mode).
+  const header = en
+    ? 'Sentence,My Own Sentence,Source Video,Date Added,Mastered,Review Count'
+    : 'Sentence,Meaning (CN),My Own Sentence,Source Video,Date Added,Mastered,Review Count';
+  const rows = items.map((s) => {
+    const cols: string[] = en
+      ? [
+          s.text,
+          s.myOwnSentence || '',
+          s.sourceVideoTitle || s.sourceVideoId,
+          new Date(s.addedAt).toLocaleDateString(),
+          s.mastered ? 'Yes' : 'No',
+          String(s.reviewCount),
+        ]
+      : [
+          s.text,
+          s.meaningCn,
+          s.myOwnSentence || '',
+          s.sourceVideoTitle || s.sourceVideoId,
+          new Date(s.addedAt).toLocaleDateString(),
+          s.mastered ? 'Yes' : 'No',
+          String(s.reviewCount),
+        ];
+    return cols.map(escapeCSV).join(',');
+  });
   downloadBlob([header, ...rows].join('\n'), `echolearn_sentences_${dateStamp()}.csv`, 'text/csv;charset=utf-8');
 }
 
-export function exportSentencesPDF(items: SentenceItem[]): void {
+export function exportSentencesPDF(items: SentenceItem[], lang: 'en' | 'zh' = 'zh'): void {
+  const en = lang === 'en';
   const rows = items
     .map(
       (s) => `
       <tr>
         <td class="ctx">${esc(truncate(s.text, 100))}</td>
-        <td>${esc(s.meaningCn || '-')}</td>
+        ${en ? '' : `<td>${esc(s.meaningCn || '-')}</td>`}
         <td class="ctx">${esc(truncate(s.myOwnSentence || '', 80))}</td>
         <td class="status">${s.mastered ? '✓' : `${s.reviewCount}/5`}</td>
       </tr>`,
@@ -104,7 +132,7 @@ export function exportSentencesPDF(items: SentenceItem[]): void {
   const html = buildPDFHTML(
     'Sentence Bank',
     `<table>
-      <thead><tr><th>Sentence</th><th>Meaning</th><th>My Own</th><th>Status</th></tr></thead>
+      <thead><tr><th>Sentence</th>${en ? '' : '<th>Meaning</th>'}<th>My Own</th><th>Status</th></tr></thead>
       <tbody>${rows}</tbody>
     </table>`,
   );

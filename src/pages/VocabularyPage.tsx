@@ -350,13 +350,13 @@ const VocabularyPage: React.FC = () => {
             {showExport && vocabulary.length > 0 && (
               <div className="absolute right-0 mt-1 w-36 bg-white dark:bg-slate-800 border border-gray-200 dark:border-slate-700 rounded-lg shadow-lg z-10 py-1">
                 <button
-                  onClick={() => { exportVocabularyCSV(filtered); setShowExport(false); }}
+                  onClick={() => { exportVocabularyCSV(filtered, lang); setShowExport(false); }}
                   className="w-full text-left px-3 py-1.5 text-sm text-gray-700 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-slate-700 cursor-pointer"
                 >
                   {t('vocab.exportCSV')}
                 </button>
                 <button
-                  onClick={() => { exportVocabularyPDF(filtered); setShowExport(false); }}
+                  onClick={() => { exportVocabularyPDF(filtered, lang); setShowExport(false); }}
                   className="w-full text-left px-3 py-1.5 text-sm text-gray-700 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-slate-700 cursor-pointer"
                 >
                   {t('vocab.exportPDF')}
