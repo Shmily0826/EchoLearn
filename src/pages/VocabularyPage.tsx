@@ -42,6 +42,28 @@ function reviewLabel(nextReviewAt: number, mastered: boolean, t: (key: string, v
   return { text: t('reviewLabel.dueIn', { n: days }), color: 'text-gray-400' };
 }
 
+/**
+ * Extract the sentence containing `word` from a longer block of text.
+ * Falls back to the full text if no clear sentence boundary is found.
+ * Used to keep saved example snippets compact without discarding the original context.
+ */
+function extractSentence(text: string, word: string): string {
+  if (!text || !word) return text;
+  const w = word.toLowerCase();
+  if (!text.toLowerCase().includes(w)) return text;
+  const sentences = text.match(/[^.!?]+[.!?]+["']?/g) || [];
+  const hit = sentences.find((s) => s.toLowerCase().includes(w));
+  return hit ? hit.trim() : text;
+}
+
+/** Return a short example for a vocab card: prefer dictionary example, else the sentence containing the word. */
+function getCompactExample(item: VocabularyItem): string {
+  if (item.example) return item.example;
+  const sentence = extractSentence(item.context, item.word);
+  if (sentence.length <= item.context.length * 0.85) return sentence;
+  return item.context;
+}
+
 const VocabularyPage: React.FC = () => {
   const navigate = useNavigate();
   const { t, lang } = useI18n();
@@ -562,23 +584,35 @@ const VocabularyPage: React.FC = () => {
                 </p>
               )}
 
-              {/* Example sentence — collapsed to 3 lines with expand toggle for long ones */}
+              {/* Example sentence — prefer a short dictionary example or the single
+                  sentence containing the word; keep it to 2 lines by default with an
+                  expand toggle to reveal the full original context. */}
               <div>
-                <p
-                  className={`text-sm text-gray-600 dark:text-gray-400 leading-relaxed ${
-                    expandedContextIds.has(item.id) ? '' : 'line-clamp-3'
-                  }`}
-                >
-                  &ldquo;{item.context}&rdquo;
-                </p>
-                {item.context.length > 160 && (
-                  <button
-                    onClick={() => toggleContextExpand(item.id)}
-                    className="mt-1 text-xs text-indigo-600 dark:text-indigo-400 hover:text-indigo-800 dark:hover:text-indigo-300 cursor-pointer transition-colors"
-                  >
-                    {expandedContextIds.has(item.id) ? t('wordCard.collapse') : t('wordCard.expand')}
-                  </button>
-                )}
+                {(() => {
+                  const compact = getCompactExample(item);
+                  const isExpanded = expandedContextIds.has(item.id);
+                  const displayText = isExpanded ? item.context : compact;
+                  const needsToggle = item.context.length > 90 || compact.length !== item.context.length;
+                  return (
+                    <>
+                      <p
+                        className={`text-sm text-gray-600 dark:text-gray-400 leading-relaxed ${
+                          isExpanded ? '' : 'line-clamp-2'
+                        }`}
+                      >
+                        &ldquo;{displayText}&rdquo;
+                      </p>
+                      {needsToggle && (
+                        <button
+                          onClick={() => toggleContextExpand(item.id)}
+                          className="mt-1 text-xs text-indigo-600 dark:text-indigo-400 hover:text-indigo-800 dark:hover:text-indigo-300 cursor-pointer transition-colors"
+                        >
+                          {isExpanded ? t('wordCard.collapse') : t('wordCard.expand')}
+                        </button>
+                      )}
+                    </>
+                  );
+                })()}
               </div>
 
               {/* Footer: source + date + toggle */}
