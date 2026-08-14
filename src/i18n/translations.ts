@@ -194,6 +194,7 @@ const translations: Record<string, Record<Lang, string>> = {
   'study.pasteManual':   { en: 'You can paste or upload the transcript manually below.', zh: '您可以在下方手动粘贴或上传字幕。' },
   'study.retry':         { en: 'Retry', zh: '重试' },
   'study.reloadTranscript': { en: 'Reload transcript', zh: '重新加载字幕' },
+  'study.transcriptLoaded': { en: 'Subtitles loaded — {count} lines in {time}', zh: '字幕获取成功，共 {count} 行，用时 {time}' },
   'study.dismiss':       { en: 'Dismiss & use manual import', zh: '忽略并使用手动导入' },
   'study.captionErrorFriendly': { en: 'Unable to fetch captions for this video', zh: '暂时无法获取该视频的字幕' },
   'study.captionErrorSuggestions': { en: 'Try again later, try a different video, or upload a subtitle file (SRT/VTT) manually.', zh: '你可以稍后重试、尝试其他视频，或手动上传字幕文件（SRT/VTT）。' },

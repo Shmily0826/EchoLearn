@@ -168,6 +168,25 @@ const StudyPage: React.FC = () => {
   // Auto-fetch status
   const [fetchingCaption, setFetchingCaption] = useState(false);
   const [captionError, setCaptionError] = useState<string | null>(null);
+  // Toast shown when a transcript fetch completes, including elapsed time.
+  const [fetchToast, setFetchToast] = useState<string | null>(null);
+  const fetchToastTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const fetchStartRef = useRef<number>(0);
+  const fetchResultRef = useRef<number | null>(null);
+  const beginFetch = useCallback(() => {
+    fetchStartRef.current = Date.now();
+    fetchResultRef.current = null;
+    beginFetch();
+  }, []);
+  const notifyFetchSuccess = useCallback((count: number) => {
+    const totalSec = Math.max(0, Math.round((Date.now() - fetchStartRef.current) / 1000));
+    const mins = Math.floor(totalSec / 60);
+    const secs = totalSec % 60;
+    const timeStr = mins > 0 ? `${mins}分${secs}秒` : `${secs}秒`;
+    setFetchToast(t('study.transcriptLoaded', { count, time: timeStr }));
+    if (fetchToastTimer.current) clearTimeout(fetchToastTimer.current);
+    fetchToastTimer.current = setTimeout(() => setFetchToast(null), 4500);
+  }, [t]);
   // Distinguish a genuine "this video has no captions" from a network/blocked
   // failure — the backend throws the same error shape for both, so we sniff the
   // message to give the user a precise reason instead of a generic error.
@@ -361,7 +380,7 @@ const StudyPage: React.FC = () => {
       const hasTranscript =
         !!saved.transcriptData || (saved.transcriptLines?.length ?? 0) > 0;
       if (saved.youtubeId && !hasTranscript) {
-        setFetchingCaption(true);
+        beginFetch();
         setCaptionError(null);
         const fetcher = (saved.platform === 'bilibili')
           ? fetchBilibiliTranscript(saved.youtubeId, undefined, saved.biliPage)
@@ -369,6 +388,7 @@ const StudyPage: React.FC = () => {
         fetcher
           .then(({ lines }) => {
             if (lines.length > 0) {
+              fetchResultRef.current = lines.length;
               const sLines = normalizeTranscriptToSentences(lines);
               setRawBlocks(lines);
               setSentenceLines(sLines);
@@ -387,7 +407,13 @@ const StudyPage: React.FC = () => {
               err instanceof Error ? err.message : 'Unknown error fetching captions',
             );
           })
-          .finally(() => setFetchingCaption(false));
+          .finally(() => {
+          setFetchingCaption(false);
+          if (fetchResultRef.current != null) {
+            notifyFetchSuccess(fetchResultRef.current);
+            fetchResultRef.current = null;
+          }
+        });
       }
     } else {
       // No saved session → pre-load a sample video so the Study UI (and the
@@ -396,7 +422,7 @@ const StudyPage: React.FC = () => {
       setVideoId(SAMPLE_VIDEO_ID);
       setPlatform('youtube');
       setSessionTitle(SAMPLE_VIDEO_TITLE);
-      setFetchingCaption(true);
+      beginFetch();
       setCaptionError(null);
       // Use the bundled full transcript for the sample video so the demo loads
       // instantly and never depends on a network fetch.
@@ -475,7 +501,7 @@ const StudyPage: React.FC = () => {
     const hasTranscript =
       !!saved.transcriptData || (saved.transcriptLines?.length ?? 0) > 0;
     if (saved.youtubeId && !hasTranscript) {
-      setFetchingCaption(true);
+      beginFetch();
       setCaptionError(null);
       const fetcher = (saved.platform === 'bilibili')
         ? fetchBilibiliTranscript(saved.youtubeId, undefined, saved.biliPage)
@@ -483,6 +509,7 @@ const StudyPage: React.FC = () => {
       fetcher
         .then(({ lines }) => {
           if (lines.length > 0) {
+              fetchResultRef.current = lines.length;
             const sLines = normalizeTranscriptToSentences(lines);
             setRawBlocks(lines);
             setSentenceLines(sLines);
@@ -501,7 +528,13 @@ const StudyPage: React.FC = () => {
             err instanceof Error ? err.message : 'Unknown error fetching captions',
           );
         })
-        .finally(() => setFetchingCaption(false));
+        .finally(() => {
+          setFetchingCaption(false);
+          if (fetchResultRef.current != null) {
+            notifyFetchSuccess(fetchResultRef.current);
+            fetchResultRef.current = null;
+          }
+        });
     }
 
     setVocabulary(loadVocabulary());
@@ -804,16 +837,22 @@ const StudyPage: React.FC = () => {
 
       refreshTitleForVideo(urlInput, fresh.id, id, () => getBilibiliVideoTitle(id, pg));
 
-      setFetchingCaption(true);
+      beginFetch();
       setCaptionError(null);
       fetchBilibiliTranscript(id, undefined, pg)
         .then(({ lines }) => {
-          if (lines.length > 0) persistTranscriptInto(fresh, lines);
+          if (lines.length > 0) { fetchResultRef.current = lines.length; persistTranscriptInto(fresh, lines); }
         })
         .catch((err) => {
           setCaptionError(err instanceof Error ? err.message : 'Unknown error fetching captions');
         })
-        .finally(() => setFetchingCaption(false));
+        .finally(() => {
+          setFetchingCaption(false);
+          if (fetchResultRef.current != null) {
+            notifyFetchSuccess(fetchResultRef.current);
+            fetchResultRef.current = null;
+          }
+        });
     } else {
       // YouTube
       const id = parseYouTubeId(urlInput);
@@ -841,16 +880,22 @@ const StudyPage: React.FC = () => {
       // empty sessionTitle — that let a stale title leak across videos.
       refreshTitleForVideo(urlInput, fresh.id, id, getVideoTitle);
 
-      setFetchingCaption(true);
+      beginFetch();
       setCaptionError(null);
       fetchYouTubeTranscript(id)
         .then(({ lines }) => {
-          if (lines.length > 0) persistTranscriptInto(fresh, lines);
+          if (lines.length > 0) { fetchResultRef.current = lines.length; persistTranscriptInto(fresh, lines); }
         })
         .catch((err) => {
           setCaptionError(err instanceof Error ? err.message : 'Unknown error fetching captions');
         })
-        .finally(() => setFetchingCaption(false));
+        .finally(() => {
+          setFetchingCaption(false);
+          if (fetchResultRef.current != null) {
+            notifyFetchSuccess(fetchResultRef.current);
+            fetchResultRef.current = null;
+          }
+        });
     }
   }, [urlInput, rawBlocks, sentenceLines, sessionTitle, session, videoId, persistSession]);
 
@@ -883,13 +928,14 @@ const StudyPage: React.FC = () => {
   const handleReloadTranscript = useCallback(() => {
     if (!videoId) return;
     setCaptionError(null);
-    setFetchingCaption(true);
+    beginFetch();
     const fetcher = platform === 'bilibili'
       ? fetchBilibiliTranscript(videoId, undefined, biliPage)
       : fetchYouTubeTranscript(videoId);
     fetcher
       .then(({ lines }) => {
         if (lines.length > 0) {
+              fetchResultRef.current = lines.length;
           const sLines = normalizeTranscriptToSentences(lines);
           setRawBlocks(lines);
           setSentenceLines(sLines);
@@ -903,7 +949,13 @@ const StudyPage: React.FC = () => {
       .catch((err) => {
         setCaptionError(err instanceof Error ? err.message : 'Unknown error');
       })
-      .finally(() => setFetchingCaption(false));
+      .finally(() => {
+          setFetchingCaption(false);
+          if (fetchResultRef.current != null) {
+            notifyFetchSuccess(fetchResultRef.current);
+            fetchResultRef.current = null;
+          }
+        });
   }, [videoId, platform, session]);
 
   // ── Switch Bilibili part (分p) ────────────────────────────
@@ -926,11 +978,12 @@ const StudyPage: React.FC = () => {
         saveCurrentSession(withPart);
         setSession(withPart);
       }
-      setFetchingCaption(true);
+      beginFetch();
       setCaptionError(null);
       fetchBilibiliTranscript(videoId, undefined, part)
         .then(({ lines }) => {
           if (lines.length > 0) {
+              fetchResultRef.current = lines.length;
             const sLines = normalizeTranscriptToSentences(lines);
             setRawBlocks(lines);
             setSentenceLines(sLines);
@@ -950,7 +1003,13 @@ const StudyPage: React.FC = () => {
         .catch((err) => {
           setCaptionError(err instanceof Error ? err.message : 'Failed to load this part');
         })
-        .finally(() => setFetchingCaption(false));
+        .finally(() => {
+          setFetchingCaption(false);
+          if (fetchResultRef.current != null) {
+            notifyFetchSuccess(fetchResultRef.current);
+            fetchResultRef.current = null;
+          }
+        });
     },
     [videoId, session, biliPage, biliParts],
   );
@@ -1275,6 +1334,24 @@ const StudyPage: React.FC = () => {
                 <button
                   onClick={() => setResumeToast(null)}
                   className="ml-auto text-blue-400 hover:text-blue-600 dark:hover:text-blue-200 cursor-pointer"
+                >
+                  <svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                    <path strokeLinecap="round" strokeLinejoin="round" d="M6 18L18 6M6 6l12 12" />
+                  </svg>
+                </button>
+              </div>
+            )}
+
+            {/* Transcript fetch success toast (with elapsed time) */}
+            {fetchToast && (
+              <div className="mt-2 flex items-center gap-2 px-3 py-2 bg-emerald-50 dark:bg-emerald-950/40 border border-emerald-200 dark:border-emerald-800 rounded-lg text-sm text-emerald-700 dark:text-emerald-300">
+                <svg className="w-4 h-4 shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                  <path strokeLinecap="round" strokeLinejoin="round" d="M9 12.75L11.25 15 15 9.75M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
+                </svg>
+                <span>{fetchToast}</span>
+                <button
+                  onClick={() => setFetchToast(null)}
+                  className="ml-auto text-emerald-400 hover:text-emerald-600 dark:hover:text-emerald-200 cursor-pointer"
                 >
                   <svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
                     <path strokeLinecap="round" strokeLinejoin="round" d="M6 18L18 6M6 6l12 12" />
