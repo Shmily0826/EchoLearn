@@ -1,4 +1,5 @@
 import type { VocabularyItem, SentenceItem } from '../types';
+import { extractSentence } from '../utils/sentence';
 
 // ─── CSV helpers ─────────────────────────────────────────────
 
@@ -30,12 +31,13 @@ export function exportVocabularyCSV(items: VocabularyItem[], lang: 'en' | 'zh' =
     ? 'Word,Definition (EN),Part of Speech,Context,Source Video,Date Added,Mastered,Review Count'
     : 'Word,Meaning (CN),Part of Speech,Definition (EN),Context,Source Video,Date Added,Mastered,Review Count';
   const rows = items.map((v) => {
+    const ctx = extractSentence(v.context, v.word);
     const cols: string[] = en
       ? [
           v.word,
           v.definitionEn || '',
           v.partOfSpeech || '',
-          v.context,
+          ctx,
           v.sourceVideoTitle || v.sourceVideoId,
           new Date(v.addedAt).toLocaleDateString(),
           v.mastered ? 'Yes' : 'No',
@@ -46,7 +48,7 @@ export function exportVocabularyCSV(items: VocabularyItem[], lang: 'en' | 'zh' =
           v.meaningCn,
           v.partOfSpeech || '',
           v.definitionEn || '',
-          v.context,
+          ctx,
           v.sourceVideoTitle || v.sourceVideoId,
           new Date(v.addedAt).toLocaleDateString(),
           v.mastered ? 'Yes' : 'No',
@@ -66,7 +68,7 @@ export function exportVocabularyPDF(items: VocabularyItem[], lang: 'en' | 'zh' =
         <td class="word">${esc(v.word)}</td>
         <td>${esc((en ? v.definitionEn : v.meaningCn) || '-')}</td>
         <td class="pos">${esc(v.partOfSpeech || '')}</td>
-        <td class="ctx">${esc(truncate(v.context, 80))}</td>
+        <td class="ctx">${esc(truncate(extractSentence(v.context, v.word), 80))}</td>
         <td class="status">${v.mastered ? '✓' : `${v.reviewCount}/5`}</td>
       </tr>`,
     )

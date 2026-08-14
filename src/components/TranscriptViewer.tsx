@@ -3,6 +3,7 @@ import { useI18n } from '../i18n/I18nContext';
 import type { TranscriptLine, VocabularyItem, SentenceItem, DictionaryEntry } from '../types';
 import { tomorrowMs } from '../utils/storage';
 import { lemmatize } from '../utils/lemmatizer';
+import { extractSentence } from '../utils/sentence';
 import { lookupWord, isKnownProperNoun } from '../services/dictionaryService';
 import { translateWordFast } from '../services/translationService';
 import { getWordAnalysis, type WordAnalysis } from '../services/wordAnalysisService';
@@ -239,7 +240,8 @@ const TranscriptViewer: React.FC<TranscriptViewerProps> = ({
       word: lemma,
       lemma,
       meaningCn: aiAnalysis?.meaningZh || translation || '',
-      context: popup.context,
+      context: extractSentence(popup.context, lemma),
+      fullContext: popup.context,
       sourceVideoId: videoId,
       sourceVideoTitle: videoTitle,
       sourceTimestamp: popup.startTime,

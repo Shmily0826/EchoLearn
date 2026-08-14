@@ -15,6 +15,7 @@ import { exportVocabularyCSV, exportVocabularyPDF } from '../services/exportServ
 import { translateWords, translateWord } from '../services/translationService';
 import { isLocalNoTranslation } from '../services/aiAnalysis';
 import { jumpToSource, formatTimestamp, youtubeUrlAt } from '../utils/jumpToSource';
+import { extractSentence } from '../utils/sentence';
 import type { VocabularyItem, VideoStudySession } from '../types';
 
 type FilterMode = 'all' | 'mastered' | 'unmastered';
@@ -43,25 +44,13 @@ function reviewLabel(nextReviewAt: number, mastered: boolean, t: (key: string, v
 }
 
 /**
- * Extract the sentence containing `word` from a longer block of text.
- * Falls back to the full text if no clear sentence boundary is found.
- * Used to keep saved example snippets compact without discarding the original context.
+ * Return a short example for a vocab card. New items already store a single
+ * sentence in `context`; this also trims legacy items whose `context` is still a
+ * long caption line. Prefers the dictionary `example` when available.
  */
-function extractSentence(text: string, word: string): string {
-  if (!text || !word) return text;
-  const w = word.toLowerCase();
-  if (!text.toLowerCase().includes(w)) return text;
-  const sentences = text.match(/[^.!?]+[.!?]+["']?/g) || [];
-  const hit = sentences.find((s) => s.toLowerCase().includes(w));
-  return hit ? hit.trim() : text;
-}
-
-/** Return a short example for a vocab card: prefer dictionary example, else the sentence containing the word. */
 function getCompactExample(item: VocabularyItem): string {
   if (item.example) return item.example;
-  const sentence = extractSentence(item.context, item.word);
-  if (sentence.length <= item.context.length * 0.85) return sentence;
-  return item.context;
+  return extractSentence(item.context, item.word);
 }
 
 const VocabularyPage: React.FC = () => {
@@ -590,9 +579,10 @@ const VocabularyPage: React.FC = () => {
               <div>
                 {(() => {
                   const compact = getCompactExample(item);
+                  const full = item.fullContext || item.context;
                   const isExpanded = expandedContextIds.has(item.id);
-                  const displayText = isExpanded ? item.context : compact;
-                  const needsToggle = item.context.length > 90 || compact.length !== item.context.length;
+                  const displayText = isExpanded ? full : compact;
+                  const needsToggle = !!item.fullContext && item.fullContext !== item.context && item.fullContext.length > 90;
                   return (
                     <>
                       <p
@@ -770,9 +760,14 @@ const VocabularyPage: React.FC = () => {
                       )}
                     </td>
                     <td className="px-4 py-2.5 hidden md:table-cell">
-                      <span className="text-gray-500 dark:text-gray-400 line-clamp-2" title={item.context}>
-                        &ldquo;{item.context}&rdquo;
-                      </span>
+                      {(() => {
+                        const ctx = item.fullContext || extractSentence(item.context, item.word);
+                        return (
+                          <span className="text-gray-500 dark:text-gray-400 line-clamp-2" title={ctx}>
+                            &ldquo;{ctx}&rdquo;
+                          </span>
+                        );
+                      })()}
                     </td>
                     <td className="px-4 py-2.5 hidden lg:table-cell">
                       {item.sourceVideoId ? (

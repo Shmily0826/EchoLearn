@@ -11,6 +11,7 @@ import { parseYouTubeId, parseStartTime } from '../utils/youtube';
 import { detectPlatform, parseBilibiliId, parseBilibiliStartTime, parseBilibiliPage } from '../utils/bilibili';
 import { normalizeTranscriptToSentences } from '../utils/transcriptNormalizer';
 import { lemmatize } from '../utils/lemmatizer';
+import { extractSentence } from '../utils/sentence';
 import { SEEK_REQUEST_EVENT, type SeekRequestDetail } from '../utils/jumpToSource';
 import { analyzeTranscript, isLocalNoTranslation } from '../services/aiAnalysis';
 import { trackEvent } from '../services/analytics';
@@ -2212,7 +2213,8 @@ const MobileTranscriptPanel: React.FC<{
       word: lemma,
       lemma,
       meaningCn,
-      context: popup.context,
+      context: extractSentence(popup.context, lemma),
+      fullContext: popup.context,
       sourceVideoId: videoId,
       sourceVideoTitle: videoTitle,
       sourceTimestamp: popup.startTime,

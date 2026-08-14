@@ -49,7 +49,10 @@ export interface VocabularyItem {
   word: string;              // the word itself (new entries store lemma/base form)
   lemma?: string;            // dictionary base form, e.g. "run" for original "running"
   meaningCn: string;         // Chinese meaning / translation
-  context: string;           // the full sentence where the word appeared
+  context: string;           // the single sentence where the word appeared
+  fullContext?: string;      // the original transcript line (may span multiple
+                             // sentences); expand target on the vocab card. Not
+                             // present on older items (falls back to `context`).
   sourceVideoId: string;     // YouTube video ID this word was learned from
   sourceVideoTitle?: string; // human-readable video title (optional)
   addedAt: number;           // when the word was saved (unix ms)
