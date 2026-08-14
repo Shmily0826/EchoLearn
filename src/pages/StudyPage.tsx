@@ -173,10 +173,13 @@ const StudyPage: React.FC = () => {
   const fetchToastTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const fetchStartRef = useRef<number>(0);
   const fetchResultRef = useRef<number | null>(null);
+  // Live "elapsed wait" seconds shown during the (often multi-minute) fetch.
+  const [fetchElapsed, setFetchElapsed] = useState(0);
+  const fetchTickRef = useRef<number | null>(null);
   const beginFetch = useCallback(() => {
     fetchStartRef.current = Date.now();
     fetchResultRef.current = null;
-    beginFetch();
+    setFetchingCaption(true);
   }, []);
   const notifyFetchSuccess = useCallback((count: number) => {
     const totalSec = Math.max(0, Math.round((Date.now() - fetchStartRef.current) / 1000));
@@ -187,6 +190,26 @@ const StudyPage: React.FC = () => {
     if (fetchToastTimer.current) clearTimeout(fetchToastTimer.current);
     fetchToastTimer.current = setTimeout(() => setFetchToast(null), 4500);
   }, [t]);
+  // Live "elapsed wait" ticker: start when a fetch begins, stop + reset when it
+  // ends, so the user sees progress instead of a frozen spinner during the
+  // (often 1–3 min) transcript fetch.
+  useEffect(() => {
+    if (!fetchingCaption) {
+      setFetchElapsed(0);
+      if (fetchTickRef.current !== null) {
+        clearInterval(fetchTickRef.current);
+        fetchTickRef.current = null;
+      }
+      return;
+    }
+    fetchTickRef.current = setInterval(() => setFetchElapsed((s) => s + 1), 1000);
+    return () => {
+      if (fetchTickRef.current !== null) {
+        clearInterval(fetchTickRef.current);
+        fetchTickRef.current = null;
+      }
+    };
+  }, [fetchingCaption]);
   // Distinguish a genuine "this video has no captions" from a network/blocked
   // failure — the backend throws the same error shape for both, so we sniff the
   // message to give the user a precise reason instead of a generic error.
@@ -1614,7 +1637,10 @@ const StudyPage: React.FC = () => {
                   <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z" />
                 </svg>
                 <p className="text-sm">{platform === 'bilibili' ? t('study.fetchingFullBili') : t('study.fetchingFull')}</p>
-                <p className="text-xs mt-1 text-gray-300 dark:text-gray-500">{platform === 'bilibili' ? t('study.mayTakeBili') : t('study.mayTake')}</p>
+                <p className="text-xs mt-1 text-gray-300 dark:text-gray-500">
+                  {platform === 'bilibili' ? t('study.mayTakeBili') : t('study.mayTake')}
+                  {' · '}{t('study.fetchElapsed', { sec: fetchElapsed })}
+                </p>
               </div>
             )}
 
@@ -1675,7 +1701,7 @@ const StudyPage: React.FC = () => {
                       <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
                       <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z" />
                     </svg>
-                    {t('study.fetchingCaption')}
+                    {t('study.fetchingCaption')} <span className="tabular-nums opacity-80">· {fetchElapsed}s</span>
                   </span>
                 )}
                 {/* Count selectors + CEFR + Analyze (only when transcript loaded) */}
@@ -1811,7 +1837,10 @@ const StudyPage: React.FC = () => {
                   <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z" />
                 </svg>
                 <p className="text-sm">{platform === 'bilibili' ? t('study.fetchingFullBili') : t('study.fetchingFull')}</p>
-                <p className="text-xs mt-1 text-gray-300 dark:text-gray-500">{platform === 'bilibili' ? t('study.mayTakeBili') : t('study.mayTake')}</p>
+                <p className="text-xs mt-1 text-gray-300 dark:text-gray-500">
+                  {platform === 'bilibili' ? t('study.mayTakeBili') : t('study.mayTake')}
+                  {' · '}{t('study.fetchElapsed', { sec: fetchElapsed })}
+                </p>
               </div>
             ) : captionError ? (
               <div className="flex flex-col items-center justify-center py-12">
