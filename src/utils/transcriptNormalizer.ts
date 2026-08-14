@@ -32,6 +32,11 @@ const ABBREVIATIONS = new Set([
 // are left untouched.
 const WORD_THRESHOLD = 30;
 const CHAR_THRESHOLD = 180;
+// Minimum size for a clause-level fragment. Below this we keep accumulating past
+// the comma/semicolon so we never produce 3–5 word stubs (which read as if the
+// sentence was arbitrarily chopped).
+const MIN_PIECE_WORDS = 8;
+const MIN_PIECE_CHARS = 45;
 
 /**
  * Determine whether a period at `pos` in `text` is a real sentence ending.
@@ -184,20 +189,40 @@ function splitLongSegment(
     return [{ text: text.trim(), start: absStart, end: absStart + text.length }];
   }
 
+  // Greedy split: only break at a boundary once the current accumulated piece has
+  // reached the minimum size. Short fragments are kept attached and carried into
+  // the next candidate, so we never emit 3–5 word stubs.
   const pieces: { text: string; start: number; end: number }[] = [];
   let cur = 0;
   for (const s of splits) {
-    const piece = text.slice(cur, s + 1).replace(/\s+/g, ' ').trim();
-    if (piece) {
-      pieces.push({ text: piece, start: absStart + cur, end: absStart + s + 1 });
+    const candidate = text.slice(cur, s + 1).replace(/\s+/g, ' ').trim();
+    const candWords = candidate.split(/\s+/).filter(Boolean).length;
+    if (candWords >= MIN_PIECE_WORDS || candidate.length >= MIN_PIECE_CHARS) {
+      pieces.push({ text: candidate, start: absStart + cur, end: absStart + s + 1 });
+      cur = s + 1;
     }
-    cur = s + 1;
+    // else: piece still too short → skip this boundary and keep accumulating.
   }
+
   const tail = text.slice(cur).replace(/\s+/g, ' ').trim();
   if (tail) {
-    pieces.push({ text: tail, start: absStart + cur, end: absStart + text.length });
+    // If the trailing remainder is tiny, merge it into the last piece instead of
+    // leaving a stub line.
+    if (pieces.length > 0) {
+      const last = pieces[pieces.length - 1];
+      pieces[pieces.length - 1] = {
+        text: (last.text + ' ' + tail).replace(/\s+/g, ' ').trim(),
+        start: last.start,
+        end: absStart + text.length,
+      };
+    } else {
+      pieces.push({ text: tail, start: absStart + cur, end: absStart + text.length });
+    }
   }
-  return pieces;
+
+  return pieces.length > 0
+    ? pieces
+    : [{ text: text.trim(), start: absStart, end: absStart + text.length }];
 }
 
 // ── Main normalizer ────────────────────────────────────────────
