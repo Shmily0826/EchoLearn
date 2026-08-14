@@ -327,13 +327,10 @@ const SentencesPage: React.FC = () => {
                   English mode: never show the Chinese translation. Sentence items have no
                   English-definition field, so we just hide it (DESIGN RULE: English UI must not
                   show Chinese). Chinese mode: keep the full experience (meaningCn + inline edit). */}
-              {lang === 'en' ? (
-                item.definitionEn ? (
-                  <p className="text-sm text-gray-700 dark:text-gray-300 mb-3">{item.definitionEn}</p>
-                ) : (
-                  <p className="text-sm text-gray-400 italic mb-3">{t('sent.noEnglishDef')}</p>
-                )
-              ) : editingMeaningId === item.id ? (
+              {/* English mode: SentenceItem has no English-definition field, so we
+                  intentionally show no translation (DESIGN RULE: English UI must not
+                  show Chinese). The sentence itself is the English learning material. */}
+              {lang === 'en' ? null : editingMeaningId === item.id ? (
                 <div className="flex gap-1.5 mb-3">
                   <input
                     type="text"
