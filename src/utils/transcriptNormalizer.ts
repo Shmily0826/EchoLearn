@@ -25,6 +25,14 @@ const ABBREVIATIONS = new Set([
   'no', 'nos', 'fig', 'eq',
 ]);
 
+// ── Long-line segmentation thresholds ──────────────────────────
+// A transcript segment (already split on .!?) that still exceeds these limits
+// is further split on clause boundaries (commas/semicolons outside quotes) so
+// that no single transcript line is unreasonably long. Normal short sentences
+// are left untouched.
+const WORD_THRESHOLD = 30;
+const CHAR_THRESHOLD = 180;
+
 /**
  * Determine whether a period at `pos` in `text` is a real sentence ending.
  *
@@ -118,6 +126,78 @@ function isSentenceEnd(text: string, pos: number): boolean {
   }
 
   return true;
+}
+
+// ── Long-line clause splitter ──────────────────────────────────
+
+function isQuoteChar(c: string): boolean {
+  return (
+    c === '"' ||
+    c === "'" ||
+    c === '\u201C' ||
+    c === '\u201D' ||
+    c === '\u2018' ||
+    c === '\u2019'
+  );
+}
+
+function isClauseBoundary(c: string): boolean {
+  return c === ',' || c === ';' || c === ':' || c === '\u2014' || c === '\u2013';
+}
+
+/**
+ * Split a long text segment into shorter clause-level pieces, preserving the
+ * absolute character offsets within `fullText` so callers can map timestamps.
+ *
+ * Only triggers when the segment exceeds WORD_THRESHOLD / CHAR_THRESHOLD. Splits
+ * on commas / semicolons / dashes / colons that fall OUTSIDE quotation marks, so
+ * quoted speech (which may itself contain many commas) is kept intact. A quote
+ * that has no sentence punctuation and exceeds the threshold stays as one line
+ * (a single spoken utterance) — an accepted residual case.
+ */
+function splitLongSegment(
+  text: string,
+  absStart: number,
+): { text: string; start: number; end: number }[] {
+  const words = text.split(/\s+/).filter(Boolean);
+  if (words.length <= WORD_THRESHOLD && text.length <= CHAR_THRESHOLD) {
+    return [{ text: text.trim(), start: absStart, end: absStart + text.length }];
+  }
+
+  const splits: number[] = [];
+  let inQuote = false;
+  for (let i = 0; i < text.length; i++) {
+    const c = text[i];
+    if (isQuoteChar(c)) {
+      const prev = i > 0 ? text[i - 1] : ' ';
+      const next = i < text.length - 1 ? text[i + 1] : ' ';
+      // A quote char flanked by word characters is a contraction apostrophe
+      // (e.g. "They've"), not a quotation delimiter.
+      const isDelim = !(/\w/.test(prev) && /\w/.test(next));
+      if (isDelim) inQuote = !inQuote;
+      continue;
+    }
+    if (!inQuote && isClauseBoundary(c)) splits.push(i);
+  }
+
+  if (splits.length === 0) {
+    return [{ text: text.trim(), start: absStart, end: absStart + text.length }];
+  }
+
+  const pieces: { text: string; start: number; end: number }[] = [];
+  let cur = 0;
+  for (const s of splits) {
+    const piece = text.slice(cur, s + 1).replace(/\s+/g, ' ').trim();
+    if (piece) {
+      pieces.push({ text: piece, start: absStart + cur, end: absStart + s + 1 });
+    }
+    cur = s + 1;
+  }
+  const tail = text.slice(cur).replace(/\s+/g, ' ').trim();
+  if (tail) {
+    pieces.push({ text: tail, start: absStart + cur, end: absStart + text.length });
+  }
+  return pieces;
 }
 
 // ── Main normalizer ────────────────────────────────────────────
@@ -234,44 +314,52 @@ export function normalizeTranscriptToSentences(
   }
 
   // ── Step 4: Build sentence lines with proportional timestamps ─
-  const result: TranscriptLine[] = [];
+  // First pass: split on sentence-ending punctuation (.!? with abbreviation and
+  // quote protection). Store each segment's RAW slice + absolute char offsets.
+  const segments: { raw: string; start: number; end: number }[] = [];
   let startIdx = 0;
 
   for (const endIdx of sentenceEnds) {
-    const text = fullText.slice(startIdx, endIdx + 1).replace(/\s+/g, ' ').trim();
-    if (text) {
-      result.push({
-        id: nextSentenceId(),
-        start: timeAt(startIdx),
-        end: timeAt(endIdx),
-        text,
-      });
-    }
+    const raw = fullText.slice(startIdx, endIdx + 1);
+    const text = raw.replace(/\s+/g, ' ').trim();
+    if (text) segments.push({ raw, start: startIdx, end: endIdx + 1 });
     startIdx = endIdx + 1;
   }
 
   // Flush remaining text after the last sentence-ending punctuation
-  const remainder = fullText.slice(startIdx).replace(/\s+/g, ' ').trim();
+  const remainderRaw = fullText.slice(startIdx);
+  const remainder = remainderRaw.replace(/\s+/g, ' ').trim();
   if (remainder) {
-    const rStart = timeAt(startIdx);
-    const lastCharPos = Math.min(
-      startIdx + remainder.length - 1,
-      fullText.length - 1,
-    );
-    let rEnd = timeAt(lastCharPos);
-    // Ensure the remainder has a non-zero duration if possible
-    if (rEnd <= rStart) {
-      rEnd = Math.max(
-        rStart + Math.max(remainder.split(/\s+/).length * 0.4, 1),
-        rStart + 1,
-      );
+    segments.push({ raw: remainderRaw, start: startIdx, end: startIdx + remainderRaw.length });
+  }
+
+  // Second pass: split any segment that is still too long into shorter
+  // clause-level lines (commas/semicolons outside quotes). Each sub-segment keeps
+  // its absolute char offset so timing stays proportional via timeAt().
+  const finalSegments: { text: string; start: number; end: number }[] = [];
+  for (const seg of segments) {
+    const collapsed = seg.raw.replace(/\s+/g, ' ').trim();
+    const words = collapsed.split(/\s+/).filter(Boolean);
+    if (words.length <= WORD_THRESHOLD && collapsed.length <= CHAR_THRESHOLD) {
+      finalSegments.push({ text: collapsed, start: seg.start, end: seg.end });
+      continue;
     }
-    result.push({
-      id: nextSentenceId(),
-      start: rStart,
-      end: rEnd,
-      text: remainder,
-    });
+    for (const sub of splitLongSegment(seg.raw, seg.start)) {
+      finalSegments.push(sub);
+    }
+  }
+
+  const result: TranscriptLine[] = [];
+  for (const seg of finalSegments) {
+    const t = seg.text.trim();
+    if (!t) continue;
+    const s = timeAt(seg.start);
+    let e = timeAt(Math.max(seg.start, seg.end - 1));
+    if (e <= s) {
+      // Ensure a non-zero duration for degenerate (single-char) segments.
+      e = Math.max(s + Math.max(t.split(/\s+/).length * 0.4, 1), s + 1);
+    }
+    result.push({ id: nextSentenceId(), start: s, end: e, text: t });
   }
 
   return result;
