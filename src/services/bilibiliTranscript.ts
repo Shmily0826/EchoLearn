@@ -31,7 +31,9 @@ async function fetchBilibiliFromWorker(
   const qs = `bvid=${encodeURIComponent(
     bvid,
   )}&lang=${encodeURIComponent(lang)}${part ? `&p=${part}` : ''}`;
-  return fetchWithTimeout(`${CF_WORKER_URL}/api/bilibili?${qs}`, { timeoutMs: 18000 });
+  // ASR on the Worker side can take 40-90s (audio download + Whisper). Give it
+  // enough headroom so a slow-but-valid transcription isn't aborted early.
+  return fetchWithTimeout(`${CF_WORKER_URL}/api/bilibili?${qs}`, { timeoutMs: 120000 });
 }
 
 async function fetchBilibiliFromVps(
@@ -41,8 +43,19 @@ async function fetchBilibiliFromVps(
 ): Promise<Response> {
   let url = `https://www.bilibili.com/video/${encodeURIComponent(bvid)}`;
   if (part) url += `?p=${encodeURIComponent(part)}`;
-  const vpsUrl = `${VPS_API_URL}/api/transcript?${new URLSearchParams({ url, lang })}`;
-  return fetchWithTimeout(vpsUrl, { timeoutMs: 35000 });
+
+  // Try the native subtitle route first. For Bilibili this usually 404s because
+  // the video has no English CC, so keep the timeout short.
+  const transcriptUrl = `${VPS_API_URL}/api/transcript?${new URLSearchParams({ url, lang })}`;
+  const transcriptRes = await fetchWithTimeout(transcriptUrl, { timeoutMs: 20000 });
+  if (transcriptRes.ok) return transcriptRes;
+
+  // Fall back to Whisper ASR on the VPS. This downloads the audio and runs
+  // Groq whisper-large-v3-turbo; with Plan C routing the media CDN direct it
+  // usually completes in 30-90s.
+  console.warn('[EchoLearn] VPS /api/transcript missed, falling back to VPS /api/asr');
+  const asrUrl = `${VPS_API_URL}/api/asr?${new URLSearchParams({ url })}`;
+  return fetchWithTimeout(asrUrl, { timeoutMs: 150000 });
 }
 
 /**
