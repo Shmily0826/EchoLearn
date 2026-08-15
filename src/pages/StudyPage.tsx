@@ -751,14 +751,21 @@ const StudyPage: React.FC = () => {
   }, [displayLines]);
 
   // ── Filtered data for current video ────────────────────────
-  const filteredVocabulary = useMemo(
-    () => (videoId ? vocabulary.filter((v) => v.sourceVideoId === videoId) : vocabulary),
-    [vocabulary, videoId],
-  );
-  const filteredSentences = useMemo(
-    () => (videoId ? sentences.filter((s) => s.sourceVideoId === videoId) : sentences),
-    [sentences, videoId],
-  );
+  const filteredVocabulary = useMemo(() => {
+    if (videoId) return vocabulary.filter((v) => v.sourceVideoId === videoId);
+    // No current video ID. Only fall back to the entire collection when there is
+    // genuinely no video loaded at all (the "browse all" / cleared-session view).
+    // When a video IS on screen but its ID is still unknown — e.g. a b23.tv
+    // short link that hasn't resolved yet, or a failed load on mobile — show
+    // nothing instead of dumping every collected item under that one video,
+    // which is confusing. `handleClearSession` clears both `session` and
+    // `videoId`, so the intentional browse-all view still shows everything.
+    return session ? [] : vocabulary;
+  }, [vocabulary, videoId, session]);
+  const filteredSentences = useMemo(() => {
+    if (videoId) return sentences.filter((s) => s.sourceVideoId === videoId);
+    return session ? [] : sentences;
+  }, [sentences, videoId, session]);
 
   // Derived sets for quick lookup
   const savedWords = useMemo(

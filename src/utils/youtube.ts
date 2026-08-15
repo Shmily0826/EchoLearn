@@ -7,22 +7,30 @@
  *   - https://www.youtube.com/embed/dQw4w9WgXcQ
  *   - https://www.youtube.com/watch?v=dQw4w9WgXcQ&t=120
  *   - Plain video ID: dQw4w9WgXcQ
+ *   - Share text with a leading title: "Check this https://youtu.be/dQw4w9WgXcQ"
  *
  * @returns The 11-character video ID, or null if not recognized.
  */
+import { extractFirstUrl } from './urlExtract';
+
 export function parseYouTubeId(input: string): string | null {
   if (!input) return null;
 
   const trimmed = input.trim();
 
-  // Plain 11-character ID
+  // Plain 11-character ID — checked on the raw input first so a bare ID is
+  // never mistaken for share text.
   if (/^[a-zA-Z0-9_-]{11}$/.test(trimmed)) {
     return trimmed;
   }
 
+  // Share text may include a title before the URL — extract just the URL.
+  const extracted = extractFirstUrl(input);
+  if (!extracted) return null;
+
   // Try parsing as URL
   try {
-    const url = new URL(trimmed);
+    const url = new URL(extracted);
 
     // youtu.be/<id>
     if (url.hostname === 'youtu.be') {

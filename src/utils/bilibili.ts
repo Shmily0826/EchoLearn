@@ -1,4 +1,5 @@
 import type { VideoPlatform } from '../types';
+import { extractFirstUrl } from './urlExtract';
 
 /**
  * Detect which platform a URL / ID belongs to.
@@ -37,7 +38,11 @@ export function detectPlatform(input: string): VideoPlatform | null {
  */
 export function parseBilibiliId(input: string): string | null {
   if (!input) return null;
-  const trimmed = input.trim();
+  // Share text often includes a title before the URL, e.g.
+  // "【【Easy English】...】 https://b23.tv/nbSyQzx". Pull the URL out first so
+  // the rest of the parser only ever sees a clean URL (or a bare BV id).
+  const extracted = extractFirstUrl(input);
+  const trimmed = (extracted ?? input).trim();
 
   // Plain BV ID
   if (/^BV[a-zA-Z0-9]{10}$/i.test(trimmed)) {
