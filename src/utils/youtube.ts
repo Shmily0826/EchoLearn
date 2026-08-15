@@ -11,7 +11,7 @@
  *
  * @returns The 11-character video ID, or null if not recognized.
  */
-import { extractFirstUrl } from './urlExtract';
+import { extractUrl } from './urlExtract';
 
 export function parseYouTubeId(input: string): string | null {
   if (!input) return null;
@@ -25,7 +25,7 @@ export function parseYouTubeId(input: string): string | null {
   }
 
   // Share text may include a title before the URL — extract just the URL.
-  const extracted = extractFirstUrl(input);
+  const extracted = extractUrl(input);
   if (!extracted) return null;
 
   // Try parsing as URL

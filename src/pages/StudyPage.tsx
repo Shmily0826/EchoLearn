@@ -898,6 +898,10 @@ const StudyPage: React.FC = () => {
       if (!session) trackEvent('video_studied', { platform: 'bilibili' });
       saveCurrentSession(fresh);
       setSession(fresh);
+      // Clear the input as soon as a valid video starts loading, so the next
+      // paste is always clean and the user gets immediate "click accepted"
+      // feedback (no more "I clicked Load and nothing happened").
+      setUrlInput('');
       loadedSessionIdRef.current = fresh.id;
       setVideoId(parsed && !isShortLink ? parsed : '');
       setStartTime(st);
@@ -974,6 +978,9 @@ const StudyPage: React.FC = () => {
       if (!session) trackEvent('video_studied', { platform: 'youtube' });
       saveCurrentSession(fresh);
       setSession(fresh);
+      // Clear the input as soon as a valid video starts loading (see bilibili
+      // branch for rationale).
+      setUrlInput('');
       loadedSessionIdRef.current = fresh.id;
       setVideoId(id);
       setStartTime(st);
@@ -1279,9 +1286,20 @@ const StudyPage: React.FC = () => {
             <button
               id="tour-study-load"
               onClick={handleLoadVideo}
-              className="px-3 sm:px-4 py-1.5 text-sm bg-indigo-600 text-white rounded-lg hover:bg-indigo-700 transition-colors font-medium cursor-pointer whitespace-nowrap"
+              disabled={fetchingCaption}
+              className="px-3 sm:px-4 py-1.5 text-sm bg-indigo-600 text-white rounded-lg hover:bg-indigo-700 transition-colors font-medium cursor-pointer whitespace-nowrap disabled:opacity-60 disabled:cursor-not-allowed flex items-center gap-1.5"
             >
-              {t('study.loadVideo')}
+              {fetchingCaption ? (
+                <>
+                  <svg className="w-4 h-4 animate-spin" viewBox="0 0 24 24" fill="none">
+                    <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
+                    <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z" />
+                  </svg>
+                  加载中…
+                </>
+              ) : (
+                t('study.loadVideo')
+              )}
             </button>
             {session && (
               <button
