@@ -126,3 +126,37 @@ export async function getBilibiliVideoTitle(
     return null;
   }
 }
+
+/**
+ * Resolve a Bilibili URL (including a b23.tv short link) to its metadata via the
+ * VPS directly. The VPS runs yt-dlp, which resolves b23.tv redirects and returns
+ * the canonical BV id, title, and (for multi-part videos) the part list.
+ *
+ * This is the only way to recover a BV id from a b23.tv short code on the client,
+ * because the redirect target is cross-origin and unreadable from the browser.
+ */
+export async function getBilibiliMetaByUrl(
+  fullUrl: string,
+): Promise<{ title: string; ownerName: string; bvid?: string; partCount?: number; parts?: BiliPart[] } | null> {
+  try {
+    const vpsUrl = `${VPS_API_URL}/api/info?${new URLSearchParams({ url: fullUrl })}`;
+    const resp = await fetchWithTimeout(vpsUrl, { timeoutMs: 30000 });
+    if (!resp.ok) return null;
+    const data = (await resp.json()) as {
+      title?: string;
+      ownerName?: string;
+      bvid?: string;
+      partCount?: number;
+      parts?: BiliPart[];
+    };
+    return {
+      title: data.title || '',
+      ownerName: data.ownerName || '',
+      bvid: data.bvid || undefined,
+      partCount: data.partCount,
+      parts: data.parts,
+    };
+  } catch {
+    return null;
+  }
+}

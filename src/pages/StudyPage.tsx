@@ -16,7 +16,7 @@ import { SEEK_REQUEST_EVENT, type SeekRequestDetail } from '../utils/jumpToSourc
 import { analyzeTranscript, isLocalNoTranslation } from '../services/aiAnalysis';
 import { trackEvent } from '../services/analytics';
 import { fetchYouTubeTranscript, CF_WORKER_URL } from '../services/youtubeTranscript';
-import { fetchBilibiliTranscript, getBilibiliVideoTitle } from '../services/bilibiliTranscript';
+import { fetchBilibiliTranscript, getBilibiliVideoTitle, getBilibiliMetaByUrl } from '../services/bilibiliTranscript';
 import { VPS_API_URL } from '../utils/resilientFetch';
 import { translateWord } from '../services/translationService';
 import { lookupWord } from '../services/dictionaryService';
@@ -873,8 +873,10 @@ const StudyPage: React.FC = () => {
     };
 
     if (detected === 'bilibili') {
-      const id = parseBilibiliId(urlInput);
-      if (!id) return;
+      const parsed = parseBilibiliId(urlInput);
+      // `parsed` is either a BV id ("BV1xx...") or, for a b23.tv short link,
+      // the full URL ("https://b23.tv/xxx") that the backend resolves to a BV id.
+      const isShortLink = !!parsed && parsed.startsWith('http');
       const st = parseBilibiliStartTime(urlInput);
       const pg = parseBilibiliPage(urlInput);
 
@@ -884,13 +886,13 @@ const StudyPage: React.FC = () => {
         persistSession(videoId, urlInput.trim(), rawBlocks, sentenceLines, sessionTitle || urlInput.trim());
       }
 
-      const fresh = makeFreshSession(id, urlInput.trim(), 'bilibili');
+      const fresh = makeFreshSession(parsed && !isShortLink ? parsed : urlInput.trim(), urlInput.trim(), 'bilibili');
       fresh.biliPage = pg;
       if (!session) trackEvent('video_studied', { platform: 'bilibili' });
       saveCurrentSession(fresh);
       setSession(fresh);
       loadedSessionIdRef.current = fresh.id;
-      setVideoId(id);
+      setVideoId(parsed && !isShortLink ? parsed : '');
       setStartTime(st);
       setBiliPage(pg);
       setBiliParts(undefined);
@@ -898,26 +900,59 @@ const StudyPage: React.FC = () => {
       setSentenceLines([]);
       setAnalysis(null);
 
-      refreshTitleForVideo(urlInput, fresh.id, id, () => getBilibiliVideoTitle(id, pg));
-
       beginFetch();
       setCaptionError(null);
-      fetchBilibiliTranscript(id, undefined, pg)
-        .then((res) => {
+
+      // Resolve a b23.tv short link to a BV id via the VPS, then proceed exactly
+      // like a normal BV-id load. Runs async so the UI can show the loading state.
+      (async () => {
+        let bvid: string | null = isShortLink ? null : parsed;
+        if (isShortLink && parsed) {
+          try {
+            const meta = await getBilibiliMetaByUrl(parsed);
+            if (meta?.bvid) {
+              bvid = meta.bvid;
+              setVideoId(bvid);
+              if (meta.title) {
+                const updated = { ...fresh, title: meta.title, youtubeId: bvid };
+                saveCurrentSession(updated);
+                setSession(updated);
+              }
+              if (meta.partCount && meta.parts) {
+                setBiliParts(meta.parts);
+              }
+            }
+          } catch {
+            // fall through; the transcript fetch below will surface the error
+          }
+        }
+        if (!bvid) {
+          setFetchingCaption(false);
+          setCaptionError(
+            '无法识别该 B 站链接。请粘贴完整视频地址（bilibili.com/video/BV…）或直接输入 BV 号。',
+          );
+          return;
+        }
+        try {
+          refreshTitleForVideo(urlInput, fresh.id, bvid, () => getBilibiliVideoTitle(bvid!, pg));
+          const res = await fetchBilibiliTranscript(bvid, undefined, pg);
           const lines = res.lines;
-          if (lines.length > 0) { fetchResultRef.current = lines.length; fetchSourceRef.current = transcriptSourceLabel('bilibili', res); persistTranscriptInto(fresh, lines); }
-        })
-        .catch((err) => {
+          if (lines.length > 0) {
+            fetchResultRef.current = lines.length;
+            fetchSourceRef.current = transcriptSourceLabel('bilibili', res);
+            persistTranscriptInto(fresh, lines);
+          }
+        } catch (err) {
           setCaptionError(err instanceof Error ? err.message : 'Unknown error fetching captions');
-        })
-        .finally(() => {
+        } finally {
           setFetchingCaption(false);
           if (fetchResultRef.current != null) {
             notifyFetchSuccess(fetchResultRef.current, fetchSourceRef.current);
             fetchResultRef.current = null;
             fetchSourceRef.current = null;
           }
-        });
+        }
+      })();
     } else {
       // YouTube
       const id = parseYouTubeId(urlInput);

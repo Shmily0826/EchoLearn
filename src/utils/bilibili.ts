@@ -53,14 +53,16 @@ export function parseBilibiliId(input: string): string | null {
       return pathMatch[1];
     }
 
-    // b23.tv short link — only handle if BV is in the path directly
+    // b23.tv short link. If the BV id is in the path directly, return it.
+    // Otherwise it's a short code (e.g. b23.tv/nbSyQzx) that redirects to the
+    // real video — the backend resolves it to a BV id, so return the full URL
+    // and let the caller resolve it there.
     if (url.hostname === 'b23.tv') {
       const shortPath = url.pathname.slice(1);
       if (/^BV[a-zA-Z0-9]{10}$/i.test(shortPath)) {
         return shortPath;
       }
-      // b23.tv redirects — can't resolve here, return null
-      return null;
+      return trimmed;
     }
   } catch {
     // Not a valid URL
