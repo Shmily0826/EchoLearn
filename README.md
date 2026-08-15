@@ -13,7 +13,7 @@ A YouTube & Bilibili-powered English learning tool. Paste a video URL, get AI-cu
 - **Cloud sync** — Firebase Firestore for automatic cross-device sync, plus GitHub Gist backup
 - **Guest-friendly accounts** — Core study features work with no login (data stays on your device); optional sign-in (Google or email) unlocks cloud sync, feedback, and cross-device backup
 - **Bilingual UI** — Full English/Chinese interface toggle
-- **Bilibili support (experimental)** — Caption fetching works at the backend level; UI surfacing is planned. YouTube remains the fully-supported primary source
+- **Bilibili support** — Paste a Bilibili link (incl. `b23.tv` short links) to fetch captions directly in the Study UI. Native subtitles are used when available; videos without English captions fall back to Whisper ASR (Groq) transcribing the audio into English. YouTube remains the primary source with the broadest native-caption coverage
 - **PWA + Android** — Install as a PWA or use the native Android app (Capacitor)
 
 ## Tech Stack
@@ -46,10 +46,12 @@ The web app always fetches captions through one of two tiers, automatically:
   same-origin `/api/transcript`, then the Cloudflare Worker.
 - The Worker tries, in order:
   1. **VPS yt-dlp** (Strategy 0) — a small always-on FastAPI service
-     (`vps-ytdlp/`) running yt-dlp with the TVHTML5 client signature, which
-     fetches captions **without a residential proxy**. Gated by the
-     `YTDLP_API_URL` secret; deploy it on Oracle Cloud Always-Free ($0) so
-     other users keep getting captions even when the developer's PC is off.
+     (`vps-ytdlp/`) running yt-dlp with the TVHTML5 client signature. For
+     YouTube it fetches captions directly; for Bilibili the watch page requires
+     a residential proxy (`YTDLP_PROXY` env, applied via env with `NO_PROXY`
+     bypassing the media CDN so audio downloads run direct). Gated by the
+     `YTDLP_API_URL` secret; runs on AWS EC2 (ap-southeast-2) so other users
+     keep getting captions even when the developer's PC is off.
   2. InnerTube (ANDROID / iOS / WEB / TV clients)
   3. YouTube page HTML scraping
   4. Whisper ASR via Groq (audio transcription — only for no-caption videos,
@@ -63,6 +65,23 @@ The web app always fetches captions through one of two tiers, automatically:
 > paths that actually work are the local proxy (Tier 1) and the VPS yt-dlp
 > service (Tier 2.1). See `vps-ytdlp/README.md` for the free-tier deploy
 > steps.
+
+### Bilibili caption flow
+
+Bilibili URLs are routed through the CF Worker `/api/bilibili` → VPS, which has
+its own two-step fallthrough (`vps-ytdlp/main.py`):
+
+1. **`/api/transcript`** — tries Bilibili's own subtitle tracks. Bilibili videos
+   rarely carry **English** captions, so for an English learner this step
+   commonly returns nothing.
+2. **`/api/asr`** — Whisper ASR (Groq `whisper-large-v3-turbo`) transcribes the
+   audio and returns English. This is the path most Bilibili videos take, so
+   expect a 40–90 s wait on first load (cached afterwards).
+
+A separate **`/api/audio`** endpoint returns a listenable 128 kbps MP3 (used by
+the AudioPlayer listen-only mode). It is more sensitive to the residential proxy
+and may intermittently 502 — the UI tolerates this with a retry box rather than
+crashing.
 
 ## Accounts, Auth & Sync
 
