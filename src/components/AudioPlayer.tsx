@@ -7,6 +7,8 @@ export type AudioStatus = 'loading' | 'ready' | 'error';
 interface AudioPlayerProps {
   /** Audio stream URL (served by the CF Worker → VPS yt-dlp /api/audio). */
   src: string;
+  /** Optional fallback URL (usually the VPS directly) used if the Worker fails. */
+  fallbackSrc?: string;
   /** Whether the source is a Bilibili video (extraction routes via a proxy). */
   bilibili?: boolean;
   startTime?: number;
@@ -33,7 +35,7 @@ const fmtTime = (s: number) => {
  * native <audio> element.
  */
 const AudioPlayer = forwardRef<PlayerHandle, AudioPlayerProps>(
-  ({ src, bilibili = false, startTime, playbackRate = 1, onStatusChange }, ref) => {
+  ({ src, fallbackSrc, bilibili = false, startTime, playbackRate = 1, onStatusChange }, ref) => {
     const { t } = useI18n();
     const audioRef = useRef<HTMLAudioElement>(null);
     const [currentTime, setCurrentTime] = useState(startTime || 0);
@@ -55,6 +57,9 @@ const AudioPlayer = forwardRef<PlayerHandle, AudioPlayerProps>(
       [onStatusChange],
     );
 
+    // Track whether we've switched from the Worker URL to the VPS fallback.
+    const usingFallbackRef = useRef(false);
+
     // Reset state whenever the source (video) changes.
     useEffect(() => {
       setCurrentTime(startTime || 0);
@@ -62,9 +67,11 @@ const AudioPlayer = forwardRef<PlayerHandle, AudioPlayerProps>(
       setPlaying(false);
       setSlowLoad(false);
       retryCountRef.current = 0;
+      usingFallbackRef.current = false;
       setEffectiveSrc(src);
       setAudioStatus('loading');
     }, [src, startTime, setAudioStatus]);
+
 
     // First-time Bilibili audio extraction can take 1–2 min through the proxy.
     // Let the user know the request is still alive rather than appearing frozen.
@@ -83,13 +90,24 @@ const AudioPlayer = forwardRef<PlayerHandle, AudioPlayerProps>(
     const triggerRetry = useCallback(
       () => {
         retryCountRef.current += 1;
-        const bust = `${src}${src.includes('?') ? '&' : '?'}_cb=${Date.now()}`;
+        // After the Worker URL has failed ~2 times and a VPS fallback exists,
+        // switch to the fallback before giving up.
+        if (fallbackSrc && retryCountRef.current >= 2 && !usingFallbackRef.current) {
+          usingFallbackRef.current = true;
+          setEffectiveSrc(fallbackSrc);
+          setSlowLoad(false);
+          setAudioStatus('loading');
+          audioRef.current?.load();
+          return;
+        }
+        const current = usingFallbackRef.current && fallbackSrc ? fallbackSrc : src;
+        const bust = `${current}${current.includes('?') ? '&' : '?'}_cb=${Date.now()}`;
         setEffectiveSrc(bust);
         setSlowLoad(false);
         setAudioStatus('loading');
         audioRef.current?.load();
       },
-      [src, setAudioStatus],
+      [src, fallbackSrc, setAudioStatus],
     );
 
     // Auto-retry a failed extraction a couple of times: the residential proxy is

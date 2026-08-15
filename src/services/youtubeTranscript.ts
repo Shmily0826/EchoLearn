@@ -13,6 +13,7 @@
  */
 
 import type { TranscriptLine } from '../types';
+import { fetchWorkerThenVps } from '../utils/resilientFetch';
 
 // ── Configuration ──────────────────────────────────────────────
 
@@ -700,33 +701,34 @@ async function fetchViaServerApi(
   videoId: string,
   lang: string,
 ): Promise<TranscriptFetchResult | null> {
-  // Try CF Worker first: it relays to the AWS VPS running yt-dlp, which has the
-  // highest success rate against YouTube's datacenter-IP blocking. The Worker is
-  // CORS-configured for our app origins, so this also works on mobile.
+  // Try CF Worker first (with an 18s client timeout); if it hangs or errors,
+  // fetchWorkerThenVps falls back to the VPS directly.
+  const workerUrl = `${CF_WORKER_URL}/api/transcript?videoId=${encodeURIComponent(videoId)}&lang=${encodeURIComponent(lang)}`;
   try {
-    const res = await fetch(
-      `${CF_WORKER_URL}/api/transcript?videoId=${encodeURIComponent(videoId)}&lang=${encodeURIComponent(lang)}`,
-    );
+    const res = await fetchWorkerThenVps(workerUrl, '/api/transcript');
     if (res.ok) {
       const data = (await res.json()) as TranscriptFetchResult;
       if (data.lines && data.lines.length > 0) {
+        const viaVps = !res.url.startsWith(CF_WORKER_URL);
+        if (viaVps) data.source = data.source || 'vps';
         console.log(
-          `[EchoLearn] CF Worker: got ${data.lines.length} lines (${data.language})`,
+          `[EchoLearn] ${viaVps ? 'VPS fallback' : 'CF Worker'}: got ${data.lines.length} lines (${data.language})`,
         );
         return data;
       }
     } else {
-      console.warn(`[EchoLearn] CF Worker error: ${res.status}`);
+      const body = await res.text().catch(() => '');
+      console.warn(`[EchoLearn] Server API error: ${res.status}`, body.substring(0, 200));
     }
   } catch (err) {
     console.warn(
-      '[EchoLearn] CF Worker error:',
+      '[EchoLearn] Server API error:',
       err instanceof Error ? err.message : err,
     );
   }
 
   // Backup: same-origin Vercel serverless function (weaker on datacenter IPs,
-  // often 404/500, but useful if the Worker/VPS path is unavailable).
+  // often 404/500, but useful if both Worker and direct VPS are unavailable).
   try {
     const res = await fetch(
       `/api/transcript?videoId=${encodeURIComponent(videoId)}&lang=${encodeURIComponent(lang)}`,
