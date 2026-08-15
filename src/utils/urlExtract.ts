@@ -1,6 +1,7 @@
 /**
  * Pull the first http(s) URL out of a string that may contain surrounding
- * text — e.g. Bilibili / YouTube share text copied from the app or a chat:
+ * text — e.g. Bilibili / YouTube share text copied from the app or a chat.
+ * (Trivial comment edit to force a fresh production deploy — see deploy notes.)
  *
  *   "【【Easy English】...】 https://b23.tv/nbSyQzx"
  *   "Watch this: https://youtu.be/abc123 (great!)"
