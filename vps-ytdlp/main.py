@@ -155,6 +155,22 @@ def _extract_bvid(target_url: str):
     return m.group(1) if m else None
 
 
+def _clean_bvid(raw_id: str | None):
+    """Strip yt-dlp's playlist `_pN` suffix from a Bilibili id.
+
+    When a b23.tv short link points at a specific part of a multi-part video,
+    yt-dlp reports the id as e.g. `BV1xx_p1`. The player iframe and the Bilibili
+    view API need the base id (`BV1xx`), so strip the suffix and report the part
+    separately. Returns (base_bvid, part_or_None).
+    """
+    if not raw_id:
+        return None, None
+    m = re.match(r"^(BV[0-9A-Za-z]+)_p(\d+)$", raw_id)
+    if m:
+        return m.group(1), int(m.group(2))
+    return raw_id, None
+
+
 def _bilibili_parts(bvid: str):
     """Return the part list for a Bilibili video via its public view API.
 
@@ -411,7 +427,7 @@ def _read_subtitle_file(td: str):
         if bvid is None:
             m_id = re.match(r"^(BV[0-9A-Za-z]+)\.", fname)
             if m_id:
-                bvid = m_id.group(1)
+                bvid, _ = _clean_bvid(m_id.group(1))
         m = re.search(r"\.([a-zA-Z]{2}(?:-[A-Za-z]+)?(?:-orig)?)\.(?:json3|vtt)$", fname)
         language = m.group(1) if m else "en"
         is_auto = "auto" in fname or "-orig" in fname
@@ -614,7 +630,7 @@ def _fetch_meta(target_url: str, part: Optional[int] = None, *, attempts: int = 
         "ownerName": meta.get("uploader") or meta.get("channel") or "",
         "duration": meta.get("duration") or 0,
         "thumbnail": meta.get("thumbnail") or "",
-        "bvid": meta.get("id") or "",
+        "bvid": _clean_bvid(meta.get("id"))[0] or "",
     }
     _cache_put(target_url, "__info__", payload)
     return payload
