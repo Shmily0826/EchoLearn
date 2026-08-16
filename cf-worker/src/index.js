@@ -184,6 +184,8 @@ export default {
         response = await handleBilibili(url, env);
       } else if (url.pathname === '/api/audio') {
         response = await handleAudio(url, env);
+      } else if (url.pathname === '/api/info') {
+        response = await handleInfo(url, env);
       } else if (url.pathname === '/api/yt') {
         response = await handleProxy(request, url);
       } else if (url.pathname === '/api/health') {
@@ -385,6 +387,42 @@ async function handleBilibili(url, env) {
     },
     404
   );
+}
+
+/**
+ * Resolve a Bilibili URL (incl. b23.tv short links) to metadata via the VPS.
+ *
+ * The VPS /api/info now requires the API key, and that key must never ship in
+ * the browser bundle — so the Worker holds it and proxies the request. The
+ * frontend calls THIS endpoint (not the VPS directly) to resolve b23.tv links
+ * to a BV id.
+ */
+async function handleInfo(url, env) {
+  const target = url.searchParams.get('url');
+  if (!target) {
+    return jsonResponse({ error: 'Missing url parameter' }, 400);
+  }
+  if (!env.YTDLP_API_URL) {
+    return jsonResponse({ error: 'VPS not configured' }, 503);
+  }
+
+  const base = env.YTDLP_API_URL.replace(/\/+$/, '');
+  const headers = {};
+  if (env.YTDLP_API_KEY) headers['X-Api-Key'] = env.YTDLP_API_KEY;
+
+  try {
+    const resp = await fetchWithTimeout(
+      `${base}/api/info?url=${encodeURIComponent(target)}`,
+      { headers },
+      30000,
+    );
+    if (!resp.ok) {
+      return jsonResponse({ error: `VPS returned ${resp.status}` }, resp.status);
+    }
+    return jsonResponse(await resp.json());
+  } catch (err) {
+    return jsonResponse({ error: err.message || 'VPS request failed' }, 502);
+  }
 }
 
 /**

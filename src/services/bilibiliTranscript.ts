@@ -1,5 +1,5 @@
 import type { TranscriptLine, BiliPart } from '../types';
-import { fetchWithTimeout, VPS_API_URL } from '../utils/resilientFetch';
+import { fetchWithTimeout } from '../utils/resilientFetch';
 
 /**
  * Bilibili transcript fetcher.
@@ -36,26 +36,20 @@ async function fetchBilibiliFromWorker(
   return fetchWithTimeout(`${CF_WORKER_URL}/api/bilibili?${qs}`, { timeoutMs: 120000 });
 }
 
-async function fetchBilibiliFromVps(
+/**
+ * Fallback after the primary Worker transcript call fails/hangs. The VPS now
+ * enforces an API key that must never ship in the browser bundle, so we cannot
+ * call it directly from the client. Route through the Worker (which holds the
+ * key) — its /api/bilibili endpoint already does transcript -> ASR internally,
+ * just with a longer timeout budget than the primary path.
+ */
+async function fetchBilibiliFallback(
   bvid: string,
   lang: string,
   part?: number,
 ): Promise<Response> {
-  let url = `https://www.bilibili.com/video/${encodeURIComponent(bvid)}`;
-  if (part) url += `?p=${encodeURIComponent(part)}`;
-
-  // Try the native subtitle route first. For Bilibili this usually 404s because
-  // the video has no English CC, so keep the timeout short.
-  const transcriptUrl = `${VPS_API_URL}/api/transcript?${new URLSearchParams({ url, lang })}`;
-  const transcriptRes = await fetchWithTimeout(transcriptUrl, { timeoutMs: 20000 });
-  if (transcriptRes.ok) return transcriptRes;
-
-  // Fall back to Whisper ASR on the VPS. This downloads the audio and runs
-  // Groq whisper-large-v3-turbo; with Plan C routing the media CDN direct it
-  // usually completes in 30-90s.
-  console.warn('[EchoLearn] VPS /api/transcript missed, falling back to VPS /api/asr');
-  const asrUrl = `${VPS_API_URL}/api/asr?${new URLSearchParams({ url })}`;
-  return fetchWithTimeout(asrUrl, { timeoutMs: 150000 });
+  const qs = `bvid=${encodeURIComponent(bvid)}&lang=${encodeURIComponent(lang)}${part ? `&p=${part}` : ''}`;
+  return fetchWithTimeout(`${CF_WORKER_URL}/api/bilibili?${qs}`, { timeoutMs: 150000 });
 }
 
 /**
@@ -81,8 +75,8 @@ export async function fetchBilibiliTranscript(
       throw new Error('Worker failed');
     }
   } catch (err) {
-    console.warn('[EchoLearn] Bilibili Worker path failed, trying VPS directly:', err instanceof Error ? err.message : err);
-    resp = await fetchBilibiliFromVps(bvid, lang, part);
+    console.warn('[EchoLearn] Bilibili Worker path failed, trying Worker fallback:', err instanceof Error ? err.message : err);
+    resp = await fetchBilibiliFallback(bvid, lang, part);
   }
 
   const body = await resp.text().catch(() => '');
@@ -152,8 +146,12 @@ export async function getBilibiliMetaByUrl(
   fullUrl: string,
 ): Promise<{ title: string; ownerName: string; bvid?: string; partCount?: number; parts?: BiliPart[] } | null> {
   try {
-    const vpsUrl = `${VPS_API_URL}/api/info?${new URLSearchParams({ url: fullUrl })}`;
-    const resp = await fetchWithTimeout(vpsUrl, { timeoutMs: 30000 });
+    // Route through the CF Worker, which holds the VPS API key server-side.
+    // Calling the VPS /api/info directly from the browser would 401 (auth is
+    // now enforced and the key must never be in the client bundle). This is how
+    // b23.tv short links get resolved to a BV id.
+    const workerUrl = `${CF_WORKER_URL}/api/info?${new URLSearchParams({ url: fullUrl })}`;
+    const resp = await fetchWithTimeout(workerUrl, { timeoutMs: 30000 });
     if (!resp.ok) return null;
     const data = (await resp.json()) as {
       title?: string;

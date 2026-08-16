@@ -17,7 +17,6 @@ import { analyzeTranscript, isLocalNoTranslation } from '../services/aiAnalysis'
 import { trackEvent } from '../services/analytics';
 import { fetchYouTubeTranscript, CF_WORKER_URL } from '../services/youtubeTranscript';
 import { fetchBilibiliTranscript, getBilibiliVideoTitle, getBilibiliMetaByUrl } from '../services/bilibiliTranscript';
-import { VPS_API_URL } from '../utils/resilientFetch';
 import { translateWord } from '../services/translationService';
 import { lookupWord } from '../services/dictionaryService';
 import { pushItemsToCloud, pushSessionToCloud, syncWithCloud } from '../services/firestoreSync';
@@ -354,11 +353,12 @@ const StudyPage: React.FC = () => {
     return `${CF_WORKER_URL}/api/audio?url=${encodeURIComponent(videoUrl)}`;
   }, [audioMode, videoId, videoUrl]);
 
-  // Direct VPS fallback for audio mode. If the Worker hangs or returns errors,
-  // the AudioPlayer switches to this URL after a couple of retries.
+  // Fallback used if the primary Worker audio call hangs. The VPS now requires
+  // an API key that can't ship in the browser, so the fallback also goes
+  // through the Worker (which holds the key) rather than the VPS directly.
   const audioFallbackSrc = useMemo(() => {
     if (!audioMode || !videoUrl) return null;
-    return `${VPS_API_URL}/api/audio?url=${encodeURIComponent(videoUrl)}`;
+    return `${CF_WORKER_URL}/api/audio?url=${encodeURIComponent(videoUrl)}`;
   }, [audioMode, videoUrl]);
 
   // ── Pre-warm audio cache ───────────────────────────────────
@@ -932,9 +932,21 @@ const StudyPage: React.FC = () => {
               if (meta.partCount && meta.parts) {
                 setBiliParts(meta.parts);
               }
+            } else {
+              // Resolution returned but with no bvid (timeout / 401 / network).
+              // Surface it instead of silently leaving an empty player.
+              setFetchingCaption(false);
+              setCaptionError(
+                'B站短链解析失败（可能是网络或服务器超时）。请稍后重试，或复制完整链接 bilibili.com/video/BV… 再粘贴。',
+              );
+              return;
             }
           } catch {
-            // fall through; the transcript fetch below will surface the error
+            setFetchingCaption(false);
+            setCaptionError(
+              'B站短链解析出错。请稍后重试，或复制完整链接 bilibili.com/video/BV… 再粘贴。',
+            );
+            return;
           }
         }
         if (!bvid) {
