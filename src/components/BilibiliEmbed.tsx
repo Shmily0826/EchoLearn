@@ -97,6 +97,25 @@ const BilibiliEmbed = forwardRef<PlayerHandle, BilibiliEmbedProps>(
       setControlsUnlocked(false);
     }, [bvid, startTime, buildEmbedUrl]);
 
+    // ── Visibility recovery ───────────────────────────────────
+    // When the app/tab returns to the foreground (user switched away and back,
+    // or the phone woke from sleep), the cross-origin Bilibili player iframe is
+    // often left blank/frozen by the OS (especially iOS WKWebView). Reload it at
+    // the current position so the video reappears instead of staying invisible.
+    useEffect(() => {
+      const handleVisibilityChange = () => {
+        if (document.visibilityState !== 'visible') return;
+        setEmbedUrl((prev) => {
+          // Rebuild to force a fresh iframe load; bumping the URL query ensures
+          // the browser doesn't serve a stale/blank frame from cache.
+          const reloaded = buildEmbedUrl(currentTime, playing ? 1 : 0);
+          return prev === reloaded ? `${reloaded}&_v=${Date.now()}` : reloaded;
+        });
+      };
+      document.addEventListener('visibilitychange', handleVisibilityChange);
+      return () => document.removeEventListener('visibilitychange', handleVisibilityChange);
+    }, [currentTime, playing, buildEmbedUrl]);
+
     const togglePlay = useCallback(() => {
       const next = !playing;
       setPlaying(next);
