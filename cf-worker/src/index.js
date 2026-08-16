@@ -487,7 +487,7 @@ async function handleAudio(url, env) {
     // First request triggers a download + transcode on the VPS; Bilibili routes
     // through a flaky proxy and may take up to ~1–2 min. The VPS bounds its own
     // work to fit under this window, so stream the result straight through.
-    const resp = await fetchWithTimeout(vpsUrl, { headers }, 180000);
+    const resp = await fetchWithTimeout(vpsUrl, { headers }, 240000);
     if (!resp.ok) {
       const detail = await resp.text().catch(() => '');
       return jsonResponse(

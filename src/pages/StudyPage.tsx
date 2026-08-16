@@ -364,18 +364,20 @@ const StudyPage: React.FC = () => {
   // ── Pre-warm audio cache (with auto-retry) ─────────────────
   // Bilibili audio extraction is slow and the upstream residential proxy is
   // flaky, so the first request often 502s / times out / returns an empty body.
-  // Kick off the extraction as soon as a video is loaded, and retry with backoff
-  // until REAL audio (content-type audio/*) is cached — so toggling audio mode
-  // later is instant instead of hitting the same bad proxy window. We only count
-  // it as success when the response is actually audio: the VPS sometimes returns
-  // HTTP 200 with an error JSON body or 0 bytes, which must not be mistaken for
-  // a warm cache. Retries abort if the video changes or the user enters audio
-  // mode (the AudioPlayer then drives the single extraction itself).
+  // Kick off the extraction as soon as a video is loaded with HIGH priority, so
+  // it runs in parallel with the transcript fetch and is usually ready by the
+  // time the user finishes reading — and retry with backoff until REAL audio
+  // (content-type audio/*) is cached, so toggling audio mode later is instant
+  // instead of hitting the same bad proxy window. We only count it as success
+  // when the response is actually audio: the VPS sometimes returns HTTP 200 with
+  // an error JSON body or 0 bytes, which must not be mistaken for a warm cache.
+  // Retries abort if the video changes or the user enters audio mode (the
+  // AudioPlayer then drives the single extraction itself).
   useEffect(() => {
     if (!videoId || !videoUrl || audioMode) return;
     const controller = new AbortController();
     const audioUrl = `${CF_WORKER_URL}/api/audio?url=${encodeURIComponent(videoUrl)}`;
-    const MAX_ATTEMPTS = 4;
+    const MAX_ATTEMPTS = 5;
     let attempt = 0;
     let cancelled = false;
 
@@ -386,7 +388,7 @@ const StudyPage: React.FC = () => {
           const res = await fetch(audioUrl, {
             method: 'GET',
             signal: controller.signal,
-            priority: 'low' as RequestPriority,
+            priority: 'high' as RequestPriority,
           });
           const ct = res.headers.get('content-type') || '';
           const len = res.headers.get('content-length');
@@ -398,9 +400,9 @@ const StudyPage: React.FC = () => {
         } catch {
           if (controller.signal.aborted) return;
         }
-        // Backoff before the next attempt (3s, 6s, 9s).
+        // Backoff before the next attempt (2.5s, 5s, 7.5s, 10s).
         if (attempt < MAX_ATTEMPTS && !controller.signal.aborted) {
-          await new Promise((r) => setTimeout(r, 3000 * attempt));
+          await new Promise((r) => setTimeout(r, 2500 * attempt));
         }
       }
     };

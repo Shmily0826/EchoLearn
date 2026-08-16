@@ -1250,6 +1250,7 @@ def audio(
         media_type="audio/mpeg",
         filename=os.path.basename(path),
         content_disposition_type="inline",
+        headers={"Cache-Control": "public, max-age=86400, immutable"},
     )
 
 
