@@ -846,7 +846,8 @@ def _extract_playback_audio(target_url: str, part: Optional[int] = None) -> Opti
     """Download the audio track at a *listenable* bitrate and cache it on disk.
 
     Unlike _download_audio (which targets Whisper at 16 kHz/32 kbps), this keeps
-    full sample rate and 128 kbps so the in-app audio-only player sounds normal.
+    44.1 kHz mono at 64 kbps — plenty for speech, and ~¼ the size of 128k stereo
+    so cold extraction through the flaky proxy is faster.
     Returns the cached .mp3 path, or None on failure.
 
     The residential proxy is flaky and can drop mid-download, leaving a truncated
@@ -892,7 +893,7 @@ def _extract_playback_audio(target_url: str, part: Optional[int] = None) -> Opti
         "--audio-format",
         "mp3",
         "--postprocessor-args",
-        "ffmpeg:-ar 44100 -ac 2 -b:a 128k",
+        "ffmpeg:-ar 44100 -ac 1 -b:a 64k",
         "--retries",
         str(YTDLP_RETRIES),
         "--fragment-retries",
