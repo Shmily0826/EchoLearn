@@ -95,16 +95,20 @@ YTDLP_RETRIES = int(os.environ.get("YTDLP_RETRIES", "5"))  # yt-dlp subprocess a
 
 # Audio-only extraction budgets. A single yt-dlp call can blow the Cloudflare
 # Worker's ~180s window if the residential proxy is slow, so we cap the
-# per-attempt subprocess timeout tightly and allow only a couple of attempts
+# per-attempt subprocess timeout tightly and allow several attempts
 # with exponential backoff. A rotating residential proxy hands each attempt a
 # fresh egress IP, so a retry often completes where the previous dropped.
-AUDIO_DL_TIMEOUT = int(os.environ.get("YTDLP_AUDIO_TIMEOUT", "70"))   # hard cap per yt-dlp call
-AUDIO_MAX_ATTEMPTS = int(os.environ.get("YTDLP_AUDIO_RETRIES", "2"))  # attempts (+ backoff)
+# Bilibili's metadata must go through that proxy (datacenter IPs get 412), and
+# the proxy is flaky (500 / IncompleteRead), so we favour MORE attempts over a
+# long single shot — failures are usually fast (seconds), so 4 attempts still
+# fit comfortably under the Worker window.
+AUDIO_DL_TIMEOUT = int(os.environ.get("YTDLP_AUDIO_TIMEOUT", "55"))   # hard cap per yt-dlp call
+AUDIO_MAX_ATTEMPTS = int(os.environ.get("YTDLP_AUDIO_RETRIES", "4"))  # attempts (+ backoff)
 # Hard wall-clock ceiling for the whole extraction (metadata + download loop).
 # Kept comfortably under the Worker's 180s so the request never 502s purely
 # because the VPS was still working — if we can't finish in time we return
 # immediately and let the frontend auto-retry with a fresh proxy IP.
-AUDIO_OVERALL_TIMEOUT = int(os.environ.get("YTDLP_AUDIO_OVERALL_TIMEOUT", "165"))
+AUDIO_OVERALL_TIMEOUT = int(os.environ.get("YTDLP_AUDIO_OVERALL_TIMEOUT", "172"))
 
 GROQ_API_KEY = os.environ.get("GROQ_API_KEY") or ""
 GROQ_MODEL = os.environ.get("GROQ_MODEL", "whisper-large-v3-turbo")
