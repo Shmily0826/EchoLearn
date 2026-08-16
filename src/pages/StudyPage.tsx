@@ -361,27 +361,56 @@ const StudyPage: React.FC = () => {
     return `${CF_WORKER_URL}/api/audio?url=${encodeURIComponent(videoUrl)}`;
   }, [audioMode, videoUrl]);
 
-  // ── Pre-warm audio cache ───────────────────────────────────
-  // Bilibili audio extraction is slow on first request (proxy + download).
-  // Start it in the background as soon as a video is loaded so that toggling
-  // audio mode later is instant. Abort if the video changes.
-  // When audio mode is already ON at mount, the AudioPlayer itself drives the
-  // single extraction — skip the pre-warm here so we don't spawn a second
-  // concurrent yt-dlp process that fights the flaky proxy.
+  // ── Pre-warm audio cache (with auto-retry) ─────────────────
+  // Bilibili audio extraction is slow and the upstream residential proxy is
+  // flaky, so the first request often 502s / times out / returns an empty body.
+  // Kick off the extraction as soon as a video is loaded, and retry with backoff
+  // until REAL audio (content-type audio/*) is cached — so toggling audio mode
+  // later is instant instead of hitting the same bad proxy window. We only count
+  // it as success when the response is actually audio: the VPS sometimes returns
+  // HTTP 200 with an error JSON body or 0 bytes, which must not be mistaken for
+  // a warm cache. Retries abort if the video changes or the user enters audio
+  // mode (the AudioPlayer then drives the single extraction itself).
   useEffect(() => {
     if (!videoId || !videoUrl || audioMode) return;
     const controller = new AbortController();
-    fetch(`${CF_WORKER_URL}/api/audio?url=${encodeURIComponent(videoUrl)}`, {
-      method: 'GET',
-      signal: controller.signal,
-      // Prevent the fetch from blocking other network traffic.
-      priority: 'low' as RequestPriority,
-    }).catch(() => {
-      // Swallow errors: pre-warming is best-effort; the audio player itself
-      // will show a Retry button if the user toggles on and it still fails.
-    });
-    return () => controller.abort();
-  }, [videoId, videoUrl]);
+    const audioUrl = `${CF_WORKER_URL}/api/audio?url=${encodeURIComponent(videoUrl)}`;
+    const MAX_ATTEMPTS = 4;
+    let attempt = 0;
+    let cancelled = false;
+
+    const warm = async () => {
+      while (!cancelled && attempt < MAX_ATTEMPTS) {
+        attempt++;
+        try {
+          const res = await fetch(audioUrl, {
+            method: 'GET',
+            signal: controller.signal,
+            priority: 'low' as RequestPriority,
+          });
+          const ct = res.headers.get('content-type') || '';
+          const len = res.headers.get('content-length');
+          const hasBytes = len === null || len === '' || Number(len) > 0;
+          const isRealAudio =
+            res.ok && ct.includes('audio') && hasBytes;
+          if (isRealAudio) return; // cached/extracted successfully — stop retrying
+          if (controller.signal.aborted) return;
+        } catch {
+          if (controller.signal.aborted) return;
+        }
+        // Backoff before the next attempt (3s, 6s, 9s).
+        if (attempt < MAX_ATTEMPTS && !controller.signal.aborted) {
+          await new Promise((r) => setTimeout(r, 3000 * attempt));
+        }
+      }
+    };
+    void warm();
+
+    return () => {
+      cancelled = true;
+      controller.abort();
+    };
+  }, [videoId, videoUrl, audioMode]);
 
   // ── Restore last session on mount ──────────────────────────
   useEffect(() => {
