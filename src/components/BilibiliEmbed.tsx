@@ -54,6 +54,7 @@ const BilibiliEmbed = forwardRef<PlayerHandle, BilibiliEmbedProps>(
     // When true, the click-capture layer is lifted so the native Bilibili
     // control bar (volume/speed/quality/fullscreen) is clickable.
     const [controlsUnlocked, setControlsUnlocked] = useState(false);
+    const [showCoach, setShowCoach] = useState(false);
     const lastTickRef = useRef<number>(0);
     const rateRef = useRef(playbackRate);
     rateRef.current = playbackRate;
@@ -115,6 +116,17 @@ const BilibiliEmbed = forwardRef<PlayerHandle, BilibiliEmbedProps>(
       document.addEventListener('visibilitychange', handleVisibilityChange);
       return () => document.removeEventListener('visibilitychange', handleVisibilityChange);
     }, [currentTime, playing, buildEmbedUrl]);
+
+    // First-time coachmark: nudge users toward the Native mode once.
+    useEffect(() => {
+      try {
+        if (!localStorage.getItem('echolearn_bili_coach_v1')) setShowCoach(true);
+      } catch {}
+    }, []);
+    const dismissCoach = useCallback(() => {
+      setShowCoach(false);
+      try { localStorage.setItem('echolearn_bili_coach_v1', '1'); } catch {}
+    }, []);
 
     const togglePlay = useCallback(() => {
       const next = !playing;
@@ -206,30 +218,43 @@ const BilibiliEmbed = forwardRef<PlayerHandle, BilibiliEmbedProps>(
               {playing ? 'Pause' : 'Play'}
             </button>
           )}
-          {/* Native-controls unlock toggle — always on top. Unlocked state lifts
-              the capture layer so the real volume / speed / quality / fullscreen
-              controls can be clicked. */}
-          <button
-            type="button"
-            onClick={() => setControlsUnlocked((v) => !v)}
-            title={t('study.biliControlsTitle')}
-            className={`absolute top-2.5 right-2.5 z-30 flex items-center gap-1 rounded-full px-2.5 py-1 text-[11px] font-medium shadow-lg backdrop-blur transition-colors cursor-pointer ${
-              controlsUnlocked
-                ? 'bg-indigo-600 text-white hover:bg-indigo-700'
-                : 'bg-black/70 text-white hover:bg-black/80'
-            }`}
-          >
-            {controlsUnlocked ? (
-              <svg className="w-3.5 h-3.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2.2}>
-                <path strokeLinecap="round" strokeLinejoin="round" d="M5 13l4 4L19 7" />
-              </svg>
-            ) : (
-              <svg className="w-3.5 h-3.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={1.8}>
-                <path strokeLinecap="round" strokeLinejoin="round" d="M10.5 6h9.75M10.5 6a1.5 1.5 0 11-3 0m3 0a1.5 1.5 0 10-3 0M3.75 6H7.5m3 12h9.75m-9.75 0a1.5 1.5 0 01-3 0m3 0a1.5 1.5 0 00-3 0m-3.75 0H7.5m9-6h3.75m-3.75 0a1.5 1.5 0 01-3 0m3 0a1.5 1.5 0 00-3 0m-9.75 0h9.75" />
-              </svg>
-            )}
-            {controlsUnlocked ? t('study.biliLockControls') : t('study.biliUnlockControls')}
-          </button>
+          {/* Mode switch — Sync (EchoLearn-synced, locked) vs Native (Bilibili
+              bar, unlocked). Always on top so the active mode is never ambiguous. */}
+          <div className="absolute top-2.5 right-2.5 z-30 flex rounded-full bg-black/70 p-0.5 text-[11px] font-medium shadow-lg backdrop-blur">
+            <button
+              type="button"
+              onClick={() => setControlsUnlocked(false)}
+              aria-pressed={!controlsUnlocked}
+              className={`rounded-full px-2.5 py-1 transition-colors ${
+                !controlsUnlocked ? 'bg-indigo-600 text-white' : 'text-white/80 hover:text-white'
+              }`}
+            >
+              {t('study.biliModeSync')}
+            </button>
+            <button
+              type="button"
+              onClick={() => setControlsUnlocked(true)}
+              aria-pressed={controlsUnlocked}
+              className={`rounded-full px-2.5 py-1 transition-colors ${
+                controlsUnlocked ? 'bg-indigo-600 text-white' : 'text-white/80 hover:text-white'
+              }`}
+            >
+              {t('study.biliModeNative')}
+            </button>
+          </div>
+          {/* First-time coachmark: point users to Native mode once. */}
+          {showCoach && (
+            <div className="absolute top-12 right-2.5 z-40 max-w-[210px] rounded-lg bg-indigo-600 px-3 py-2 text-[11px] leading-snug text-white shadow-xl">
+              {t('study.biliCoachmark')}
+              <button
+                type="button"
+                onClick={dismissCoach}
+                className="mt-1 block text-white/90 underline underline-offset-2"
+              >
+                {t('study.biliCoachOk')}
+              </button>
+            </div>
+          )}
         </div>
         {duration > 0 && (
           <div className="mt-2 flex items-center gap-2 px-1">
@@ -254,7 +279,7 @@ const BilibiliEmbed = forwardRef<PlayerHandle, BilibiliEmbedProps>(
             </span>
           </div>
         )}
-        <p className="mt-1 px-1 text-[10px] leading-tight text-gray-400 dark:text-gray-500">
+        <p className="mt-1 px-1 text-[11px] leading-tight text-gray-500 dark:text-gray-400">
           {t('study.biliControlsHint')}
         </p>
       </div>
