@@ -9,6 +9,7 @@ import AIAnalysisPanel from '../components/AIAnalysisPanel';
 import WordDictionaryPopup from '../components/WordDictionaryPopup';
 import { parseYouTubeId, parseStartTime } from '../utils/youtube';
 import { detectPlatform, parseBilibiliId, parseBilibiliStartTime, parseBilibiliPage } from '../utils/bilibili';
+import { extractUrl } from '../utils/urlExtract';
 import { normalizeTranscriptToSentences } from '../utils/transcriptNormalizer';
 import { lemmatize } from '../utils/lemmatizer';
 import { extractSentence } from '../utils/sentence';
@@ -336,8 +337,13 @@ const StudyPage: React.FC = () => {
   // ── Audio mode: derived source URL ─────────────────────────
   // Build the original watch URL (yt-dlp can consume it directly). Prefer the
   // session's pasted URL; otherwise reconstruct from platform + id.
+  // Share text often includes a title before the URL, so extract the last
+  // http(s) URL defensively — otherwise /api/audio receives the whole string
+  // and the VPS returns 400 Bad Request.
   const videoUrl = useMemo(() => {
-    if (session?.youtubeUrl) return session.youtubeUrl;
+    if (session?.youtubeUrl) {
+      return extractUrl(session.youtubeUrl) ?? session.youtubeUrl;
+    }
     if (platform === 'bilibili') {
       let u = `https://www.bilibili.com/video/${videoId}`;
       if (biliPage && biliPage > 1) u += `?p=${biliPage}`;
@@ -827,7 +833,7 @@ const StudyPage: React.FC = () => {
       try { pos = Math.floor(playerRef.current?.getCurrentTime?.() ?? pos); } catch { /* noop */ }
       const updated: VideoStudySession = {
         id: session?.id || `session_${now}`,
-        youtubeUrl: yUrl,
+        youtubeUrl: extractUrl(yUrl) ?? yUrl,
         youtubeId: yId,
         platform,
         title,
@@ -881,12 +887,13 @@ const StudyPage: React.FC = () => {
       plat: VideoPlatform,
     ): VideoStudySession => {
       const now = Date.now();
+      const cleanUrl = extractUrl(url) ?? url;
       return {
         id: `session_${now}_${Math.random().toString(36).slice(2, 8)}`,
-        youtubeUrl: url,
+        youtubeUrl: cleanUrl,
         youtubeId: vid,
         platform: plat,
-        title: url,
+        title: cleanUrl,
         transcriptLines: [],
         transcriptData: { rawBlocks: [], sentenceLines: [] },
         createdAt: now,

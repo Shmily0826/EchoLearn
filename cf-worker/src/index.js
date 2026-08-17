@@ -467,8 +467,13 @@ async function fetchViaVpsAsr(targetUrl, env, log = console.log) {
 // audio through a native <audio> element — real currentTime, no iframe, no
 // black-screen on control, no dead buttons — while the transcript scrolls in
 // sync exactly like the YouTube player. The VPS downloads + transcodes the
-// audio to a listenable 128 kbps stereo mp3 on first request and caches it,
-// so repeats are instant.
+// audio to a listenable 64 kbps mono mp3 on first request and caches it
+// (disk + browser + edge), so repeats are instant.
+//
+// Bump AUDIO_CACHE_VER whenever the audio codec/bitrate changes so stale
+// edge-cached variants are never served (e.g. the 128k-stereo → 64k-mono cut).
+const AUDIO_CACHE_VER = '2';
+
 async function handleAudio(url, env) {
   if (!env.YTDLP_API_URL) {
     return jsonResponse({ error: 'Audio service not configured' }, 503);
@@ -482,6 +487,32 @@ async function handleAudio(url, env) {
   const vpsUrl = `${base}/api/audio?url=${encodeURIComponent(target)}`;
   const headers = {};
   if (env.YTDLP_API_KEY) headers['X-Api-Key'] = env.YTDLP_API_KEY;
+
+  // ── Edge cache (Cloudflare Cache API) ─────────────────────────────
+  // Caches the extracted mp3 at the edge so a SECOND user / different device
+  // gets it instantly without re-extracting on the VPS. The key is pinned to
+  // AUDIO_CACHE_VER and stripped of volatile client headers (Range/Accept/UA)
+  // so a range request and a full request share one cached entry.
+  const cache = caches.default;
+  const cacheKeyUrl = new URL(url.toString());
+  cacheKeyUrl.searchParams.set('ec_ver', AUDIO_CACHE_VER);
+  const cacheKey = new Request(cacheKeyUrl.toString());
+
+  let cached = null;
+  try {
+    cached = await cache.match(cacheKey);
+  } catch (_) {
+    /* cache unavailable — fall through to origin */
+  }
+  if (cached) {
+    const h = new Headers(cached.headers);
+    h.set('X-Cache', 'HIT');
+    return new Response(cached.body, {
+      status: cached.status,
+      statusText: cached.statusText,
+      headers: h,
+    });
+  }
 
   try {
     // First request triggers a download + transcode on the VPS; Bilibili routes
@@ -498,12 +529,22 @@ async function handleAudio(url, env) {
         resp.status === 404 ? 404 : 502,
       );
     }
-    // Stream the audio straight through, preserving the VPS Content-Type
-    // (audio/mpeg) and range support. CORS is applied at the single exit point.
+    const ct = resp.headers.get('content-type') || '';
+    const len = resp.headers.get('content-length');
+    // Only cache real, successful audio — never proxy errors / empty bodies.
+    if (ct.includes('audio') && (len === null || parseInt(len, 10) > 0)) {
+      try {
+        await cache.put(cacheKey, resp.clone());
+      } catch (_) {
+        /* cache put failed — still return the stream */
+      }
+    }
+    const out = new Headers(resp.headers);
+    out.set('X-Cache', 'MISS');
     return new Response(resp.body, {
       status: resp.status,
       statusText: resp.statusText,
-      headers: resp.headers,
+      headers: out,
     });
   } catch (err) {
     return jsonResponse({ error: `Audio request failed: ${err.message}` }, 502);
