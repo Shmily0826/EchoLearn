@@ -51,6 +51,9 @@ export default defineConfig(({ mode }) => {
           ],
         },
         workbox: {
+          cleanupOutdatedCaches: true,
+          clientsClaim: true,
+          skipWaiting: true,
           globPatterns: ['**/*.{js,css,html,ico,png,svg,woff2}'],
           // social-preview.png is only for social-media link crawlers, not the app UI —
           // keep it out of the precache so users don't download ~716KB needlessly.

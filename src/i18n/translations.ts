@@ -29,7 +29,7 @@ const translations: Record<string, Record<Lang, string>> = {
   'tour.doneTitle':      { en: 'Next: the Study page', zh: '下一步：学习页' },
   'tour.doneBody':       { en: 'Last stop — let\'s see how to read a transcript, save words, and run AI analysis.', zh: '最后一站——看看如何阅读字幕、收藏单词、运行 AI 分析。' },
   'tour.studyUrlTitle':   { en: 'Paste a video link', zh: '粘贴视频链接' },
-  'tour.studyUrlBody':    { en: 'Paste a YouTube link here, then press Enter or click Load.', zh: '在这里粘贴 YouTube 链接，然后按回车或点击“加载”。' },
+  'tour.studyUrlBody':    { en: 'Paste a YouTube or Bilibili link (or a BV id), then press Enter or click Load.', zh: '在这里粘贴 YouTube / Bilibili 链接或直接输入 BV 号，然后按回车或点击“加载”。' },
   'tour.studyLoadTitle':  { en: 'Load the transcript', zh: '加载字幕' },
   'tour.studyLoadBody':   { en: 'EchoLearn fetches the transcript automatically and splits it into sentences.', zh: 'EchoLearn 会自动获取字幕并拆分成句子。' },
   'tour.studyControlsTitle': { en: 'Pick level & counts', zh: '选择难度与数量' },
@@ -164,11 +164,11 @@ const translations: Record<string, Record<Lang, string>> = {
 
   // ── Study ────────────────────────────────────────────────
   'study.sessionTitlePh':{ en: 'Session title...', zh: '学习标题...' },
-  'study.urlPh':         { en: 'Paste YouTube URL...', zh: '粘贴 YouTube 链接...' },
+  'study.urlPh':         { en: 'Paste YouTube / Bilibili URL or BV id...', zh: '粘贴 YouTube / Bilibili 链接或 BV 号...' },
   'study.loadVideo':     { en: 'Load Video', zh: '加载视频' },
   'study.clear':         { en: 'Clear', zh: '清空' },
   'study.selectPart':    { en: 'Part', zh: '分P' },
-  'study.pasteStart':    { en: 'Paste a YouTube URL above to start', zh: '在上方粘贴 YouTube 链接开始' },
+  'study.pasteStart':    { en: 'Paste a YouTube or Bilibili URL above to start', zh: '在上方粘贴 YouTube 或 Bilibili 链接开始' },
   'study.subtitles':     { en: 'Subtitles', zh: '字幕' },
   'study.transcript':    { en: 'Transcript', zh: '字幕文本' },
   'study.fetchingCaption':{ en: 'Fetching captions...', zh: '获取字幕中...' },
