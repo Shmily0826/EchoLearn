@@ -159,9 +159,14 @@ def _lang_rank(language: Optional[str]) -> int:
 
 
 def _extract_bvid(target_url: str):
-    """Pull the BV id out of a Bilibili URL (or return None)."""
-    m = re.search(r"(BV[0-9A-Za-z]+)", target_url)
-    return m.group(1) if m else None
+    """Pull the BV id out of a Bilibili URL (or return None).
+
+    Bilibili BV ids are case-sensitive and officially uppercase; some share
+    links / copy-paste arrive lowercased, which the view API rejects. Match
+    case-insensitively and normalize to uppercase so the API call always works.
+    """
+    m = re.search(r"(BV[0-9A-Za-z]+)", target_url, re.IGNORECASE)
+    return m.group(1).upper() if m else None
 
 
 def _clean_bvid(raw_id: str | None):
