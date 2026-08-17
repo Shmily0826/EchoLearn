@@ -284,8 +284,36 @@ def _bilibili_view(bvid: str):
     }
 
 
+def _bilibili_play_parse(data):
+    """Extract a usable audio baseUrl from a playurl API response, or None."""
+    if not isinstance(data, dict) or data.get("code") != 0:
+        return None
+    payload = data.get("data")
+    # Legacy shape: data is a list of durl entries (muxed FLV/MP4 with audio).
+    # The playurl API returns this intermittently (e.g. on some CDN nodes).
+    if isinstance(payload, list):
+        if not payload:
+            return None
+        return payload[0].get("url") or payload[0] if isinstance(payload[0], str) else payload[0].get("baseUrl")
+    dash = (payload or {}).get("dash") or {}
+    audios = dash.get("audio") or []
+    if audios:
+        audios.sort(key=lambda a: a.get("bandwidth") or 0, reverse=True)
+        return audios[0].get("baseUrl")
+    # Fallback: some playurl responses omit the DASH audio track but still
+    # return a muxed stream via `durl`. That carries audio, fine for ASR.
+    durl = (payload or {}).get("durl") or []
+    if durl:
+        return durl[0].get("url") or durl[0].get("baseUrl")
+    return None
+
+
 def _bilibili_playurl(bvid: str, cid: int):
-    """Best DASH audio baseUrl for a (bvid, cid), or None."""
+    """Best audio baseUrl for a (bvid, cid), or None.
+
+    Retries once because the playurl API occasionally returns a malformed /
+    audio-less payload on the first hit (CDN-node dependent).
+    """
     api = (
         f"https://api.bilibili.com/x/player/playurl?bvid={bvid}"
         f"&cid={cid}&qn=64&fnval=16&fourk=1"
@@ -293,18 +321,17 @@ def _bilibili_playurl(bvid: str, cid: int):
     req = urllib.request.Request(
         api, headers={"User-Agent": _BILI_UA, "Referer": _BILI_REFERER}
     )
-    try:
-        with _urlopen_no_proxy(req, timeout=10) as resp:
-            data = json.loads(resp.read().decode("utf-8", "ignore"))
-    except Exception:
-        return None
-    if data.get("code") != 0:
-        return None
-    audios = ((data.get("dash") or {}).get("audio")) or []
-    if not audios:
-        return None
-    audios.sort(key=lambda a: a.get("bandwidth") or 0, reverse=True)
-    return audios[0].get("baseUrl")
+    last = None
+    for _ in range(2):
+        try:
+            with _urlopen_no_proxy(req, timeout=10) as resp:
+                last = json.loads(resp.read().decode("utf-8", "ignore"))
+        except Exception:
+            last = None
+        url = _bilibili_play_parse(last)
+        if url:
+            return url
+    return None
 
 
 def _bilibili_cid_for_part(view, part: Optional[int]):
@@ -840,13 +867,16 @@ def _fetch_meta(target_url: str, part: Optional[int] = None, *, attempts: int = 
             raise HTTPException(status_code=404, detail="Could not fetch Bilibili info")
         # A multi-part video reports the TOTAL duration in view["duration"]; for
         # the ASR/audio limit check and the player we want the selected part's
-        # duration, which lives on the per-page record.
-        part_dur = view["duration"]
-        if part and part > 1:
-            for p in view.get("pages") or []:
-                if p.get("index") == part and p.get("duration"):
-                    part_dur = p["duration"]
-                    break
+        # duration, which lives on the per-page record. Default to part 1 when no
+        # explicit ?p= selector is present.
+        sel = part if part else 1
+        part_dur = None
+        for p in view.get("pages") or []:
+            if p.get("index") == sel and p.get("duration"):
+                part_dur = p["duration"]
+                break
+        if not part_dur:
+            part_dur = view["duration"]
         payload = {
             "title": view["title"],
             "ownerName": view["owner"],
