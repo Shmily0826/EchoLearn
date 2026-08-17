@@ -183,7 +183,7 @@ export default {
       } else if (url.pathname === '/api/bilibili') {
         response = await handleBilibili(url, env);
       } else if (url.pathname === '/api/audio') {
-        response = await handleAudio(url, env);
+        response = await handleAudio(request, env);
       } else if (url.pathname === '/api/info') {
         response = await handleInfo(url, env);
       } else if (url.pathname === '/api/yt') {
@@ -472,12 +472,13 @@ async function fetchViaVpsAsr(targetUrl, env, log = console.log) {
 //
 // Bump AUDIO_CACHE_VER whenever the audio codec/bitrate changes so stale
 // edge-cached variants are never served (e.g. the 128k-stereo → 64k-mono cut).
-const AUDIO_CACHE_VER = '2';
+const AUDIO_CACHE_VER = '3';
 
-async function handleAudio(url, env) {
+async function handleAudio(request, env) {
   if (!env.YTDLP_API_URL) {
     return jsonResponse({ error: 'Audio service not configured' }, 503);
   }
+  const url = new URL(request.url);
   const target = url.searchParams.get('url');
   if (!target) {
     return jsonResponse({ error: 'Missing url parameter' }, 400);
@@ -485,18 +486,24 @@ async function handleAudio(url, env) {
 
   const base = env.YTDLP_API_URL.replace(/\/+$/, '');
   const vpsUrl = `${base}/api/audio?url=${encodeURIComponent(target)}`;
-  const headers = {};
-  if (env.YTDLP_API_KEY) headers['X-Api-Key'] = env.YTDLP_API_KEY;
+  const fwd = {};
+  if (env.YTDLP_API_KEY) fwd['X-Api-Key'] = env.YTDLP_API_KEY;
 
   // ── Edge cache (Cloudflare Cache API) ─────────────────────────────
   // Caches the extracted mp3 at the edge so a SECOND user / different device
   // gets it instantly without re-extracting on the VPS. The key is pinned to
   // AUDIO_CACHE_VER and stripped of volatile client headers (Range/Accept/UA)
-  // so a range request and a full request share one cached entry.
+  // so a range request and a full request share one cached entry. Bumping
+  // AUDIO_CACHE_VER invalidates stale (e.g. 0-byte) cached bodies everywhere.
   const cache = caches.default;
   const cacheKeyUrl = new URL(url.toString());
   cacheKeyUrl.searchParams.set('ec_ver', AUDIO_CACHE_VER);
   const cacheKey = new Request(cacheKeyUrl.toString());
+
+  let buf = null;
+  let originHeaders = null;
+  let status = 200;
+  let statusText = 'OK';
 
   let cached = null;
   try {
@@ -505,65 +512,86 @@ async function handleAudio(url, env) {
     /* cache unavailable — fall through to origin */
   }
   if (cached) {
-    const h = new Headers(cached.headers);
-    h.set('X-Cache', 'HIT');
-    return new Response(cached.body, {
-      status: cached.status,
-      statusText: cached.statusText,
-      headers: h,
-    });
+    buf = await cached.arrayBuffer();
+    originHeaders = cached.headers;
+    status = cached.status;
+    statusText = cached.statusText;
+  } else {
+    try {
+      // First request triggers a download + transcode on the VPS; Bilibili routes
+      // through a flaky proxy and may take up to ~1–2 min. The VPS bounds its own
+      // work to fit under this window, so stream the result straight through.
+      const resp = await fetchWithTimeout(vpsUrl, { headers: fwd }, 240000);
+      if (!resp.ok) {
+        const detail = await resp.text().catch(() => '');
+        return jsonResponse(
+          {
+            error: `Audio extraction failed (VPS ${resp.status})`,
+            detail: detail.slice(0, 300),
+          },
+          resp.status === 404 ? 404 : 502,
+        );
+      }
+      // Read the body ONCE into a buffer so BOTH the cached response and the
+      // returned (possibly range-sliced) response are built from it. Using
+      // resp.clone() + resp.body shares one stream → cache drains it → 0-byte.
+      buf = await resp.arrayBuffer();
+      originHeaders = resp.headers;
+      status = resp.status;
+      statusText = resp.statusText;
+      const ct = resp.headers.get('content-type') || '';
+      // Only cache real, successful, non-empty audio.
+      if (ct.includes('audio') && buf.byteLength > 0) {
+        try {
+          await cache.put(
+            cacheKey,
+            new Response(buf, {
+              status,
+              statusText,
+              headers: new Headers(resp.headers),
+            }),
+          );
+        } catch (_) {
+          /* cache put failed — still return the audio */
+        }
+      }
+    } catch (err) {
+      return jsonResponse({ error: `Audio request failed: ${err.message}` }, 502);
+    }
   }
 
-  try {
-    // First request triggers a download + transcode on the VPS; Bilibili routes
-    // through a flaky proxy and may take up to ~1–2 min. The VPS bounds its own
-    // work to fit under this window, so stream the result straight through.
-    const resp = await fetchWithTimeout(vpsUrl, { headers }, 240000);
-    if (!resp.ok) {
-      const detail = await resp.text().catch(() => '');
-      return jsonResponse(
-        {
-          error: `Audio extraction failed (VPS ${resp.status})`,
-          detail: detail.slice(0, 300),
-        },
-        resp.status === 404 ? 404 : 502,
-      );
-    }
-    const ct = resp.headers.get('content-type') || '';
-    const len = resp.headers.get('content-length');
-    // Read the body ONCE into a buffer, then build both the cached response and
-    // the returned response from it. Using resp.clone() + resp.body shares the
-    // same underlying stream — cache.put drains the clone, leaving the client's
-    // body empty (Cloudflare dropped the body → 0-byte audio). Audio is 64k mono
-    // so buffering is small and safe.
-    const buf = await resp.arrayBuffer();
-    const out = new Headers(resp.headers);
-    out.set('X-Cache', 'MISS');
-    // Only cache real, successful audio — never proxy errors / empty bodies.
-    if (ct.includes('audio') && (len === null || buf.byteLength > 0)) {
-      try {
-        const cacheH = new Headers(resp.headers);
-        cacheH.set('X-Cache', 'MISS');
-        await cache.put(
-          cacheKey,
-          new Response(buf, {
-            status: resp.status,
-            statusText: resp.statusText,
-            headers: cacheH,
-          }),
-        );
-      } catch (_) {
-        /* cache put failed — still return the audio */
-      }
-    }
-    return new Response(buf, {
-      status: resp.status,
-      statusText: resp.statusText,
-      headers: out,
-    });
-  } catch (err) {
-    return jsonResponse({ error: `Audio request failed: ${err.message}` }, 502);
+  if (!buf || buf.byteLength === 0) {
+    return jsonResponse({ error: 'Audio extraction returned empty body' }, 502);
   }
+
+  const total = buf.byteLength;
+  const ct = originHeaders?.get('content-type') || 'audio/mpeg';
+
+  // Honour Range requests — iOS/Android Safari REQUIRE a 206 + Accept-Ranges
+  // for <audio>/<video>, otherwise they refuse to load the media ("failed").
+  const out = new Headers();
+  out.set('Content-Type', ct);
+  out.set('Accept-Ranges', 'bytes');
+  out.set('Cache-Control', 'no-transform');
+  out.set('X-Cache', cached ? 'HIT' : 'MISS');
+
+  const range = request.headers.get('Range');
+  const m = range && range.match(/bytes=(\d*)-(\d*)/);
+  if (m && total > 0) {
+    const start = m[1] ? parseInt(m[1], 10) : 0;
+    const end = m[2] ? parseInt(m[2], 10) : total - 1;
+    if (Number.isNaN(start) || Number.isNaN(end) || start > end || end >= total) {
+      out.set('Content-Range', `bytes */${total}`);
+      return new Response(null, { status: 416, headers: out });
+    }
+    const slice = buf.slice(start, end + 1);
+    out.set('Content-Range', `bytes ${start}-${end}/${total}`);
+    out.set('Content-Length', String(slice.byteLength));
+    return new Response(slice, { status: 206, statusText: 'Partial Content', headers: out });
+  }
+
+  out.set('Content-Length', String(total));
+  return new Response(buf, { status, statusText, headers: out });
 }
 
 // ── InnerTube player API strategy (multi-client) ─────────────

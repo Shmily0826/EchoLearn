@@ -185,8 +185,8 @@ const BilibiliEmbed = forwardRef<PlayerHandle, BilibiliEmbedProps>(
               ref={iframeRef}
               src={embedUrl}
               className={`absolute inset-0 w-full h-full rounded-xl bg-black ${controlsUnlocked ? '' : 'pointer-events-none'}`}
-              sandbox="allow-scripts allow-same-origin allow-presentation allow-fullscreen allow-popups"
-              allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture"
+              sandbox="allow-scripts allow-same-origin allow-presentation allow-popups"
+              allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture; fullscreen"
               allowFullScreen
               scrolling="no"
               frameBorder="0"
