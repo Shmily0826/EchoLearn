@@ -127,6 +127,16 @@ ASR_MAX_DURATION = int(os.environ.get("ASR_MAX_DURATION", "1800"))  # 30 min
 _VIDEO_ID_RE = re.compile(r"^[a-zA-Z0-9_-]{6,15}$")
 _ALLOWED_HOSTS = ("youtube.com", "youtu.be", "bilibili.com", "b23.tv")
 
+# Opener that NEVER consults a proxy — used for all Bilibili API + CDN traffic
+# so the residential proxy (which Bilibili blocks wholesale) can never be
+# slipped in via a parent env var. The VPS datacenter IP reaches these hosts
+# directly and far faster than through the proxy.
+_NO_PROXY_OPENER = urllib.request.build_opener(urllib.request.ProxyHandler({}))
+
+
+def _urlopen_no_proxy(req, timeout: int = 10):
+    return _NO_PROXY_OPENER.open(req, timeout=timeout)
+
 # Persistent on-disk cache for extracted audio (audio-only player). Keyed by a
 # hash of the target URL + part so repeat plays are served instantly without
 # re-downloading. The Cloudflare Worker streams these files to the browser.
@@ -205,7 +215,7 @@ def _bilibili_parts(bvid: str):
         },
     )
     try:
-        with urllib.request.urlopen(req, timeout=10) as resp:
+        with _urlopen_no_proxy(req, timeout=10) as resp:
             data = json.loads(resp.read().decode("utf-8", "ignore"))
     except Exception:
         return None
@@ -241,7 +251,7 @@ def _resolve_bilibili_url(url: str) -> str:
         url, headers={"User-Agent": _BILI_UA, "Referer": _BILI_REFERER}
     )
     try:
-        with urllib.request.urlopen(req, timeout=10) as resp:
+        with _urlopen_no_proxy(req, timeout=10) as resp:
             return resp.geturl()
     except Exception:
         return url
@@ -254,7 +264,7 @@ def _bilibili_view(bvid: str):
         api, headers={"User-Agent": _BILI_UA, "Referer": _BILI_REFERER}
     )
     try:
-        with urllib.request.urlopen(req, timeout=10) as resp:
+        with _urlopen_no_proxy(req, timeout=10) as resp:
             data = json.loads(resp.read().decode("utf-8", "ignore"))
     except Exception:
         return None
@@ -262,7 +272,8 @@ def _bilibili_view(bvid: str):
         return None
     d = data.get("data") or {}
     pages = [
-        {"index": p.get("page"), "cid": p.get("cid"), "title": p.get("part") or ""}
+        {"index": p.get("page"), "cid": p.get("cid"),
+         "title": p.get("part") or "", "duration": p.get("duration") or 0}
         for p in (d.get("pages") or [])
     ]
     return {
@@ -283,7 +294,7 @@ def _bilibili_playurl(bvid: str, cid: int):
         api, headers={"User-Agent": _BILI_UA, "Referer": _BILI_REFERER}
     )
     try:
-        with urllib.request.urlopen(req, timeout=10) as resp:
+        with _urlopen_no_proxy(req, timeout=10) as resp:
             data = json.loads(resp.read().decode("utf-8", "ignore"))
     except Exception:
         return None
@@ -319,7 +330,7 @@ def _download_bilibili_audio(base_url: str, out_path: str, ar: int = 16000, ab: 
         base_url, headers={"User-Agent": _BILI_UA, "Referer": _BILI_REFERER}
     )
     try:
-        with urllib.request.urlopen(req, timeout=90) as resp, open(raw, "wb") as fh:
+        with _urlopen_no_proxy(req, timeout=90) as resp, open(raw, "wb") as fh:
             while True:
                 chunk = resp.read(1 << 16)
                 if not chunk:
@@ -827,10 +838,19 @@ def _fetch_meta(target_url: str, part: Optional[int] = None, *, attempts: int = 
         view = _bilibili_view(bvid) if bvid else None
         if not view:
             raise HTTPException(status_code=404, detail="Could not fetch Bilibili info")
+        # A multi-part video reports the TOTAL duration in view["duration"]; for
+        # the ASR/audio limit check and the player we want the selected part's
+        # duration, which lives on the per-page record.
+        part_dur = view["duration"]
+        if part and part > 1:
+            for p in view.get("pages") or []:
+                if p.get("index") == part and p.get("duration"):
+                    part_dur = p["duration"]
+                    break
         payload = {
             "title": view["title"],
             "ownerName": view["owner"],
-            "duration": view["duration"],
+            "duration": part_dur,
             "thumbnail": "",
             "bvid": bvid,
         }
