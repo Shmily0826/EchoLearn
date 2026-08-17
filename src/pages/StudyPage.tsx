@@ -429,7 +429,16 @@ const StudyPage: React.FC = () => {
     if (saved) {
       loadedSessionIdRef.current = saved.id;
       setSession(saved);
-      setVideoId(saved.youtubeId);
+      // Heal legacy sessions where youtubeId was accidentally stored as a URL
+      // (e.g. a b23.tv short link or bilibili.com URL) instead of a BV id.
+      let restoredVideoId = saved.youtubeId;
+      if (saved.platform === 'bilibili' && !/^BV[a-zA-Z0-9]{10}$/i.test(saved.youtubeId)) {
+        const fromUrl = parseBilibiliId(saved.youtubeUrl);
+        if (fromUrl && /^BV[a-zA-Z0-9]{10}$/i.test(fromUrl)) {
+          restoredVideoId = fromUrl;
+        }
+      }
+      setVideoId(restoredVideoId);
       setPlatform(saved.platform || 'youtube');
       setUrlInput(saved.youtubeUrl);
       setSessionTitle(saved.title);
@@ -1423,31 +1432,39 @@ const StudyPage: React.FC = () => {
                   <AudioPlayer key={audioSrc ?? 'audio'} ref={playerRef} src={audioSrc ?? ''} fallbackSrc={audioFallbackSrc ?? undefined} bilibili={platform === 'bilibili'} startTime={startTime} playbackRate={playbackRate} />
                 ) : platform === 'bilibili' ? (
                   <>
-                    {biliParts && biliParts.length > 1 && (
-                      <div className="mb-2 flex items-center gap-2">
-                        <label
-                          htmlFor="bili-part-select"
-                          className="text-xs sm:text-sm text-gray-500 dark:text-gray-400 flex-shrink-0"
-                        >
-                          {t('study.selectPart')}
-                        </label>
-                        <select
-                          id="bili-part-select"
-                          value={biliPage ?? 1}
-                          onChange={handleBiliPartChange}
-                          disabled={fetchingCaption}
-                          className="flex-1 min-w-0 px-2 py-1.5 text-xs sm:text-sm bg-white dark:bg-slate-800 border border-gray-200 dark:border-slate-700 rounded-lg text-gray-700 dark:text-gray-200 focus:outline-none focus:ring-2 focus:ring-indigo-400 disabled:opacity-60 cursor-pointer truncate"
-                        >
-                          {biliParts.map((p) => (
-                            <option key={p.index} value={p.index}>
-                              P{p.index}
-                              {p.title ? ` · ${p.title}` : ''}
-                            </option>
-                          ))}
-                        </select>
+                    {!/^BV[a-zA-Z0-9]{10}$/i.test(videoId) ? (
+                      <div className="flex items-center justify-center rounded-xl bg-black/5 dark:bg-white/5 px-4 py-8 text-sm text-gray-500 dark:text-gray-400">
+                        {t('study.biliResolving')}
                       </div>
+                    ) : (
+                      <>
+                        {biliParts && biliParts.length > 1 && (
+                          <div className="mb-2 flex items-center gap-2">
+                            <label
+                              htmlFor="bili-part-select"
+                              className="text-xs sm:text-sm text-gray-500 dark:text-gray-400 flex-shrink-0"
+                            >
+                              {t('study.selectPart')}
+                            </label>
+                            <select
+                              id="bili-part-select"
+                              value={biliPage ?? 1}
+                              onChange={handleBiliPartChange}
+                              disabled={fetchingCaption}
+                              className="flex-1 min-w-0 px-2 py-1.5 text-xs sm:text-sm bg-white dark:bg-slate-800 border border-gray-200 dark:border-slate-700 rounded-lg text-gray-700 dark:text-gray-200 focus:outline-none focus:ring-2 focus:ring-indigo-400 disabled:opacity-60 cursor-pointer truncate"
+                            >
+                              {biliParts.map((p) => (
+                                <option key={p.index} value={p.index}>
+                                  P{p.index}
+                                  {p.title ? ` · ${p.title}` : ''}
+                                </option>
+                              ))}
+                            </select>
+                          </div>
+                        )}
+                        <BilibiliEmbed ref={playerRef} bvid={videoId} page={biliPage} startTime={startTime} duration={transcriptDuration} playbackRate={playbackRate} />
+                      </>
                     )}
-                    <BilibiliEmbed ref={playerRef} bvid={videoId} page={biliPage} startTime={startTime} duration={transcriptDuration} playbackRate={playbackRate} />
                   </>
                 ) : (
                   <YouTubeEmbed ref={playerRef} youtubeId={videoId} startTime={startTime} playbackRate={playbackRate} />
@@ -2370,7 +2387,9 @@ const MobileTranscriptPanel: React.FC<{
     }, 3000);
   }, []);
 
-  // Auto-scroll to active line — container-relative, never scrolls the page
+  // Auto-scroll to active line — container-relative, never scrolls the page.
+  // Anchor the active line slightly above the vertical centre (40%) so the
+  // playback controls stay visible while upcoming subtitles are readable.
   useEffect(() => {
     if (userScrolled.current || !activeRef.current || !containerRef.current) return;
     const container = containerRef.current;
@@ -2380,9 +2399,9 @@ const MobileTranscriptPanel: React.FC<{
     const targetScroll =
       container.scrollTop +
       (elRect.top - containerRect.top) -
-      container.clientHeight / 4 +
+      container.clientHeight * 0.4 +
       elRect.height / 2;
-    container.scrollTop = Math.max(0, targetScroll);
+    container.scrollTo({ top: Math.max(0, targetScroll), behavior: 'smooth' });
   }, [activeLineIndex]);
 
   // Close popup on outside click
@@ -2640,7 +2659,7 @@ const MobileTranscriptPanel: React.FC<{
       <div
         ref={containerRef}
         onScroll={handleScroll}
-        className="overflow-y-auto max-h-[55vh] px-2 py-1"
+        className="overflow-y-auto max-h-[55vh] px-2 py-1 bg-white dark:bg-slate-800"
         style={{ overscrollBehavior: 'contain', overflowAnchor: 'none', scrollBehavior: 'smooth' }}
       >
         {lines.map((line, idx) => {

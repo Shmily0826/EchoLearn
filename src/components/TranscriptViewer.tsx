@@ -113,7 +113,8 @@ const TranscriptViewer: React.FC<TranscriptViewerProps> = ({
   }, [popup]);
 
   // Auto-scroll to the active line using container-relative positioning
-  // (avoids scrollIntoView which can scroll the entire page)
+  // (avoids scrollIntoView which can scroll the entire page). Anchor slightly
+  // above centre so controls stay visible while reading ahead.
   useEffect(() => {
     if (activeLineIndex < 0 || !activeLineRef.current || userScrolledRef.current) return;
     const el = activeLineRef.current;
@@ -124,7 +125,7 @@ const TranscriptViewer: React.FC<TranscriptViewerProps> = ({
     const targetScroll =
       container.scrollTop +
       (elRect.top - containerRect.top) -
-      container.clientHeight / 4 +
+      container.clientHeight * 0.4 +
       elRect.height / 2;
     container.scrollTo({ top: Math.max(0, targetScroll), behavior: 'smooth' });
   }, [activeLineIndex]);
@@ -574,7 +575,7 @@ const TranscriptViewer: React.FC<TranscriptViewerProps> = ({
 
           // Build className based on state
           let lineClass =
-            'group rounded-lg px-3 py-2.5 transition-all border cursor-pointer';
+            'group rounded-lg px-3 py-2.5 transition-colors border cursor-pointer';
           if (isActive) {
             lineClass += ' bg-indigo-50 dark:bg-indigo-950 border-l-[3px] border-l-indigo-500 border-t-indigo-200 border-r-indigo-200 border-b-indigo-200 shadow-sm';
           } else if (sentenceSaved) {

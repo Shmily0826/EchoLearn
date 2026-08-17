@@ -45,6 +45,8 @@ const fmtTime = (s: number) => {
  * video starts/stops together with our clock (no "video paused but transcript
  * moving" mismatch).
  */
+const BV_RE = /^BV[a-zA-Z0-9]{10}$/i;
+
 const BilibiliEmbed = forwardRef<PlayerHandle, BilibiliEmbedProps>(
   ({ bvid, page, startTime, duration = 0, playbackRate = 1 }, ref) => {
     const { t } = useI18n();
@@ -67,7 +69,9 @@ const BilibiliEmbed = forwardRef<PlayerHandle, BilibiliEmbedProps>(
           danmaku: '0',
           autoplay: String(autoplay),
         });
-        if (page && page > 1) params.set('page', String(page));
+        // Always pass the part number; for multi-part videos the embed can
+        // fail to resolve the right page if p is omitted.
+        params.set('page', String(page && page > 0 ? page : 1));
         if (seekTo && seekTo > 0) params.set('t', String(Math.floor(seekTo)));
         return `https://player.bilibili.com/player.html?${params.toString()}`;
       },
@@ -171,20 +175,30 @@ const BilibiliEmbed = forwardRef<PlayerHandle, BilibiliEmbedProps>(
       [currentTime, playing, buildEmbedUrl, playbackRate],
     );
 
+    const bvidValid = BV_RE.test(bvid);
+
     return (
       <div className="w-full">
         <div className="relative w-full" style={{ paddingBottom: '56.25%' }}>
-          <iframe
-            ref={iframeRef}
-            src={embedUrl}
-            className={`absolute inset-0 w-full h-full rounded-xl bg-black ${controlsUnlocked ? '' : 'pointer-events-none'}`}
-            sandbox="allow-scripts allow-same-origin allow-presentation allow-fullscreen allow-popups"
-            allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture"
-            allowFullScreen
-            scrolling="no"
-            frameBorder="0"
-            title="Bilibili video player"
-          />
+          {bvidValid ? (
+            <iframe
+              ref={iframeRef}
+              src={embedUrl}
+              className={`absolute inset-0 w-full h-full rounded-xl bg-black ${controlsUnlocked ? '' : 'pointer-events-none'}`}
+              sandbox="allow-scripts allow-same-origin allow-presentation allow-fullscreen allow-popups"
+              allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture"
+              allowFullScreen
+              scrolling="no"
+              frameBorder="0"
+              referrerPolicy="origin"
+              title="Bilibili video player"
+            />
+          ) : (
+            <div className="absolute inset-0 flex flex-col items-center justify-center rounded-xl bg-black text-center px-4">
+              <p className="text-sm text-white/80 mb-1">{t('study.biliInvalidId')}</p>
+              <p className="text-xs text-white/50">{bvid || '(empty)'}</p>
+            </div>
+          )}
           {/* Click-capture layer (locked mode): the iframe never receives
               clicks, so it cannot navigate away to bilibili.com. A single
               click toggles our synced play/pause. Removed while unlocked so
