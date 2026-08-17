@@ -531,17 +531,32 @@ async function handleAudio(url, env) {
     }
     const ct = resp.headers.get('content-type') || '';
     const len = resp.headers.get('content-length');
-    // Only cache real, successful audio — never proxy errors / empty bodies.
-    if (ct.includes('audio') && (len === null || parseInt(len, 10) > 0)) {
-      try {
-        await cache.put(cacheKey, resp.clone());
-      } catch (_) {
-        /* cache put failed — still return the stream */
-      }
-    }
+    // Read the body ONCE into a buffer, then build both the cached response and
+    // the returned response from it. Using resp.clone() + resp.body shares the
+    // same underlying stream — cache.put drains the clone, leaving the client's
+    // body empty (Cloudflare dropped the body → 0-byte audio). Audio is 64k mono
+    // so buffering is small and safe.
+    const buf = await resp.arrayBuffer();
     const out = new Headers(resp.headers);
     out.set('X-Cache', 'MISS');
-    return new Response(resp.body, {
+    // Only cache real, successful audio — never proxy errors / empty bodies.
+    if (ct.includes('audio') && (len === null || buf.byteLength > 0)) {
+      try {
+        const cacheH = new Headers(resp.headers);
+        cacheH.set('X-Cache', 'MISS');
+        await cache.put(
+          cacheKey,
+          new Response(buf, {
+            status: resp.status,
+            statusText: resp.statusText,
+            headers: cacheH,
+          }),
+        );
+      } catch (_) {
+        /* cache put failed — still return the audio */
+      }
+    }
+    return new Response(buf, {
       status: resp.status,
       statusText: resp.statusText,
       headers: out,
