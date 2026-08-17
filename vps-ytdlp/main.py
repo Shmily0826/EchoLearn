@@ -24,9 +24,12 @@ Response shape (matches the EchoLearn web/Worker contract):
 Environment
   YTDLP_TIMEOUT   subprocess hard timeout in seconds (default 90)
   YTDLP_PROXY     optional upstream proxy passed to yt-dlp (e.g. a residential
-                  proxy endpoint). Applied to YouTube and Bilibili — the latter
-                  needs it because Bilibili's watch page returns HTTP 412 from
-                  datacenter IPs (even though its JSON API is reachable without it).
+                  proxy endpoint). Now used ONLY as a fallback for YouTube when a
+                  direct (no-proxy) extraction fails — the TVHTML5 client normally
+                  bypasses YouTube's datacenter bot-check without it. Bilibili no
+                  longer uses yt-dlp at all: its audio is pulled via the public
+                  view + playurl APIs (which answer the VPS IP fine) and the media
+                  CDN directly, so the proxy is never touched for Bilibili.
                   NOT used for Groq: Groq works directly from this VPS, and the
                   proxy only adds a flaky hop (Broken pipe).
   YTDLP_API_KEY   if set, /api/transcript and /api/asr require header X-Api-Key to match
@@ -40,11 +43,13 @@ Environment
   GROQ_MODEL      Groq speech model (default whisper-large-v3-turbo)
   ASR_MAX_DURATION  reject ASR requests longer than this many seconds (default 1800)
 
-Note on the proxy: YTDLP_PROXY is applied to YouTube and Bilibili URLs. The
-Bilibili *watch page* returns HTTP 412 from the VPS datacenter IP (only its
-JSON API is reachable cleanly). yt-dlp's Bilibili extractor fetches that page
-first, so Bilibili extraction must go through the residential proxy to bypass
-the 412. Quota impact is modest at EchoLearn's scale (~30 MB per audio).
+Note on the proxy: YTDLP_PROXY is now a YOUTUBE-ONLY fallback. Bilibili's
+*watch page* returns HTTP 412 from both the VPS datacenter IP and the entire
+residential-proxy IP pool, so the proxy can't help Bilibili — and Bilibili
+doesn't need it anyway, because its JSON APIs (view/playurl) and media CDN are
+reachable directly from the VPS. Bilibili audio/ASR/info therefore bypass yt-dlp
+entirely and use zero proxy bandwidth. YouTube is tried with NO proxy first
+(TVHTML5 client) and only falls back to the proxy if that fails.
 
 Note on Bilibili transcripts: Bilibili gates *subtitle tracks* behind a login,
 but audio streams are served to anonymous clients. With a SESSDATA cookie in
@@ -204,6 +209,177 @@ def _bilibili_parts(bvid: str):
     pages = (data.get("data") or {}).get("pages") or []
     parts = [{"index": p.get("page"), "title": p.get("part") or ""} for p in pages]
     return {"partCount": len(parts), "parts": parts}
+
+
+# ── Bilibili API-direct extraction (no proxy, no yt-dlp watch-page 412) ──
+#
+# Bilibili's JSON APIs (view + playurl) answer the VPS datacenter IP fine,
+# and the media CDN (bilivideo.com) serves anonymous clients directly. The
+# only thing that 412s from a datacenter IP is the *watch page* HTML, which
+# yt-dlp's extractor hits — so we bypass yt-dlp entirely for Bilibili and
+# pull the audio straight from the DASH manifest. This also means the
+# residential proxy (which Bilibili blocks wholesale anyway) is never used
+# for Bilibili, saving both latency and Proxy-Cheap bandwidth.
+
+_BILI_UA = (
+    "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 "
+    "(KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"
+)
+_BILI_REFERER = "https://www.bilibili.com/"
+
+
+def _resolve_bilibili_url(url: str) -> str:
+    """Follow b23.tv short links to the canonical bilibili.com URL."""
+    if "b23.tv" not in url:
+        return url
+    req = urllib.request.Request(
+        url, headers={"User-Agent": _BILI_UA, "Referer": _BILI_REFERER}
+    )
+    try:
+        with urllib.request.urlopen(req, timeout=10) as resp:
+            return resp.geturl()
+    except Exception:
+        return url
+
+
+def _bilibili_view(bvid: str):
+    """Full view-API payload: title, owner, duration, and per-part cids."""
+    api = f"https://api.bilibili.com/x/web-interface/view?bvid={bvid}"
+    req = urllib.request.Request(
+        api, headers={"User-Agent": _BILI_UA, "Referer": _BILI_REFERER}
+    )
+    try:
+        with urllib.request.urlopen(req, timeout=10) as resp:
+            data = json.loads(resp.read().decode("utf-8", "ignore"))
+    except Exception:
+        return None
+    if data.get("code") != 0:
+        return None
+    d = data.get("data") or {}
+    pages = [
+        {"index": p.get("page"), "cid": p.get("cid"), "title": p.get("part") or ""}
+        for p in (d.get("pages") or [])
+    ]
+    return {
+        "title": d.get("title") or "",
+        "owner": (d.get("owner") or {}).get("name") or "",
+        "duration": d.get("duration") or 0,
+        "pages": pages,
+    }
+
+
+def _bilibili_playurl(bvid: str, cid: int):
+    """Best DASH audio baseUrl for a (bvid, cid), or None."""
+    api = (
+        f"https://api.bilibili.com/x/player/playurl?bvid={bvid}"
+        f"&cid={cid}&qn=64&fnval=16&fourk=1"
+    )
+    req = urllib.request.Request(
+        api, headers={"User-Agent": _BILI_UA, "Referer": _BILI_REFERER}
+    )
+    try:
+        with urllib.request.urlopen(req, timeout=10) as resp:
+            data = json.loads(resp.read().decode("utf-8", "ignore"))
+    except Exception:
+        return None
+    if data.get("code") != 0:
+        return None
+    audios = ((data.get("dash") or {}).get("audio")) or []
+    if not audios:
+        return None
+    audios.sort(key=lambda a: a.get("bandwidth") or 0, reverse=True)
+    return audios[0].get("baseUrl")
+
+
+def _bilibili_cid_for_part(view, part: Optional[int]):
+    """Return the cid for the requested part (1-indexed), defaulting to part 1."""
+    pages = (view or {}).get("pages") or []
+    if not pages:
+        return None
+    if part and part > 1:
+        for p in pages:
+            if p.get("index") == part:
+                return p.get("cid")
+    return pages[0].get("cid")
+
+
+def _download_bilibili_audio(base_url: str, out_path: str, ar: int = 16000, ab: int = 32) -> bool:
+    """Download a Bilibili DASH audio URL (CDN, no proxy) and transcode to mp3.
+
+    `ar`/`ab` select the Whisper-friendly 16 kHz/32 kbps profile for ASR, or a
+    listenable 44.1 kHz/64 kbps profile for the audio player.
+    """
+    raw = out_path + ".raw"
+    req = urllib.request.Request(
+        base_url, headers={"User-Agent": _BILI_UA, "Referer": _BILI_REFERER}
+    )
+    try:
+        with urllib.request.urlopen(req, timeout=90) as resp, open(raw, "wb") as fh:
+            while True:
+                chunk = resp.read(1 << 16)
+                if not chunk:
+                    break
+                fh.write(chunk)
+    except Exception:
+        try:
+            os.remove(raw)
+        except OSError:
+            pass
+        return False
+    try:
+        subprocess.run(
+            ["ffmpeg", "-y", "-i", raw, "-ar", str(ar), "-ac", "1",
+             "-b:a", f"{ab}k", out_path],
+            capture_output=True, text=True, timeout=120,
+        )
+    except Exception:
+        pass
+    finally:
+        try:
+            os.remove(raw)
+        except OSError:
+            pass
+    return os.path.exists(out_path) and os.path.getsize(out_path) > 0
+
+
+def _bilibili_asr(url: str, part: Optional[int] = None) -> dict:
+    """Full ASR pipeline for a Bilibili video via the public APIs (no proxy)."""
+    resolved = _resolve_bilibili_url(url)
+    bvid = _extract_bvid(resolved)
+    if not bvid:
+        raise HTTPException(status_code=400, detail="Could not parse Bilibili id")
+    view = _bilibili_view(bvid)
+    if not view:
+        raise HTTPException(status_code=404, detail="Bilibili view API failed")
+    cid = _bilibili_cid_for_part(view, part)
+    if not cid:
+        raise HTTPException(status_code=404, detail="Bilibili part not found")
+    base_url = _bilibili_playurl(bvid, cid)
+    if not base_url:
+        raise HTTPException(status_code=404, detail="Bilibili playurl API failed")
+    with tempfile.TemporaryDirectory() as td:
+        mp3 = os.path.join(td, "audio.mp3")
+        if not _download_bilibili_audio(base_url, mp3, ar=16000, ab=32):
+            raise HTTPException(status_code=502, detail="Could not download Bilibili audio")
+        return _groq_transcribe(mp3)
+
+
+def _bilibili_audio(url: str, part: Optional[int], out_path: str) -> bool:
+    """Fetch + transcode a listenable Bilibili audio track into out_path."""
+    resolved = _resolve_bilibili_url(url)
+    bvid = _extract_bvid(resolved)
+    if not bvid:
+        return False
+    view = _bilibili_view(bvid)
+    if not view:
+        return False
+    cid = _bilibili_cid_for_part(view, part)
+    if not cid:
+        return False
+    base_url = _bilibili_playurl(bvid, cid)
+    if not base_url:
+        return False
+    return _download_bilibili_audio(base_url, out_path, ar=44100, ab=64)
 
 
 def _host_allowed(target_url: str) -> bool:
@@ -595,15 +771,18 @@ def _run_ytdlp(video_id_or_url: str, lang: str, *, is_url: bool = False, part: O
         "--no-overwrites",
         target_url,
     ]
-    # Primary attempt: residential proxy (Bilibili needs it for the 412 watch
-    # page; YouTube normally bypasses the bot-check via the proxy too). Fallback
-    # attempt (only when a YouTube account cookie is present): NO proxy — the
-    # cookie + --remote-components n-solver let yt-dlp fetch captions straight
-    # from the datacenter IP, recovering the common "proxy tunnel dropped" case
-    # that used to surface to the user as "No captions".
-    cmds = [(base_cmd + _site_args(target_url), _proxy_env(target_url))]
-    if _has_youtube_cookies():
-        cmds.append((base_cmd + _cookie_args(target_url), _no_proxy_env()))
+    # Bilibili: yt-dlp's watch-page extractor 412s from datacenter IPs AND from
+    # the proxy pool, so the proxy is useless there — run without it. (The
+    # /api/asr and /api/audio routes bypass yt-dlp for Bilibili entirely via the
+    # public APIs; this path only matters if a real subtitle track exists.)
+    # YouTube: the TVHTML5 client bypasses the datacenter bot-check, so try NO
+    # proxy first (fast, free) and only fall back to the proxy if that fails.
+    if _is_bilibili(target_url):
+        cmds = [(base_cmd + _site_args(target_url), _no_proxy_env())]
+    else:
+        cmds = [(base_cmd + _site_args(target_url), _no_proxy_env())]
+        if YTDLP_PROXY:
+            cmds.append((base_cmd + _site_args(target_url), _proxy_env(target_url)))
     for cmd, env in cmds:
         with tempfile.TemporaryDirectory() as td:
             full = cmd + ["-o", os.path.join(td, "%(id)s")]
@@ -635,6 +814,27 @@ def _fetch_meta(target_url: str, part: Optional[int] = None, *, attempts: int = 
     cached = _cache_get(target_url, "__info__")
     if cached is not None:
         return cached
+
+    # Bilibili: skip yt-dlp (watch-page 412) and use the view API directly.
+    if _is_bilibili(target_url):
+        resolved = _resolve_bilibili_url(target_url)
+        bvid = _extract_bvid(resolved)
+        view = _bilibili_view(bvid) if bvid else None
+        if not view:
+            raise HTTPException(status_code=404, detail="Could not fetch Bilibili info")
+        payload = {
+            "title": view["title"],
+            "ownerName": view["owner"],
+            "duration": view["duration"],
+            "thumbnail": "",
+            "bvid": bvid,
+        }
+        parts = _bilibili_parts(bvid) if bvid else None
+        if parts:
+            payload["partCount"] = parts["partCount"]
+            payload["parts"] = parts["parts"]
+        _cache_put(target_url, "__info__", payload)
+        return payload
 
     attempts = attempts or YTDLP_RETRIES
     timeout = timeout or YTDLP_TIMEOUT
@@ -752,26 +952,31 @@ def _download_audio(target_url: str, td: str, part: Optional[int] = None) -> Opt
         target_url,
     ]
     cmd += _site_args(target_url)
-    proxy_env = _proxy_env(target_url)
+    # YouTube: try NO proxy first (TVHTML5 bypasses the datacenter bot-check),
+    # then fall back to the residential proxy only if the direct attempt fails.
+    envs = [_no_proxy_env()]
+    if YTDLP_PROXY and _is_youtube(target_url):
+        envs.append(_proxy_env(target_url))
 
-    for attempt in range(1, YTDLP_RETRIES + 1):
-        # Clear any partial download from a previous flaky attempt so the
-        # --no-overwrites flag doesn't skip because of a broken fragment.
-        for fname in os.listdir(td):
+    for env in envs:
+        for attempt in range(1, YTDLP_RETRIES + 1):
+            # Clear any partial download from a previous flaky attempt so the
+            # --no-overwrites flag doesn't skip because of a broken fragment.
+            for fname in os.listdir(td):
+                try:
+                    os.remove(os.path.join(td, fname))
+                except OSError:
+                    pass
             try:
-                os.remove(os.path.join(td, fname))
-            except OSError:
-                pass
-        try:
-            subprocess.run(
-                cmd, cwd=td, capture_output=True, text=True,
-                timeout=YTDLP_TIMEOUT, env=proxy_env,
-            )
-        except subprocess.TimeoutExpired:
-            return None
-        for fname in sorted(os.listdir(td)):
-            if fname.endswith(".mp3"):
-                return os.path.join(td, fname)
+                subprocess.run(
+                    cmd, cwd=td, capture_output=True, text=True,
+                    timeout=YTDLP_TIMEOUT, env=env,
+                )
+            except subprocess.TimeoutExpired:
+                return None
+            for fname in sorted(os.listdir(td)):
+                if fname.endswith(".mp3"):
+                    return os.path.join(td, fname)
     return None
 
 
@@ -908,6 +1113,12 @@ def _extract_playback_audio(target_url: str, part: Optional[int] = None) -> Opti
     cmd += _site_args(target_url)
 
     backoff = 5  # seconds before the 2nd attempt; grows if more attempts allowed
+    # YouTube: try NO proxy first (TVHTML5 bypasses the datacenter bot-check),
+    # then alternate to the residential proxy on later attempts. Bilibili never
+    # reaches here (the /api/audio route uses the API-direct path above).
+    envs = [_no_proxy_env()]
+    if YTDLP_PROXY and _is_youtube(target_url):
+        envs.append(_proxy_env(target_url))
     for attempt in range(1, AUDIO_MAX_ATTEMPTS + 1):
         # Don't start an attempt we can't finish before the deadline — bail so
         # the frontend can auto-retry instead of us overrunning the Worker window.
@@ -922,7 +1133,7 @@ def _extract_playback_audio(target_url: str, part: Optional[int] = None) -> Opti
         try:
             subprocess.run(
                 cmd, cwd=AUDIO_CACHE_DIR, capture_output=True, text=True,
-                timeout=AUDIO_DL_TIMEOUT, env=_proxy_env(target_url),
+                timeout=AUDIO_DL_TIMEOUT, env=envs[(attempt - 1) % len(envs)],
             )
         except subprocess.TimeoutExpired:
             # Don't burn the whole Worker budget on one hung attempt; let the
@@ -1193,6 +1404,24 @@ def asr(
         if provided != YTDLP_API_KEY:
             raise HTTPException(status_code=401, detail="Unauthorized")
 
+    # Bilibili: API-direct path (no proxy, no yt-dlp watch-page 412).
+    if _is_bilibili(clean_url):
+        cached = _cache_get(url, "__asr__")
+        if cached is not None:
+            return JSONResponse(cached)
+        duration = int(_fetch_meta(clean_url, part).get("duration") or 0)
+        if duration > ASR_MAX_DURATION:
+            raise HTTPException(
+                status_code=413,
+                detail=(
+                    f"Video is {duration // 60} min, over the "
+                    f"{ASR_MAX_DURATION // 60} min ASR limit"
+                ),
+            )
+        payload = _bilibili_asr(clean_url, part)
+        _cache_put(url, "__asr__", payload)
+        return JSONResponse(payload)
+
     # ASR costs real quota, so a cache hit is worth much more here than on the
     # subtitle routes.
     cached = _cache_get(url, "__asr__")
@@ -1241,6 +1470,19 @@ def audio(
             raise HTTPException(status_code=401, detail="Unauthorized")
 
     path = _audio_cache_path(clean_url, part)
+    if _is_bilibili(clean_url):
+        # API-direct: CDN download + ffmpeg, no proxy, no yt-dlp watch-page 412.
+        if not _cache_valid(path):
+            if not _bilibili_audio(clean_url, part, path):
+                raise HTTPException(status_code=502, detail="Could not extract audio")
+        return FileResponse(
+            path,
+            media_type="audio/mpeg",
+            filename=os.path.basename(path),
+            content_disposition_type="inline",
+            headers={"Cache-Control": "public, max-age=86400, immutable"},
+        )
+
     if not (os.path.exists(path) and os.path.getsize(path) > 0):
         path = _extract_playback_audio_dedup(clean_url, part)
     if not path:
