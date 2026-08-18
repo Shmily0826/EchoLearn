@@ -150,6 +150,14 @@ const StudyPage: React.FC = () => {
     localStorage.setItem('echolearn_audio_mode', audioMode ? '1' : '0');
   }, [audioMode]);
 
+  // Bilibili's cross-origin iframe does not expose a reliable playback clock
+  // or programmatic play/pause API on mobile. Use the extracted native audio
+  // element as the synced transport by default; users can turn this off to
+  // use Bilibili's native video controls instead.
+  useEffect(() => {
+    if (platform === 'bilibili') setAudioMode(true);
+  }, [platform]);
+
   // Transcript state — raw caption blocks + sentence-level lines
   const [rawBlocks, setRawBlocks] = useState<TranscriptLine[]>([]);
   const [sentenceLines, setSentenceLines] = useState<TranscriptLine[]>([]);

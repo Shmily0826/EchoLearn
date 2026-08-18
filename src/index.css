@@ -53,8 +53,11 @@ body {
   min-height: 100vh;
 }
 
-/* Smooth transitions for theme changes */
-header, main, div, section, button, input, select, textarea {
+/* Smooth transitions for theme changes. Do not transition every `div`: on
+   mobile, transcript highlight/scroll repaints can briefly interpolate a
+   dark surface through white. Components that need animated surfaces opt in
+   locally instead. */
+header, main, section, button, input, select, textarea {
   transition: background-color 0.2s, border-color 0.2s, color 0.15s;
 }
 
