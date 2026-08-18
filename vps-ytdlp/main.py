@@ -132,6 +132,8 @@ _ALLOWED_HOSTS = ("youtube.com", "youtu.be", "bilibili.com", "b23.tv")
 # slipped in via a parent env var. The VPS datacenter IP reaches these hosts
 # directly and far faster than through the proxy.
 _NO_PROXY_OPENER = urllib.request.build_opener(urllib.request.ProxyHandler({}))
+_BILI_VIEW_CACHE = {}
+_BILI_VIEW_CACHE_TTL = 60
 
 
 def _urlopen_no_proxy(req, timeout: int = 10):
@@ -259,29 +261,44 @@ def _resolve_bilibili_url(url: str) -> str:
 
 def _bilibili_view(bvid: str):
     """Full view-API payload: title, owner, duration, and per-part cids."""
+    cached = _BILI_VIEW_CACHE.get(bvid)
+    if cached and cached[0] > time.time():
+        return cached[1]
     api = f"https://api.bilibili.com/x/web-interface/view?bvid={bvid}"
-    req = urllib.request.Request(
-        api, headers={"User-Agent": _BILI_UA, "Referer": _BILI_REFERER}
-    )
-    try:
-        with _urlopen_no_proxy(req, timeout=10) as resp:
-            data = json.loads(resp.read().decode("utf-8", "ignore"))
-    except Exception:
-        return None
-    if data.get("code") != 0:
-        return None
-    d = data.get("data") or {}
-    pages = [
-        {"index": p.get("page"), "cid": p.get("cid"),
-         "title": p.get("part") or "", "duration": p.get("duration") or 0}
-        for p in (d.get("pages") or [])
-    ]
-    return {
-        "title": d.get("title") or "",
-        "owner": (d.get("owner") or {}).get("name") or "",
-        "duration": d.get("duration") or 0,
-        "pages": pages,
+    headers = {
+        "User-Agent": _BILI_UA,
+        "Referer": _BILI_REFERER,
+        "Origin": "https://www.bilibili.com",
+        "Accept": "application/json, text/plain, */*",
     }
+    # The API is normally reliable from the VPS, but occasional upstream
+    # connection resets/empty responses were causing the whole ASR request to
+    # fail before audio extraction. Retry the cheap metadata call briefly.
+    for attempt in range(3):
+        req = urllib.request.Request(api, headers=headers)
+        try:
+            with _urlopen_no_proxy(req, timeout=15) as resp:
+                data = json.loads(resp.read().decode("utf-8", "ignore"))
+            if data.get("code") == 0:
+                d = data.get("data") or {}
+                pages = [
+                    {"index": p.get("page"), "cid": p.get("cid"),
+                     "title": p.get("part") or "", "duration": p.get("duration") or 0}
+                    for p in (d.get("pages") or [])
+                ]
+                result = {
+                    "title": d.get("title") or "",
+                    "owner": (d.get("owner") or {}).get("name") or "",
+                    "duration": d.get("duration") or 0,
+                    "pages": pages,
+                }
+                _BILI_VIEW_CACHE[bvid] = (time.time() + _BILI_VIEW_CACHE_TTL, result)
+                return result
+        except Exception:
+            pass
+        if attempt < 2:
+            time.sleep(0.75 * (attempt + 1))
+    return None
 
 
 def _bilibili_play_parse(data):
