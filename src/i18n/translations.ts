@@ -234,6 +234,7 @@ const translations: Record<string, Record<Lang, string>> = {
   'study.biliCoachmark': { en: 'Tap "Native" to unlock Bilibili’s own controls (volume / speed / quality / fullscreen).', zh: '点「原生控制」可解锁 B 站原生控制条（调音量 / 倍速 / 清晰度 / 全屏）。' },
   'study.biliCoachOk':   { en: 'Got it', zh: '知道了' },
   'study.biliControlsHint': { en: 'Sync mode uses the extracted audio clock. Native mode is video-only; Bilibili does not expose pause/time events to keep captions synced.', zh: '同步模式使用已提取音频的时钟。原生模式仅控制视频；B 站不会向网页提供暂停和时间事件，因此无法同步字幕。' },
+  'study.biliNativeOnlyHint': { en: 'Native Bilibili controls only. This player does not drive captions or the EchoLearn progress bar; enable Audio Mode for reliable caption sync.', zh: '这里只使用 B 站原生控制。它不会驱动字幕或网页进度；请开启「音频模式」以获得可靠的字幕同步。' },
   'study.biliInvalidId':  { en: 'Bilibili video ID is invalid or still resolving.', zh: 'B 站视频 ID 无效或正在解析中…' },
   'study.biliResolving':  { en: 'Resolving Bilibili link…', zh: '正在解析 B 站链接…' },
 

@@ -337,11 +337,6 @@ const StudyPage: React.FC = () => {
   // The lines currently shown in TranscriptViewer (always sentence-level)
   const displayLines = sentenceLines;
 
-  // Rough video duration (used to size the Bilibili sync scrubber).
-  const transcriptDuration = displayLines.length
-    ? displayLines[displayLines.length - 1].end
-    : 0;
-
   // ── Audio mode: derived source URL ─────────────────────────
   // Build the original watch URL (yt-dlp can consume it directly). Prefer the
   // session's pasted URL; otherwise reconstruct from platform + id.
@@ -706,7 +701,10 @@ const StudyPage: React.FC = () => {
 
   // ── Poll current playback time every 100ms + save position ──
   useEffect(() => {
-    if (!videoId || !playerRef.current) return;
+    // Bilibili's native iframe exposes no trustworthy playback clock. Do not
+    // poll it or let it move captions; audio mode is the only Bilibili sync
+    // transport.
+    if (!videoId || !playerRef.current || (platform === 'bilibili' && !audioMode)) return;
     const id = setInterval(() => {
       if (playerRef.current) {
         try {
@@ -734,7 +732,7 @@ const StudyPage: React.FC = () => {
       }
     }, 100);
     return () => clearInterval(id);
-  }, [videoId]);
+  }, [videoId, platform, audioMode]);
 
   // ── Apply playback rate to player whenever it changes ───────
   useEffect(() => {
@@ -1476,7 +1474,7 @@ const StudyPage: React.FC = () => {
                             </select>
                           </div>
                         )}
-                        <BilibiliEmbed ref={playerRef} bvid={videoId} page={biliPage} startTime={startTime} duration={transcriptDuration} playbackRate={playbackRate} />
+                        <BilibiliEmbed ref={playerRef} bvid={videoId} page={biliPage} startTime={startTime} />
                       </>
                     )}
                   </>
