@@ -345,7 +345,12 @@ const StudyPage: React.FC = () => {
   // and the VPS returns 400 Bad Request.
   const videoUrl = useMemo(() => {
     if (session?.youtubeUrl) {
-      return extractUrl(session.youtubeUrl) ?? session.youtubeUrl;
+      // A plain BV id is valid input, but it is not a URL that /api/audio can
+      // hand to Bilibili. Only preserve the saved value when it actually
+      // contains an http(s) URL (including a b23.tv short link); otherwise
+      // fall through to the canonical platform URL below.
+      const extracted = extractUrl(session.youtubeUrl);
+      if (extracted) return extracted;
     }
     if (platform === 'bilibili') {
       let u = `https://www.bilibili.com/video/${videoId}`;
