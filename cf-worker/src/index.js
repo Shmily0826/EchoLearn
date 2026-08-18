@@ -375,7 +375,8 @@ async function handleBilibili(url, env) {
   // public view/playurl APIs and their CDN audio work normally.  Go straight
   // to the VPS API-direct ASR path first; it resolves cid -> playurl -> CDN
   // audio and never asks yt-dlp to open www.bilibili.com/video/....
-  const asr = await fetchViaVpsAsr(bilibiliUrl, env, console.log);
+  const asrDiag = {};
+  const asr = await fetchViaVpsAsr(bilibiliUrl, env, console.log, asrDiag);
   if (asr) return jsonResponse(asr);
 
   // Keep native subtitle extraction as a fallback for videos where ASR is
@@ -386,7 +387,8 @@ async function handleBilibili(url, env) {
   return jsonResponse(
     {
       error: 'No transcript available for this Bilibili video',
-      hint: 'Subtitle tracks are login-gated and Whisper transcription did not succeed (video may exceed the ASR duration limit, or the Groq quota is exhausted).',
+      hint: 'Subtitle tracks are login-gated and Whisper transcription did not succeed.',
+      asrError: asrDiag.message || 'No diagnostic returned by VPS',
     },
     404
   );
@@ -434,7 +436,7 @@ async function handleInfo(url, env) {
  * Preferred over the Worker-side Whisper strategy because the VPS pulls audio
  * with yt-dlp directly instead of relying on public Piped/Invidious instances.
  */
-async function fetchViaVpsAsr(targetUrl, env, log = console.log) {
+async function fetchViaVpsAsr(targetUrl, env, log = console.log, diagnostics = null) {
   if (!env.YTDLP_API_URL) return null;
 
   const base = env.YTDLP_API_URL.replace(/\/+$/, '');
@@ -448,18 +450,23 @@ async function fetchViaVpsAsr(targetUrl, env, log = console.log) {
     const resp = await fetchWithTimeout(endpoint, { headers }, 240000);
     if (!resp.ok) {
       const detail = await resp.text();
-      log(`VPS ASR: HTTP ${resp.status}: ${detail.substring(0, 200)}`);
+      const message = `VPS ASR HTTP ${resp.status}: ${detail.substring(0, 300)}`;
+      diagnostics && (diagnostics.message = message);
+      log(message);
       return null;
     }
     const data = await resp.json();
     if (!Array.isArray(data?.lines) || data.lines.length === 0) {
+      diagnostics && (diagnostics.message = 'VPS ASR returned an empty transcript');
       log('VPS ASR: empty transcript');
       return null;
     }
     log(`VPS ASR: got ${data.lines.length} segments (${data.language})`);
     return data;
   } catch (err) {
-    log(`VPS ASR: request failed: ${err.message}`);
+    const message = `VPS ASR request failed: ${err.message}`;
+    diagnostics && (diagnostics.message = message);
+    log(message);
     return null;
   }
 }
