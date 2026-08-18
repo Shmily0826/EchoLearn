@@ -249,13 +249,47 @@ def _resolve_bilibili_url(url: str) -> str:
     """Follow b23.tv short links to the canonical bilibili.com URL."""
     if "b23.tv" not in url:
         return url
-    req = urllib.request.Request(
-        url, headers={"User-Agent": _BILI_UA, "Referer": _BILI_REFERER}
-    )
+    headers = {"User-Agent": _BILI_UA, "Referer": _BILI_REFERER}
+    req = urllib.request.Request(url, headers=headers)
     try:
         with _urlopen_no_proxy(req, timeout=10) as resp:
             return resp.geturl()
     except Exception:
+        # b23.tv is a webpage redirect and can return 412 to datacenter IPs,
+        # even though api.bilibili.com and the media CDN remain public. Use
+        # the configured residential proxy only for this redirect step; all
+        # subsequent view/playurl/API and CDN requests stay direct.
+        if not YTDLP_PROXY:
+            return url
+        try:
+            proxy = urllib.request.ProxyHandler({"http": YTDLP_PROXY, "https": YTDLP_PROXY})
+            class _NoRedirect(urllib.request.HTTPRedirectHandler):
+                def redirect_request(self, req, fp, code, msg, headers, new):
+                    return None
+            opener = urllib.request.build_opener(proxy, _NoRedirect())
+            try:
+                with opener.open(req, timeout=20) as resp:
+                    location = resp.headers.get("Location")
+            except urllib.error.HTTPError as exc:
+                location = exc.headers.get("Location")
+            if location:
+                return urllib.parse.urljoin(url, location)
+        except Exception:
+            pass
+        # Some HTTPS proxies fail when urllib follows the redirect, but still
+        # return the Location header. Ask curl for headers only as a final
+        # redirect-resolution fallback and never follow the destination page.
+        try:
+            proc = subprocess.run(
+                ["curl", "-sS", "-I", "--max-redirs", "0", "--proxy", YTDLP_PROXY,
+                 "-A", _BILI_UA, url],
+                capture_output=True, text=True, timeout=20,
+            )
+            for line in proc.stdout.splitlines():
+                if line.lower().startswith("location:"):
+                    return urllib.parse.urljoin(url, line.split(":", 1)[1].strip())
+        except Exception:
+            pass
         return url
 
 
