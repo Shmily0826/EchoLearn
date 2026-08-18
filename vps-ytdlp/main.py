@@ -1464,7 +1464,17 @@ def asr(
         cached = _cache_get(url, "__asr__")
         if cached is not None:
             return JSONResponse(cached)
-        duration = int(_fetch_meta(clean_url, part).get("duration") or 0)
+        # Do not make ASR depend on a separate metadata lookup. Bilibili's
+        # view API can transiently fail even while playurl/CDN audio works;
+        # previously that surfaced as 404 "Could not fetch Bilibili info" and
+        # prevented the actual API-direct ASR pipeline from running. The ASR
+        # path below performs its own view lookup and can retry it. Duration
+        # is still enforced when metadata is available, but metadata failure
+        # is non-fatal here.
+        try:
+            duration = int(_fetch_meta(clean_url, part).get("duration") or 0)
+        except HTTPException:
+            duration = 0
         if duration > ASR_MAX_DURATION:
             raise HTTPException(
                 status_code=413,
