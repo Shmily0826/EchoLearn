@@ -1418,7 +1418,13 @@ const StudyPage: React.FC = () => {
                 <div className="mb-2 flex items-center gap-2">
                   <button
                     type="button"
-                    onClick={() => setAudioMode((v) => !v)}
+                    onClick={() => {
+                      // Stop the extracted transport before unmounting it.
+                      // Bilibili's native iframe is cross-origin and cannot
+                      // report its pause state back to the transcript clock.
+                      if (audioMode) playerRef.current?.pauseVideo();
+                      setAudioMode((v) => !v);
+                    }}
                     className={`flex items-center gap-1.5 px-3 py-1.5 text-xs sm:text-sm rounded-lg font-medium border transition-colors cursor-pointer ${
                       audioMode
                         ? 'bg-indigo-600 text-white border-indigo-600'

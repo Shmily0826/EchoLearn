@@ -72,6 +72,13 @@ const AudioPlayer = forwardRef<PlayerHandle, AudioPlayerProps>(
       setAudioStatus('loading');
     }, [src, startTime, setAudioStatus]);
 
+    // React normally removes the element when the user switches back to a
+    // video player, but explicitly pause it first. This prevents a detached
+    // audio element from continuing to drive transcript time on mobile.
+    useEffect(() => () => {
+      audioRef.current?.pause();
+    }, []);
+
 
     // First-time Bilibili audio extraction can take 1–2 min through the proxy.
     // Let the user know the request is still alive rather than appearing frozen.
