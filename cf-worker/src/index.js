@@ -371,14 +371,17 @@ async function handleBilibili(url, env) {
     return jsonResponse({ error: 'Bilibili transcript proxy not configured' }, 503);
   }
 
-  const result = await fetchViaYtDlp(null, lang, env, console.log, bilibiliUrl);
-  if (result) return jsonResponse(result);
-
-  // Bilibili hides subtitle tracks from anonymous sessions, so a miss here is
-  // the norm rather than the exception. Audio, however, is served without a
-  // login — transcribing it sidesteps the wall entirely.
+  // Bilibili's watch page returns HTTP 412 from VPS/datacenter IPs, while the
+  // public view/playurl APIs and their CDN audio work normally.  Go straight
+  // to the VPS API-direct ASR path first; it resolves cid -> playurl -> CDN
+  // audio and never asks yt-dlp to open www.bilibili.com/video/....
   const asr = await fetchViaVpsAsr(bilibiliUrl, env, console.log);
   if (asr) return jsonResponse(asr);
+
+  // Keep native subtitle extraction as a fallback for videos where ASR is
+  // unavailable (for example a temporary Groq quota or duration failure).
+  const result = await fetchViaYtDlp(null, lang, env, console.log, bilibiliUrl);
+  if (result) return jsonResponse(result);
 
   return jsonResponse(
     {

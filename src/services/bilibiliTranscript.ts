@@ -31,9 +31,10 @@ async function fetchBilibiliFromWorker(
   const qs = `bvid=${encodeURIComponent(
     bvid,
   )}&lang=${encodeURIComponent(lang)}${part ? `&p=${part}` : ''}`;
-  // ASR on the Worker side can take 40-90s (audio download + Whisper). Give it
-  // enough headroom so a slow-but-valid transcription isn't aborted early.
-  return fetchWithTimeout(`${CF_WORKER_URL}/api/bilibili?${qs}`, { timeoutMs: 120000 });
+  // API-direct Bilibili ASR normally completes in 40–90s, but cold VPS/audio
+  // cache misses on mobile can be slower. Keep the client alive long enough
+  // for a valid transcription instead of leaving the old video on screen.
+  return fetchWithTimeout(`${CF_WORKER_URL}/api/bilibili?${qs}`, { timeoutMs: 180000 });
 }
 
 /**
@@ -72,9 +73,23 @@ export async function fetchBilibiliTranscript(
     if (!resp.ok) {
       const detail = await resp.clone().text().catch(() => '');
       console.warn(`[EchoLearn] Bilibili Worker error: ${resp.status} ${detail.slice(0, 200)}`);
-      throw new Error('Worker failed');
+      // A structured server response (404/401/413/502) is an authoritative
+      // result. Retrying the exact same Worker URL only doubles the mobile
+      // wait and hides the useful backend reason. Only network/timeouts use
+      // the second attempt below.
+      let message = `Bilibili transcript error: ${resp.status}`;
+      try {
+        const parsed = JSON.parse(detail) as { error?: string; detail?: string; hint?: string };
+        message = [parsed.error, parsed.detail, parsed.hint].filter(Boolean).join(' — ') || message;
+      } catch {
+        if (detail.trim()) message += ` ${detail.slice(0, 200)}`;
+      }
+      throw new Error(message);
     }
   } catch (err) {
+    if (err instanceof Error && err.message.startsWith('Bilibili transcript error:')) {
+      throw err;
+    }
     console.warn('[EchoLearn] Bilibili Worker path failed, trying Worker fallback:', err instanceof Error ? err.message : err);
     resp = await fetchBilibiliFallback(bvid, lang, part);
   }
