@@ -181,11 +181,11 @@ const StudyPage: React.FC = () => {
     () => (localStorage.getItem('echolearn_cefr_max') as CEFRLevel) || 'C2',
   );
 
-  // AI analysis output counts
-  const [vocabCount, setVocabCount] = useState(
+  // AI analysis output counts (defaults; UI count steppers removed)
+  const [vocabCount] = useState(
     () => Number(localStorage.getItem('echolearn_vocab_count')) || 15,
   );
-  const [sentenceCount, setSentenceCount] = useState(
+  const [sentenceCount] = useState(
     () => Number(localStorage.getItem('echolearn_sentence_count')) || 4,
   );
 
@@ -1719,6 +1719,7 @@ const StudyPage: React.FC = () => {
                         data-tour="study-ai"
                         onClick={handleAnalyze}
                         disabled={analyzing}
+                        title={t('study.analyzeTooltip')}
                         className="flex items-center gap-1 px-2 py-0.5 text-[10px] font-medium bg-indigo-50 dark:bg-indigo-950 text-indigo-600 dark:text-indigo-400 rounded-lg hover:bg-indigo-100 dark:hover:bg-indigo-900 transition-colors cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed"
                       >
                         {analyzing ? (
@@ -1756,28 +1757,6 @@ const StudyPage: React.FC = () => {
                 {/* Mobile analysis controls — words/sents/level only */}
                 {displayLines.length > 0 && (
                   <div data-tour="study-controls" className="flex items-center gap-2 px-3 py-1.5 border-b border-gray-100 dark:border-slate-700 flex-wrap">
-                    <div className="flex items-center gap-1 text-[10px]" title={t('study.wordsTooltip')}>
-                      <span className="text-gray-400">{t('study.words')}</span>
-                      <input
-                        type="number"
-                        min={1}
-                        max={30}
-                        value={vocabCount}
-                        title={t('study.wordsTooltip')}
-                        onChange={(e) => setVocabCount(Math.max(1, Math.min(30, Number(e.target.value) || 1)))}
-                        className="w-10 px-1 py-0.5 border border-gray-200 dark:border-slate-700 rounded text-[10px] bg-white dark:bg-slate-800 text-gray-600 dark:text-gray-400 focus:outline-none text-center"
-                      />
-                      <span className="text-gray-300 ml-0.5">{t('study.sents')}</span>
-                      <input
-                        type="number"
-                        min={1}
-                        max={20}
-                        value={sentenceCount}
-                        title={t('study.sentsTooltip')}
-                        onChange={(e) => setSentenceCount(Math.max(1, Math.min(20, Number(e.target.value) || 1)))}
-                        className="w-10 px-1 py-0.5 border border-gray-200 dark:border-slate-700 rounded text-[10px] bg-white dark:bg-slate-800 text-gray-600 dark:text-gray-400 focus:outline-none text-center"
-                      />
-                    </div>
                     <div className="flex items-center gap-1 text-[10px]" title={t('study.levelTooltip')}>
                       <span className="text-gray-400">{t('study.level')}</span>
                       <select
@@ -1909,29 +1888,6 @@ const StudyPage: React.FC = () => {
                 {/* Count selectors + CEFR + Analyze (only when transcript loaded) */}
                 {displayLines.length > 0 && (
                   <div data-tour="study-controls" className="flex items-center gap-1.5 sm:gap-3 flex-wrap">
-                    {/* Vocab / Sentence count */}
-                    <div className="flex items-center gap-1 text-[11px]" title={t('study.wordsTooltip')}>
-                      <span className="text-gray-400 dark:text-gray-500">{t('study.words')}</span>
-                      <input
-                        type="number"
-                        min={1}
-                        max={30}
-                        value={vocabCount}
-                        title={t('study.wordsTooltip')}
-                        onChange={(e) => setVocabCount(Math.max(1, Math.min(30, Number(e.target.value) || 1)))}
-                        className="w-12 px-1 py-1 border border-gray-200 dark:border-slate-700 rounded text-[11px] bg-white dark:bg-slate-800 text-gray-600 dark:text-gray-400 focus:outline-none focus:ring-1 focus:ring-indigo-300 text-center"
-                      />
-                      <span className="text-gray-300 dark:text-gray-500 ml-1">{t('study.sents')}</span>
-                      <input
-                        type="number"
-                        min={1}
-                        max={20}
-                        value={sentenceCount}
-                        title={t('study.sentsTooltip')}
-                        onChange={(e) => setSentenceCount(Math.max(1, Math.min(20, Number(e.target.value) || 1)))}
-                        className="w-12 px-1 py-1 border border-gray-200 dark:border-slate-700 rounded text-[11px] bg-white dark:bg-slate-800 text-gray-600 dark:text-gray-400 focus:outline-none focus:ring-1 focus:ring-indigo-300 text-center"
-                      />
-                    </div>
                     {/* CEFR level range selector */}
                     <div className="flex items-center gap-1 text-[11px]" title={t('study.levelTooltip')}>
                       <span className="text-gray-400 dark:text-gray-500 mr-0.5">{t('study.level')}</span>
@@ -1977,6 +1933,7 @@ const StudyPage: React.FC = () => {
                     data-tour="study-ai"
                     onClick={handleAnalyze}
                     disabled={analyzing}
+                    title={t('study.analyzeTooltip')}
                     className="flex items-center gap-1.5 px-3 py-1 text-[11px] font-medium bg-indigo-50 dark:bg-indigo-950 text-indigo-600 dark:text-indigo-400 rounded-lg hover:bg-indigo-100 dark:hover:bg-indigo-900 transition-colors cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed"
                   >
                     {analyzing ? (
@@ -1997,8 +1954,11 @@ const StudyPage: React.FC = () => {
                     )}
                   </button>
                 )}
-                <span className="text-[10px] text-gray-400 dark:text-gray-500">
-                  {`${sentenceLines.length} ${t('study.sentences')}`}
+                <span
+                  className="text-[10px] text-gray-400 dark:text-gray-500 cursor-help"
+                  title={t('study.totalLinesTooltip')}
+                >
+                  {`${sentenceLines.length} ${t('study.totalLines')}`}
                 </span>
                 {videoId && (
                   <button
