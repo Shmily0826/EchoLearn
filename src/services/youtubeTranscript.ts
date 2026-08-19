@@ -378,6 +378,7 @@ async function fetchAndParseCaptions(
           throw new Error(
             'YouTube is rate-limiting caption downloads. ' +
               'Please wait a moment and try again, or upload a subtitle file manually.',
+            { cause: err },
           );
         }
         break; // non-retryable error, try next format

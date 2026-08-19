@@ -37,6 +37,9 @@ interface AuthContextValue {
 
 const AuthContext = createContext<AuthContextValue | null>(null);
 
+// Context hooks must be exported beside their provider; this is safe because
+// the module owns the context and does not hold component-local state.
+// eslint-disable-next-line react-refresh/only-export-components
 export function useAuth(): AuthContextValue {
   const ctx = useContext(AuthContext);
   if (!ctx) throw new Error('useAuth must be used inside AuthProvider');
@@ -148,7 +151,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
           await signInWithPopup(auth, googleProvider);
           await deleteUser(auth.currentUser!);
         } else {
-          throw new Error('auth/requires-recent-login');
+          throw new Error('auth/requires-recent-login', { cause: err });
         }
       } else {
         throw err;

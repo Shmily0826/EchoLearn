@@ -8,6 +8,7 @@ import type {
   SentenceItem,
 } from '../types';
 import { tomorrowMs } from '../utils/storage';
+import { createItemId, currentTimeMs } from '../utils/id';
 import { lemmatize } from '../utils/lemmatizer';
 import ClickableRichText from './ClickableRichText';
 import WordDictionaryPopup from './WordDictionaryPopup';
@@ -40,13 +41,13 @@ const AIAnalysisPanel: React.FC<AIAnalysisPanelProps> = ({
 
   const handleAddVocab = (sug: VocabularySuggestion) => {
     const item: VocabularyItem = {
-      id: `vocab_${Date.now()}_${Math.random().toString(36).slice(2, 6)}`,
+      id: createItemId('vocab'),
       word: sug.word,
       lemma: sug.word,
       meaningCn: sug.meaningCn,
       context: sug.context,
       sourceVideoId: videoId,
-      addedAt: Date.now(),
+      addedAt: currentTimeMs(),
       mastered: false,
       reviewCount: 0,
       lastReviewedAt: 0,
@@ -57,12 +58,12 @@ const AIAnalysisPanel: React.FC<AIAnalysisPanelProps> = ({
 
   const handleAddSentence = (sug: SentenceSuggestion) => {
     const item: SentenceItem = {
-      id: `sent_${Date.now()}_${Math.random().toString(36).slice(2, 6)}`,
+      id: createItemId('sent'),
       text: sug.text,
       meaningCn: sug.meaningCn,
       sourceVideoId: videoId,
       startTime: 0,
-      addedAt: Date.now(),
+      addedAt: currentTimeMs(),
       myOwnSentence: '',
       mastered: false,
       reviewCount: 0,
@@ -84,14 +85,14 @@ const AIAnalysisPanel: React.FC<AIAnalysisPanelProps> = ({
     if (!word) return;
     const lemma = lemmatize(word);
     onAddVocabulary({
-      id: `vocab_${Date.now()}_${Math.random().toString(36).slice(2, 6)}`,
+      id: createItemId('vocab'),
       word: lemma,
       lemma,
       meaningCn: '',
       context: '',
       sourceVideoId: videoId,
       sourceVideoTitle: videoTitle,
-      addedAt: Date.now(),
+      addedAt: currentTimeMs(),
       mastered: false,
       reviewCount: 0,
       lastReviewedAt: 0,

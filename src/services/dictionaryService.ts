@@ -337,7 +337,7 @@ function saveSessionMisses(s: Set<string>): void {
   } catch { /* sessionStorage unavailable */ }
 }
 
-let sessionMisses = loadSessionMisses();
+const sessionMisses = loadSessionMisses();
 
 // ── Main lookup ───────────────────────────────────────────────
 

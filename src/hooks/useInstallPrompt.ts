@@ -13,12 +13,13 @@ interface BeforeInstallPromptEvent extends Event {
  */
 export function useInstallPrompt() {
   const [deferredPrompt, setDeferredPrompt] = useState<BeforeInstallPromptEvent | null>(null);
-  const [installed, setInstalled] = useState(false);
+  const [installed, setInstalled] = useState(() =>
+    window.matchMedia('(display-mode: standalone)').matches,
+  );
 
   useEffect(() => {
     // Already running as installed PWA
-    if (window.matchMedia('(display-mode: standalone)').matches) {
-      setInstalled(true);
+    if (installed) {
       trackEvent('pwa_installed_session');
       return;
     }
@@ -42,7 +43,7 @@ export function useInstallPrompt() {
       window.removeEventListener('beforeinstallprompt', handler);
       window.removeEventListener('appinstalled', installedHandler);
     };
-  }, []);
+  }, [installed]);
 
   const promptInstall = useCallback(async () => {
     if (!deferredPrompt) return false;

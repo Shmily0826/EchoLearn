@@ -107,7 +107,7 @@ const StudyPage: React.FC = () => {
     syncTimerRef.current = setTimeout(() => {
       pushItemsToCloud(user.uid).catch(() => { /* silent */ });
     }, 2000);
-  }, [user?.uid]);
+  }, [user]);
 
   // Debounced session sync — pushes sessions 5s after last change (they're larger)
   const sessionSyncTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -117,14 +117,16 @@ const StudyPage: React.FC = () => {
     sessionSyncTimerRef.current = setTimeout(() => {
       pushSessionToCloud(user.uid).catch(() => { /* silent */ });
     }, 5000);
-  }, [user?.uid]);
+  }, [user]);
 
   // Auto-sync with cloud when StudyPage mounts (pull latest data from other devices)
   useEffect(() => {
     if (!user?.uid) return;
     syncWithCloud(user.uid).then(() => {
       // Refresh state from localStorage after merge
+      // eslint-disable-next-line react-hooks/immutability
       setVocabulary(loadVocabulary());
+      // eslint-disable-next-line react-hooks/immutability
       setSentences(loadSentences());
     }).catch(() => { /* silent */ });
   }, [user?.uid]);
@@ -155,7 +157,12 @@ const StudyPage: React.FC = () => {
   // element as the synced transport by default; users can turn this off to
   // use Bilibili's native video controls instead.
   useEffect(() => {
-    if (platform === 'bilibili') setAudioMode(true);
+    if (platform === 'bilibili') {
+      // Bilibili cannot expose a dependable playback clock, so its transport
+      // must switch to native audio as soon as the external platform changes.
+      // eslint-disable-next-line react-hooks/set-state-in-effect
+      setAudioMode(true);
+    }
   }, [platform]);
 
   // Transcript state — raw caption blocks + sentence-level lines
@@ -231,6 +238,8 @@ const StudyPage: React.FC = () => {
   // (often 1–3 min) transcript fetch.
   useEffect(() => {
     if (!fetchingCaption) {
+      // Reset the external request timer when its lifecycle ends.
+      // eslint-disable-next-line react-hooks/set-state-in-effect
       setFetchElapsed(0);
       if (fetchTickRef.current !== null) {
         clearInterval(fetchTickRef.current);
@@ -436,6 +445,8 @@ const StudyPage: React.FC = () => {
     const saved = loadCurrentSession();
     if (saved) {
       loadedSessionIdRef.current = saved.id;
+      // Restore the persisted session once after mount.
+      // eslint-disable-next-line react-hooks/set-state-in-effect
       setSession(saved);
       // Heal legacy sessions where youtubeId was accidentally stored as a URL
       // (e.g. a b23.tv short link or bilibili.com URL) instead of a BV id.
@@ -454,6 +465,7 @@ const StudyPage: React.FC = () => {
       if (saved.lastPosition && saved.lastPosition > 10) {
         const mins = Math.floor(saved.lastPosition / 60);
         const secs = saved.lastPosition % 60;
+        // eslint-disable-next-line react-hooks/set-state-in-effect
         setResumeToast(t('study.resumedAt', { time: `${mins}:${String(secs).padStart(2, '0')}` }));
         setTimeout(() => setResumeToast(null), 5000);
       }
@@ -577,6 +589,7 @@ const StudyPage: React.FC = () => {
     if (saved.lastPosition && saved.lastPosition > 10) {
       const mins = Math.floor(saved.lastPosition / 60);
       const secs = saved.lastPosition % 60;
+      // eslint-disable-next-line react-hooks/set-state-in-effect
       setResumeToast(t('study.resumedAt', { time: `${mins}:${String(secs).padStart(2, '0')}` }));
       setTimeout(() => setResumeToast(null), 5000);
     }
@@ -746,6 +759,7 @@ const StudyPage: React.FC = () => {
     }
     localStorage.setItem('echolearn_playback_rate', String(playbackRate));
     // Show speed toast briefly on mobile
+    // eslint-disable-next-line react-hooks/set-state-in-effect
     setSpeedToast(true);
     clearTimeout(speedToastTimer.current);
     speedToastTimer.current = setTimeout(() => setSpeedToast(false), 1200);
@@ -754,6 +768,8 @@ const StudyPage: React.FC = () => {
   // ── Sleep timer countdown ──────────────────────────────────
   useEffect(() => {
     if (sleepMinutes <= 0) return;
+    // A changed timer duration must restart the countdown from that duration.
+    // eslint-disable-next-line react-hooks/set-state-in-effect
     setSleepRemaining(sleepMinutes * 60);
     setSleepToast(false);
   }, [sleepMinutes]);
@@ -1289,32 +1305,32 @@ const StudyPage: React.FC = () => {
         }
       }).catch(() => { /* silent */ });
     }
-  }, [user, triggerCloudSync, showLoginToast]);
+  }, [user, triggerCloudSync, showLoginToast, setVocabulary]);
 
   const handleAddSentence = useCallback((item: SentenceItem) => {
     if (!user) { showLoginToast(); return; }
     setSentences(addSentenceItem(item));
     trackEvent('sentence_saved');
     triggerCloudSync();
-  }, [user, triggerCloudSync, showLoginToast]);
+  }, [user, triggerCloudSync, showLoginToast, setSentences]);
 
   const handleRemoveVocabulary = useCallback((id: string) => {
     if (!window.confirm(t('study.deleteWord'))) return;
     setVocabulary(removeVocabularyItem(id));
     triggerCloudSync();
-  }, [triggerCloudSync]);
+  }, [t, triggerCloudSync, setVocabulary]);
 
   const handleRemoveSentence = useCallback((id: string) => {
     if (!window.confirm(t('study.deleteSent'))) return;
     setSentences(removeSentenceItem(id));
     triggerCloudSync();
-  }, [triggerCloudSync]);
+  }, [t, triggerCloudSync, setSentences]);
 
   // Silent toggle — no confirm dialog (used by bookmark button)
   const handleToggleSentenceOff = useCallback((id: string) => {
     setSentences(removeSentenceItem(id));
     triggerCloudSync();
-  }, [triggerCloudSync]);
+  }, [triggerCloudSync, setSentences]);
 
   // ── Render ─────────────────────────────────────────────────
   return (
@@ -2401,6 +2417,9 @@ const MobileTranscriptPanel: React.FC<{
   const showChinese = lang === 'zh';
   useEffect(() => {
     if (!dictCurrentWord) return;
+    // The lookup key changed; discard the previous definition immediately so
+    // it cannot be mistaken for the current word while the request is pending.
+    // eslint-disable-next-line react-hooks/set-state-in-effect
     setDictEntry(null);
     setDictLoading(true);
     setDictError(false);

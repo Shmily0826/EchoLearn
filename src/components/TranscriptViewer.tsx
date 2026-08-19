@@ -2,6 +2,7 @@ import React, { useState, useRef, useEffect, useCallback } from 'react';
 import { useI18n } from '../i18n/I18nContext';
 import type { TranscriptLine, VocabularyItem, SentenceItem, DictionaryEntry } from '../types';
 import { tomorrowMs } from '../utils/storage';
+import { createItemId, currentTimeMs } from '../utils/id';
 import { lemmatize } from '../utils/lemmatizer';
 import { extractSentence } from '../utils/sentence';
 import { lookupWord, isKnownProperNoun } from '../services/dictionaryService';
@@ -134,6 +135,9 @@ const TranscriptViewer: React.FC<TranscriptViewerProps> = ({
   // in both language modes, so this always runs).
   useEffect(() => {
     if (!popup) return;
+    // The popup input changed; clear the previous request's result before
+    // starting the replacement request so stale definitions never flash.
+    // eslint-disable-next-line react-hooks/set-state-in-effect
     setDictEntry(null);
     setDictLoading(true);
     setDictError(false);
@@ -175,6 +179,7 @@ const TranscriptViewer: React.FC<TranscriptViewerProps> = ({
   // same round-trip), so a separate translate call is only a Google-only fallback.
   useEffect(() => {
     if (!popup) return;
+    // eslint-disable-next-line react-hooks/set-state-in-effect
     setTranslation('');
     setTranslationLoading(false);
   }, [popup, showChinese]);
@@ -185,6 +190,7 @@ const TranscriptViewer: React.FC<TranscriptViewerProps> = ({
   useEffect(() => {
     if (!popup) return;
     if (!showChinese) {
+      // eslint-disable-next-line react-hooks/set-state-in-effect
       setAiAnalysis(null);
       setAiLoading(false);
       return;
@@ -237,7 +243,7 @@ const TranscriptViewer: React.FC<TranscriptViewerProps> = ({
       }
     }
     const item: VocabularyItem = {
-      id: `vocab_${Date.now()}`,
+      id: createItemId('vocab'),
       word: lemma,
       lemma,
       meaningCn: aiAnalysis?.meaningZh || translation || '',
@@ -246,7 +252,7 @@ const TranscriptViewer: React.FC<TranscriptViewerProps> = ({
       sourceVideoId: videoId,
       sourceVideoTitle: videoTitle,
       sourceTimestamp: popup.startTime,
-      addedAt: Date.now(),
+      addedAt: currentTimeMs(),
       mastered: false,
       reviewCount: 0,
       lastReviewedAt: 0,
@@ -282,13 +288,13 @@ const TranscriptViewer: React.FC<TranscriptViewerProps> = ({
 
   const handleAddSentence = (line: TranscriptLine) => {
     const item: SentenceItem = {
-      id: `sent_${Date.now()}`,
+      id: createItemId('sent'),
       text: line.text,
       meaningCn: '',
       sourceVideoId: videoId,
       sourceVideoTitle: videoTitle,
       startTime: line.start,
-      addedAt: Date.now(),
+      addedAt: currentTimeMs(),
       myOwnSentence: '',
       mastered: false,
       reviewCount: 0,

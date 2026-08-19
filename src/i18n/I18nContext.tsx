@@ -49,6 +49,8 @@ export function I18nProvider({ children }: { children: ReactNode }) {
   );
 }
 
+// The hook is exported with its provider because this module owns the context.
+// eslint-disable-next-line react-refresh/only-export-components
 export function useI18n(): I18nContextValue {
   const ctx = useContext(I18nContext);
   if (!ctx) throw new Error('useI18n must be used within I18nProvider');

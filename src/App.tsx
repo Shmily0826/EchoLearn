@@ -1,4 +1,4 @@
-import { useEffect, useState, useCallback } from 'react';
+import { lazy, Suspense, useEffect, useState, useCallback } from 'react';
 import { BrowserRouter, useLocation, useNavigate } from 'react-router-dom';
 import { App as CapApp } from '@capacitor/app';
 import { StatusBar, Style } from '@capacitor/status-bar';
@@ -11,12 +11,31 @@ import Layout from './components/Layout';
 import FirstTimeTour from './components/FirstTimeTour';
 import LanguageChooser from './components/LanguageChooser';
 import LoginPage from './pages/LoginPage';
-import DashboardPage from './pages/DashboardPage';
-import StudyPage from './pages/StudyPage';
-import VocabularyPage from './pages/VocabularyPage';
-import SentencesPage from './pages/SentencesPage';
-import ReviewPage from './pages/ReviewPage';
-import SettingsPage from './pages/SettingsPage';
+
+// Pages are loaded on their first visit. Once mounted, they remain mounted so
+// the original app behaviour (video position, scroll position and form state)
+// is preserved while avoiding downloading every page on the initial visit.
+const DashboardPage = lazy(() => import('./pages/DashboardPage'));
+const StudyPage = lazy(() => import('./pages/StudyPage'));
+const VocabularyPage = lazy(() => import('./pages/VocabularyPage'));
+const SentencesPage = lazy(() => import('./pages/SentencesPage'));
+const ReviewPage = lazy(() => import('./pages/ReviewPage'));
+const SettingsPage = lazy(() => import('./pages/SettingsPage'));
+
+const APP_ROUTES = ['/', '/study', '/vocabulary', '/sentences', '/review', '/settings'] as const;
+type AppRoute = (typeof APP_ROUTES)[number];
+
+function isAppRoute(pathname: string): pathname is AppRoute {
+  return APP_ROUTES.includes(pathname as AppRoute);
+}
+
+function PageLoader() {
+  return (
+    <div className="min-h-[12rem] flex items-center justify-center" aria-label="Loading page">
+      <div className="h-7 w-7 animate-spin rounded-full border-2 border-indigo-200 border-t-indigo-500" />
+    </div>
+  );
+}
 
 /**
  * All pages are always mounted (never unmounted on route change).
@@ -28,6 +47,19 @@ function AppContent({ onLoginRequest }: { onLoginRequest?: () => void }) {
   const navigate = useNavigate();
   const { translateDetected, dismissWarning } = useAntiTranslate();
   const { t } = useI18n();
+  const [visitedRoutes, setVisitedRoutes] = useState<Set<AppRoute>>(() =>
+    new Set(isAppRoute(pathname) ? [pathname] : ['/']),
+  );
+  useEffect(() => {
+    if (!isAppRoute(pathname)) return;
+    // The route change is an external state transition. Record the page after
+    // it commits so it stays mounted on subsequent navigation.
+    // eslint-disable-next-line react-hooks/set-state-in-effect
+    setVisitedRoutes((routes) => {
+      if (routes.has(pathname)) return routes;
+      return new Set(routes).add(pathname);
+    });
+  }, [pathname]);
 
   // Handle Android back button and status bar in Capacitor
   useEffect(() => {
@@ -73,24 +105,38 @@ function AppContent({ onLoginRequest }: { onLoginRequest?: () => void }) {
         </div>
       )}
 
-      <div style={{ display: pathname === '/' ? undefined : 'none' }}>
-        <DashboardPage />
-      </div>
-      <div style={{ display: pathname === '/study' ? undefined : 'none' }}>
-        <StudyPage />
-      </div>
-      <div style={{ display: pathname === '/vocabulary' ? undefined : 'none' }}>
-        <VocabularyPage />
-      </div>
-      <div style={{ display: pathname === '/sentences' ? undefined : 'none' }}>
-        <SentencesPage />
-      </div>
-      <div style={{ display: pathname === '/review' ? undefined : 'none' }}>
-        <ReviewPage />
-      </div>
-      <div style={{ display: pathname === '/settings' ? undefined : 'none' }}>
-        <SettingsPage onLoginRequest={onLoginRequest} />
-      </div>
+      <Suspense fallback={<PageLoader />}>
+        {visitedRoutes.has('/') && (
+          <div style={{ display: pathname === '/' ? undefined : 'none' }}>
+            <DashboardPage />
+          </div>
+        )}
+        {visitedRoutes.has('/study') && (
+          <div style={{ display: pathname === '/study' ? undefined : 'none' }}>
+            <StudyPage />
+          </div>
+        )}
+        {visitedRoutes.has('/vocabulary') && (
+          <div style={{ display: pathname === '/vocabulary' ? undefined : 'none' }}>
+            <VocabularyPage />
+          </div>
+        )}
+        {visitedRoutes.has('/sentences') && (
+          <div style={{ display: pathname === '/sentences' ? undefined : 'none' }}>
+            <SentencesPage />
+          </div>
+        )}
+        {visitedRoutes.has('/review') && (
+          <div style={{ display: pathname === '/review' ? undefined : 'none' }}>
+            <ReviewPage />
+          </div>
+        )}
+        {visitedRoutes.has('/settings') && (
+          <div style={{ display: pathname === '/settings' ? undefined : 'none' }}>
+            <SettingsPage onLoginRequest={onLoginRequest} />
+          </div>
+        )}
+      </Suspense>
 
       {/* First-time bubble tour — only active on Dashboard and only once per device */}
       <FirstTimeTour />

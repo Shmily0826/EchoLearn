@@ -57,6 +57,10 @@ type ReviewCard =
 type ReviewMode = 'due' | 'all';
 type TypeFilter = 'all' | 'words' | 'sentences';
 
+function nowMs(): number {
+  return Date.now();
+}
+
 // ─── ReviewPage ─────────────────────────────────────────────
 
 const ReviewPage: React.FC = () => {
@@ -70,11 +74,11 @@ const ReviewPage: React.FC = () => {
     syncTimerRef.current = setTimeout(() => {
       pushItemsToCloud(user.uid).catch(() => { /* silent */ });
     }, 2000);
-  }, [user?.uid]);
+  }, [user]);
 
-  const [vocabulary, setVocabulary] = useState<VocabularyItem[]>([]);
-  const [sentences, setSentences] = useState<SentenceItem[]>([]);
-  const [_mode, setMode] = useState<ReviewMode>('due');
+  const [vocabulary, setVocabulary] = useState<VocabularyItem[]>(loadVocabulary);
+  const [sentences, setSentences] = useState<SentenceItem[]>(loadSentences);
+  const [, setMode] = useState<ReviewMode>('due');
   const [typeFilter, setTypeFilter] = useState<TypeFilter>('all');
   const [sessionActive, setSessionActive] = useState(false);
   const [queue, setQueue] = useState<ReviewCard[]>([]);
@@ -82,11 +86,6 @@ const ReviewPage: React.FC = () => {
   const [revealed, setRevealed] = useState(false);
   const [doneIds, setDoneIds] = useState<Set<string>>(new Set());
   const [stats, setStats] = useState({ remembered: 0, forgot: 0 });
-
-  useEffect(() => {
-    setVocabulary(loadVocabulary());
-    setSentences(loadSentences());
-  }, []);
 
   // ── Computed stats ──────────────────────────────────────
   const todayEnd = todayStartMs() + 24 * 60 * 60 * 1000;
@@ -318,7 +317,7 @@ const ReviewPage: React.FC = () => {
 
       // Recalculate counts after this session
       const newDueCount = (() => {
-        const now = Date.now();
+        const now = nowMs();
         const w = vocabulary.filter((v) => !v.mastered && v.nextReviewAt <= now).length;
         const s = sentences.filter((ss) => !ss.mastered && ss.nextReviewAt <= now).length;
         return w + s;

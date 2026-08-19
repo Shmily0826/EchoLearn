@@ -42,6 +42,10 @@ function reviewLabel(nextReviewAt: number, mastered: boolean, t: (key: string, v
   return { text: t('reviewLabel.dueIn', { n: days }), color: 'text-gray-400' };
 }
 
+function nowMs(): number {
+  return Date.now();
+}
+
 const SentencesPage: React.FC = () => {
   const navigate = useNavigate();
   const { t, lang } = useI18n();
@@ -53,10 +57,10 @@ const SentencesPage: React.FC = () => {
     syncTimerRef.current = setTimeout(() => {
       pushItemsToCloud(user.uid).catch(() => { /* silent */ });
     }, 2000);
-  }, [user?.uid]);
+  }, [user]);
 
-  const [sentences, setSentences] = useState<SentenceItem[]>([]);
-  const [sessions, setSessions] = useState<VideoStudySession[]>([]);
+  const [sentences, setSentences] = useState<SentenceItem[]>(loadSentences);
+  const [sessions] = useState<VideoStudySession[]>(loadAllSessions);
   const [search, setSearch] = useState('');
   const [editingId, setEditingId] = useState<string | null>(null);
   const [editText, setEditText] = useState('');
@@ -66,11 +70,6 @@ const SentencesPage: React.FC = () => {
   const [showExport, setShowExport] = useState(false);
   const [backfilling, setBackfilling] = useState(false);
   const [translateLang, setTranslateLang] = useState<TranslateLang>(() => getTranslateLang() as TranslateLang);
-
-  useEffect(() => {
-    setSentences(loadSentences());
-    setSessions(loadAllSessions());
-  }, []);
 
   // Listen for cross-page data changes (e.g., StudyPage saving a sentence)
   useEffect(() => {
@@ -186,7 +185,7 @@ const SentencesPage: React.FC = () => {
   );
 
   const dueCount = useMemo(() => {
-    const now = Date.now();
+    const now = nowMs();
     return sentences.filter((s) => !s.mastered && s.nextReviewAt <= now).length;
   }, [sentences]);
 

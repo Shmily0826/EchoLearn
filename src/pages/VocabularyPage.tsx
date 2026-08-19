@@ -22,6 +22,10 @@ type FilterMode = 'all' | 'mastered' | 'unmastered';
 type SortMode = 'newest' | 'az' | 'review' | 'most-reviewed';
 type ViewMode = 'card' | 'list';
 
+function nowMs(): number {
+  return Date.now();
+}
+
 interface DictPopupState {
   word: string;
   context?: string;
@@ -64,10 +68,10 @@ const VocabularyPage: React.FC = () => {
     syncTimerRef.current = setTimeout(() => {
       pushItemsToCloud(user.uid).catch(() => { /* silent */ });
     }, 2000);
-  }, [user?.uid]);
+  }, [user]);
 
-  const [vocabulary, setVocabulary] = useState<VocabularyItem[]>([]);
-  const [sessions, setSessions] = useState<VideoStudySession[]>([]);
+  const [vocabulary, setVocabulary] = useState<VocabularyItem[]>(loadVocabulary);
+  const [sessions] = useState<VideoStudySession[]>(loadAllSessions);
   const [search, setSearch] = useState('');
   const [filter, setFilter] = useState<FilterMode>('all');
   const [sort, setSort] = useState<SortMode>('newest');
@@ -79,11 +83,6 @@ const VocabularyPage: React.FC = () => {
   const [expandedContextIds, setExpandedContextIds] = useState<Set<string>>(new Set());
   const [showExport, setShowExport] = useState(false);
   const [backfilling, setBackfilling] = useState(false);
-
-  useEffect(() => {
-    setVocabulary(loadVocabulary());
-    setSessions(loadAllSessions());
-  }, []);
 
   // Listen for cross-page data changes (e.g., StudyPage saving a word)
   useEffect(() => {
@@ -290,7 +289,7 @@ const VocabularyPage: React.FC = () => {
 
   const masteredCount = vocabulary.filter((v) => v.mastered).length;
   const dueCount = useMemo(() => {
-    const now = Date.now();
+    const now = nowMs();
     return vocabulary.filter((v) => !v.mastered && v.nextReviewAt <= now).length;
   }, [vocabulary]);
 

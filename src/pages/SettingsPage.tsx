@@ -38,7 +38,11 @@ import {
 // ── Local data size helper ────────────────────────────────────
 
 function useLocalDataSize() {
-  const [size, setSize] = useState({ vocab: 0, sentences: 0, sessions: 0 });
+  const [size, setSize] = useState(() => ({
+    vocab: loadVocabulary().length,
+    sentences: loadSentences().length,
+    sessions: loadAllSessions().length,
+  }));
   const refresh = useCallback(() => {
     setSize({
       vocab: loadVocabulary().length,
@@ -46,7 +50,6 @@ function useLocalDataSize() {
       sessions: loadAllSessions().length,
     });
   }, []);
-  useEffect(() => { refresh(); }, [refresh]);
   return { size, refresh };
 }
 
@@ -76,14 +79,16 @@ const SettingsPage: React.FC<{ onLoginRequest?: () => void }> = ({ onLoginReques
   const [lastSync, setLastSync] = useState<number | null>(getLastSyncTime());
 
   // ── PAT state ─────────────────────────────────────────────
-  const [patInput, setPatInput] = useState('');
-  const [savedPat, setSavedPat] = useState('');
-  const [patStatus, setPatStatus] = useState<'idle' | 'validating' | 'valid' | 'invalid'>('idle');
+  const [patInput, setPatInput] = useState(loadPat);
+  const [savedPat, setSavedPat] = useState(loadPat);
+  const [patStatus, setPatStatus] = useState<'idle' | 'validating' | 'valid' | 'invalid'>(
+    () => (loadPat() ? 'valid' : 'idle'),
+  );
   const [patMessage, setPatMessage] = useState('');
   const [showPat, setShowPat] = useState(false);
 
   // ── Sync state ────────────────────────────────────────────
-  const [syncStatus, setSyncStatus] = useState<SyncStatus>({ hasPat: false, gistId: null, lastSyncAt: null });
+  const [syncStatus, setSyncStatus] = useState<SyncStatus>(getSyncStatus);
   const [syncAction, setSyncAction] = useState<'idle' | 'saving' | 'loading' | 'deleting'>('idle');
   const [syncMessage, setSyncMessage] = useState<{ type: 'success' | 'error' | 'info'; text: string } | null>(null);
 
@@ -101,14 +106,6 @@ const SettingsPage: React.FC<{ onLoginRequest?: () => void }> = ({ onLoginReques
 
   // Initialise on mount
   useEffect(() => {
-    const pat = loadPat();
-    setSavedPat(pat);
-    setPatInput(pat);
-    setSyncStatus(getSyncStatus());
-    if (pat) {
-      setPatStatus('valid');
-    }
-
     // Auto-check local proxy status
     checkLocalProxy().then((result) => {
       setProxyStatus(result.ok ? 'online' : 'offline');
@@ -117,6 +114,8 @@ const SettingsPage: React.FC<{ onLoginRequest?: () => void }> = ({ onLoginReques
 
     // Auto-sync with cloud on mount (if user is logged in)
     if (user?.uid) {
+      // This external sync begins after mount; show its progress immediately.
+      // eslint-disable-next-line react-hooks/set-state-in-effect
       setFbSyncAction('syncing');
       syncWithCloud(user.uid).then((result) => {
         setFbSyncAction('idle');
@@ -166,7 +165,7 @@ const SettingsPage: React.FC<{ onLoginRequest?: () => void }> = ({ onLoginReques
       setFbSyncAction('idle');
       setFbSyncMessage({ type: 'error', text: err instanceof Error ? err.message : 'Sync error.' });
     }
-  }, [user?.uid, refreshDataSize]);
+  }, [user, refreshDataSize]);
 
   // ── Firebase upload only ──────────────────────────────────
   const handleUploadOnly = useCallback(async () => {
@@ -191,7 +190,7 @@ const SettingsPage: React.FC<{ onLoginRequest?: () => void }> = ({ onLoginReques
       setFbSyncAction('idle');
       setFbSyncMessage({ type: 'error', text: err instanceof Error ? err.message : 'Upload error.' });
     }
-  }, [user?.uid, refreshDataSize]);
+  }, [user, refreshDataSize]);
 
   // ── Handle sign out ───────────────────────────────────────
   const handleSignOut = useCallback(async () => {

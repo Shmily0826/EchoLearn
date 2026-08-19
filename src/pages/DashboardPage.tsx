@@ -1,4 +1,4 @@
-import { useEffect, useState, useMemo, useCallback } from 'react';
+import { useState, useMemo, useCallback } from 'react';
 import { useNavigate } from 'react-router-dom';
 import {
   BarChart, Bar, XAxis, YAxis, Tooltip, ResponsiveContainer,
@@ -57,13 +57,13 @@ function saveChannelPrefs(prefs: ChannelPrefs): void {
 const DashboardPage: React.FC = () => {
   const navigate = useNavigate();
 
-  const [vocabulary, setVocabulary] = useState<VocabularyItem[]>([]);
-  const [sentences, setSentences] = useState<SentenceItem[]>([]);
-  const [sessions, setSessions] = useState<VideoStudySession[]>([]);
-  const [currentSession, setCurrentSession] = useState<VideoStudySession | null>(null);
+  const [vocabulary] = useState<VocabularyItem[]>(loadVocabulary);
+  const [sentences] = useState<SentenceItem[]>(loadSentences);
+  const [sessions, setSessions] = useState<VideoStudySession[]>(loadAllSessions);
+  const [currentSession, setCurrentSession] = useState<VideoStudySession | null>(loadCurrentSession);
 
   // Daily plan state
-  const [dailyPlan, setDailyPlan] = useState<DailyPlanItem[]>([]);
+  const [dailyPlan, setDailyPlan] = useState<DailyPlanItem[]>(loadDailyPlan);
   const [checkLoading, setCheckLoading] = useState(false);
   const [checkMessage, setCheckMessage] = useState<string | null>(null);
   const [checkSuccess, setCheckSuccess] = useState(false);
@@ -73,14 +73,9 @@ const DashboardPage: React.FC = () => {
 
   // Completed sessions collapse state
   const [showCompleted, setShowCompleted] = useState(false);
-
-  useEffect(() => {
-    setVocabulary(loadVocabulary());
-    setSentences(loadSentences());
-    setSessions(loadAllSessions());
-    setCurrentSession(loadCurrentSession());
-    setDailyPlan(loadDailyPlan());
-  }, []);
+  const [showAllSessions, setShowAllSessions] = useState(false);
+  const [selectingSessions, setSelectingSessions] = useState(false);
+  const [selectedSessionIds, setSelectedSessionIds] = useState<Set<string>>(new Set());
 
   const { t, lang } = useI18n();
 
@@ -214,6 +209,33 @@ const DashboardPage: React.FC = () => {
     if (currentSession?.id === id) {
       setCurrentSession(null);
     }
+  };
+
+  const toggleSessionSelection = (id: string) => {
+    setSelectedSessionIds((previous) => {
+      const next = new Set(previous);
+      if (next.has(id)) next.delete(id); else next.add(id);
+      return next;
+    });
+  };
+
+  const handleBatchDeleteSessions = () => {
+    if (selectedSessionIds.size === 0) return;
+    if (!window.confirm(t('dash.deleteSelectedSessions', { n: selectedSessionIds.size }))) return;
+    const ids = selectedSessionIds;
+    for (const id of ids) {
+      const sessionToDelete = loadAllSessions().find((s) => s.id === id);
+      if (!sessionToDelete) continue;
+      const planItem = loadDailyPlan().find((p) => p.videoId === sessionToDelete.youtubeId);
+      if (planItem && planItem.status !== 'planned') updateDailyPlanItem(planItem.id, { status: 'planned' });
+      removeCompletedVideoId(sessionToDelete.youtubeId);
+      deleteSession(id);
+    }
+    setSessions(loadAllSessions());
+    setDailyPlan(loadDailyPlan());
+    if (currentSession && ids.has(currentSession.id)) setCurrentSession(null);
+    setSelectedSessionIds(new Set());
+    setSelectingSessions(false);
   };
 
   // ── Helper to process fetched videos result ───────────────
@@ -377,7 +399,7 @@ const DashboardPage: React.FC = () => {
     if (!window.confirm(t('dash.deletePlanItem'))) return;
     const updated = removeDailyPlanItem(id);
     setDailyPlan(updated);
-  }, []);
+  }, [t]);
 
   return (
     <div className="max-w-5xl mx-auto px-4 sm:px-6 py-6 sm:py-10">
@@ -823,6 +845,7 @@ const DashboardPage: React.FC = () => {
         {(() => {
           const activeSessions = sessions.filter((s) => s.status !== 'completed');
           const completedSessions = sessions.filter((s) => s.status === 'completed');
+          const visibleActiveSessions = showAllSessions ? activeSessions : activeSessions.slice(0, 5);
           return (
             <>
               {/* Active sessions */}
@@ -837,8 +860,34 @@ const DashboardPage: React.FC = () => {
                     </span>
                   )}
                   <span className="text-xs text-gray-400 dark:text-gray-500">{sessions.length} {t('dash.total')}</span>
+                  {sessions.length > 0 && (
+                    <button
+                      onClick={() => { setSelectingSessions((value) => !value); setSelectedSessionIds(new Set()); }}
+                      className="text-xs text-indigo-500 hover:text-indigo-700 dark:text-indigo-400 cursor-pointer"
+                    >
+                      {selectingSessions ? t('dash.cancelSelect') : t('dash.selectSessions')}
+                    </button>
+                  )}
                 </div>
               </div>
+
+              {selectingSessions && (
+                <div className="flex items-center justify-between mb-3 px-3 py-2 rounded-lg bg-indigo-50 dark:bg-indigo-950/30 text-xs">
+                  <button
+                    onClick={() => setSelectedSessionIds((selectedSessionIds.size === sessions.length) ? new Set() : new Set(sessions.map((s) => s.id)))}
+                    className="text-indigo-600 dark:text-indigo-300 cursor-pointer"
+                  >
+                    {selectedSessionIds.size === sessions.length ? t('dash.clearSelection') : t('dash.selectAll')}
+                  </button>
+                  <button
+                    onClick={handleBatchDeleteSessions}
+                    disabled={selectedSessionIds.size === 0}
+                    className="text-red-600 dark:text-red-400 disabled:opacity-40 cursor-pointer disabled:cursor-not-allowed"
+                  >
+                    {t('dash.deleteSelected')} ({selectedSessionIds.size})
+                  </button>
+                </div>
+              )}
 
               {sessions.length === 0 ? (
                 <div className="bg-white dark:bg-slate-800 rounded-xl border border-gray-200 dark:border-slate-700 shadow-sm p-10 text-center">
@@ -852,11 +901,21 @@ const DashboardPage: React.FC = () => {
                   {/* Active sessions list */}
                   {activeSessions.length > 0 && (
                     <div className="space-y-2">
-                      {activeSessions.map((s) => (
+                      {visibleActiveSessions.map((s) => (
                         <div
                           key={s.id}
                           className="bg-white dark:bg-slate-800 rounded-xl border border-gray-200 dark:border-slate-700 shadow-sm px-5 py-4 flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3 group hover:border-gray-300 dark:hover:border-slate-600 transition-colors"
                         >
+                          {selectingSessions && (
+                            <input
+                              type="checkbox"
+                              checked={selectedSessionIds.has(s.id)}
+                              onChange={() => toggleSessionSelection(s.id)}
+                              onClick={(event) => event.stopPropagation()}
+                              aria-label={`${t('dash.selectSession')}: ${s.title || s.youtubeUrl}`}
+                              className="h-4 w-4 shrink-0 accent-indigo-600 cursor-pointer"
+                            />
+                          )}
                           <div
                             className="flex-1 min-w-0 cursor-pointer"
                             onClick={() => handleOpenSession(s)}
@@ -903,6 +962,15 @@ const DashboardPage: React.FC = () => {
                     </div>
                   )}
 
+                  {activeSessions.length > 5 && (
+                    <button
+                      onClick={() => setShowAllSessions((value) => !value)}
+                      className="mt-3 text-xs text-indigo-600 dark:text-indigo-400 hover:underline cursor-pointer"
+                    >
+                      {showAllSessions ? t('dash.showLess') : t('dash.showMoreSessions', { n: activeSessions.length - 5 })}
+                    </button>
+                  )}
+
                   {/* Completed sessions — collapsible */}
                   {completedSessions.length > 0 && (
                     <div className="mt-4">
@@ -930,6 +998,16 @@ const DashboardPage: React.FC = () => {
                                 key={s.id}
                                 className="bg-gray-50 dark:bg-slate-800/60 rounded-xl border border-gray-100 dark:border-slate-700/60 px-5 py-3 flex flex-col sm:flex-row sm:items-center sm:justify-between gap-2 group opacity-75 hover:opacity-100 transition-opacity"
                               >
+                                {selectingSessions && (
+                                  <input
+                                    type="checkbox"
+                                    checked={selectedSessionIds.has(s.id)}
+                                    onChange={() => toggleSessionSelection(s.id)}
+                                    onClick={(event) => event.stopPropagation()}
+                                    aria-label={`${t('dash.selectSession')}: ${s.title || s.youtubeUrl}`}
+                                    className="h-4 w-4 shrink-0 accent-indigo-600 cursor-pointer"
+                                  />
+                                )}
                                 <div
                                   className="flex-1 min-w-0 cursor-pointer"
                                   onClick={() => handleOpenSession(s)}

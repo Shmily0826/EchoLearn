@@ -208,8 +208,11 @@ function stripUndefined<T extends Record<string, unknown>>(obj: T): Record<strin
  * (setting them to `undefined` would make Firestore reject the write).
  */
 function stripSession(s: VideoStudySession): VideoStudySession {
-  const { transcriptData, transcriptLines, aiAnalysis, ...rest } = s;
-  return stripUndefined(rest as Record<string, unknown>) as unknown as VideoStudySession;
+  // The omitted values are intentional: transcript fields can exceed
+  // Firestore's document limit and are retained locally instead.
+  // eslint-disable-next-line @typescript-eslint/no-unused-vars
+  const { transcriptData, transcriptLines, aiAnalysis, ...lightweight } = s;
+  return stripUndefined(lightweight as Record<string, unknown>) as unknown as VideoStudySession;
 }
 
 // ── Upload ─────────────────────────────────────────────────────

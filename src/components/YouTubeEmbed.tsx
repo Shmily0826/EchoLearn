@@ -114,10 +114,10 @@ const YouTubeEmbed = forwardRef<PlayerHandle, YouTubeEmbedProps>(
         seekTo: (seconds: number) => { try { playerRef.current?.seekTo(seconds, true); } catch { /* noop */ } },
         getCurrentTime: () => { try { return playerRef.current?.getCurrentTime?.() ?? 0; } catch { return 0; } },
         setPlaybackRate: (rate: number) => {
-          try { (playerRef.current as any)?.setPlaybackRate?.(rate); } catch { /* noop */ }
+          try { playerRef.current?.setPlaybackRate(rate); } catch { /* noop */ }
         },
         getPlaybackRate: () => {
-          try { return (playerRef.current as any)?.getPlaybackRate?.() ?? 1; } catch { return 1; }
+          try { return playerRef.current?.getPlaybackRate() ?? 1; } catch { return 1; }
         },
       }),
       [],
@@ -152,7 +152,7 @@ const YouTubeEmbed = forwardRef<PlayerHandle, YouTubeEmbedProps>(
               try {
                 const rate = playbackRateRef.current;
                 if (rate !== 1) {
-                  (playerRef.current as any)?.setPlaybackRate?.(rate);
+                  playerRef.current?.setPlaybackRate(rate);
                 }
               } catch { /* noop */ }
               setStatus('ready');
@@ -264,7 +264,7 @@ const YouTubeEmbed = forwardRef<PlayerHandle, YouTubeEmbedProps>(
         try {
           const rate = playbackRateRef.current;
           if (rate !== 1) {
-            (playerRef.current as any)?.setPlaybackRate?.(rate);
+            playerRef.current?.setPlaybackRate(rate);
           }
         } catch { /* noop */ }
       }, 300);

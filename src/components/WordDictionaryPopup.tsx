@@ -78,6 +78,8 @@ const WordDictionaryPopup: React.FC<WordDictionaryPopupProps> = ({
 
   // Reset when initial word changes
   useEffect(() => {
+    // A parent-selected word replaces the entire lookup history.
+    // eslint-disable-next-line react-hooks/set-state-in-effect
     setCurrentWord(initialWord);
     setWordHistory([]);
   }, [initialWord]);
@@ -105,6 +107,8 @@ const WordDictionaryPopup: React.FC<WordDictionaryPopupProps> = ({
   // Fetch dictionary data (+ Chinese translation only when the page language is Chinese)
   useEffect(() => {
     let cancelled = false;
+    // The lookup key changed; show loading rather than stale data.
+    // eslint-disable-next-line react-hooks/set-state-in-effect
     setLoading(true);
     setError(false);
     setDefinitionCn('');
@@ -141,6 +145,7 @@ const WordDictionaryPopup: React.FC<WordDictionaryPopupProps> = ({
   // Cached per (word, videoId) in IndexedDB by the service, so repeats are free.
   useEffect(() => {
     if (!showChinese) {
+      // eslint-disable-next-line react-hooks/set-state-in-effect
       setAiAnalysis(null);
       setAiLoading(false);
       return;

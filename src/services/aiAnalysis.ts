@@ -344,7 +344,7 @@ function parseJsonLenient(raw: string): Record<string, unknown> {
 function extractBalancedJson(input: string): string | null {
   const firstObj = input.indexOf('{');
   const firstArr = input.indexOf('[');
-  let start = -1;
+  let start: number;
   let closeChar = '}';
   if (firstObj === -1 && firstArr === -1) return null;
   if (firstObj === -1) {

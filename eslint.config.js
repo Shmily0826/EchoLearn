@@ -6,7 +6,9 @@ import tseslint from 'typescript-eslint'
 import { defineConfig, globalIgnores } from 'eslint/config'
 
 export default defineConfig([
-  globalIgnores(['dist']),
+  // Build directories contain generated JavaScript outside this project's
+  // TypeScript configuration, so linting them only creates false failures.
+  globalIgnores(['dist', 'dist_verify', 'android/app/build']),
   {
     files: ['**/*.{ts,tsx}'],
     extends: [

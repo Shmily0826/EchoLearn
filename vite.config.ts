@@ -145,7 +145,7 @@ export default defineConfig(({ mode }) => {
           secure: false,
           rewrite: (path) => path.replace(/^\/yt-proxy/, ''),
           configure: (proxy) => {
-            proxy.on('proxyReq', (proxyReq, _req) => {
+            proxy.on('proxyReq', (proxyReq) => {
               proxyReq.removeHeader('origin');
               proxyReq.removeHeader('referer');
             });

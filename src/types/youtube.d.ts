@@ -74,5 +74,7 @@ declare namespace YT {
     mute(): void;
     unMute(): void;
     setVolume(volume: number): void;
+    setPlaybackRate(rate: number): void;
+    getPlaybackRate(): number;
   }
 }
