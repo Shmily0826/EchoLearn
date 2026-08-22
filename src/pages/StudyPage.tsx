@@ -269,6 +269,10 @@ const StudyPage: React.FC = () => {
   const restoredRef = useRef(false);
   // Track which session ID we've loaded, so we can detect new sessions from Dashboard
   const loadedSessionIdRef = useRef<string | null>(null);
+  // Only the latest transcript request may update the visible transcript/error.
+  // This prevents a slower request from an earlier retry/session replacing a
+  // newer successful result.
+  const transcriptRequestRef = useRef(0);
   const { pathname } = useLocation();
 
   // YouTube player ref & playback time
@@ -504,6 +508,7 @@ const StudyPage: React.FC = () => {
       const hasTranscript =
         !!saved.transcriptData || (saved.transcriptLines?.length ?? 0) > 0;
       if (saved.youtubeId && !hasTranscript) {
+        const requestId = ++transcriptRequestRef.current;
         beginFetch();
         setCaptionError(null);
         const fetcher = (saved.platform === 'bilibili')
@@ -511,6 +516,7 @@ const StudyPage: React.FC = () => {
           : fetchYouTubeTranscript(saved.youtubeId);
         fetcher
           .then((res) => {
+            if (requestId !== transcriptRequestRef.current) return;
             const lines = res.lines;
             const pf: VideoPlatform = saved.platform === 'bilibili' ? 'bilibili' : 'youtube';
             if (lines.length > 0) {
@@ -530,11 +536,13 @@ const StudyPage: React.FC = () => {
             }
           })
           .catch((err) => {
+            if (requestId !== transcriptRequestRef.current) return;
             setCaptionError(
               err instanceof Error ? err.message : 'Unknown error fetching captions',
             );
           })
           .finally(() => {
+          if (requestId !== transcriptRequestRef.current) return;
           setFetchingCaption(false);
           if (fetchResultRef.current != null) {
             notifyFetchSuccess(fetchResultRef.current, fetchSourceRef.current);
@@ -630,6 +638,7 @@ const StudyPage: React.FC = () => {
     const hasTranscript =
       !!saved.transcriptData || (saved.transcriptLines?.length ?? 0) > 0;
     if (saved.youtubeId && !hasTranscript) {
+      const requestId = ++transcriptRequestRef.current;
       beginFetch();
       setCaptionError(null);
       const fetcher = (saved.platform === 'bilibili')
@@ -637,6 +646,7 @@ const StudyPage: React.FC = () => {
         : fetchYouTubeTranscript(saved.youtubeId);
       fetcher
         .then(({ lines }) => {
+          if (requestId !== transcriptRequestRef.current) return;
           if (lines.length > 0) {
               fetchResultRef.current = lines.length;
             const sLines = normalizeTranscriptToSentences(lines);
@@ -653,11 +663,13 @@ const StudyPage: React.FC = () => {
           }
         })
         .catch((err) => {
+          if (requestId !== transcriptRequestRef.current) return;
           setCaptionError(
             err instanceof Error ? err.message : 'Unknown error fetching captions',
           );
         })
         .finally(() => {
+          if (requestId !== transcriptRequestRef.current) return;
           setFetchingCaption(false);
           if (fetchResultRef.current != null) {
             notifyFetchSuccess(fetchResultRef.current, fetchSourceRef.current);
@@ -1082,15 +1094,19 @@ const StudyPage: React.FC = () => {
 
       beginFetch();
       setCaptionError(null);
+      const requestId = ++transcriptRequestRef.current;
       fetchYouTubeTranscript(id)
         .then((res) => {
+          if (requestId !== transcriptRequestRef.current) return;
           const lines = res.lines;
           if (lines.length > 0) { fetchResultRef.current = lines.length; fetchSourceRef.current = transcriptSourceLabel('youtube', res); persistTranscriptInto(fresh, lines); }
         })
         .catch((err) => {
+          if (requestId !== transcriptRequestRef.current) return;
           setCaptionError(err instanceof Error ? err.message : 'Unknown error fetching captions');
         })
         .finally(() => {
+          if (requestId !== transcriptRequestRef.current) return;
           setFetchingCaption(false);
           if (fetchResultRef.current != null) {
             notifyFetchSuccess(fetchResultRef.current, fetchSourceRef.current);
@@ -1111,6 +1127,7 @@ const StudyPage: React.FC = () => {
 
   // ── Clear current session ──────────────────────────────────
   const handleClearSession = useCallback(() => {
+    transcriptRequestRef.current += 1;
     clearCurrentSession();
     setSession(null);
     setVideoId(null);
@@ -1128,7 +1145,12 @@ const StudyPage: React.FC = () => {
 
   // ── Reload transcript for the current video ────────────────
   const handleReloadTranscript = useCallback(() => {
-    if (!videoId) return;
+    if (!videoId) {
+      setCaptionError('视频还没有准备完成，请稍后再试。');
+      setFetchingCaption(false);
+      return;
+    }
+    const requestId = ++transcriptRequestRef.current;
     setCaptionError(null);
     beginFetch();
     const fetcher = platform === 'bilibili'
@@ -1136,6 +1158,7 @@ const StudyPage: React.FC = () => {
       : fetchYouTubeTranscript(videoId);
     fetcher
       .then((res) => {
+        if (requestId !== transcriptRequestRef.current) return;
         const lines = res.lines;
         if (lines.length > 0) {
               fetchResultRef.current = lines.length;
@@ -1151,9 +1174,11 @@ const StudyPage: React.FC = () => {
         }
       })
       .catch((err) => {
+        if (requestId !== transcriptRequestRef.current) return;
         setCaptionError(err instanceof Error ? err.message : 'Unknown error');
       })
       .finally(() => {
+          if (requestId !== transcriptRequestRef.current) return;
           setFetchingCaption(false);
           if (fetchResultRef.current != null) {
             notifyFetchSuccess(fetchResultRef.current, fetchSourceRef.current);
@@ -1161,7 +1186,7 @@ const StudyPage: React.FC = () => {
             fetchSourceRef.current = null;
           }
         });
-  }, [videoId, platform, session]);
+  }, [videoId, platform, session, biliPage]);
 
   // ── Switch Bilibili part (分p) ────────────────────────────
   const handleBiliPartChange = useCallback(
@@ -1854,6 +1879,8 @@ const StudyPage: React.FC = () => {
                   <div className="flex gap-3">
                     <button
                       onClick={handleReloadTranscript}
+                      disabled={!videoId || fetchingCaption}
+                      title={!videoId ? '视频仍在准备中' : undefined}
                       className="text-xs text-indigo-500 hover:text-indigo-700 dark:hover:text-indigo-300 cursor-pointer"
                     >
                       {t('study.retry')}
@@ -2038,6 +2065,8 @@ const StudyPage: React.FC = () => {
                 <div className="flex gap-3 mt-3">
                   <button
                     onClick={handleReloadTranscript}
+                    disabled={!videoId || fetchingCaption}
+                    title={!videoId ? '视频仍在准备中' : undefined}
                     className="text-xs text-indigo-500 hover:text-indigo-700 dark:hover:text-indigo-300 cursor-pointer"
                   >
                     {t('study.retry')}

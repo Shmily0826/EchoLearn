@@ -160,29 +160,37 @@ export async function getBilibiliVideoTitle(
 export async function getBilibiliMetaByUrl(
   fullUrl: string,
 ): Promise<{ title: string; ownerName: string; bvid?: string; partCount?: number; parts?: BiliPart[] } | null> {
-  try {
-    // Route through the CF Worker, which holds the VPS API key server-side.
-    // Calling the VPS /api/info directly from the browser would 401 (auth is
-    // now enforced and the key must never be in the client bundle). This is how
-    // b23.tv short links get resolved to a BV id.
-    const workerUrl = `${CF_WORKER_URL}/api/info?${new URLSearchParams({ url: fullUrl })}`;
-    const resp = await fetchWithTimeout(workerUrl, { timeoutMs: 30000 });
-    if (!resp.ok) return null;
-    const data = (await resp.json()) as {
-      title?: string;
-      ownerName?: string;
-      bvid?: string;
-      partCount?: number;
-      parts?: BiliPart[];
-    };
-    return {
-      title: data.title || '',
-      ownerName: data.ownerName || '',
-      bvid: data.bvid || undefined,
-      partCount: data.partCount,
-      parts: data.parts,
-    };
-  } catch {
-    return null;
+  const endpoints = [
+    `${CF_WORKER_URL}/api/info?${new URLSearchParams({ url: fullUrl })}`,
+    `/api/bilibili?info=1&${new URLSearchParams({ url: fullUrl })}`,
+  ];
+
+  for (const endpoint of endpoints) {
+    // The Worker can have a brief cold-start/network failure. Retry the
+    // primary endpoint once, then use the server-side VPS-key fallback.
+    for (let attempt = 0; attempt < (endpoint.startsWith(CF_WORKER_URL) ? 2 : 1); attempt++) {
+      try {
+        const resp = await fetchWithTimeout(endpoint, { timeoutMs: endpoint.startsWith(CF_WORKER_URL) ? 12000 : 30000 });
+        if (!resp.ok) continue;
+        const data = (await resp.json()) as {
+          title?: string;
+          ownerName?: string;
+          bvid?: string;
+          partCount?: number;
+          parts?: BiliPart[];
+        };
+        if (!data.bvid) continue;
+        return {
+          title: data.title || '',
+          ownerName: data.ownerName || '',
+          bvid: data.bvid,
+          partCount: data.partCount,
+          parts: data.parts,
+        };
+      } catch {
+        // Try the next attempt/fallback endpoint.
+      }
+    }
   }
+  return null;
 }
