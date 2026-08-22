@@ -19,7 +19,7 @@
  */
 // @google/genai uses the Node runtime. The request/response contract remains
 // the same for the browser, so switching providers does not touch feature code.
-export const config = { runtime: 'nodejs20.x' };
+export const config = { runtime: 'nodejs' };
 
 import { GoogleGenAI } from '@google/genai';
 
