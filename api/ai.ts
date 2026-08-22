@@ -106,6 +106,128 @@ function corsHeaders(origin: string | null): Record<string, string> {
   return headers;
 }
 
+type NodeHeaderValue = string | string[] | undefined;
+
+interface NodeRequest {
+  method?: string;
+  url?: string;
+  headers?: Record<string, NodeHeaderValue>;
+  body?: unknown;
+  socket?: { remoteAddress?: string };
+  on?: (event: string, listener: (...args: unknown[]) => void) => NodeRequest;
+  [Symbol.asyncIterator]?: () => AsyncIterator<Uint8Array | string>;
+}
+
+interface NodeResponse {
+  statusCode?: number;
+  setHeader(name: string, value: string): void;
+  write(chunk: Uint8Array): boolean;
+  end(chunk?: string | Uint8Array): void;
+}
+
+class RequestBodyTooLargeError extends Error {
+  constructor() {
+    super('Request body too large');
+  }
+}
+
+function nodeHeader(request: NodeRequest, name: string): string | undefined {
+  const value = request.headers?.[name.toLowerCase()];
+  if (Array.isArray(value)) return value.join(', ');
+  return value;
+}
+
+function bodyValueToText(body: unknown): string {
+  if (typeof body === 'string') return body;
+  if (body instanceof Uint8Array) return new TextDecoder().decode(body);
+  if (body && typeof body === 'object') return JSON.stringify(body) ?? '';
+  return '';
+}
+
+async function readNodeBody(request: NodeRequest): Promise<string> {
+  if (request.body !== undefined) {
+    const body = bodyValueToText(request.body);
+    if (body.length > MAX_BODY_BYTES) throw new RequestBodyTooLargeError();
+    return body;
+  }
+
+  if (request[Symbol.asyncIterator]) {
+    const chunks: string[] = [];
+    let size = 0;
+    for await (const chunk of request as AsyncIterable<Uint8Array | string>) {
+      const text = typeof chunk === 'string' ? chunk : new TextDecoder().decode(chunk);
+      size += text.length;
+      if (size > MAX_BODY_BYTES) throw new RequestBodyTooLargeError();
+      chunks.push(text);
+    }
+    return chunks.join('');
+  }
+
+  if (!request.on) return '';
+  return new Promise<string>((resolve, reject) => {
+    const chunks: string[] = [];
+    let size = 0;
+    request.on?.('data', (chunk) => {
+      const text = bodyValueToText(chunk);
+      size += text.length;
+      if (size > MAX_BODY_BYTES) {
+        reject(new RequestBodyTooLargeError());
+        return;
+      }
+      chunks.push(text);
+    });
+    request.on?.('end', () => resolve(chunks.join('')));
+    request.on?.('error', (error) => reject(error));
+  });
+}
+
+function nodeRequestUrl(request: NodeRequest): string {
+  const path = request.url || '/api/ai';
+  if (/^https?:\/\//i.test(path)) return path;
+  const host = nodeHeader(request, 'host') || 'localhost';
+  return `https://${host}${path.startsWith('/') ? path : `/${path}`}`;
+}
+
+async function toWebRequest(request: NodeRequest): Promise<Request> {
+  const method = (request.method || 'GET').toUpperCase();
+  const headers = new Headers();
+  for (const [name, value] of Object.entries(request.headers || {})) {
+    if (value !== undefined) headers.set(name, Array.isArray(value) ? value.join(', ') : value);
+  }
+  const body = method === 'GET' || method === 'HEAD' || method === 'OPTIONS'
+    ? undefined
+    : await readNodeBody(request);
+  return new Request(nodeRequestUrl(request), { method, headers, body });
+}
+
+async function writeNodeResponse(response: NodeResponse, webResponse: Response): Promise<void> {
+  response.statusCode = webResponse.status;
+  webResponse.headers.forEach((value, name) => response.setHeader(name, value));
+  if (!webResponse.body) {
+    response.end();
+    return;
+  }
+
+  const reader = webResponse.body.getReader();
+  try {
+    while (true) {
+      const { done, value } = await reader.read();
+      if (done) break;
+      if (value) response.write(value);
+    }
+  } finally {
+    reader.releaseLock();
+    response.end();
+  }
+}
+
+function writeNodeError(response: NodeResponse, status: number, message: string, origin: string | null): void {
+  response.statusCode = status;
+  response.setHeader('Content-Type', 'application/json');
+  for (const [name, value] of Object.entries(corsHeaders(origin))) response.setHeader(name, value);
+  response.end(JSON.stringify({ error: message }));
+}
+
 function jsonResponse(data: unknown, status: number, origin: string | null): Response {
   return new Response(JSON.stringify(data), {
     status,
@@ -271,7 +393,7 @@ function sanitizeBody(parsed: unknown): SanitizedBody | null {
 
 // ── Handler ───────────────────────────────────────────────────
 
-export default async function handler(request: Request): Promise<Response> {
+async function handleWebRequest(request: Request): Promise<Response> {
   const origin = request.headers.get('Origin');
 
   // Handle CORS preflight
@@ -345,5 +467,20 @@ export default async function handler(request: Request): Promise<Response> {
   } catch (err) {
     const message = err instanceof Error ? err.message : 'Unknown error';
     return jsonResponse({ error: `AI proxy error: ${message}` }, 502, origin);
+  }
+}
+
+export default async function handler(request: NodeRequest, response: NodeResponse): Promise<void> {
+  try {
+    const webRequest = await toWebRequest(request);
+    const webResponse = await handleWebRequest(webRequest);
+    await writeNodeResponse(response, webResponse);
+  } catch (err) {
+    if (err instanceof RequestBodyTooLargeError) {
+      writeNodeError(response, 413, err.message, nodeHeader(request, 'origin') || null);
+      return;
+    }
+    const message = err instanceof Error ? err.message : 'AI proxy error';
+    writeNodeError(response, 502, `AI proxy error: ${message}`, nodeHeader(request, 'origin') || null);
   }
 }
