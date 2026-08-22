@@ -1,12 +1,12 @@
 /**
- * Vercel Edge Function — DeepSeek AI proxy.
+ * Vercel serverless function — DeepSeek/Gemini AI proxy.
  *
- * Proxies chat completion requests to the DeepSeek API, keeping the
- * API key server-side so it is never exposed in the client bundle.
+ * Proxies chat completion requests to DeepSeek or Gemini, keeping provider
+ * API keys server-side so they are never exposed in the client bundle.
  * Supports SSE streaming (pipes the response body through).
  *
  * Hardening (pre-launch):
- *  - Per-IP in-memory rate limiting (best-effort: Vercel Edge instances are
+ *  - Per-IP in-memory rate limiting (best-effort: serverless instances are
  *    ephemeral/distributed, so this throttles casual abuse rather than
  *    guaranteeing a global cap. Use Vercel KV / Upstash for strict limits.)
  *  - Request body size cap.
@@ -17,9 +17,14 @@
  * Usage from the client:
  *   POST /api/ai  { model, messages, temperature, response_format, stream }
  */
-export const config = { runtime: 'edge' };
+// @google/genai uses the Node runtime. The request/response contract remains
+// the same for the browser, so switching providers does not touch feature code.
+export const config = { runtime: 'nodejs20.x' };
+
+import { GoogleGenAI } from '@google/genai';
 
 const DEEPSEEK_API_URL = 'https://api.deepseek.com/chat/completions';
+const DEFAULT_GEMINI_MODEL = 'gemini-3.5-flash-lite';
 
 // ── Security configuration ────────────────────────────────────
 
@@ -45,7 +50,7 @@ const ALLOWED_ORIGINS = [
   'http://127.0.0.1:5173',
 ];
 
-// ── In-memory rate limiter (per Edge instance) ────────────────
+// ── In-memory rate limiter (per serverless instance) ──────────
 
 const buckets = new Map<string, number[]>();
 
@@ -111,6 +116,119 @@ function jsonResponse(data: unknown, status: number, origin: string | null): Res
   });
 }
 
+type ChatMessage = { role?: string; content?: unknown };
+
+function messageText(content: unknown): string {
+  if (typeof content === 'string') return content;
+  if (Array.isArray(content)) {
+    return content
+      .map((part) => (typeof part === 'string' ? part : (part as { text?: unknown })?.text))
+      .filter((part): part is string => typeof part === 'string')
+      .join('');
+  }
+  return '';
+}
+
+function geminiRequestBody(messages: unknown): {
+  systemInstruction?: string;
+  contents: Array<{ role: 'user' | 'model'; parts: Array<{ text: string }> }>;
+} | null {
+  if (!Array.isArray(messages)) return null;
+  let systemInstruction = '';
+  const contents: Array<{ role: 'user' | 'model'; parts: Array<{ text: string }> }> = [];
+  for (const raw of messages as ChatMessage[]) {
+    const text = messageText(raw?.content);
+    if (!text) continue;
+    if (raw.role === 'system') {
+      systemInstruction += `${systemInstruction ? '\n\n' : ''}${text}`;
+      continue;
+    }
+    contents.push({
+      role: raw.role === 'assistant' ? 'model' : 'user',
+      parts: [{ text }],
+    });
+  }
+  if (contents.length === 0) return null;
+  return { systemInstruction: systemInstruction || undefined, contents };
+}
+
+function geminiConfig(body: SanitizedBody) {
+  return {
+    ...(body.temperature === undefined ? {} : { temperature: body.temperature }),
+    ...(body.max_tokens === undefined ? {} : { maxOutputTokens: body.max_tokens }),
+    ...(body.response_format?.type === 'json_object'
+      ? { responseMimeType: 'application/json' }
+      : {}),
+  };
+}
+
+function openAiJsonResponse(content: string): Record<string, unknown> {
+  return {
+    choices: [{ message: { role: 'assistant', content } }],
+  };
+}
+
+async function handleGemini(body: SanitizedBody, stream: boolean, origin: string | null): Promise<Response> {
+  const apiKey = process.env.GEMINI_API_KEY;
+  if (!apiKey) return jsonResponse({ error: 'Gemini service not configured' }, 500, origin);
+  const request = geminiRequestBody(body.messages);
+  if (!request) return jsonResponse({ error: 'Invalid Gemini messages' }, 400, origin);
+
+  const ai = new GoogleGenAI({ apiKey });
+  const model = process.env.GEMINI_MODEL || DEFAULT_GEMINI_MODEL;
+  const params = {
+    model,
+    contents: request.contents,
+    config: {
+      ...geminiConfig(body),
+      ...(request.systemInstruction ? { systemInstruction: request.systemInstruction } : {}),
+    },
+  };
+
+  if (!stream) {
+    try {
+      const response = await ai.models.generateContent(params);
+      const content = response.text?.trim() || '';
+      if (!content) return jsonResponse({ error: 'Gemini returned empty output' }, 502, origin);
+      return jsonResponse(openAiJsonResponse(content), 200, origin);
+    } catch (err) {
+      const status = (err as { status?: number })?.status;
+      const code = status === 429 ? 429 : 502;
+      const message = err instanceof Error ? err.message : 'Gemini request failed';
+      return jsonResponse({ error: `Gemini API error: ${message.slice(0, 300)}` }, code, origin);
+    }
+  }
+
+  const encoder = new TextEncoder();
+  const streamBody = new ReadableStream<Uint8Array>({
+    async start(controller) {
+      try {
+        const response = await ai.models.generateContentStream(params);
+        for await (const chunk of response) {
+          const text = chunk.text || '';
+          if (text) {
+            controller.enqueue(encoder.encode(`data: ${JSON.stringify({ choices: [{ delta: { content: text } }] })}\n\n`));
+          }
+        }
+        controller.enqueue(encoder.encode('data: [DONE]\n\n'));
+        controller.close();
+      } catch (err) {
+        const message = err instanceof Error ? err.message : 'Gemini request failed';
+        controller.enqueue(encoder.encode(`data: ${JSON.stringify({ error: `Gemini API error: ${message.slice(0, 300)}` })}\n\n`));
+        controller.close();
+      }
+    },
+  });
+  return new Response(streamBody, {
+    status: 200,
+    headers: {
+      'Content-Type': 'text/event-stream',
+      'Cache-Control': 'no-cache',
+      ...corsHeaders(origin),
+    },
+  });
+}
+
 // ── Payload sanitization (field whitelist) ────────────────────
 
 interface SanitizedBody {
@@ -170,11 +288,6 @@ export default async function handler(request: Request): Promise<Response> {
     return jsonResponse({ error: 'Too many requests, please slow down' }, 429, origin);
   }
 
-  const apiKey = process.env.DEEPSEEK_API_KEY;
-  if (!apiKey) {
-    return jsonResponse({ error: 'AI service not configured' }, 500, origin);
-  }
-
   // Reject obviously oversized bodies before reading them.
   const declaredLength = Number(request.headers.get('content-length') || 0);
   if (declaredLength > MAX_BODY_BYTES) {
@@ -197,6 +310,16 @@ export default async function handler(request: Request): Promise<Response> {
     const sanitized = sanitizeBody(parsed);
     if (!sanitized) {
       return jsonResponse({ error: 'Invalid request payload' }, 400, origin);
+    }
+
+    const provider = (process.env.AI_PROVIDER || 'deepseek').toLowerCase();
+    if (provider === 'gemini') {
+      return handleGemini(sanitized, sanitized.stream, origin);
+    }
+
+    const apiKey = process.env.DEEPSEEK_API_KEY;
+    if (!apiKey) {
+      return jsonResponse({ error: 'AI service not configured' }, 500, origin);
     }
 
     const response = await fetch(DEEPSEEK_API_URL, {
