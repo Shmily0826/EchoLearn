@@ -21,6 +21,13 @@ const API_BASE = '/api/dictionary';
 const FREE_DICT_BASE = 'https://api.dictionaryapi.dev/api/v2/entries/en';
 const DATAMUSE_BASE = 'https://api.datamuse.com/words';
 
+// A previous client-side lemmatizer persisted this common adjective as
+// "unprecedent". Keep the lookup tolerant of that legacy value without
+// changing the stored vocabulary word.
+const LEGACY_LOOKUP_ALIASES: Record<string, string> = {
+  unprecedent: 'unprecedented',
+};
+
 // ── Cache helpers ──────────────────────────────────────────────
 
 interface CacheStore {
@@ -88,7 +95,10 @@ async function fetchFromBackend(
       `${API_BASE}?word=${encodeURIComponent(cleaned)}` +
       `&source=en&target=${encodeURIComponent(target)}`;
     const res = await fetch(url, { signal: AbortSignal.timeout(8000) });
-    if (!res.ok) return null; // 404 / backend error → fall back below
+    if (!res.ok) {
+      console.warn(`[dictionary] ${url} returned HTTP ${res.status}`);
+      return null; // 404 / backend error → fall back below
+    }
     const raw: BackendResponse = await res.json();
     if (!raw.entries || raw.entries.length === 0) return null;
 
@@ -125,7 +135,8 @@ async function fetchFromBackend(
       provider: raw.source ? PROVIDER_LABELS[raw.source] ?? raw.source : 'EchoLearn Dictionary API',
       lemma: raw.base_form && raw.base_form !== cleaned ? raw.base_form : undefined,
     };
-  } catch {
+  } catch (error) {
+    console.warn(`[dictionary] Backend lookup failed for "${cleaned}"`, error);
     return null;
   }
 }
@@ -356,16 +367,17 @@ export async function lookupWord(
 ): Promise<(DictionaryEntry & { lemma?: string }) | null> {
   const cleaned = cleanWord(word);
   if (!cleaned) return null;
+  const lookupWordValue = LEGACY_LOOKUP_ALIASES[cleaned] ?? cleaned;
 
   // Known proper nouns / brands — skip all APIs
   if (KNOWN_PROPER_NOUNS.has(cleaned)) return null;
 
   const cache = loadCache();
-  const backendKey = `${cleaned}:${target}`;
+  const backendKey = `${lookupWordValue}:${target}`;
 
   // 1. Backend (primary)
   if (backendKey in cache) return cache[backendKey];
-  const backend = await fetchFromBackend(cleaned, target);
+  const backend = await fetchFromBackend(lookupWordValue, target);
   if (backend) {
     cache[backendKey] = backend;
     saveCache(cache);

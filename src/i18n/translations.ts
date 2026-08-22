@@ -259,6 +259,8 @@ const translations: Record<string, Record<Lang, string>> = {
   'vocab.review':        { en: 'Review', zh: '复习' },
   'vocab.translating':   { en: 'Translating...', zh: '翻译中...' },
   'vocab.autoTranslate': { en: 'Auto Translate', zh: '自动翻译' },
+  'vocab.fillEnglishDefs': { en: 'Fill English definitions', zh: '补全英文释义' },
+  'vocab.loadingDefinitions': { en: 'Loading definitions...', zh: '正在补全释义...' },
   'vocab.export':        { en: 'Export', zh: '导出' },
   'vocab.exportCSV':     { en: 'Export CSV', zh: '导出 CSV' },
   'vocab.exportPDF':     { en: 'Export PDF', zh: '导出 PDF' },

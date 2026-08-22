@@ -13,6 +13,7 @@ import {
 import WordDictionaryPopup from '../components/WordDictionaryPopup';
 import { exportVocabularyCSV, exportVocabularyPDF } from '../services/exportService';
 import { translateWords, translateWord } from '../services/translationService';
+import { enrichVocabularyItem, isMissingEnglishDefinition } from '../services/vocabularyEnrichment';
 import { isLocalNoTranslation } from '../services/aiAnalysis';
 import { jumpToSource, formatTimestamp, youtubeUrlAt } from '../utils/jumpToSource';
 import { extractSentence } from '../utils/sentence';
@@ -83,6 +84,8 @@ const VocabularyPage: React.FC = () => {
   const [expandedContextIds, setExpandedContextIds] = useState<Set<string>>(new Set());
   const [showExport, setShowExport] = useState(false);
   const [backfilling, setBackfilling] = useState(false);
+  const [backfillingDefinitions, setBackfillingDefinitions] = useState(false);
+  const [backfillDefinitionsError, setBackfillDefinitionsError] = useState<string | null>(null);
 
   // Listen for cross-page data changes (e.g., StudyPage saving a word)
   useEffect(() => {
@@ -165,6 +168,46 @@ const VocabularyPage: React.FC = () => {
     }
   }, [vocabulary]);
 
+  const handleBackfillDefinitions = useCallback(async () => {
+    const missing = vocabulary.filter((item) => isMissingEnglishDefinition(item.definitionEn));
+    if (missing.length === 0) return;
+    setBackfillingDefinitions(true);
+    setBackfillDefinitionsError(null);
+    const failedWords: string[] = [];
+    try {
+      // Process in small batches so a large legacy library cannot overwhelm
+      // the dictionary service or the browser's request queue.
+      for (let index = 0; index < missing.length; index += 4) {
+        const batch = missing.slice(index, index + 4);
+        const results = await Promise.all(batch.map(async (item) => {
+          try {
+            return { id: item.id, word: item.word, patch: await enrichVocabularyItem(item) };
+          } catch (error) {
+            console.warn(`[vocabulary] English enrichment failed for "${item.word}"`, error);
+            return { id: item.id, word: item.word, patch: {} };
+          }
+        }));
+        let updated = loadVocabulary();
+        for (const { id, word, patch } of results) {
+          if (Object.keys(patch).length > 0) updated = updateVocabularyItem(id, patch);
+          if (isMissingEnglishDefinition(patch.definitionEn)) failedWords.push(word);
+        }
+        setVocabulary(updated);
+      }
+      if (failedWords.length > 0) {
+        const uniqueFailedWords = [...new Set(failedWords)];
+        setBackfillDefinitionsError(
+          uniqueFailedWords.length === missing.length
+            ? 'English definitions could not be loaded. Check the local API connection and try again.'
+            : `Some English definitions could not be loaded: ${uniqueFailedWords.slice(0, 4).join(', ')}${uniqueFailedWords.length > 4 ? '…' : ''}`,
+        );
+      }
+      triggerCloudSync();
+    } finally {
+      setBackfillingDefinitions(false);
+    }
+  }, [vocabulary, triggerCloudSync]);
+
   const handleWordClick = (word: string, context: string | undefined, e: React.MouseEvent) => {
     e.stopPropagation();
     const rect = (e.target as HTMLElement).getBoundingClientRect();
@@ -216,13 +259,13 @@ const VocabularyPage: React.FC = () => {
     setVocabulary(addVocabularyItem(item));
     triggerCloudSync();
     setDictPopup(null);
-    // Auto-translate the new entry if AI is reachable.
-    translateWord(w).then((meaningCn) => {
-      if (meaningCn && vocabulary.some((v) => v.id === newId) === false) {
-        setVocabulary(updateVocabularyItem(newId, { meaningCn }));
-        triggerCloudSync();
-      }
-    }).catch(() => { /* silent */ });
+    // Use the same enrichment path as transcript and AI saves so manually
+    // searched words also receive an English definition.
+    void enrichVocabularyItem(item).then((patch) => {
+      if (Object.keys(patch).length === 0) return;
+      setVocabulary(updateVocabularyItem(newId, patch));
+      triggerCloudSync();
+    });
   }, [vocabulary, triggerCloudSync]);
 
   /** Re-translate a single item whose meaning is empty or the local-no-translation placeholder. */
@@ -348,6 +391,20 @@ const VocabularyPage: React.FC = () => {
             >
               {backfilling ? t('vocab.translating') : t('vocab.autoTranslate')}
             </button>
+          )}
+          {vocabulary.some((v) => isMissingEnglishDefinition(v.definitionEn)) && (
+            <button
+              onClick={handleBackfillDefinitions}
+              disabled={backfillingDefinitions}
+              className="px-3 py-1.5 text-sm text-sky-700 dark:text-sky-300 bg-sky-50 dark:bg-sky-950/30 border border-sky-200 dark:border-sky-800 rounded-lg hover:bg-sky-100 dark:hover:bg-sky-900/40 transition-colors font-medium cursor-pointer disabled:opacity-60"
+            >
+              {backfillingDefinitions ? t('vocab.loadingDefinitions') : t('vocab.fillEnglishDefs')}
+            </button>
+          )}
+          {backfillDefinitionsError && (
+            <p role="alert" className="w-full text-xs text-rose-600 dark:text-rose-400">
+              {backfillDefinitionsError}
+            </p>
           )}
           {/* Export dropdown */}
           <div className="relative">

@@ -14,12 +14,12 @@ import { normalizeTranscriptToSentences } from '../utils/transcriptNormalizer';
 import { lemmatize } from '../utils/lemmatizer';
 import { extractSentence } from '../utils/sentence';
 import { SEEK_REQUEST_EVENT, type SeekRequestDetail } from '../utils/jumpToSource';
-import { analyzeTranscript, isLocalNoTranslation } from '../services/aiAnalysis';
+import { analyzeTranscript } from '../services/aiAnalysis';
 import { trackEvent } from '../services/analytics';
 import { fetchYouTubeTranscript, CF_WORKER_URL } from '../services/youtubeTranscript';
 import { fetchBilibiliTranscript, getBilibiliVideoTitle, getBilibiliMetaByUrl } from '../services/bilibiliTranscript';
-import { translateWord } from '../services/translationService';
 import { lookupWord } from '../services/dictionaryService';
+import { enrichVocabularyItem } from '../services/vocabularyEnrichment';
 import { pushItemsToCloud, pushSessionToCloud, syncWithCloud } from '../services/firestoreSync';
 import { useAuth } from '../contexts/AuthContext';
 import { CEFR_LEVELS, type CEFRLevel } from '../services/cefrWordList';
@@ -1296,15 +1296,13 @@ const StudyPage: React.FC = () => {
     setVocabulary(addVocabularyItem(item));
     trackEvent('word_saved');
     triggerCloudSync();
-    // Auto-translate meaningCn if empty or still the local-no-translation placeholder
-    if (isLocalNoTranslation(item.meaningCn)) {
-      translateWord(item.word, item.context).then((meaningCn) => {
-        if (meaningCn) {
-          setVocabulary(updateVocabularyItem(item.id, { meaningCn }));
-          triggerCloudSync();
-        }
-      }).catch(() => { /* silent */ });
-    }
+    // Every save path (AI, transcript, popup and quick-add) is enriched the
+    // same way: English definition is canonical; Chinese is a learning aid.
+    void enrichVocabularyItem(item).then((patch) => {
+      if (Object.keys(patch).length === 0) return;
+      setVocabulary(updateVocabularyItem(item.id, patch));
+      triggerCloudSync();
+    });
   }, [user, triggerCloudSync, showLoginToast, setVocabulary]);
 
   const handleAddSentence = useCallback((item: SentenceItem) => {

@@ -59,8 +59,10 @@ function migrateVocabItem(raw: Record<string, unknown>): VocabularyItem {
   return {
     id: (raw.id as string) || '',
     word: (raw.word as string) || '',
+    lemma: (raw.lemma as string) || undefined,
     meaningCn: (raw.meaningCn as string) || '',
     context: (raw.context as string) || '',
+    fullContext: (raw.fullContext as string) || undefined,
     sourceVideoId: (raw.sourceVideoId as string) || '',
     sourceVideoTitle: (raw.sourceVideoTitle as string) || undefined,
     addedAt: (raw.addedAt as number) ?? (raw.timestamp as number) ?? Date.now(),
@@ -68,6 +70,15 @@ function migrateVocabItem(raw: Record<string, unknown>): VocabularyItem {
     reviewCount: (raw.reviewCount as number) ?? 0,
     lastReviewedAt: (raw.lastReviewedAt as number) ?? 0,
     nextReviewAt: (raw.nextReviewAt as number) ?? ((raw.addedAt as number) ?? Date.now()) + DAY_MS,
+    phonetic: (raw.phonetic as string) || undefined,
+    audioUrl: (raw.audioUrl as string) || undefined,
+    partOfSpeech: (raw.partOfSpeech as string) || undefined,
+    definitionEn: (raw.definitionEn as string) || undefined,
+    example: (raw.example as string) || undefined,
+    synonyms: Array.isArray(raw.synonyms) ? raw.synonyms.filter((v): v is string => typeof v === 'string') : undefined,
+    antonyms: Array.isArray(raw.antonyms) ? raw.antonyms.filter((v): v is string => typeof v === 'string') : undefined,
+    dictionaryProvider: (raw.dictionaryProvider as string) || undefined,
+    sourceTimestamp: (raw.sourceTimestamp as number) ?? undefined,
   };
 }
 

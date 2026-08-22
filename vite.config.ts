@@ -178,6 +178,21 @@ export default defineConfig(({ mode }) => {
             });
           },
         },
+        // The Vercel dictionary function is not executed by plain Vite. Keep
+        // local development on the same response shape as production.
+        '/api/dictionary': {
+          target: env.ECHOLEARN_API_ORIGIN || 'https://echo-learn.uk',
+          changeOrigin: true,
+          secure: true,
+          configure: (proxy) => {
+            proxy.on('proxyRes', (proxyRes, req) => {
+              console.log(`[dictionary-proxy] ${req.method} ${req.url} → ${proxyRes.statusCode}`);
+            });
+            proxy.on('error', (err, req) => {
+              console.error(`[dictionary-proxy] ERROR ${req.url}:`, err.message);
+            });
+          },
+        },
       },
     },
   };
