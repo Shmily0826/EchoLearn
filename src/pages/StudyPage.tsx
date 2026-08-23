@@ -11,8 +11,8 @@ import SentenceList from '../components/study/SentenceList';
 import MobileTranscriptPanel from '../components/study/MobileTranscriptPanel';
 import { parseYouTubeId, parseStartTime } from '../utils/youtube';
 import { detectPlatform, parseBilibiliId, parseBilibiliStartTime, parseBilibiliPage } from '../utils/bilibili';
-import { extractUrl } from '../utils/urlExtract';
 import { normalizeTranscriptToSentences } from '../utils/transcriptNormalizer';
+import { attachTranscriptToSession, createFreshStudySession, normalizeStudyUrl } from '../utils/studySession';
 import { lemmatize } from '../utils/lemmatizer';
 import { analyzeTranscript } from '../services/aiAnalysis';
 import { trackEvent } from '../services/analytics';
@@ -575,7 +575,7 @@ const StudyPage: React.FC = () => {
       try { pos = Math.floor(playerRef.current?.getCurrentTime?.() ?? pos); } catch { /* noop */ }
       const updated: VideoStudySession = {
         id: session?.id || `session_${now}`,
-        youtubeUrl: extractUrl(yUrl) ?? yUrl,
+        youtubeUrl: normalizeStudyUrl(yUrl),
         youtubeId: yId,
         platform,
         title,
@@ -619,42 +619,11 @@ const StudyPage: React.FC = () => {
 
     setPlatform(detected);
 
-    // Build a fresh session for the NEW video immediately so it survives a
-    // page refresh. Previously the new video's session was saved with a stale
-    // videoId from the render closure, which made the sample video reappear on
-    // reload.
-    const makeFreshSession = (
-      vid: string,
-      url: string,
-      plat: VideoPlatform,
-    ): VideoStudySession => {
-      const now = Date.now();
-      const cleanUrl = extractUrl(url) ?? url;
-      return {
-        id: `session_${now}_${Math.random().toString(36).slice(2, 8)}`,
-        youtubeUrl: cleanUrl,
-        youtubeId: vid,
-        platform: plat,
-        title: cleanUrl,
-        transcriptLines: [],
-        transcriptData: { rawBlocks: [], sentenceLines: [] },
-        createdAt: now,
-        updatedAt: now,
-        status: 'studying',
-        lastPosition: 0,
-      };
-    };
-
     const persistTranscriptInto = (sess: VideoStudySession, lines: TranscriptLine[]) => {
       const sLines = normalizeTranscriptToSentences(lines);
       setRawBlocks(lines);
       setSentenceLines(sLines);
-      const updated: VideoStudySession = {
-        ...sess,
-        transcriptLines: lines,
-        transcriptData: { rawBlocks: lines, sentenceLines: sLines },
-        updatedAt: Date.now(),
-      };
+      const updated = attachTranscriptToSession(sess, lines, sLines, Date.now());
       saveCurrentSession(updated);
       setSession(updated);
     };
@@ -673,8 +642,15 @@ const StudyPage: React.FC = () => {
         persistSession(videoId, urlInput.trim(), rawBlocks, sentenceLines, sessionTitle || urlInput.trim());
       }
 
-      const fresh = makeFreshSession(parsed && !isShortLink ? parsed : urlInput.trim(), urlInput.trim(), 'bilibili');
-      fresh.biliPage = pg;
+      const now = Date.now();
+      const fresh = createFreshStudySession({
+        id: `session_${now}_${Math.random().toString(36).slice(2, 8)}`,
+        now,
+        videoId: parsed && !isShortLink ? parsed : urlInput.trim(),
+        url: urlInput.trim(),
+        platform: 'bilibili',
+        biliPage: pg,
+      });
       if (!session) trackEvent('video_studied', { platform: 'bilibili' });
       saveCurrentSession(fresh);
       setSession(fresh);
@@ -757,7 +733,14 @@ const StudyPage: React.FC = () => {
         persistSession(videoId, urlInput.trim(), rawBlocks, sentenceLines, sessionTitle || urlInput.trim());
       }
 
-      const fresh = makeFreshSession(id, urlInput.trim(), 'youtube');
+      const now = Date.now();
+      const fresh = createFreshStudySession({
+        id: `session_${now}_${Math.random().toString(36).slice(2, 8)}`,
+        now,
+        videoId: id,
+        url: urlInput.trim(),
+        platform: 'youtube',
+      });
       if (!session) trackEvent('video_studied', { platform: 'youtube' });
       saveCurrentSession(fresh);
       setSession(fresh);
