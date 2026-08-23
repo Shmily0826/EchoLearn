@@ -56,35 +56,29 @@ describe('lemmatize — regular inflections', () => {
   });
 });
 
-describe('lemmatize — documented rule-engine quirks', () => {
-  // The -ing rule eagerly restores a silent -e for ANY stem that does not
-  // end in a CVC cluster, so words whose base form genuinely has no -e get
-  // a bogus one. Only irregular-table words (going, making...) escape.
-  // Pinned here so a future fix changes these expectations deliberately.
-  it('adds a spurious -e to regular -ing forms like walking/looking', () => {
-    expect(lemmatize('walking')).toBe('walke');
-    expect(lemmatize('looking')).toBe('looke');
+describe('lemmatize — documented defect regressions', () => {
+  it('keeps noun/adjective -ing forms as their normalized word stem', () => {
+    expect(lemmatize('morning')).toBe('morning');
+    expect(lemmatize('walking')).toBe('walk');
+    expect(lemmatize('looking')).toBe('look');
   });
 
-  it('gets -ing forms right when they are in the irregular table', () => {
+  it('restores trailing -e only for justified regular -ing verbs', () => {
+    expect(lemmatize('liking')).toBe('like');
+    expect(lemmatize('dancing')).toBe('dance');
     expect(lemmatize('going')).toBe('go');
     expect(lemmatize('making')).toBe('make');
   });
 
-  // The doubled-consonant strip checks hasCVCEnding() on the DOUBLED stem
-  // (e.g. "stopp"), whose last three chars are VCC rather than CVC — so the
-  // rule never fires and the doubled consonant survives. Only words that
-  // are also in the irregular table (running) lemmatize correctly.
-  it('fails to un-double stopped/bigger (doubling rule never fires)', () => {
-    expect(lemmatize('stopped')).toBe('stopp');
-    expect(lemmatize('bigger')).toBe('bigg');
+  it('removes doubled consonants from regular past and comparative forms', () => {
+    expect(lemmatize('stopped')).toBe('stop');
+    expect(lemmatize('bigger')).toBe('big');
   });
 
-  // The -er rule deliberately never restores a silent -e: correct for
-  // faster→fast, but wrong for nicer→nice / larger→large.
-  it('does not restore the silent -e in nicer/larger', () => {
-    expect(lemmatize('nicer')).toBe('nic');
-    expect(lemmatize('larger')).toBe('larg');
+  it('restores silent -e for known comparatives without changing e-less forms', () => {
+    expect(lemmatize('nicer')).toBe('nice');
+    expect(lemmatize('larger')).toBe('large');
+    expect(lemmatize('faster')).toBe('fast');
   });
 });
 

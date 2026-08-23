@@ -359,6 +359,17 @@ const ED_STEM_ADD_E = new Set([
   'siz', 'forc', 'not',
 ]);
 
+/** Conservative stems where a regular -ing form restores silent -e. */
+const ING_STEM_ADD_E = new Set([
+  'lik', 'hik', 'danc', 'rak', 'spik', 'smok', 'chok', 'clos', 'us',
+]);
+
+/** Conservative stems where a regular comparative restores silent -e. */
+const ER_STEM_ADD_E = new Set(['nic', 'larg', 'wis']);
+
+/** Common noun forms ending in -ing that must remain intact. */
+const BASE_ING_WORDS = new Set(['morning', 'evening', 'ceiling', 'warning']);
+
 // ── Suffix rules ────────────────────────────────────────────────────
 
 /** Consonant-vowel-consonant pattern check for doubling rules. */
@@ -374,6 +385,15 @@ function hasCVCEnding(word: string): boolean {
     !vowels.includes(c2) &&
     c2 !== 'w' && c2 !== 'x' && c2 !== 'y'  // don't double after w, x, y
   );
+}
+
+/** Undo a final doubled consonant when it follows a CVC base. */
+function stripDoubledCvcEnding(word: string): string | null {
+  if (word.length < 4) return null;
+  const last = word[word.length - 1];
+  if (last !== word[word.length - 2]) return null;
+  const base = word.slice(0, -1);
+  return hasCVCEnding(base) ? base : null;
 }
 
 /** Try to strip common noun plural suffixes. Returns null if no rule applies. */
@@ -419,17 +439,11 @@ function tryVerbForm(word: string): string | null {
   if (word.endsWith('ing') && word.length > 4) {
     const stem = word.slice(0, -3);
     // running → run (double consonant)
-    if (stem.length >= 2 && stem[stem.length - 1] === stem[stem.length - 2] && hasCVCEnding(stem)) {
-      return stem.slice(0, -1);
-    }
-    // making → make (add -e)
-    if (stem.length >= 2 && !stem.endsWith('e')) {
-      // Check if the stem + e looks like a real word (heuristic: not ending in double consonant)
-      if (!hasCVCEnding(stem)) {
-        return stem + 'e';
-      }
-    }
-    // playing → play, going → go (just remove -ing)
+    const undoubled = stripDoubledCvcEnding(stem);
+    if (undoubled) return undoubled;
+    // Only restore silent -e for a conservative, known set of stems.
+    if (ING_STEM_ADD_E.has(stem)) return stem + 'e';
+    // playing → play and other uncertain forms: keep the stem.
     if (stem.length >= 2) {
       return stem;
     }
@@ -439,9 +453,8 @@ function tryVerbForm(word: string): string | null {
   if (word.endsWith('ed') && word.length > 3) {
     const stem = word.slice(0, -2);
     // stopped → stop (double consonant)
-    if (stem.length >= 2 && stem[stem.length - 1] === stem[stem.length - 2] && hasCVCEnding(stem)) {
-      return stem.slice(0, -1);
-    }
+    const undoubled = stripDoubledCvcEnding(stem);
+    if (undoubled) return undoubled;
     // liked → like (the base form ended in silent -e: like → liked).
     // The old rule added 'e' for every consonant-ending stem, producing
     // wrong lemmas like "trusted" → "truste". We now default to the bare
@@ -498,9 +511,8 @@ function tryAdjectiveForm(word: string): string | null {
   if (word.endsWith('est') && word.length > 4) {
     const stem = word.slice(0, -3);
     // CVC doubling: biggest → big (not bigg)
-    if (stem.length >= 2 && stem[stem.length - 1] === stem[stem.length - 2] && hasCVCEnding(stem)) {
-      return stem.slice(0, -1);
-    }
+    const undoubled = stripDoubledCvcEnding(stem);
+    if (undoubled) return undoubled;
     if (stem.length >= 2) {
       const lastChar = stem[stem.length - 1];
       if (!'aeiou'.includes(lastChar) && lastChar !== 'e') {
@@ -513,10 +525,10 @@ function tryAdjectiveForm(word: string): string | null {
   // -er (bigger → big, nicer → nice, faster → fast)
   if (word.endsWith('er') && word.length > 3) {
     const stem = word.slice(0, -2);
-    if (stem.length >= 2 && stem[stem.length - 1] === stem[stem.length - 2] && hasCVCEnding(stem)) {
-      return stem.slice(0, -1);
-    }
+    const undoubled = stripDoubledCvcEnding(stem);
+    if (undoubled) return undoubled;
     if (stem.length >= 2) {
+      if (ER_STEM_ADD_E.has(stem)) return stem + 'e';
       const lastChar = stem[stem.length - 1];
       if (!'aeiou'.includes(lastChar) && lastChar !== 'e') {
         // Regular comparative from e-less stem: faster→fast, harder→hard.
@@ -562,6 +574,10 @@ export function lemmatize(word: string): string {
   // Base-form -er words: "water", "mother", "back" etc. must not be treated
   // as comparatives. Catch this early before any suffix rule touches them.
   if (BASE_ER_WORDS.has(lower)) {
+    return lower;
+  }
+
+  if (BASE_ING_WORDS.has(lower)) {
     return lower;
   }
 
