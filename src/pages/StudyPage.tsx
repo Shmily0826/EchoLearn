@@ -24,6 +24,7 @@ import { pushItemsToCloud, pushSessionToCloud, syncWithCloud } from '../services
 import { useAuth } from '../contexts/AuthContext';
 import { CEFR_LEVELS, type CEFRLevel } from '../services/cefrWordList';
 import { useI18n } from '../i18n/I18nContext';
+import { useCaptionRequest } from '../hooks/useCaptionRequest';
 import { getVideoTitle } from '../services/youtubeApi';
 import sampleTranscript from '../data/sample-transcript.json';
 import {
@@ -198,62 +199,23 @@ const StudyPage: React.FC = () => {
   // Streaming progress
   const [streamChars, setStreamChars] = useState(0);
 
-  // Auto-fetch status
-  const [fetchingCaption, setFetchingCaption] = useState(false);
-  const [captionError, setCaptionError] = useState<string | null>(null);
-  // Toast shown when a transcript fetch completes, including elapsed time + source.
-  const [fetchToast, setFetchToast] = useState<{
-    count: number;
-    time: string;
-    source: string | null;
-  } | null>(null);
-  const fetchToastTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
-  const fetchStartRef = useRef<number>(0);
-  const fetchResultRef = useRef<number | null>(null);
-  const fetchSourceRef = useRef<string | null>(null);
-  // Live "elapsed wait" seconds shown during the (often multi-minute) fetch.
-  const [fetchElapsed, setFetchElapsed] = useState(0);
-  const fetchTickRef = useRef<number | null>(null);
-  const beginFetch = useCallback(() => {
-    fetchStartRef.current = Date.now();
-    fetchResultRef.current = null;
-    fetchSourceRef.current = null;
-    setFetchingCaption(true);
-  }, []);
-  const notifyFetchSuccess = useCallback(
-    (count: number, source: string | null = null) => {
-      const totalSec = Math.max(0, Math.round((Date.now() - fetchStartRef.current) / 1000));
-      const mins = Math.floor(totalSec / 60);
-      const secs = totalSec % 60;
-      const timeStr = mins > 0 ? `${mins}分${secs}秒` : `${secs}秒`;
-      setFetchToast({ count, time: timeStr, source });
-      // Persistent toast: user closes it via the ✕ button (no auto-dismiss).
-      if (fetchToastTimer.current) clearTimeout(fetchToastTimer.current);
-    },
-    [],
-  );
-  // Live "elapsed wait" ticker: start when a fetch begins, stop + reset when it
-  // ends, so the user sees progress instead of a frozen spinner during the
-  // (often 1–3 min) transcript fetch.
-  useEffect(() => {
-    if (!fetchingCaption) {
-      // Reset the external request timer when its lifecycle ends.
-      // eslint-disable-next-line react-hooks/set-state-in-effect
-      setFetchElapsed(0);
-      if (fetchTickRef.current !== null) {
-        clearInterval(fetchTickRef.current);
-        fetchTickRef.current = null;
-      }
-      return;
-    }
-    fetchTickRef.current = setInterval(() => setFetchElapsed((s) => s + 1), 1000);
-    return () => {
-      if (fetchTickRef.current !== null) {
-        clearInterval(fetchTickRef.current);
-        fetchTickRef.current = null;
-      }
-    };
-  }, [fetchingCaption]);
+  // Auto-fetch status — request generation, race protection, elapsed ticker
+  // and success toast all live in useCaptionRequest; the bindings below keep
+  // the historical names so the JSX reads unchanged.
+  const {
+    fetching: fetchingCaption,
+    error: captionError,
+    setError: setCaptionError,
+    elapsed: fetchElapsed,
+    fetchToast,
+    clearFetchToast,
+    begin: beginCaptionRequest,
+    run: runCaptionRequest,
+    isCurrent: isCaptionRequestCurrent,
+    end: endCaptionRequest,
+    fail: failCaptionRequest,
+    invalidate: invalidateCaptionRequests,
+  } = useCaptionRequest();
   // Distinguish a genuine "this video has no captions" from a network/blocked
   // failure — the backend throws the same error shape for both, so we sniff the
   // message to give the user a precise reason instead of a generic error.
@@ -268,10 +230,6 @@ const StudyPage: React.FC = () => {
   const restoredRef = useRef(false);
   // Track which session ID we've loaded, so we can detect new sessions from Dashboard
   const loadedSessionIdRef = useRef<string | null>(null);
-  // Only the latest transcript request may update the visible transcript/error.
-  // This prevents a slower request from an earlier retry/session replacing a
-  // newer successful result.
-  const transcriptRequestRef = useRef(0);
   const { pathname } = useLocation();
 
   // YouTube player ref & playback time
@@ -510,48 +468,32 @@ const StudyPage: React.FC = () => {
       const hasTranscript =
         !!saved.transcriptData || (saved.transcriptLines?.length ?? 0) > 0;
       if (saved.youtubeId && !hasTranscript) {
-        const requestId = ++transcriptRequestRef.current;
-        beginFetch();
-        setCaptionError(null);
-        const fetcher = (saved.platform === 'bilibili')
-          ? fetchBilibiliTranscript(saved.youtubeId, undefined, saved.biliPage)
-          : fetchYouTubeTranscript(saved.youtubeId);
-        fetcher
-          .then((res) => {
-            if (requestId !== transcriptRequestRef.current) return;
-            const lines = res.lines;
-            const pf: VideoPlatform = saved.platform === 'bilibili' ? 'bilibili' : 'youtube';
-            if (lines.length > 0) {
-              fetchResultRef.current = lines.length;
-              fetchSourceRef.current = transcriptSourceLabel(pf, res);
-              const sLines = normalizeTranscriptToSentences(lines);
-              setRawBlocks(lines);
-              setSentenceLines(sLines);
-              const updated: VideoStudySession = {
-                ...saved,
-                transcriptLines: lines,
-                transcriptData: { rawBlocks: lines, sentenceLines: sLines },
-                updatedAt: Date.now(),
-              };
-              saveCurrentSession(updated);
-              setSession(updated);
-            }
-          })
-          .catch((err) => {
-            if (requestId !== transcriptRequestRef.current) return;
-            setCaptionError(
-              err instanceof Error ? err.message : 'Unknown error fetching captions',
-            );
-          })
-          .finally(() => {
-          if (requestId !== transcriptRequestRef.current) return;
-          setFetchingCaption(false);
-          if (fetchResultRef.current != null) {
-            notifyFetchSuccess(fetchResultRef.current, fetchSourceRef.current);
-            fetchResultRef.current = null;
-            fetchSourceRef.current = null;
-          }
-        });
+        runCaptionRequest(
+          () =>
+            saved.platform === 'bilibili'
+              ? fetchBilibiliTranscript(saved.youtubeId, undefined, saved.biliPage)
+              : fetchYouTubeTranscript(saved.youtubeId),
+          {
+            onSuccess: (res) => {
+              const lines = res.lines;
+              const pf: VideoPlatform = saved.platform === 'bilibili' ? 'bilibili' : 'youtube';
+              if (lines.length > 0) {
+                const sLines = normalizeTranscriptToSentences(lines);
+                setRawBlocks(lines);
+                setSentenceLines(sLines);
+                const updated: VideoStudySession = {
+                  ...saved,
+                  transcriptLines: lines,
+                  transcriptData: { rawBlocks: lines, sentenceLines: sLines },
+                  updatedAt: Date.now(),
+                };
+                saveCurrentSession(updated);
+                setSession(updated);
+                return { count: lines.length, source: transcriptSourceLabel(pf, res) };
+              }
+            },
+          },
+        );
       }
     } else {
       // No saved session → pre-load a sample video so the Study UI (and the
@@ -560,14 +502,13 @@ const StudyPage: React.FC = () => {
       setVideoId(SAMPLE_VIDEO_ID);
       setPlatform('youtube');
       setSessionTitle(SAMPLE_VIDEO_TITLE);
-      beginFetch();
-      setCaptionError(null);
+      beginCaptionRequest();
       // Use the bundled full transcript for the sample video so the demo loads
       // instantly and never depends on a network fetch.
       const sLines = normalizeTranscriptToSentences(SAMPLE_FALLBACK_TRANSCRIPT);
       setRawBlocks(SAMPLE_FALLBACK_TRANSCRIPT);
       setSentenceLines(sLines);
-      setFetchingCaption(false);
+      endCaptionRequest();
     }
 
     setVocabulary(loadVocabulary());
@@ -640,45 +581,32 @@ const StudyPage: React.FC = () => {
     const hasTranscript =
       !!saved.transcriptData || (saved.transcriptLines?.length ?? 0) > 0;
     if (saved.youtubeId && !hasTranscript) {
-      const requestId = ++transcriptRequestRef.current;
-      beginFetch();
-      setCaptionError(null);
-      const fetcher = (saved.platform === 'bilibili')
-        ? fetchBilibiliTranscript(saved.youtubeId, undefined, saved.biliPage)
-        : fetchYouTubeTranscript(saved.youtubeId);
-      fetcher
-        .then(({ lines }) => {
-          if (requestId !== transcriptRequestRef.current) return;
-          if (lines.length > 0) {
-              fetchResultRef.current = lines.length;
-            const sLines = normalizeTranscriptToSentences(lines);
-            setRawBlocks(lines);
-            setSentenceLines(sLines);
-            const updated: VideoStudySession = {
-              ...saved,
-              transcriptLines: lines,
-              transcriptData: { rawBlocks: lines, sentenceLines: sLines },
-              updatedAt: Date.now(),
-            };
-            saveCurrentSession(updated);
-            setSession(updated);
-          }
-        })
-        .catch((err) => {
-          if (requestId !== transcriptRequestRef.current) return;
-          setCaptionError(
-            err instanceof Error ? err.message : 'Unknown error fetching captions',
-          );
-        })
-        .finally(() => {
-          if (requestId !== transcriptRequestRef.current) return;
-          setFetchingCaption(false);
-          if (fetchResultRef.current != null) {
-            notifyFetchSuccess(fetchResultRef.current, fetchSourceRef.current);
-            fetchResultRef.current = null;
-            fetchSourceRef.current = null;
-          }
-        });
+      runCaptionRequest(
+        () =>
+          saved.platform === 'bilibili'
+            ? fetchBilibiliTranscript(saved.youtubeId, undefined, saved.biliPage)
+            : fetchYouTubeTranscript(saved.youtubeId),
+        {
+          // Note: no source label here — mirrors the original code, which
+          // never recorded fetchSourceRef on the dashboard-navigation path.
+          onSuccess: ({ lines }) => {
+            if (lines.length > 0) {
+              const sLines = normalizeTranscriptToSentences(lines);
+              setRawBlocks(lines);
+              setSentenceLines(sLines);
+              const updated: VideoStudySession = {
+                ...saved,
+                transcriptLines: lines,
+                transcriptData: { rawBlocks: lines, sentenceLines: sLines },
+                updatedAt: Date.now(),
+              };
+              saveCurrentSession(updated);
+              setSession(updated);
+              return { count: lines.length, source: null };
+            }
+          },
+        },
+      );
     }
 
     setVocabulary(loadVocabulary());
@@ -999,9 +927,7 @@ const StudyPage: React.FC = () => {
       setSentenceLines([]);
       setAnalysis(null);
 
-      beginFetch();
-      setCaptionError(null);
-      const requestId = ++transcriptRequestRef.current;
+      const req = beginCaptionRequest();
 
       // Resolve a b23.tv short link to a BV id via the VPS, then proceed exactly
       // like a normal BV-id load. Runs async so the UI can show the loading state.
@@ -1010,7 +936,7 @@ const StudyPage: React.FC = () => {
         if (isShortLink && parsed) {
           try {
             const meta = await getBilibiliMetaByUrl(parsed);
-            if (requestId !== transcriptRequestRef.current) return;
+            if (!isCaptionRequestCurrent(req)) return;
             if (meta?.bvid) {
               bvid = meta.bvid;
               setVideoId(bvid);
@@ -1025,46 +951,37 @@ const StudyPage: React.FC = () => {
             } else {
               // Resolution returned but with no bvid (timeout / 401 / network).
               // Surface it instead of silently leaving an empty player.
-              setFetchingCaption(false);
-              setCaptionError(t('study.biliResolveFailed'));
+              failCaptionRequest(t('study.biliResolveFailed'), req);
               return;
             }
           } catch {
-            if (requestId !== transcriptRequestRef.current) return;
-            setFetchingCaption(false);
-            setCaptionError(t('study.biliResolveError'));
+            if (!isCaptionRequestCurrent(req)) return;
+            failCaptionRequest(t('study.biliResolveError'), req);
             return;
           }
         }
-        if (requestId !== transcriptRequestRef.current) return;
+        if (!isCaptionRequestCurrent(req)) return;
         if (!bvid) {
-          setFetchingCaption(false);
-          setCaptionError(t('study.biliUnrecognized'));
+          failCaptionRequest(t('study.biliUnrecognized'), req);
           return;
         }
-        try {
-          refreshTitleForVideo(urlInput, fresh.id, bvid, () => getBilibiliVideoTitle(bvid!, pg));
-          const res = await fetchBilibiliTranscript(bvid, undefined, pg);
-          if (requestId !== transcriptRequestRef.current) return;
-          const lines = res.lines;
-          if (lines.length > 0) {
-            fetchResultRef.current = lines.length;
-            fetchSourceRef.current = transcriptSourceLabel('bilibili', res);
-            persistTranscriptInto(fresh, lines);
-          }
-        } catch (err) {
-          if (requestId !== transcriptRequestRef.current) return;
-          setCaptionError(err instanceof Error ? err.message : 'Unknown error fetching captions');
-        } finally {
-          if (requestId === transcriptRequestRef.current) {
-            setFetchingCaption(false);
-            if (fetchResultRef.current != null) {
-              notifyFetchSuccess(fetchResultRef.current, fetchSourceRef.current);
-              fetchResultRef.current = null;
-              fetchSourceRef.current = null;
-            }
-          }
-        }
+        refreshTitleForVideo(urlInput, fresh.id, bvid, () => getBilibiliVideoTitle(bvid!, pg));
+        runCaptionRequest(
+          () => fetchBilibiliTranscript(bvid!, undefined, pg),
+          {
+            // Attach to the request opened above so the elapsed timer keeps
+            // running from the original Load click (short-link resolution can
+            // take tens of seconds on its own).
+            begin: false,
+            onSuccess: (res) => {
+              const lines = res.lines;
+              if (lines.length > 0) {
+                persistTranscriptInto(fresh, lines);
+                return { count: lines.length, source: transcriptSourceLabel('bilibili', res) };
+              }
+            },
+          },
+        );
       })();
     } else {
       // YouTube
@@ -1096,28 +1013,15 @@ const StudyPage: React.FC = () => {
       // empty sessionTitle — that let a stale title leak across videos.
       refreshTitleForVideo(urlInput, fresh.id, id, getVideoTitle);
 
-      beginFetch();
-      setCaptionError(null);
-      const requestId = ++transcriptRequestRef.current;
-      fetchYouTubeTranscript(id)
-        .then((res) => {
-          if (requestId !== transcriptRequestRef.current) return;
+      runCaptionRequest(() => fetchYouTubeTranscript(id), {
+        onSuccess: (res) => {
           const lines = res.lines;
-          if (lines.length > 0) { fetchResultRef.current = lines.length; fetchSourceRef.current = transcriptSourceLabel('youtube', res); persistTranscriptInto(fresh, lines); }
-        })
-        .catch((err) => {
-          if (requestId !== transcriptRequestRef.current) return;
-          setCaptionError(err instanceof Error ? err.message : 'Unknown error fetching captions');
-        })
-        .finally(() => {
-          if (requestId !== transcriptRequestRef.current) return;
-          setFetchingCaption(false);
-          if (fetchResultRef.current != null) {
-            notifyFetchSuccess(fetchResultRef.current, fetchSourceRef.current);
-            fetchResultRef.current = null;
-            fetchSourceRef.current = null;
+          if (lines.length > 0) {
+            persistTranscriptInto(fresh, lines);
+            return { count: lines.length, source: transcriptSourceLabel('youtube', res) };
           }
-        });
+        },
+      });
     }
   }, [urlInput, rawBlocks, sentenceLines, sessionTitle, session, videoId, persistSession]);
 
@@ -1131,7 +1035,9 @@ const StudyPage: React.FC = () => {
 
   // ── Clear current session ──────────────────────────────────
   const handleClearSession = useCallback(() => {
-    transcriptRequestRef.current += 1;
+    // Invalidate any in-flight caption request so it cannot repopulate the
+    // cleared session when it eventually resolves.
+    invalidateCaptionRequests();
     clearCurrentSession();
     setSession(null);
     setVideoId(null);
@@ -1150,46 +1056,32 @@ const StudyPage: React.FC = () => {
   // ── Reload transcript for the current video ────────────────
   const handleReloadTranscript = useCallback(() => {
     if (!videoId) {
-      setCaptionError(t('study.videoNotReady'));
-      setFetchingCaption(false);
+      failCaptionRequest(t('study.videoNotReady'));
       return;
     }
-    const requestId = ++transcriptRequestRef.current;
-    setCaptionError(null);
-    beginFetch();
-    const fetcher = platform === 'bilibili'
-      ? fetchBilibiliTranscript(videoId, undefined, biliPage)
-      : fetchYouTubeTranscript(videoId);
-    fetcher
-      .then((res) => {
-        if (requestId !== transcriptRequestRef.current) return;
-        const lines = res.lines;
-        if (lines.length > 0) {
-              fetchResultRef.current = lines.length;
-              fetchSourceRef.current = transcriptSourceLabel(platform, res);
-          const sLines = normalizeTranscriptToSentences(lines);
-          setRawBlocks(lines);
-          setSentenceLines(sLines);
-          if (session) {
-            const updated = { ...session, transcriptLines: lines, transcriptData: { rawBlocks: lines, sentenceLines: sLines } };
-            saveCurrentSession(updated);
-            setSession(updated);
+    runCaptionRequest(
+      () =>
+        platform === 'bilibili'
+          ? fetchBilibiliTranscript(videoId, undefined, biliPage)
+          : fetchYouTubeTranscript(videoId),
+      {
+        onSuccess: (res) => {
+          const lines = res.lines;
+          if (lines.length > 0) {
+            const sLines = normalizeTranscriptToSentences(lines);
+            setRawBlocks(lines);
+            setSentenceLines(sLines);
+            if (session) {
+              const updated = { ...session, transcriptLines: lines, transcriptData: { rawBlocks: lines, sentenceLines: sLines } };
+              saveCurrentSession(updated);
+              setSession(updated);
+            }
+            return { count: lines.length, source: transcriptSourceLabel(platform, res) };
           }
-        }
-      })
-      .catch((err) => {
-        if (requestId !== transcriptRequestRef.current) return;
-        setCaptionError(err instanceof Error ? err.message : 'Unknown error');
-      })
-      .finally(() => {
-          if (requestId !== transcriptRequestRef.current) return;
-          setFetchingCaption(false);
-          if (fetchResultRef.current != null) {
-            notifyFetchSuccess(fetchResultRef.current, fetchSourceRef.current);
-            fetchResultRef.current = null;
-            fetchSourceRef.current = null;
-          }
-        });
+        },
+        errorMessage: (err) => (err instanceof Error ? err.message : 'Unknown error'),
+      },
+    );
   }, [videoId, platform, session, biliPage]);
 
   // ── Switch Bilibili part (分p) ────────────────────────────
@@ -1212,16 +1104,10 @@ const StudyPage: React.FC = () => {
         saveCurrentSession(withPart);
         setSession(withPart);
       }
-      beginFetch();
-      setCaptionError(null);
-      const requestId = ++transcriptRequestRef.current;
-      fetchBilibiliTranscript(videoId, undefined, part)
-        .then((res) => {
-          if (requestId !== transcriptRequestRef.current) return;
+      runCaptionRequest(() => fetchBilibiliTranscript(videoId, undefined, part), {
+        onSuccess: (res) => {
           const lines = res.lines;
           if (lines.length > 0) {
-              fetchResultRef.current = lines.length;
-              fetchSourceRef.current = transcriptSourceLabel('bilibili', res);
             const sLines = normalizeTranscriptToSentences(lines);
             setRawBlocks(lines);
             setSentenceLines(sLines);
@@ -1236,21 +1122,11 @@ const StudyPage: React.FC = () => {
               saveCurrentSession(updated);
               return updated;
             });
+            return { count: lines.length, source: transcriptSourceLabel('bilibili', res) };
           }
-        })
-        .catch((err) => {
-          if (requestId !== transcriptRequestRef.current) return;
-          setCaptionError(err instanceof Error ? err.message : 'Failed to load this part');
-        })
-        .finally(() => {
-          if (requestId !== transcriptRequestRef.current) return;
-          setFetchingCaption(false);
-          if (fetchResultRef.current != null) {
-            notifyFetchSuccess(fetchResultRef.current, fetchSourceRef.current);
-            fetchResultRef.current = null;
-            fetchSourceRef.current = null;
-          }
-        });
+        },
+        errorMessage: (err) => (err instanceof Error ? err.message : 'Failed to load this part'),
+      });
     },
     [videoId, session, biliPage, biliParts],
   );
@@ -1621,7 +1497,7 @@ const StudyPage: React.FC = () => {
                   ) : null}
                 </span>
                 <button
-                  onClick={() => setFetchToast(null)}
+                  onClick={clearFetchToast}
                   aria-label={t('common.close') || 'Close'}
                   className="ml-auto text-emerald-400 hover:text-emerald-600 dark:hover:text-emerald-200 cursor-pointer"
                 >
