@@ -42,9 +42,11 @@ The web app always fetches captions through one of two tiers, automatically:
 - Highest success rate because it is not a throttled datacenter IP.
 
 **Tier 2 — Server-side (CF Worker, 7×24)**
-- Reached automatically when Tier 1 is unavailable. First the Vercel
-  same-origin `/api/transcript`, then the Cloudflare Worker.
-- The Worker tries, in order:
+- Reached automatically when Tier 1 is unavailable. The browser tries the CF
+  Worker first, then the same-origin Vercel `/api/transcript` fallback. The
+  Vercel function keeps `YTDLP_API_KEY` server-side and tries the authenticated
+  VPS before its existing npm fallback.
+- The CF Worker tries, in order:
   1. **VPS yt-dlp** (Strategy 0) — a small always-on FastAPI service
      (`vps-ytdlp/`) running yt-dlp with the TVHTML5 client signature. For
      YouTube it fetches captions directly; for Bilibili the watch page requires
@@ -151,7 +153,7 @@ Create a `.env.local` file (never committed) with the following:
 | `VITE_FIREBASE_*` | Client (.env.local) | Firebase project web config (public by design, secured via Firestore Rules) |
 | `VITE_YOUTUBE_PROXY` | Client (.env.production) | (Optional) Custom YouTube CORS proxy base URL |
 
-CF Worker secrets: `YTDLP_API_URL` (base URL of the VPS yt-dlp service, e.g. `https://yt-api.echo-learn.uk` — enables Strategy 0), `YTDLP_API_KEY` (optional shared key protecting that endpoint), `GROQ_API_KEY` (Whisper ASR fallback), `SCRAPE_API_KEY` (optional ScrapingBee/ZenRows gateway), `ALLOW_DEBUG` (set to `1` to enable debug logs)
+CF Worker secrets: `YTDLP_API_URL` (base URL of the VPS yt-dlp service, e.g. `https://yt-api.echo-learn.uk`), `YTDLP_API_KEY` (shared key protecting the VPS; keep it server-side in Vercel and the Worker), `GROQ_API_KEY` (Whisper ASR fallback), `SCRAPE_API_KEY` (optional ScrapingBee/ZenRows gateway), `ALLOW_DEBUG` (set to `1` to enable debug logs)
 
 See `.env.example` for a template.
 

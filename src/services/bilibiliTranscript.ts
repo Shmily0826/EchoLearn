@@ -105,28 +105,44 @@ export async function getBilibiliVideoTitle(
   bvid: string,
   part?: number,
 ): Promise<{ title: string; ownerName: string; partCount?: number; parts?: BiliPart[] } | null> {
-  try {
-    const url = `${CF_WORKER_URL}/api/bilibili?bvid=${encodeURIComponent(
-      bvid,
-    )}&info=1${part ? `&p=${part}` : ''}`;
-    const resp = await fetch(url);
-    if (!resp.ok) return null;
+  const selectedPart = part && part > 1 ? `?p=${part}` : '';
+  const canonicalUrl = `https://www.bilibili.com/video/${encodeURIComponent(bvid)}${selectedPart}`;
+  const workerUrl = `${CF_WORKER_URL}/api/bilibili?bvid=${encodeURIComponent(
+    bvid,
+  )}&info=1${part ? `&p=${part}` : ''}`;
+  const endpoints = [
+    { url: workerUrl, timeoutMs: 12000 },
+    {
+      url: `/api/bilibili?info=1&url=${encodeURIComponent(canonicalUrl)}`,
+      timeoutMs: 30000,
+    },
+  ];
 
-    const data = (await resp.json()) as {
-      title?: string;
-      ownerName?: string;
-      partCount?: number;
-      parts?: BiliPart[];
-    };
-    return {
-      title: data.title || '',
-      ownerName: data.ownerName || '',
-      partCount: data.partCount,
-      parts: data.parts,
-    };
-  } catch {
-    return null;
+  for (const endpoint of endpoints) {
+    try {
+      const resp = await fetchWithTimeout(endpoint.url, { timeoutMs: endpoint.timeoutMs });
+      if (!resp.ok) continue;
+      const data = (await resp.json()) as {
+        title?: string;
+        ownerName?: string;
+        partCount?: number;
+        parts?: BiliPart[];
+      };
+      if (!data.title && !data.ownerName && !data.parts) continue;
+      return {
+        title: data.title || '',
+        ownerName: data.ownerName || '',
+        partCount: data.partCount,
+        parts: data.parts,
+      };
+    } catch (err) {
+      console.warn(
+        '[EchoLearn] Bilibili title request failed:',
+        err instanceof Error ? err.message : err,
+      );
+    }
   }
+  return null;
 }
 
 /**

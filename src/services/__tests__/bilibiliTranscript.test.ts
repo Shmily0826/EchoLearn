@@ -236,14 +236,50 @@ describe('getBilibiliVideoTitle', () => {
   });
 
   it('returns null on a non-2xx Worker response', async () => {
-    fetchMock.mockResolvedValueOnce(mockResponse('err', { status: 500 }));
+    fetchMock
+      .mockResolvedValueOnce(mockResponse('err', { status: 500 }))
+      .mockResolvedValueOnce(mockResponse('vercel', { status: 500 }));
 
     expect(await getBilibiliVideoTitle('BV1xx411c7mD')).toBeNull();
   });
 
   it('returns null when the Worker is unreachable', async () => {
-    fetchMock.mockRejectedValueOnce(new Error('network down'));
+    fetchMock
+      .mockRejectedValueOnce(new Error('network down'))
+      .mockRejectedValueOnce(new Error('vercel down'));
 
     expect(await getBilibiliVideoTitle('BV1xx411c7mD')).toBeNull();
+  });
+
+  it('falls back to the same-origin proxy after a Worker failure and preserves the selected part', async () => {
+    fetchMock
+      .mockResolvedValueOnce(mockResponse('worker err', { status: 502 }))
+      .mockResolvedValueOnce(
+        mockResponse(JSON.stringify({ title: 'Fallback title', ownerName: 'O', partCount: 3 }), {
+          url: '/api/bilibili',
+        }),
+      );
+
+    const result = await getBilibiliVideoTitle('BV1xx411c7mD', 2);
+
+    expect(result?.title).toBe('Fallback title');
+    expect(fetchMock).toHaveBeenCalledTimes(2);
+    const fallbackUrl = String(fetchMock.mock.calls[1][0]);
+    expect(fallbackUrl).toContain('/api/bilibili?info=1&url=');
+    expect(decodeURIComponent(fallbackUrl)).toContain('https://www.bilibili.com/video/BV1xx411c7mD?p=2');
+  });
+
+  it('uses the same-origin proxy after a Worker timeout', async () => {
+    const timeout = new Error('aborted');
+    timeout.name = 'AbortError';
+    fetchMock
+      .mockRejectedValueOnce(timeout)
+      .mockResolvedValueOnce(
+        mockResponse(JSON.stringify({ title: 'After timeout', ownerName: 'O' }), { url: '/api/bilibili' }),
+      );
+
+    await expect(getBilibiliVideoTitle('BV1xx411c7mD')).resolves.toMatchObject({
+      title: 'After timeout',
+    });
   });
 });

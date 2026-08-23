@@ -13,7 +13,7 @@
  */
 
 import type { TranscriptLine } from '../types';
-import { fetchWorkerThenVps } from '../utils/resilientFetch';
+import { fetchWithTimeout } from '../utils/resilientFetch';
 
 // ── Configuration ──────────────────────────────────────────────
 
@@ -694,63 +694,47 @@ function clearLocalProxyFailure(): void {
 
 /**
  * Calls server-side transcript APIs.
- * Tries the CF Worker first (relays to AWS VPS yt-dlp — highest success rate),
- * then falls back to Vercel /api/transcript (weaker on datacenter IPs).
- * CF Worker internally cascades: VPS yt-dlp (Strategy 0) → InnerTube → Web scrape → Invidious → Piped → Whisper ASR (Groq).
+ * Tries the CF Worker first, then the same-origin Vercel function. The Vercel
+ * function keeps YTDLP_API_KEY server-side and falls through to its existing
+ * youtube-transcript implementation if the VPS is unavailable.
  */
-async function fetchViaServerApi(
+export async function fetchYouTubeServerTranscript(
   videoId: string,
   lang: string,
 ): Promise<TranscriptFetchResult | null> {
-  // Try CF Worker first (with an 18s client timeout); if it hangs or errors,
-  // fetchWorkerThenVps falls back to the VPS directly.
   const workerUrl = `${CF_WORKER_URL}/api/transcript?videoId=${encodeURIComponent(videoId)}&lang=${encodeURIComponent(lang)}`;
-  try {
-    const res = await fetchWorkerThenVps(workerUrl, '/api/transcript');
-    if (res.ok) {
-      const data = (await res.json()) as TranscriptFetchResult;
-      if (data.lines && data.lines.length > 0) {
-        const viaVps = !res.url.startsWith(CF_WORKER_URL);
-        if (viaVps) data.source = data.source || 'vps';
-        console.log(
-          `[EchoLearn] ${viaVps ? 'VPS fallback' : 'CF Worker'}: got ${data.lines.length} lines (${data.language})`,
-        );
-        return data;
-      }
-    } else {
-      const body = await res.text().catch(() => '');
-      console.warn(`[EchoLearn] Server API error: ${res.status}`, body.substring(0, 200));
-    }
-  } catch (err) {
-    console.warn(
-      '[EchoLearn] Server API error:',
-      err instanceof Error ? err.message : err,
-    );
-  }
+  const endpoints = [
+    { url: workerUrl, label: 'CF Worker', timeoutMs: 18000 },
+    {
+      url: `/api/transcript?videoId=${encodeURIComponent(videoId)}&lang=${encodeURIComponent(lang)}`,
+      label: 'Vercel server API',
+      timeoutMs: 45000,
+    },
+  ];
 
-  // Backup: same-origin Vercel serverless function (weaker on datacenter IPs,
-  // often 404/500, but useful if both Worker and direct VPS are unavailable).
-  try {
-    const res = await fetch(
-      `/api/transcript?videoId=${encodeURIComponent(videoId)}&lang=${encodeURIComponent(lang)}`,
-    );
-    if (res.ok) {
-      const data = (await res.json()) as TranscriptFetchResult;
-      if (data.lines && data.lines.length > 0) {
-        console.log(
-          `[EchoLearn] Vercel Server API: got ${data.lines.length} lines (${data.language})`,
-        );
-        return data;
+  for (const endpoint of endpoints) {
+    try {
+      const res = await fetchWithTimeout(endpoint.url, { timeoutMs: endpoint.timeoutMs });
+      if (res.ok) {
+        const data = (await res.json()) as TranscriptFetchResult;
+        if (Array.isArray(data.lines) && data.lines.length > 0) {
+          if (endpoint.label !== 'CF Worker') data.source = data.source || 'vps';
+          console.log(
+            `[EchoLearn] ${endpoint.label}: got ${data.lines.length} lines (${data.language})`,
+          );
+          return data;
+        }
+        console.warn(`[EchoLearn] ${endpoint.label}: empty or unusable transcript`);
+      } else {
+        const body = await res.text().catch(() => '');
+        console.warn(`[EchoLearn] ${endpoint.label} error: ${res.status}`, body.substring(0, 200));
       }
-    } else {
-      const body = await res.text().catch(() => '');
-      console.warn(`[EchoLearn] Vercel Server API error: ${res.status}`, body.substring(0, 200));
+    } catch (err) {
+      console.warn(
+        `[EchoLearn] ${endpoint.label} request failed:`,
+        err instanceof Error ? err.message : err,
+      );
     }
-  } catch (err) {
-    console.warn(
-      '[EchoLearn] Vercel Server API error:',
-      err instanceof Error ? err.message : err,
-    );
   }
 
   return null;
@@ -834,7 +818,7 @@ async function _fetchYouTubeTranscriptImpl(
 
   // Strategy 1: Server-side transcript API (CF Worker → Vercel fallback)
   try {
-    const serverResult = await fetchViaServerApi(videoId, lang);
+    const serverResult = await fetchYouTubeServerTranscript(videoId, lang);
     if (serverResult) return serverResult;
     errors.push('Server API (CF Worker + Vercel) returned no captions');
   } catch (err) {
