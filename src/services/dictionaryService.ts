@@ -17,6 +17,7 @@ export { isKnownProperNoun };
 
 const CACHE_KEY = 'echolearn_dictionary_cache_v4';
 const API_BASE = '/api/dictionary';
+const DEFAULT_TARGET = 'zh-CN';
 
 const FREE_DICT_BASE = 'https://api.dictionaryapi.dev/api/v2/entries/en';
 const DATAMUSE_BASE = 'https://api.datamuse.com/words';
@@ -49,6 +50,11 @@ function saveCache(cache: CacheStore): void {
   } catch {
     // localStorage full or unavailable — silently ignore
   }
+}
+
+/** Canonical cache key shared by backend and client fallback results. */
+export function makeDictionaryCacheKey(word: string, targetLang = DEFAULT_TARGET): string {
+  return `${word.trim().toLowerCase()}:${targetLang.trim().toLowerCase()}`;
 }
 
 // ── Word cleaning ──────────────────────────────────────────────
@@ -299,9 +305,10 @@ function parseFreeDictEntry(raw: ApiEntry): DictionaryEntry {
   };
 }
 
-async function fetchEntryParallel(word: string): Promise<DictionaryEntry | null> {
+async function fetchEntryParallel(word: string, target: string): Promise<DictionaryEntry | null> {
   const cache = loadCache();
-  if (word in cache) return cache[word];
+  const cacheKey = makeDictionaryCacheKey(word, target);
+  if (cacheKey in cache) return cache[cacheKey];
   if (sessionMisses.has(word)) return null;
 
   try {
@@ -315,7 +322,7 @@ async function fetchEntryParallel(word: string): Promise<DictionaryEntry | null>
 
     const winner = freeDict ?? datamuse;
     if (winner) {
-      cache[word] = winner;
+      cache[cacheKey] = winner;
       saveCache(cache);
       return winner;
     }
@@ -363,7 +370,7 @@ const sessionMisses = loadSessionMisses();
  */
 export async function lookupWord(
   word: string,
-  target = 'zh-CN',
+  target = DEFAULT_TARGET,
 ): Promise<(DictionaryEntry & { lemma?: string }) | null> {
   const cleaned = cleanWord(word);
   if (!cleaned) return null;
@@ -373,10 +380,18 @@ export async function lookupWord(
   if (KNOWN_PROPER_NOUNS.has(cleaned)) return null;
 
   const cache = loadCache();
-  const backendKey = `${lookupWordValue}:${target}`;
+  const backendKey = makeDictionaryCacheKey(lookupWordValue, target);
 
   // 1. Backend (primary)
   if (backendKey in cache) return cache[backendKey];
+  // Compatibility with the previous bare-word fallback cache. Only the
+  // default target may read it, so another target can never inherit it.
+  if (target.trim().toLowerCase() === DEFAULT_TARGET.toLowerCase() && cleaned in cache) {
+    const legacy = cache[cleaned];
+    cache[makeDictionaryCacheKey(cleaned, target)] = legacy;
+    saveCache(cache);
+    return legacy;
+  }
   const backend = await fetchFromBackend(lookupWordValue, target);
   if (backend) {
     cache[backendKey] = backend;
@@ -387,11 +402,11 @@ export async function lookupWord(
 
   // 2. Fallback (client-side) — note: English only, no server translation
   for (const candidate of buildCandidates(cleaned)) {
-    const result = await fetchEntryParallel(candidate);
+    const result = await fetchEntryParallel(candidate, target);
     if (result) {
       const lemma = candidate === cleaned ? undefined : candidate;
       const cached: DictionaryEntry & { lemma?: string } = { ...result, lemma };
-      cache[candidate] = cached;
+      cache[makeDictionaryCacheKey(candidate, target)] = cached;
       saveCache(cache);
       return cached;
     }

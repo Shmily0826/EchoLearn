@@ -260,12 +260,7 @@ describe('lookupWord — client-side fallback path', () => {
     expect(await mod.lookupWord('cat')).toBeNull();
   });
 
-  it('serves a previously cached fallback entry — documents the cache-key split', async () => {
-    // Backend entries are cached under "word:target" but client-side fallback
-    // entries under the bare candidate word. Consequence: a fallback-cached
-    // word still triggers ONE backend probe (which fails here) before the
-    // client cache answers. Pinned so a future unification of the cache keys
-    // updates this intentionally.
+  it('reuses a fallback entry without probing the backend again', async () => {
     const cached: DictionaryEntry & { lemma?: string } = {
       word: 'cat',
       phonetic: '',
@@ -282,8 +277,26 @@ describe('lookupWord — client-side fallback path', () => {
     const mod = await freshModule();
     const entry = await mod.lookupWord('cat');
     expect(entry?.definitionEn).toBe('cached definition');
-    expect(callsTo('/api/dictionary')).toBe(1); // wasted probe before the cache hit
+    expect(callsTo('/api/dictionary')).toBe(0);
     expect(callsTo('dictionaryapi.dev')).toBe(0); // client sources NOT re-hit
     expect(callsTo('datamuse.com')).toBe(0);
+  });
+
+  it('keeps fallback cache entries isolated by target language', async () => {
+    const cached: DictionaryEntry & { lemma?: string } = {
+      word: 'cat', phonetic: '', audioUrl: '', partOfSpeech: 'noun',
+      definitionEn: 'English definition', example: '', synonyms: [], antonyms: [], provider: 'Datamuse',
+    };
+    localStorage.setItem(
+      'echolearn_dictionary_cache_v4',
+      JSON.stringify({ 'cat:zh-cn': cached }),
+    );
+
+    const mod = await freshModule();
+    route('backend');
+    const entry = await mod.lookupWord('cat', 'ja');
+
+    expect(entry?.definitionEn).toBe('a small pet animal');
+    expect(callsTo('/api/dictionary')).toBe(1);
   });
 });
