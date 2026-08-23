@@ -1,8 +1,29 @@
-# EchoLearn 单元测试报告（2026-08-22，更新于 2026-08-23 下午）
+# EchoLearn 单元测试报告（2026-08-22，更新于 2026-08-23 晚）
 
 > 本文件是给后续 AI agent / 开发者看的持久化测试报告。
-> 任务背景：为项目补建自动化测试（纯函数 + 存储层 + 服务降级链），除 i18n 修复外**不改动业务源码**。
-> 状态：**完成，255/255 单元用例通过 + 5/5 拨测检查通过**。
+> 状态：**291 单元用例 + 1 条 E2E 黄金路径 + CI 门禁 + 每日拨测，全部在线**。
+
+## 2026-08-23 第五轮：E2E 黄金路径 + CI 门禁（含两个真实 bug 修复）
+
+### 新增
+
+- `e2e/golden-path.spec.ts` + `playwright.config.ts`（`npm run e2e`）：全本地黄金路径——游客登录 → Study 示例字幕渲染 → 点词 → 词典弹窗 → 保存 → Words 页展示 → Dashboard 计数持久化。零外部依赖（用内置示例字幕），CI 可跑（已在 ubuntu runner 验证通过）。
+- `.github/workflows/ci.yml`：push/PR 触发 `npm test + build + lint + e2e`（Node 24）。
+
+### E2E 过程中发现并修复的真实 bug
+
+1. **游客无法保存生词/例句**（`54a1f6e`）：`handleAddVocabulary/handleAddSentence` 里残留 `if (!user) return + 登录提示`，与 README 承诺的游客模式矛盾——游客点"+ Add to Vocab"词直接丢失。已移除守卫（云同步本来就有游客 no-op 保护），E2E 即其回归测试。
+2. **`useSleepTimer` 渲染期间写 ref**（`76fe1d2`）：被 CI lint 门禁首次运行抓住（本地此前因输出截断漏检），改为 effect 内同步。
+
+### 其他记录
+
+- Dashboard 的统计卡片在保存后不实时刷新（挂载时读取）——已知行为，未修，E2E 用 reload 断言持久化。
+- lemmatizer 的 `-ing` 乱补 e 缺陷（`morning→morne`）仍在——E2E 选词时刻意避开；建议尽早修复（见第一轮发现 #2）。
+- CI 需 Node ≥22（jsdom 30 / undici 8 的 `webidl.util.markAsUncloneable` 要求），workflow 已固定 Node 24。
+
+### 测试全景（截至本轮）
+
+vitest 291/291（19 文件）· Playwright E2E 1/1 · CI 门禁（push/PR）· 拨测 5 项/每日 2 次
 
 ## 2026-08-23 第四轮：生产链路拨测监控（新增，非单元测试）
 
