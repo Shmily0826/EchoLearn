@@ -6,9 +6,8 @@ import AudioPlayer from '../components/AudioPlayer';
 import TranscriptViewer from '../components/TranscriptViewer';
 import TranscriptImporter from '../components/TranscriptImporter';
 import AIAnalysisPanel from '../components/AIAnalysisPanel';
-import VocabularyList from '../components/study/VocabularyList';
-import SentenceList from '../components/study/SentenceList';
 import MobileTranscriptPanel from '../components/study/MobileTranscriptPanel';
+import SavedItemsPanel from '../components/study/SavedItemsPanel';
 import { parseYouTubeId, parseStartTime } from '../utils/youtube';
 import { detectPlatform, parseBilibiliId, parseBilibiliStartTime, parseBilibiliPage } from '../utils/bilibili';
 import { normalizeTranscriptToSentences } from '../utils/transcriptNormalizer';
@@ -160,7 +159,6 @@ const StudyPage: React.FC = () => {
   const [sentences, setSentences] = useState<SentenceItem[]>([]);
 
   // Tab state for the bottom panel
-  const [activeTab, setActiveTab] = useState<'vocab' | 'sentences'>('vocab');
 
   // AI analysis state
   const [analysis, setAnalysis] = useState<AIAnalysisResult | null>(null);
@@ -1754,49 +1752,13 @@ const StudyPage: React.FC = () => {
           </div>
         )}
 
-        {/* Bottom: Saved items */}
-        <div className="mt-8 bg-white dark:bg-slate-800 rounded-xl border border-gray-200 dark:border-slate-700 shadow-sm">
-          {/* Tabs */}
-          <div className="flex border-b border-gray-200 dark:border-slate-700">
-            <button
-              onClick={() => setActiveTab('vocab')}
-              className={`px-5 py-3 text-sm font-medium transition-colors cursor-pointer ${
-                activeTab === 'vocab'
-                  ? 'text-amber-700 dark:text-amber-400 border-b-2 border-amber-500'
-                  : 'text-gray-500 dark:text-gray-400 hover:text-gray-700 dark:hover:text-gray-200'
-              }`}
-            >
-              {`${t('study.vocabTab')} (${filteredVocabulary.length})`}
-            </button>
-            <button
-              onClick={() => setActiveTab('sentences')}
-              className={`px-5 py-3 text-sm font-medium transition-colors cursor-pointer ${
-                activeTab === 'sentences'
-                  ? 'text-violet-700 dark:text-violet-400 border-b-2 border-violet-500'
-                  : 'text-gray-500 dark:text-gray-400 hover:text-gray-700 dark:hover:text-gray-200'
-              }`}
-            >
-              {`${t('study.sentTab')} (${filteredSentences.length})`}
-            </button>
-          </div>
-
-          {/* Tab content */}
-          <div className="p-4 max-h-64 overflow-y-auto">
-            {activeTab === 'vocab' && (
-              <VocabularyList
-                items={filteredVocabulary}
-                onRemove={handleRemoveVocabulary}
-              />
-            )}
-            {activeTab === 'sentences' && (
-              <SentenceList
-                items={filteredSentences}
-                onRemove={handleRemoveSentence}
-                onSeek={(seconds) => handleSeekTo(seconds, true)}
-              />
-            )}
-          </div>
-        </div>
+        <SavedItemsPanel
+          vocabulary={filteredVocabulary}
+          sentences={filteredSentences}
+          onRemoveVocabulary={handleRemoveVocabulary}
+          onRemoveSentence={handleRemoveSentence}
+          onSeekSentence={(seconds) => handleSeekTo(seconds, true)}
+        />
       </main>
 
       {/* Guest login toast */}
