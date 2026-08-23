@@ -1,4 +1,4 @@
-import { useState, useMemo, useCallback } from 'react';
+import { useState, useMemo, useCallback, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import {
   BarChart, Bar, XAxis, YAxis, Tooltip, ResponsiveContainer,
@@ -57,8 +57,8 @@ function saveChannelPrefs(prefs: ChannelPrefs): void {
 const DashboardPage: React.FC = () => {
   const navigate = useNavigate();
 
-  const [vocabulary] = useState<VocabularyItem[]>(loadVocabulary);
-  const [sentences] = useState<SentenceItem[]>(loadSentences);
+  const [vocabulary, setVocabulary] = useState<VocabularyItem[]>(loadVocabulary);
+  const [sentences, setSentences] = useState<SentenceItem[]>(loadSentences);
   const [sessions, setSessions] = useState<VideoStudySession[]>(loadAllSessions);
   const [currentSession, setCurrentSession] = useState<VideoStudySession | null>(loadCurrentSession);
 
@@ -78,6 +78,19 @@ const DashboardPage: React.FC = () => {
   const [selectedSessionIds, setSelectedSessionIds] = useState<Set<string>>(new Set());
 
   const { t, lang } = useI18n();
+
+  useEffect(() => {
+    const refreshLearningStats = () => {
+      setVocabulary(loadVocabulary());
+      setSentences(loadSentences());
+    };
+    window.addEventListener('echolearn:vocab-changed', refreshLearningStats);
+    window.addEventListener('echolearn:sentences-changed', refreshLearningStats);
+    return () => {
+      window.removeEventListener('echolearn:vocab-changed', refreshLearningStats);
+      window.removeEventListener('echolearn:sentences-changed', refreshLearningStats);
+    };
+  }, []);
 
   const statusLabel = (status: string) => {
     const key = `dash.status${status.charAt(0).toUpperCase() + status.slice(1)}`;
