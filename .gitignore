@@ -53,3 +53,7 @@ taste-variants/
 # Python bytecode (vps-ytdlp local compile checks)
 __pycache__/
 *.pyc
+
+# Playwright
+/playwright-report/
+/test-results/

@@ -1068,8 +1068,9 @@ const StudyPage: React.FC = () => {
   }, [user, sentenceLines, cefrMin, cefrMax, vocabCount, sentenceCount, persistAnalysis, lang, showLoginToast]);
 
   // ── Vocab / sentence handlers ─────────────────────────────
+  // Saving is a core guest-mode feature (README: data stays on device).
+  // Cloud sync below no-ops without a signed-in user, so no login gate here.
   const handleAddVocabulary = useCallback((item: VocabularyItem) => {
-    if (!user) { showLoginToast(); return; }
     setVocabulary(addVocabularyItem(item));
     trackEvent('word_saved');
     triggerCloudSync();
@@ -1080,14 +1081,13 @@ const StudyPage: React.FC = () => {
       setVocabulary(updateVocabularyItem(item.id, patch));
       triggerCloudSync();
     });
-  }, [user, triggerCloudSync, showLoginToast, setVocabulary]);
+  }, [triggerCloudSync, setVocabulary]);
 
   const handleAddSentence = useCallback((item: SentenceItem) => {
-    if (!user) { showLoginToast(); return; }
     setSentences(addSentenceItem(item));
     trackEvent('sentence_saved');
     triggerCloudSync();
-  }, [user, triggerCloudSync, showLoginToast, setSentences]);
+  }, [triggerCloudSync, setSentences]);
 
   const handleRemoveVocabulary = useCallback((id: string) => {
     if (!window.confirm(t('study.deleteWord'))) return;
