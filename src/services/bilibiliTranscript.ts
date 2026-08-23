@@ -10,7 +10,7 @@ import { fetchWithTimeout } from '../utils/resilientFetch';
  * frequently offline) and also removes CORS issues.
  *
  * Resilience: the Worker can intermittently hang from some mobile networks, so
- * we fall back to the VPS directly if the Worker fails.
+ * we fall back to the same-origin Vercel proxy, which holds the VPS key.
  */
 
 const CF_WORKER_URL = 'https://yt-transcript-proxy.rng2018520.workers.dev';
@@ -23,40 +23,19 @@ interface TranscriptFetchResult {
   source?: 'asr' | 'vps' | string;
 }
 
-async function fetchBilibiliFromWorker(
+function bilibiliQuery(
   bvid: string,
   lang: string,
   part?: number,
-): Promise<Response> {
-  const qs = `bvid=${encodeURIComponent(
-    bvid,
-  )}&lang=${encodeURIComponent(lang)}${part ? `&p=${part}` : ''}`;
-  // API-direct Bilibili ASR normally completes in 40–90s, but cold VPS/audio
-  // cache misses on mobile can be slower. Keep the client alive long enough
-  // for a valid transcription instead of leaving the old video on screen.
-  return fetchWithTimeout(`${CF_WORKER_URL}/api/bilibili?${qs}`, { timeoutMs: 180000 });
-}
-
-/**
- * Fallback after the primary Worker transcript call fails/hangs. The VPS now
- * enforces an API key that must never ship in the browser bundle, so we cannot
- * call it directly from the client. Route through the Worker (which holds the
- * key) — its /api/bilibili endpoint already does transcript -> ASR internally,
- * just with a longer timeout budget than the primary path.
- */
-async function fetchBilibiliFallback(
-  bvid: string,
-  lang: string,
-  part?: number,
-): Promise<Response> {
-  const qs = `bvid=${encodeURIComponent(bvid)}&lang=${encodeURIComponent(lang)}${part ? `&p=${part}` : ''}`;
-  return fetchWithTimeout(`${CF_WORKER_URL}/api/bilibili?${qs}`, { timeoutMs: 150000 });
+): string {
+  return `bvid=${encodeURIComponent(bvid)}&lang=${encodeURIComponent(lang)}${part ? `&p=${part}` : ''}`;
 }
 
 /**
  * Fetch transcript/subtitles for a Bilibili video.
  *
- * Tries the CF Worker first; if it hangs/fails, falls back to the VPS directly.
+ * Tries the CF Worker first; if it hangs/fails, falls back to the same-origin
+ * Vercel proxy, which forwards to the VPS without exposing its key.
  *
  * @param bvid Bilibili video ID (e.g. "BV1GJ411x7hT")
  * @param lang Preferred subtitle language (default: "zh-CN")
@@ -67,31 +46,32 @@ export async function fetchBilibiliTranscript(
   lang: string = 'zh-CN',
   part?: number,
 ): Promise<TranscriptFetchResult> {
-  let resp: Response;
-  try {
-    resp = await fetchBilibiliFromWorker(bvid, lang, part);
-    if (!resp.ok) {
-      const detail = await resp.clone().text().catch(() => '');
-      console.warn(`[EchoLearn] Bilibili Worker error: ${resp.status} ${detail.slice(0, 200)}`);
-      // A structured server response (404/401/413/502) is an authoritative
-      // result. Retrying the exact same Worker URL only doubles the mobile
-      // wait and hides the useful backend reason. Only network/timeouts use
-      // the second attempt below.
-      let message = `Bilibili transcript error: ${resp.status}`;
-      try {
-        const parsed = JSON.parse(detail) as { error?: string; detail?: string; hint?: string };
-        message = [parsed.error, parsed.detail, parsed.hint].filter(Boolean).join(' — ') || message;
-      } catch {
-        if (detail.trim()) message += ` ${detail.slice(0, 200)}`;
+  const qs = bilibiliQuery(bvid, lang, part);
+  const endpoints = [
+    `${CF_WORKER_URL}/api/bilibili?${qs}`,
+    `/api/bilibili?${qs}`,
+  ];
+  let resp: Response | null = null;
+  let lastError = 'Bilibili transcript request failed';
+
+  for (const [index, endpoint] of endpoints.entries()) {
+    try {
+      const candidate = await fetchWithTimeout(endpoint, { timeoutMs: 180000 });
+      if (candidate.ok) {
+        resp = candidate;
+        break;
       }
-      throw new Error(message);
+      const detail = await candidate.clone().text().catch(() => '');
+      lastError = `Bilibili transcript error: ${candidate.status} ${detail.slice(0, 200)}`;
+      console.warn(`[EchoLearn] ${index === 0 ? 'Worker' : 'Vercel'} error: ${lastError}`);
+    } catch (err) {
+      lastError = err instanceof Error ? err.message : lastError;
+      console.warn(`[EchoLearn] Bilibili ${index === 0 ? 'Worker' : 'Vercel'} request failed:`, lastError);
     }
-  } catch (err) {
-    if (err instanceof Error && err.message.startsWith('Bilibili transcript error:')) {
-      throw err;
-    }
-    console.warn('[EchoLearn] Bilibili Worker path failed, trying Worker fallback:', err instanceof Error ? err.message : err);
-    resp = await fetchBilibiliFallback(bvid, lang, part);
+  }
+
+  if (!resp) {
+    throw new Error(lastError);
   }
 
   const body = await resp.text().catch(() => '');

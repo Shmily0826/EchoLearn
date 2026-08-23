@@ -385,8 +385,11 @@ const StudyPage: React.FC = () => {
   // through the Worker (which holds the key) rather than the VPS directly.
   const audioFallbackSrc = useMemo(() => {
     if (!audioMode || !videoUrl) return null;
+    if (platform === 'bilibili') {
+      return `/api/bilibili?audio=1&url=${encodeURIComponent(videoUrl)}`;
+    }
     return `${CF_WORKER_URL}/api/audio?url=${encodeURIComponent(videoUrl)}`;
-  }, [audioMode, videoUrl]);
+  }, [audioMode, platform, videoUrl]);
 
   // ── Pre-warm audio cache (with auto-retry) ─────────────────
   // Bilibili audio extraction is slow and the upstream residential proxy is
@@ -999,6 +1002,7 @@ const StudyPage: React.FC = () => {
 
       beginFetch();
       setCaptionError(null);
+      const requestId = ++transcriptRequestRef.current;
 
       // Resolve a b23.tv short link to a BV id via the VPS, then proceed exactly
       // like a normal BV-id load. Runs async so the UI can show the loading state.
@@ -1007,6 +1011,7 @@ const StudyPage: React.FC = () => {
         if (isShortLink && parsed) {
           try {
             const meta = await getBilibiliMetaByUrl(parsed);
+            if (requestId !== transcriptRequestRef.current) return;
             if (meta?.bvid) {
               bvid = meta.bvid;
               setVideoId(bvid);
@@ -1028,6 +1033,7 @@ const StudyPage: React.FC = () => {
               return;
             }
           } catch {
+            if (requestId !== transcriptRequestRef.current) return;
             setFetchingCaption(false);
             setCaptionError(
               'B站短链解析出错。请稍后重试，或复制完整链接 bilibili.com/video/BV… 再粘贴。',
@@ -1035,6 +1041,7 @@ const StudyPage: React.FC = () => {
             return;
           }
         }
+        if (requestId !== transcriptRequestRef.current) return;
         if (!bvid) {
           setFetchingCaption(false);
           setCaptionError(
@@ -1045,6 +1052,7 @@ const StudyPage: React.FC = () => {
         try {
           refreshTitleForVideo(urlInput, fresh.id, bvid, () => getBilibiliVideoTitle(bvid!, pg));
           const res = await fetchBilibiliTranscript(bvid, undefined, pg);
+          if (requestId !== transcriptRequestRef.current) return;
           const lines = res.lines;
           if (lines.length > 0) {
             fetchResultRef.current = lines.length;
@@ -1052,13 +1060,16 @@ const StudyPage: React.FC = () => {
             persistTranscriptInto(fresh, lines);
           }
         } catch (err) {
+          if (requestId !== transcriptRequestRef.current) return;
           setCaptionError(err instanceof Error ? err.message : 'Unknown error fetching captions');
         } finally {
-          setFetchingCaption(false);
-          if (fetchResultRef.current != null) {
-            notifyFetchSuccess(fetchResultRef.current, fetchSourceRef.current);
-            fetchResultRef.current = null;
-            fetchSourceRef.current = null;
+          if (requestId === transcriptRequestRef.current) {
+            setFetchingCaption(false);
+            if (fetchResultRef.current != null) {
+              notifyFetchSuccess(fetchResultRef.current, fetchSourceRef.current);
+              fetchResultRef.current = null;
+              fetchSourceRef.current = null;
+            }
           }
         }
       })();
@@ -1210,8 +1221,10 @@ const StudyPage: React.FC = () => {
       }
       beginFetch();
       setCaptionError(null);
+      const requestId = ++transcriptRequestRef.current;
       fetchBilibiliTranscript(videoId, undefined, part)
         .then((res) => {
+          if (requestId !== transcriptRequestRef.current) return;
           const lines = res.lines;
           if (lines.length > 0) {
               fetchResultRef.current = lines.length;
@@ -1233,9 +1246,11 @@ const StudyPage: React.FC = () => {
           }
         })
         .catch((err) => {
+          if (requestId !== transcriptRequestRef.current) return;
           setCaptionError(err instanceof Error ? err.message : 'Failed to load this part');
         })
         .finally(() => {
+          if (requestId !== transcriptRequestRef.current) return;
           setFetchingCaption(false);
           if (fetchResultRef.current != null) {
             notifyFetchSuccess(fetchResultRef.current, fetchSourceRef.current);
