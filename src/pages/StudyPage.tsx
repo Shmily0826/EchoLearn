@@ -14,7 +14,6 @@ import { detectPlatform, parseBilibiliId, parseBilibiliStartTime, parseBilibiliP
 import { extractUrl } from '../utils/urlExtract';
 import { normalizeTranscriptToSentences } from '../utils/transcriptNormalizer';
 import { lemmatize } from '../utils/lemmatizer';
-import { SEEK_REQUEST_EVENT, type SeekRequestDetail } from '../utils/jumpToSource';
 import { analyzeTranscript } from '../services/aiAnalysis';
 import { trackEvent } from '../services/analytics';
 import { fetchYouTubeTranscript } from '../services/youtubeTranscript';
@@ -27,6 +26,8 @@ import { useI18n } from '../i18n/I18nContext';
 import { useCaptionRequest } from '../hooks/useCaptionRequest';
 import { useSleepTimer } from '../hooks/useSleepTimer';
 import { useAudioMode } from '../hooks/useAudioMode';
+import { usePlaybackPosition } from '../hooks/usePlaybackPosition';
+import { useTranscriptSeek } from '../hooks/useTranscriptSeek';
 import { getVideoTitle } from '../services/youtubeApi';
 import sampleTranscript from '../data/sample-transcript.json';
 import {
@@ -219,16 +220,6 @@ const StudyPage: React.FC = () => {
 
   // YouTube player ref & playback time
   const playerRef = useRef<PlayerHandle>(null);
-  const [currentTime, setCurrentTime] = useState(0);
-  const [playbackRate, setPlaybackRate] = useState(
-    () => Number(localStorage.getItem('echolearn_playback_rate')) || 1,
-  );
-
-  // ── Deep-link seek ("jump to where I learned this word") ───
-  // Vocabulary/Sentences pages dispatch SEEK_REQUEST_EVENT. If the requested
-  // video is already the one playing we seek immediately; otherwise we hold the
-  // request until that video's player is mounted.
-  const pendingSeekRef = useRef<SeekRequestDetail | null>(null);
 
   // Tracks which videoId the currently-displayed title actually belongs to.
   // We only re-fetch the real title when the loaded video CHANGES, so a title
@@ -278,11 +269,7 @@ const StudyPage: React.FC = () => {
     [],
   );
 
-  // ── Playback position memory ───────────────────────────────
-  const lastPosSaveRef = useRef(0);
   const [resumeToast, setResumeToast] = useState<string | null>(null);
-  const [speedToast, setSpeedToast] = useState(false);
-  const speedToastTimer = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
 
   // ── Sleep timer ────────────────────────────────────────────
   const {
@@ -296,6 +283,39 @@ const StudyPage: React.FC = () => {
 
   // The lines currently shown in TranscriptViewer (always sentence-level)
   const displayLines = sentenceLines;
+
+  const persistPlaybackPosition = useCallback((position: number) => {
+    localStorage.setItem('echolearn_last_position', String(position));
+    setSession((prev) => {
+      if (!prev) return prev;
+      const updated = { ...prev, lastPosition: position };
+      try {
+        localStorage.setItem('echolearn_session', JSON.stringify(updated));
+      } catch { /* quota exceeded — ignore */ }
+      return updated;
+    });
+  }, []);
+
+  const {
+    currentTime,
+    playbackRate,
+    setPlaybackRate,
+    speedToast,
+  } = usePlaybackPosition({
+    playerRef,
+    videoId,
+    platform,
+    audioMode,
+    onPositionChange: persistPlaybackPosition,
+  });
+
+  const { activeLineIndex, seekTo: handleSeekTo } = useTranscriptSeek({
+    playerRef,
+    videoId,
+    pathname,
+    currentTime,
+    displayLines,
+  });
 
   // ── Restore last session on mount ──────────────────────────
   useEffect(() => {
@@ -508,130 +528,6 @@ const StudyPage: React.FC = () => {
     setVocabulary(loadVocabulary());
     setSentences(loadSentences());
   }, [pathname]);
-
-  // ── Deep-link seek requests from Vocabulary / Sentences ────
-  useEffect(() => {
-    const handler = (e: Event) => {
-      const detail = (e as CustomEvent<SeekRequestDetail>).detail;
-      if (!detail?.videoId) return;
-      // Queue it; the effect below drains the queue as soon as the matching
-      // player is live. This covers both "same video" and "still loading".
-      pendingSeekRef.current = detail;
-    };
-    window.addEventListener(SEEK_REQUEST_EVENT, handler);
-    return () => window.removeEventListener(SEEK_REQUEST_EVENT, handler);
-  }, []);
-
-  // Apply a queued seek once the right video's player is ready. Retries briefly
-  // because the YouTube iframe API needs a moment after a session switch.
-  useEffect(() => {
-    if (!videoId) return;
-    let cancelled = false;
-    let attempts = 0;
-
-    const tick = () => {
-      if (cancelled) return;
-      const pending = pendingSeekRef.current;
-
-      if (pending && pending.videoId === videoId && playerRef.current) {
-        playerRef.current.seekTo(pending.seconds);
-        playerRef.current.playVideo();
-        pendingSeekRef.current = null;
-        return;
-      }
-
-      // Keep polling rather than bailing out: the request, the session switch
-      // and the iframe becoming ready arrive in no guaranteed order.
-      if (++attempts < 40) {
-        window.setTimeout(tick, 150);
-      } else if (pending && pending.videoId === videoId) {
-        // Player never came up — drop the request so it cannot fire later and
-        // yank the user out of an unrelated video.
-        pendingSeekRef.current = null;
-      }
-    };
-
-    const id = window.setTimeout(tick, 100);
-    return () => { cancelled = true; window.clearTimeout(id); };
-  }, [videoId, pathname]);
-
-  // ── Poll current playback time every 100ms + save position ──
-  useEffect(() => {
-    // Bilibili's native iframe exposes no trustworthy playback clock. Do not
-    // poll it or let it move captions; audio mode is the only Bilibili sync
-    // transport.
-    if (!videoId || !playerRef.current || (platform === 'bilibili' && !audioMode)) return;
-    const id = setInterval(() => {
-      if (playerRef.current) {
-        try {
-          const t = playerRef.current.getCurrentTime();
-          setCurrentTime(t);
-          // Save playback position every 5 seconds for resume
-          const now = Date.now();
-          if (now - lastPosSaveRef.current > 5000 && t > 0) {
-            lastPosSaveRef.current = now;
-            const pos = Math.floor(t);
-            localStorage.setItem('echolearn_last_position', String(pos));
-            setSession((prev) => {
-              if (!prev) return prev;
-              const updated = { ...prev, lastPosition: pos };
-              // Also persist to localStorage so position survives page reload
-              try {
-                localStorage.setItem('echolearn_session', JSON.stringify(updated));
-              } catch { /* quota exceeded — ignore */ }
-              return updated;
-            });
-          }
-        } catch {
-          // Player in broken state — skip this tick silently
-        }
-      }
-    }, 100);
-    return () => clearInterval(id);
-  }, [videoId, platform, audioMode]);
-
-  // ── Apply playback rate to player whenever it changes ───────
-  useEffect(() => {
-    if (playerRef.current) {
-      playerRef.current.setPlaybackRate(playbackRate);
-    }
-    localStorage.setItem('echolearn_playback_rate', String(playbackRate));
-    // Show speed toast briefly on mobile
-    // eslint-disable-next-line react-hooks/set-state-in-effect
-    setSpeedToast(true);
-    clearTimeout(speedToastTimer.current);
-    speedToastTimer.current = setTimeout(() => setSpeedToast(false), 1200);
-  }, [playbackRate]);
-
-  // ── Compute which transcript line is currently active ──────
-  const activeLineIndex = useMemo(() => {
-    for (let i = 0; i < displayLines.length; i++) {
-      if (currentTime >= displayLines[i].start && currentTime < displayLines[i].end) {
-        return i;
-      }
-    }
-    return -1;
-  }, [currentTime, displayLines]);
-
-  // ── Seek to a specific time in the video ───────────────────
-  // `scrollTranscript` (used when locating a saved sentence from the list)
-  // also brings the target transcript line into view — on mobile the transcript
-  // sits above the saved-items list, so otherwise the located line is off-screen.
-  const handleSeekTo = useCallback((seconds: number, scrollTranscript = false) => {
-    if (playerRef.current) {
-      playerRef.current.seekTo(seconds);
-      playerRef.current.playVideo();
-    }
-    if (scrollTranscript) {
-      const idx = displayLines.findIndex((l) => seconds >= l.start && seconds < l.end);
-      const target = idx >= 0 ? idx : displayLines.findIndex((l) => l.start >= seconds);
-      if (target < 0) return;
-      window.setTimeout(() => {
-        const el = document.querySelector<HTMLElement>(`[data-transcript-line="${target}"]`);
-        el?.scrollIntoView({ behavior: 'smooth', block: 'center' });
-      }, 300);
-    }
-  }, [displayLines]);
 
   // ── Filtered data for current video ────────────────────────
   const filteredVocabulary = useMemo(() => {
