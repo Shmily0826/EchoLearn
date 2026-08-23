@@ -9,13 +9,14 @@
   "scripts": {
     "dev": "vite",
     "build": "tsc -b && vite build",
+    "test": "vitest run",
+    "health": "node scripts/health-check.mjs",
     "lint": "eslint .",
     "preview": "vite preview",
     "cap:add": "npx cap add android",
     "cap:sync": "npx cap sync android",
     "cap:open": "npx cap open android",
-    "cap:build": "npm run build && npx cap sync android && npx cap open android",
-    "test": "vitest run"
+    "cap:build": "npm run build && npx cap sync android && npx cap open android"
   },
   "dependencies": {
     "@capacitor-firebase/authentication": "^8.3.0",

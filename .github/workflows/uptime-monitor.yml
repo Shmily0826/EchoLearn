@@ -1,0 +1,32 @@
+# Scheduled synthetic monitoring for the caption pipeline.
+#
+# This workflow intentionally depends on live services — that is its purpose.
+# (The vitest unit suite, by contrast, always mocks the network and must
+# never depend on these endpoints.)
+#
+# GitHub emails the repo owner when a scheduled workflow run fails, which is
+# the alerting path for outages like "CF Worker down" or "YTDLP_API_KEY not
+# configured on Vercel". Runs twice a day; can also be triggered manually
+# from the Actions tab ("Run workflow").
+
+name: Uptime Monitor
+
+on:
+  schedule:
+    # Twice daily at 09:21 and 21:21 UTC (off the busy :00 mark).
+    - cron: '21 9,21 * * *'
+  workflow_dispatch:
+
+jobs:
+  health-check:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+
+      - name: Run caption-pipeline health check
+        run: node scripts/health-check.mjs
