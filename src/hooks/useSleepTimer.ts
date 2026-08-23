@@ -22,7 +22,9 @@ export function useSleepTimer({ onExpire }: { onExpire: () => void }) {
 
   // Keep the latest expire callback without re-subscribing the interval.
   const expireRef = useRef(onExpire);
-  expireRef.current = onExpire;
+  useEffect(() => {
+    expireRef.current = onExpire;
+  }, [onExpire]);
 
   useEffect(() => {
     if (sleepMinutes <= 0) return;
