@@ -1027,26 +1027,20 @@ const StudyPage: React.FC = () => {
               // Resolution returned but with no bvid (timeout / 401 / network).
               // Surface it instead of silently leaving an empty player.
               setFetchingCaption(false);
-              setCaptionError(
-                'B站短链解析失败（可能是网络或服务器超时）。请稍后重试，或复制完整链接 bilibili.com/video/BV… 再粘贴。',
-              );
+              setCaptionError(t('study.biliResolveFailed'));
               return;
             }
           } catch {
             if (requestId !== transcriptRequestRef.current) return;
             setFetchingCaption(false);
-            setCaptionError(
-              'B站短链解析出错。请稍后重试，或复制完整链接 bilibili.com/video/BV… 再粘贴。',
-            );
+            setCaptionError(t('study.biliResolveError'));
             return;
           }
         }
         if (requestId !== transcriptRequestRef.current) return;
         if (!bvid) {
           setFetchingCaption(false);
-          setCaptionError(
-            '无法识别该 B 站链接。请粘贴完整视频地址（bilibili.com/video/BV…）或直接输入 BV 号。',
-          );
+          setCaptionError(t('study.biliUnrecognized'));
           return;
         }
         try {
@@ -1157,7 +1151,7 @@ const StudyPage: React.FC = () => {
   // ── Reload transcript for the current video ────────────────
   const handleReloadTranscript = useCallback(() => {
     if (!videoId) {
-      setCaptionError('视频还没有准备完成，请稍后再试。');
+      setCaptionError(t('study.videoNotReady'));
       setFetchingCaption(false);
       return;
     }
