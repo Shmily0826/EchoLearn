@@ -17,7 +17,7 @@ import { lemmatize } from '../utils/lemmatizer';
 import { SEEK_REQUEST_EVENT, type SeekRequestDetail } from '../utils/jumpToSource';
 import { analyzeTranscript } from '../services/aiAnalysis';
 import { trackEvent } from '../services/analytics';
-import { fetchYouTubeTranscript, CF_WORKER_URL } from '../services/youtubeTranscript';
+import { fetchYouTubeTranscript } from '../services/youtubeTranscript';
 import { fetchBilibiliTranscript, getBilibiliVideoTitle, getBilibiliMetaByUrl } from '../services/bilibiliTranscript';
 import { enrichVocabularyItem } from '../services/vocabularyEnrichment';
 import { pushItemsToCloud, pushSessionToCloud, syncWithCloud } from '../services/firestoreSync';
@@ -25,6 +25,8 @@ import { useAuth } from '../contexts/AuthContext';
 import { CEFR_LEVELS, type CEFRLevel } from '../services/cefrWordList';
 import { useI18n } from '../i18n/I18nContext';
 import { useCaptionRequest } from '../hooks/useCaptionRequest';
+import { useSleepTimer } from '../hooks/useSleepTimer';
+import { useAudioMode } from '../hooks/useAudioMode';
 import { getVideoTitle } from '../services/youtubeApi';
 import sampleTranscript from '../data/sample-transcript.json';
 import {
@@ -143,27 +145,10 @@ const StudyPage: React.FC = () => {
   const [biliPage, setBiliPage] = useState<number | undefined>(undefined);
   const [biliParts, setBiliParts] = useState<BiliPart[] | undefined>(undefined);
 
-  // Audio mode — global preference: play only the extracted audio (no video),
-  // transcript still scrolls in sync via the same PlayerHandle contract.
-  const [audioMode, setAudioMode] = useState<boolean>(
-    () => localStorage.getItem('echolearn_audio_mode') === '1',
-  );
-  useEffect(() => {
-    localStorage.setItem('echolearn_audio_mode', audioMode ? '1' : '0');
-  }, [audioMode]);
-
-  // Bilibili's cross-origin iframe does not expose a reliable playback clock
-  // or programmatic play/pause API on mobile. Use the extracted native audio
-  // element as the synced transport by default; users can turn this off to
-  // use Bilibili's native video controls instead.
-  useEffect(() => {
-    if (platform === 'bilibili') {
-      // Bilibili cannot expose a dependable playback clock, so its transport
-      // must switch to native audio as soon as the external platform changes.
-      // eslint-disable-next-line react-hooks/set-state-in-effect
-      setAudioMode(true);
-    }
-  }, [platform]);
+  // Audio mode — extracted audio transport + canonical URL derivation + cache
+  // pre-warm live in useAudioMode (platform rule: Bilibili auto-enables).
+  const { audioMode, setAudioMode, audioSrc, audioFallbackSrc } =
+    useAudioMode({ session, platform, videoId, biliPage });
 
   // Transcript state — raw caption blocks + sentence-level lines
   const [rawBlocks, setRawBlocks] = useState<TranscriptLine[]>([]);
@@ -300,106 +285,17 @@ const StudyPage: React.FC = () => {
   const speedToastTimer = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
 
   // ── Sleep timer ────────────────────────────────────────────
-  const [sleepMinutes, setSleepMinutes] = useState(0); // 0 = off
-  const [sleepRemaining, setSleepRemaining] = useState(0); // seconds
-  const [sleepToast, setSleepToast] = useState(false);
+  const {
+    sleepMinutes,
+    setSleepMinutes,
+    sleepRemaining,
+    setSleepRemaining,
+    sleepToast,
+    dismissSleepToast,
+  } = useSleepTimer({ onExpire: () => playerRef.current?.pauseVideo() });
 
   // The lines currently shown in TranscriptViewer (always sentence-level)
   const displayLines = sentenceLines;
-
-  // ── Audio mode: derived source URL ─────────────────────────
-  // Build the original watch URL (yt-dlp can consume it directly). Prefer the
-  // session's pasted URL; otherwise reconstruct from platform + id.
-  // Share text often includes a title before the URL, so extract the last
-  // http(s) URL defensively — otherwise /api/audio receives the whole string
-  // and the VPS returns 400 Bad Request.
-  const videoUrl = useMemo(() => {
-    if (session?.youtubeUrl) {
-      // A plain BV id is valid input, but it is not a URL that /api/audio can
-      // hand to Bilibili. Only preserve the saved value when it actually
-      // contains an http(s) URL (including a b23.tv short link); otherwise
-      // fall through to the canonical platform URL below.
-      const extracted = extractUrl(session.youtubeUrl);
-      if (extracted) return extracted;
-    }
-    if (platform === 'bilibili') {
-      let u = `https://www.bilibili.com/video/${videoId}`;
-      if (biliPage && biliPage > 1) u += `?p=${biliPage}`;
-      return u;
-    }
-    return `https://www.youtube.com/watch?v=${videoId}`;
-  }, [session, platform, videoId, biliPage]);
-
-  // Audio stream URL (CF Worker → VPS yt-dlp /api/audio). Only meaningful in
-  // audio mode, but cheap to compute whenever a video is loaded.
-  const audioSrc = useMemo(() => {
-    if (!audioMode || !videoId) return null;
-    return `${CF_WORKER_URL}/api/audio?url=${encodeURIComponent(videoUrl)}`;
-  }, [audioMode, videoId, videoUrl]);
-
-  // Fallback used if the primary Worker audio call hangs. The VPS now requires
-  // an API key that can't ship in the browser, so the fallback also goes
-  // through the Worker (which holds the key) rather than the VPS directly.
-  const audioFallbackSrc = useMemo(() => {
-    if (!audioMode || !videoUrl) return null;
-    if (platform === 'bilibili') {
-      return `/api/bilibili?audio=1&url=${encodeURIComponent(videoUrl)}`;
-    }
-    return `${CF_WORKER_URL}/api/audio?url=${encodeURIComponent(videoUrl)}`;
-  }, [audioMode, platform, videoUrl]);
-
-  // ── Pre-warm audio cache (with auto-retry) ─────────────────
-  // Bilibili audio extraction is slow and the upstream residential proxy is
-  // flaky, so the first request often 502s / times out / returns an empty body.
-  // Kick off the extraction as soon as a video is loaded with HIGH priority, so
-  // it runs in parallel with the transcript fetch and is usually ready by the
-  // time the user finishes reading — and retry with backoff until REAL audio
-  // (content-type audio/*) is cached, so toggling audio mode later is instant
-  // instead of hitting the same bad proxy window. We only count it as success
-  // when the response is actually audio: the VPS sometimes returns HTTP 200 with
-  // an error JSON body or 0 bytes, which must not be mistaken for a warm cache.
-  // Retries abort if the video changes or the user enters audio mode (the
-  // AudioPlayer then drives the single extraction itself).
-  useEffect(() => {
-    if (!videoId || !videoUrl || audioMode) return;
-    const controller = new AbortController();
-    const audioUrl = `${CF_WORKER_URL}/api/audio?url=${encodeURIComponent(videoUrl)}`;
-    const MAX_ATTEMPTS = 5;
-    let attempt = 0;
-    let cancelled = false;
-
-    const warm = async () => {
-      while (!cancelled && attempt < MAX_ATTEMPTS) {
-        attempt++;
-        try {
-          const res = await fetch(audioUrl, {
-            method: 'GET',
-            signal: controller.signal,
-            priority: 'high' as RequestPriority,
-          });
-          const ct = res.headers.get('content-type') || '';
-          const len = res.headers.get('content-length');
-          const hasBytes = len === null || len === '' || Number(len) > 0;
-          const isRealAudio =
-            res.ok && ct.includes('audio') && hasBytes;
-          if (isRealAudio) return; // cached/extracted successfully — stop retrying
-          if (controller.signal.aborted) return;
-        } catch {
-          if (controller.signal.aborted) return;
-        }
-        // Backoff before the next attempt (2.5s, 5s, 7.5s, 10s).
-        if (attempt < MAX_ATTEMPTS && !controller.signal.aborted) {
-          await new Promise((r) => setTimeout(r, 2500 * attempt));
-        }
-      }
-    };
-    void warm();
-
-    return () => {
-      cancelled = true;
-      controller.abort();
-    };
-  }, [videoId, videoUrl, audioMode]);
 
   // ── Restore last session on mount ──────────────────────────
   useEffect(() => {
@@ -706,34 +602,6 @@ const StudyPage: React.FC = () => {
     clearTimeout(speedToastTimer.current);
     speedToastTimer.current = setTimeout(() => setSpeedToast(false), 1200);
   }, [playbackRate]);
-
-  // ── Sleep timer countdown ──────────────────────────────────
-  useEffect(() => {
-    if (sleepMinutes <= 0) return;
-    // A changed timer duration must restart the countdown from that duration.
-    // eslint-disable-next-line react-hooks/set-state-in-effect
-    setSleepRemaining(sleepMinutes * 60);
-    setSleepToast(false);
-  }, [sleepMinutes]);
-
-  useEffect(() => {
-    if (sleepRemaining <= 0) return;
-    const id = setInterval(() => {
-      setSleepRemaining((prev) => {
-        if (prev <= 1) {
-          clearInterval(id);
-          // Timer expired — pause video
-          try { playerRef.current?.pauseVideo(); } catch { /* noop */ }
-          setSleepMinutes(0);
-          setSleepToast(true);
-          setTimeout(() => setSleepToast(false), 5000);
-          return 0;
-        }
-        return prev - 1;
-      });
-    }, 1000);
-    return () => clearInterval(id);
-  }, [sleepRemaining > 0]); // eslint-disable-line react-hooks/exhaustive-deps
 
   // ── Compute which transcript line is currently active ──────
   const activeLineIndex = useMemo(() => {
@@ -1447,14 +1315,14 @@ const StudyPage: React.FC = () => {
                 <button
                   onClick={() => {
                     playerRef.current?.playVideo();
-                    setSleepToast(false);
+                    dismissSleepToast();
                   }}
                   className="ml-auto px-2 py-0.5 text-xs rounded bg-amber-200 dark:bg-amber-800/50 text-amber-800 dark:text-amber-200 hover:bg-amber-300 dark:hover:bg-amber-700/60 transition-colors cursor-pointer"
                 >
                   {t('study.timerUndo')}
                 </button>
                 <button
-                  onClick={() => setSleepToast(false)}
+                  onClick={dismissSleepToast}
                   className="text-amber-400 hover:text-amber-600 dark:hover:text-amber-200 cursor-pointer"
                 >
                   <svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
