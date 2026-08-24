@@ -1158,7 +1158,7 @@ const StudyPage: React.FC = () => {
                     )}
                   </>
                 ) : (
-                  <YouTubeEmbed ref={playerRef} youtubeId={videoId} startTime={startTime} playbackRate={playbackRate} lang={lang} />
+                  <YouTubeEmbed key={lang} ref={playerRef} youtubeId={videoId} startTime={startTime} playbackRate={playbackRate} lang={lang} />
                 )}
               </>
             ) : (
