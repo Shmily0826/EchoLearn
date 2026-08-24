@@ -62,4 +62,20 @@ describe('fetchYouTubeServerTranscript', () => {
     expect(result?.lines[0].text).toBe('usable');
     expect(fetchMock).toHaveBeenCalledTimes(2);
   });
+
+  it('falls through when a 2xx response is not valid JSON', async () => {
+    fetchMock
+      .mockResolvedValueOnce({
+        ok: true,
+        status: 200,
+        json: async () => { throw new SyntaxError('unexpected token'); },
+        text: async () => '<html>not json</html>',
+      } as unknown as Response)
+      .mockResolvedValueOnce(response({ lines: [{ text: 'recovered' }] }));
+
+    const result = await fetchYouTubeServerTranscript('video-id', 'en');
+
+    expect(result?.lines[0].text).toBe('recovered');
+    expect(fetchMock).toHaveBeenCalledTimes(2);
+  });
 });

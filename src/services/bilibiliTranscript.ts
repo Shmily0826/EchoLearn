@@ -51,15 +51,30 @@ export async function fetchBilibiliTranscript(
     `${CF_WORKER_URL}/api/bilibili?${qs}`,
     `/api/bilibili?${qs}`,
   ];
-  let resp: Response | null = null;
   let lastError = 'Bilibili transcript request failed';
 
   for (const [index, endpoint] of endpoints.entries()) {
     try {
       const candidate = await fetchWithTimeout(endpoint, { timeoutMs: 180000 });
       if (candidate.ok) {
-        resp = candidate;
-        break;
+        const body = await candidate.text().catch(() => '');
+        let data: TranscriptFetchResult;
+        try {
+          data = JSON.parse(body) as TranscriptFetchResult;
+        } catch {
+          lastError = 'Bilibili transcript response was not valid JSON';
+          console.warn(`[EchoLearn] ${index === 0 ? 'Worker' : 'Vercel'} returned malformed transcript JSON`);
+          continue;
+        }
+        if (!Array.isArray(data.lines) || data.lines.length === 0) {
+          lastError = 'Bilibili transcript response contained no usable lines';
+          console.warn(`[EchoLearn] ${index === 0 ? 'Worker' : 'Vercel'} returned an empty transcript`);
+          continue;
+        }
+
+        // Mark the source so the UI can tell the user we fell back to the VPS.
+        if (index !== 0) data.source = data.source || 'vps';
+        return data;
       }
       const detail = await candidate.clone().text().catch(() => '');
       lastError = `Bilibili transcript error: ${candidate.status} ${detail.slice(0, 200)}`;
@@ -70,32 +85,7 @@ export async function fetchBilibiliTranscript(
     }
   }
 
-  if (!resp) {
-    throw new Error(lastError);
-  }
-
-  const body = await resp.text().catch(() => '');
-
-  if (!resp.ok) {
-    throw new Error(
-      `Bilibili transcript error: ${resp.status} ${body.slice(0, 200)}`,
-    );
-  }
-
-  const data = JSON.parse(body) as TranscriptFetchResult;
-  if (!data.lines || data.lines.length === 0) {
-    throw new Error(
-      'No transcript available for this Bilibili video. ' +
-        'It may have neither CC subtitles nor extractable audio. ' +
-        'You can import a transcript manually.',
-    );
-  }
-
-  // Mark the source so the UI can tell the user we fell back to the VPS.
-  if (!resp.url.startsWith(CF_WORKER_URL)) {
-    data.source = data.source || 'vps';
-  }
-  return data;
+  throw new Error(lastError);
 }
 
 /**

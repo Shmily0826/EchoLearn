@@ -1,7 +1,46 @@
 # EchoLearn 单元测试报告（2026-08-22，更新于 2026-08-23 晚）
 
 > 本文件是给后续 AI agent / 开发者看的持久化测试报告。
-> 状态：**311 单元用例 + 7 条 Round 7 Study E2E + 4 条 Batch 4 media-sync E2E + CI 门禁 + 每日拨测，全部在线**。
+> 状态：**315 单元用例 + 7 条 Round 7 Study E2E + 4 条 Batch 4 media-sync E2E + CI 门禁 + 每日拨测，全部在线**。
+
+## 2026-08-24 Batch 5：字幕 provider fallback / resilience 回归
+
+> 任务 ECHO-20260824-1832。Batch 4 已推送并由 Vercel 自动部署；本轮继续在现有工作区半成品上补齐 provider 降级边界。Batch 5 本地提交，未 push。
+
+### Batch 4 release gate
+
+- `origin/main` 与 Batch 4 commit `8f8e823740e82b7f8b95df36543fe09f261d46d1` 一致；本轮执行 `git push origin main` 返回 `Everything up-to-date`，没有产生额外 push。
+- Vercel production deployment `dpl_4hbGR5ssGNHyiuEE2AT8jkvXr8U5`：**READY**，revision 为 `8f8e823740e82b7f8b95df36543fe09f261d46d1`。
+- 生产首页当前 HTTP **200**。此前 Round 7 的 production Study / Guest / YouTube smoke 仍是已记录证据；本轮未重新制造真实外部字幕生成。
+
+### Provider 实际链路审查
+
+- **浏览器 YouTube**：local proxy（4s，失败后 5 分钟跳过）→ CF Worker `/api/transcript` → same-origin Vercel `/api/transcript` → InnerTube（ANDROID → WEB）→ 页面 `ytInitialPlayerResponse` / timedtext → `youtube-transcript` npm fallback。
+- **YouTube CF Worker**：VPS yt-dlp → VPS ASR/Whisper（若配置）→ InnerTube → Web page → Worker Whisper → Invidious → Piped。Vercel `/api/transcript` 保留 server-side VPS（`YTDLP_API_KEY` 不出浏览器）→ `youtube-transcript` fallback。
+- **浏览器 Bilibili**：CF Worker `/api/bilibili` → same-origin Vercel `/api/bilibili`；短链元数据为 Worker `/api/info` 两次尝试 → Vercel info fallback。Worker Bilibili 走 VPS API-direct ASR（view → playurl → CDN audio）→ yt-dlp native subtitles fallback，避免直接打开 Bilibili watch page 的 412。
+- **超时边界**：YouTube server endpoint 120s；Bilibili transcript 180s；Bilibili metadata Worker 12s、Vercel 30s；底层 `fetchWithTimeout` 在 finally 清理 timer。
+
+### 本轮修复与测试
+
+- `src/services/bilibiliTranscript.ts`：不再把 Worker 的 2xx 空字幕或 malformed JSON 当作最终成功；会继续请求 Vercel fallback，并在两端都不可用时返回明确的 `no usable lines` / 最后错误。
+- `src/services/__tests__/bilibiliTranscript.test.ts`：补 Worker 空 payload → Vercel 成功、Worker malformed JSON → Vercel 成功、两端均不可用的回归；保留 5xx、网络/timeout、短链冷启动重试、无 bvid、全失败等既有覆盖。
+- `src/services/__tests__/youtubeTranscript.test.ts`：补 YouTube Worker 2xx malformed JSON → Vercel 成功，另覆盖 5xx、网络失败、AbortError、空 lines、双端失败。
+- `src/utils/__tests__/resilientFetch.test.ts`：补慢但在预算内成功（900ms/1000ms）和到达边界触发 AbortError；修复了测试监听 rejection 的时序，避免 Vitest unhandled rejection 假失败。
+
+### 实际验证
+
+- `npm test`：**315/315 PASS**，22 个测试文件。
+- 定向 provider/resilience：**28/28 PASS**，3 个测试文件。
+- `npm run lint`：0 errors，12 个既有 warnings。
+- `npx tsc -b`：PASS。
+- `npm run build`：PASS；仅既有 chunk size / plugin timing 提示。
+- `npm run e2e -- --reporter=line`：沙箱首次运行因 Chromium `spawn EPERM` 无法启动；放行浏览器进程后重新运行，**11/11 PASS**（7 existing Study + 4 Batch 4 media）。
+- `git diff --check`：PASS；生产首页 HTTP 200。
+
+### Observability / limitations
+
+- 当前 fallback 链已有 strategy、HTTP 状态、malformed/empty payload、timeout/network failure 的 console diagnostics；生产 debug payload 仍由显式 `ALLOW_DEBUG=1` 控制，未增加敏感信息日志。
+- 本轮未执行真实 provider matrix：未对 YouTube 具体视频逐一强制触发每个 Worker/InnerTube/Invidious/Piped 分支，未执行真实 Bilibili 短链和 ASR 生产请求，未复现真实 uncached 1–2 分钟生成，也未做 Android Chrome/iOS Safari、PWA 后台生命周期或 Auth/Firestore 数据生命周期验证。
 
 ## 2026-08-24 Round 7 deployment / production validation
 
