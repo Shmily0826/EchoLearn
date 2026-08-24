@@ -1,4 +1,5 @@
 import { test, expect, type Page } from '@playwright/test';
+import { enterGuestMode } from './helpers/guestMode';
 
 /**
  * Batch 3 — Study failure recovery E2E.
@@ -25,25 +26,6 @@ const SAMPLE_VIDEO_URL = 'https://www.youtube.com/watch?v=dQw4w9WgXcQ';
 // A minimal but valid transcript payload (matches TranscriptFetchResult.lines).
 function transcriptPayload(lines: { start: number; end: number; text: string }[]) {
   return JSON.stringify({ lines, language: 'en', source: 'youtube' });
-}
-
-async function dismissOnboarding(page: Page) {
-  await page.waitForTimeout(1500);
-  for (let i = 0; i < 6; i++) {
-    const english = page.getByRole('button', { name: 'English', exact: true });
-    if (await english.isVisible()) {
-      await english.click();
-      await page.waitForTimeout(400);
-      continue;
-    }
-    const close = page.getByRole('button', { name: 'Close', exact: true });
-    if (await close.isVisible()) {
-      await close.click();
-      await page.waitForTimeout(400);
-      continue;
-    }
-    break;
-  }
 }
 
 /** Seed localStorage so the study page does NOT auto-load the bundled sample
@@ -156,9 +138,7 @@ test.describe('Batch 3 — Study failure recovery', () => {
     // error card; only the explicit Retry is then allowed to succeed.
     await routeTranscript(page, () => (allowSuccess ? 'ok' : 'fail'));
     await page.goto('/');
-    await page.getByRole('button', { name: 'Try without login' }).click();
-    await page.waitForTimeout(600);
-    await dismissOnboarding(page);
+    await enterGuestMode(page);
 
     await page.getByRole('link', { name: 'Study' }).click();
     await expect(page).toHaveURL(/\/study$/);
@@ -187,9 +167,7 @@ test.describe('Batch 3 — Study failure recovery', () => {
     await routeDictionary(page);
     // Sample video is auto-loaded on mount → transcript present without network.
     await page.goto('/');
-    await page.getByRole('button', { name: 'Try without login' }).click();
-    await page.waitForTimeout(600);
-    await dismissOnboarding(page);
+    await enterGuestMode(page);
 
     await page.getByRole('link', { name: 'Study' }).click();
     await expect(page).toHaveURL(/\/study$/);
@@ -222,9 +200,7 @@ test.describe('Batch 3 — Study failure recovery', () => {
     await seedCleanVisitor(page);
     await routeDictionary(page);
     await page.goto('/');
-    await page.getByRole('button', { name: 'Try without login' }).click();
-    await page.waitForTimeout(600);
-    await dismissOnboarding(page);
+    await enterGuestMode(page);
 
     await page.getByRole('link', { name: 'Study' }).click();
     await expect(page).toHaveURL(/\/study$/);
@@ -255,9 +231,7 @@ test.describe('Batch 3 — Study failure recovery', () => {
     await seedCleanVisitor(page);
     await routeTranscript(page, ['ok']);
     await page.goto('/');
-    await page.getByRole('button', { name: 'Try without login' }).click();
-    await page.waitForTimeout(600);
-    await dismissOnboarding(page);
+    await enterGuestMode(page);
 
     await page.getByRole('link', { name: 'Study' }).click();
     await expect(page).toHaveURL(/\/study$/);
@@ -280,9 +254,7 @@ test.describe('Batch 3 — Study failure recovery', () => {
     await seedCleanVisitor(page);
     await routeDictionary(page);
     await page.goto('/');
-    await page.getByRole('button', { name: 'Try without login' }).click();
-    await page.waitForTimeout(600);
-    await dismissOnboarding(page);
+    await enterGuestMode(page);
 
     await page.getByRole('link', { name: 'Study' }).click();
     await expect(page).toHaveURL(/\/study$/);
@@ -298,13 +270,7 @@ test.describe('Batch 3 — Study failure recovery', () => {
 
     // Reload — visitor vocabulary is persisted to localStorage.
     await page.reload();
-    await page.waitForTimeout(800);
-    const guestButton = page.getByRole('button', { name: 'Try without login' });
-    if (await guestButton.isVisible()) {
-      await guestButton.click();
-      await page.waitForTimeout(600);
-    }
-    await dismissOnboarding(page);
+    await enterGuestMode(page);
 
     await page.getByRole('link', { name: 'Words' }).click();
     await expect(page.getByText('1 words')).toBeVisible({ timeout: 10_000 });

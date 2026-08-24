@@ -1,4 +1,5 @@
 import { test, expect } from '@playwright/test';
+import { enterGuestMode } from './helpers/guestMode';
 
 /**
  * Golden-path E2E — fully local, no external services.
@@ -11,27 +12,6 @@ import { test, expect } from '@playwright/test';
  *   dictionary popup → save to vocabulary → Words page lists it →
  *   Dashboard "Saved Words" counter updates.
  */
-
-async function dismissOnboarding(page: import('@playwright/test').Page) {
-  await page.waitForTimeout(1500);
-  // First-visit overlays: language chooser, then the guided-tour dialog.
-  // They render asynchronously — poll until neither is visible.
-  for (let i = 0; i < 5; i++) {
-    const english = page.getByRole('button', { name: 'English', exact: true });
-    if (await english.isVisible()) {
-      await english.click();
-      await page.waitForTimeout(400);
-      continue;
-    }
-    const close = page.getByRole('button', { name: 'Close', exact: true });
-    if (await close.isVisible()) {
-      await close.click();
-      await page.waitForTimeout(400);
-      continue;
-    }
-    break;
-  }
-}
 
 test('sample video study → save word → vocabulary and dashboard update', async ({
   page,
@@ -55,10 +35,16 @@ test('sample video study → save word → vocabulary and dashboard update', asy
       }),
     });
   });
+  // This test covers the guest-to-save journey, not the separate first-visit
+  // onboarding flow. Seed its completed state so the golden path starts at a
+  // deterministic app boundary.
+  await page.addInitScript(() => {
+    localStorage.setItem('echolearn_lang', 'en');
+    localStorage.setItem('echolearn-lang-chosen', '1');
+    localStorage.setItem('echolearn-tour-completed-v1', '1');
+  });
   await page.goto('/');
-  await page.getByRole('button', { name: 'Try without login' }).click();
-  await page.waitForTimeout(800);
-  await dismissOnboarding(page);
+  await enterGuestMode(page);
 
   // ── Study: the sample transcript renders without any network fetch ──
   await page.getByRole('link', { name: 'Study' }).click();

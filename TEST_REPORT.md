@@ -477,3 +477,22 @@ npx vitest      # watch 模式
 
 - Truly uncached Whisper generation may still take 1–2 minutes when no usable official captions are available.
 - Batch 6 Android/PWA cases were not continued in this task.
+
+## Golden-path E2E flakiness — 2026-08-25
+
+### Symptom and classification
+
+- The golden path intermittently remained on `LoginPage` after clicking `Try without login`; a later failure snapshot showed the Login page while the test was waiting for the Study link.
+- The isolated golden test could pass, so this was classified as a guest-entry test synchronization/isolation problem, not a confirmed `AuthGate` product remount defect. No product source was changed.
+
+### Root cause and fix
+
+- The affected specs used fixed sleeps (`600–1500 ms`) and duplicate onboarding loops after the guest click. Those waits treated a transient guest-button hide as completion and did not assert the stable App shell. They also missed that selecting English dispatches the product's forced first-time tour, and that reload can occur on `/study` without a tour overlay.
+- Added `e2e/helpers/guestMode.ts` and reused it from the golden path, media sync, English i18n, and study failure-recovery specs. The helper observes the guest button/LoginPage, language chooser, tour Close control, and visible `/study` navigation; it retries the guest action only if LoginPage is observed again. It uses Playwright state assertions/polling rather than fixed sleeps and preserves the real onboarding path.
+- The golden path seeds completed language/tour state because its scope is the guest-to-save journey; onboarding remains exercised by the other guest-mode specs through the same helper.
+
+### Stability validation
+
+- Isolated golden path after the fix: **10/10 passed** (`--repeat-each=10`).
+- Full local Playwright suite after the fix: **11/11 passed ×3** (`RESULTS=0,0,0`).
+- An intermediate full run correctly exposed and was fixed in the helper: the media specs' language selection triggered the tour, and the reload persistence case was on `/study`; neither required a product change.

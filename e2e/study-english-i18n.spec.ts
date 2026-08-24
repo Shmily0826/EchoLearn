@@ -1,4 +1,5 @@
 import { test, expect, type Page } from '@playwright/test';
+import { enterGuestMode } from './helpers/guestMode';
 
 /**
  * Regression — English UI must never leak hardcoded Chinese (Bug 2).
@@ -16,25 +17,6 @@ const SAMPLE_VIDEO_URL = 'https://www.youtube.com/watch?v=dQw4w9WgXcQ';
 
 function transcriptPayload(lines: { start: number; end: number; text: string }[]) {
   return JSON.stringify({ lines, language: 'en', source: 'youtube' });
-}
-
-async function dismissOnboarding(page: Page) {
-  await page.waitForTimeout(1500);
-  for (let i = 0; i < 6; i++) {
-    const english = page.getByRole('button', { name: 'English', exact: true });
-    if (await english.isVisible()) {
-      await english.click();
-      await page.waitForTimeout(400);
-      continue;
-    }
-    const close = page.getByRole('button', { name: 'Close', exact: true });
-    if (await close.isVisible()) {
-      await close.click();
-      await page.waitForTimeout(400);
-      continue;
-    }
-    break;
-  }
 }
 
 async function seedCleanVisitor(page: Page) {
@@ -64,9 +46,7 @@ test('English UI shows no hardcoded Chinese after a successful load', async ({ p
   await routeTranscript(page);
 
   await page.goto('/');
-  await page.getByRole('button', { name: 'Try without login' }).click();
-  await page.waitForTimeout(600);
-  await dismissOnboarding(page);
+  await enterGuestMode(page);
   await page.getByRole('link', { name: 'Study' }).click();
   await expect(page).toHaveURL(/\/study$/);
   await page.waitForTimeout(2000);

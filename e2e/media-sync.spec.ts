@@ -1,4 +1,5 @@
 import { test, expect, type Page } from '@playwright/test';
+import { enterGuestMode } from './helpers/guestMode';
 
 const SAMPLE_FIRST = /Good morning/i;
 const SAMPLE_SECOND = /Audience.*Good/i;
@@ -34,14 +35,7 @@ async function enterGuestStudy(page: Page) {
     localStorage.removeItem('echolearn_sentences');
   });
   await page.goto('/');
-  await page.getByRole('button', { name: 'Try without login' }).click();
-  for (let i = 0; i < 6; i++) {
-    const english = page.getByRole('button', { name: 'English', exact: true });
-    if (await english.isVisible().catch(() => false)) { await english.click(); await page.waitForTimeout(300); continue; }
-    const close = page.getByRole('button', { name: 'Close', exact: true });
-    if (await close.isVisible().catch(() => false)) { await close.click(); await page.waitForTimeout(300); continue; }
-    break;
-  }
+  await enterGuestMode(page);
   await page.getByRole('link', { name: 'Study' }).click();
   await expect(page).toHaveURL(/\/study$/);
   await expect(page.getByText('good', { exact: true }).filter({ visible: true }).first()).toBeVisible({ timeout: 15_000 });
