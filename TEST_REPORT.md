@@ -431,3 +431,49 @@ npx vitest      # watch 模式
 ## 当前 git 状态
 
 分支 `main`，本次测试相关改动**未 commit**（含 `vitest.config.ts`、`src/test/`、各 `__tests__/`、`TEST_REPORT.md`、package.json/lock）。用户工作区原有的 6 个文件未提交改动未受影响。
+
+## Production subtitle incident — 2026-08-25
+
+### Incident
+
+- Video: `Zq8e3xX02u8`
+- Original behavior: Study waited approximately 2.5–3 minutes, then displayed “This video has no subtitles”; refresh and Retry repeated the failure.
+- YouTube player metadata exposed an English auto-generated caption track, so the original message was a false no-subtitles classification.
+
+### Root cause and fix
+
+- The browser ran the slow CF Worker/Vercel server cascade before the faster official InnerTube and YouTube page/player paths.
+- The Vercel fallback logged a VPS abort and the `youtube-transcript` npm fallback reported “Transcript is disabled”, neither of which proved captions were absent.
+- Official caption discovery now runs before slow server-side generation. Empty timedtext responses continue through the remaining providers, and final failures are reported as retrieval failures with provider HTTP status/body summaries.
+- `YouTubeEmbed` now receives the active EchoLearn language and forwards YouTube’s `hl` preference. The player remounts only when the UI language changes, so ordinary video changes do not recreate it unnecessarily.
+
+### Automated validation
+
+- `npm test`: 22 files / 316 tests passed.
+- `npm run lint`: 0 errors / 12 pre-existing warnings.
+- `npx tsc -b`: passed.
+- `npm run build`: passed.
+- Standard Playwright E2E: 11 passed. One later full-suite run had a transient first-test guest-mode timeout; the isolated golden-path rerun passed in 12.6s.
+- `git diff --check`: passed.
+
+### Production deployment and exact-video retest
+
+- Corrective commits pushed:
+  - `013acb1 fix(transcript): recover available YouTube captions`
+  - `ef9197f fix(study): refresh YouTube locale on language change`
+- Vercel deployments: `dpl_CkzFGnnDShTZuUkTwQgJsYAYRinF` and follow-up `echolearn-ihixqnhkv-shmily0826s-projects.vercel.app`, both READY; production aliases include `echo-learn.uk`.
+- Fresh production load of `Zq8e3xX02u8`: subtitles loaded without refresh or Retry; approximately 22 seconds from submit to verified loaded state.
+- Source: YouTube official subtitles.
+- Success toast reported 804 raw lines; Study displayed 268 normalized subtitle entries.
+- No “This video has no subtitles” error appeared.
+
+### Iframe locale validation
+
+- English: PASS — iframe URL contained `hl=en`.
+- Chinese: PASS for the requested preference — after switching locale and remounting, iframe URL contained `hl=zh`.
+- YouTube-owned iframe wording remains externally controlled; browser/account experiments may still override its visible text.
+
+### Remaining limitations
+
+- Truly uncached Whisper generation may still take 1–2 minutes when no usable official captions are available.
+- Batch 6 Android/PWA cases were not continued in this task.
