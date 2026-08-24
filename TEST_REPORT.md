@@ -63,6 +63,38 @@
 - 该视频是否为 uncached、是否复现 1–2 分钟 Whisper 首次生成未能从 smoke 中确认；真实 uncached slow-load 仍是生产风险，不作已验证成功声明。
 - 首次 smoke 的整句 selector 选中了隐藏移动端副本，修正为 visible locator 后完整 smoke 通过；这不是生产故障。
 
+## 2026-08-24 Batch 5 Production Validation
+
+> 任务 ECHO-20260824-1858。Batch 5 已完成 pre-push review、push、Vercel production deployment 和真实 provider smoke；本节只记录实际观察到的结果，不把未执行场景标为 PASS。
+
+### Release
+
+- Batch 5 commit `031b516f9699226103fd147890c84ef67c954369` 已 push 到 `origin/main`。
+- Vercel deployment `dpl_649QGxBGhC6LR6FV6WNeArDkogEZ`：**READY**。
+- Deployed revision：`031b516f9699226103fd147890c84ef67c954369`；production aliases 包含 `echo-learn.uk`、`app.echo-learn.uk`。
+- `https://echo-learn.uk/` 当前 HTTP **200**。
+
+### Real provider smoke
+
+| Case | Fixture / evidence | Result | Latency / UI evidence |
+|---|---|---|---|
+| YouTube normal | `https://www.youtube.com/watch?v=iG9CE55wbtY` | **PASS** | Study UI 约 12.6s，554 transcript lines；loading 消失、无 error、无需刷新。Worker API 独立请求约 0.3s，427 lines，language `en`。 |
+| Bilibili canonical | `https://www.bilibili.com/video/BV1emBiYcEAV/` | **PASS** | Study UI 约 55.6s，278 lines；无 loading/error。Worker API 约 39.5s，132 lines，language `English`，source `asr`。 |
+| Bilibili short-link | `https://b23.tv/nbSyQzx` | **PASS** | Worker info 约 7.8s，解析为 `BV1X54y1p7Dd`、标题为 Easy English 合集、72 P；Study UI 约 30.6s，270 lines，无刷新。 |
+
+### ASR / slow path / fallback
+
+- Real Bilibili ASR：**PASS**。canonical 和 short-link 生产请求均自然返回 `source=asr`，未人为关闭 Worker 或制造故障。
+- Real uncached 1–2 minute YouTube generation：**NOT EXECUTED / pending**。本轮使用稳定既有 fixture，没有清理生产缓存或强行制造慢请求；自动化 delayed-success/timeout 回归仍为有效证据。
+- Live forced Worker → Vercel outage：**NOT EXECUTED**。确定性 mock 已覆盖 Worker empty/malformed/network/5xx → Vercel fallback；本轮未破坏生产 Worker 来制造故障。
+- 生产 smoke 未观察到 product error、stale failure、success + loading 矛盾状态或需要刷新才能显示字幕的问题。
+
+### Observability and remaining gaps
+
+- 正常成功请求没有触发需要查看的生产错误日志；现有代码会记录 provider/strategy、HTTP 状态、timeout/network failure、malformed/empty payload 和最终耗尽信息，debug payload 仍由显式配置控制，不包含凭据。
+- 未覆盖：真实 uncached 慢生成、强制 live fallback、Android Chrome、iOS Safari、PWA 后台生命周期、Auth/Firestore 生命周期。
+- Batch 6 Mobile/PWA testing：本轮明确未开始。
+
 ## 2026-08-24 Batch 4：Media Synchronization
 
 ### 原实现与边界
