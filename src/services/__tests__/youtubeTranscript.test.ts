@@ -1,12 +1,21 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
-import { fetchYouTubeServerTranscript, CF_WORKER_URL } from '../youtubeTranscript';
+import { YoutubeTranscript } from 'youtube-transcript';
+import {
+  fetchYouTubeServerTranscript,
+  fetchYouTubeTranscript,
+  CF_WORKER_URL,
+} from '../youtubeTranscript';
+
+vi.mock('youtube-transcript', () => ({
+  YoutubeTranscript: { fetchTranscript: vi.fn() },
+}));
 
 function response(body: unknown, status = 200): Response {
   return {
     ok: status >= 200 && status < 300,
     status,
     json: async () => body,
-    text: async () => JSON.stringify(body),
+    text: async () => (typeof body === 'string' ? body : JSON.stringify(body)),
   } as unknown as Response;
 }
 
@@ -50,8 +59,13 @@ describe('fetchYouTubeServerTranscript', () => {
     fetchMock
       .mockResolvedValueOnce(response({ error: 'worker' }, 502))
       .mockResolvedValueOnce(response({ error: 'vercel' }, 503));
-    await expect(fetchYouTubeServerTranscript('video-id', 'en')).resolves.toBeNull();
+    const failures: string[] = [];
+    await expect(fetchYouTubeServerTranscript('video-id', 'en', (detail) => failures.push(detail))).resolves.toBeNull();
     expect(fetchMock).toHaveBeenCalledTimes(2);
+    expect(failures).toEqual([
+      'CF Worker HTTP 502: {"error":"worker"}',
+      'Vercel server API HTTP 503: {"error":"vercel"}',
+    ]);
   });
 
   it('falls through when a 2xx response has no usable lines', async () => {
@@ -77,5 +91,64 @@ describe('fetchYouTubeServerTranscript', () => {
 
     expect(result?.lines[0].text).toBe('recovered');
     expect(fetchMock).toHaveBeenCalledTimes(2);
+  });
+});
+
+describe('fetchYouTubeTranscript provider order and failure classification', () => {
+  it('tries fast official paths before slow server fallbacks and does not claim captions are absent', async () => {
+    const emptyPlayerResponse = {
+      playabilityStatus: { status: 'OK' },
+      captions: { playerCaptionsTracklistRenderer: { captionTracks: [] } },
+    };
+    const pagePlayerResponse = {
+      playabilityStatus: { status: 'OK' },
+      captions: {
+        playerCaptionsTracklistRenderer: {
+          captionTracks: [{
+            baseUrl: 'https://www.youtube.com/api/timedtext?v=Zq8e3xX02u8',
+            languageCode: 'en',
+            kind: 'asr',
+          }],
+        },
+      },
+    };
+    const pageHtml = `var ytInitialPlayerResponse = ${JSON.stringify(pagePlayerResponse)};`;
+
+    fetchMock
+      // Local proxy is unavailable.
+      .mockRejectedValueOnce(new Error('local proxy unavailable'))
+      // ANDROID and WEB InnerTube requests return usable player responses but
+      // no tracks, so the page strategy is the next official path.
+      .mockResolvedValueOnce(response(emptyPlayerResponse))
+      .mockResolvedValueOnce(response(emptyPlayerResponse))
+      .mockResolvedValueOnce(response(pageHtml))
+      // The public player metadata exists, but timed-text returns empty data
+      // for every requested format — the reported production failure mode.
+      .mockResolvedValueOnce(response(''))
+      .mockResolvedValueOnce(response(''))
+      .mockResolvedValueOnce(response(''))
+      // Both server endpoints fail after the fast official paths.
+      .mockResolvedValueOnce(response({ error: 'worker timed out' }, 504))
+      .mockResolvedValueOnce(response({ error: 'npm fallback disabled' }, 500));
+    vi.mocked(YoutubeTranscript.fetchTranscript).mockRejectedValueOnce(
+      new Error('Transcript is disabled on this video'),
+    );
+
+    let failure: Error | undefined;
+    try {
+      await fetchYouTubeTranscript('Zq8e3xX02u8', 'en');
+    } catch (err) {
+      failure = err as Error;
+    }
+    expect(failure?.message).toContain('Unable to fetch captions for this video');
+
+    const urls = fetchMock.mock.calls.map(([url]) => String(url));
+    const pageIndex = urls.findIndex((url) => url.includes('watch'));
+    const workerIndex = urls.findIndex((url) => url.startsWith(CF_WORKER_URL));
+    expect(pageIndex).toBeGreaterThanOrEqual(0);
+    expect(workerIndex).toBeGreaterThan(pageIndex);
+    expect(failure?.message).toContain(
+      'Caption metadata may exist even when a provider cannot retrieve',
+    );
   });
 });

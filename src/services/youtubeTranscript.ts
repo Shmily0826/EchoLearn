@@ -2,9 +2,10 @@
  * YouTube transcript auto-fetch service.
  *
  * Multi-strategy approach:
- *   1. InnerTube API (ANDROID client) via Vercel Edge Function — most reliable
- *   2. YouTube page HTML scraping via Vercel Edge Function — fallback
- *   3. youtube-transcript npm package — final fallback (uses its own methods)
+ *   1. Local proxy (when available)
+ *   2. Official YouTube InnerTube/page paths via the app proxy
+ *   3. Server-side transcript services (may take minutes for ASR generation)
+ *   4. youtube-transcript npm package — final fallback
  *
  * In dev mode, requests go through Vite's proxy to bypass CORS.
  * In production, all YouTube requests are routed through the Vercel Edge Function
@@ -701,6 +702,7 @@ function clearLocalProxyFailure(): void {
 export async function fetchYouTubeServerTranscript(
   videoId: string,
   lang: string,
+  onFailure?: (detail: string) => void,
 ): Promise<TranscriptFetchResult | null> {
   const workerUrl = `${CF_WORKER_URL}/api/transcript?videoId=${encodeURIComponent(videoId)}&lang=${encodeURIComponent(lang)}`;
   // Both endpoints can trigger server-side generation for a never-before-seen
@@ -737,13 +739,14 @@ export async function fetchYouTubeServerTranscript(
         console.warn(`[EchoLearn] ${endpoint.label}: empty or unusable transcript`);
       } else {
         const body = await res.text().catch(() => '');
-        console.warn(`[EchoLearn] ${endpoint.label} error: ${res.status}`, body.substring(0, 200));
+        const detail = `${endpoint.label} HTTP ${res.status}${body ? `: ${body.substring(0, 200)}` : ''}`;
+        console.warn(`[EchoLearn] ${endpoint.label} error:`, detail);
+        onFailure?.(detail);
       }
     } catch (err) {
-      console.warn(
-        `[EchoLearn] ${endpoint.label} request failed:`,
-        err instanceof Error ? err.message : err,
-      );
+      const detail = `${endpoint.label} request failed: ${err instanceof Error ? err.message : 'unknown error'}`;
+      console.warn(`[EchoLearn] ${detail}`);
+      onFailure?.(detail);
     }
   }
 
@@ -800,10 +803,10 @@ export interface TranscriptFetchResult {
  *
  * Tries multiple strategies in order:
  *   0. Local proxy (residential IP — skipped if failed within 5 min)
- *   1. Server-side API: CF Worker (→ VPS yt-dlp) first, then Vercel fallback
- *      (Worker Strategy 0 = VPS yt-dlp; fallbacks = InnerTube/Web/Invidious/Piped/Whisper)
- *   2. InnerTube API (ANDROID/WEB clients) via Edge Function proxy
- *   3. YouTube page HTML scraping via Edge Function proxy
+ *   1. InnerTube API (ANDROID/WEB clients) via Edge Function proxy
+ *   2. YouTube page HTML scraping via Edge Function proxy
+ *   3. Server-side API: CF Worker (→ VPS yt-dlp) first, then Vercel fallback
+ *      (Worker fallbacks = InnerTube/Web/Invidious/Piped/Whisper)
  *   4. youtube-transcript npm package (client-side, last resort)
  *
  * @param videoId  The 11-character YouTube video ID
@@ -826,18 +829,9 @@ async function _fetchYouTubeTranscriptImpl(
     );
   }
 
-  // Strategy 1: Server-side transcript API (CF Worker → Vercel fallback)
-  try {
-    const serverResult = await fetchYouTubeServerTranscript(videoId, lang);
-    if (serverResult) return serverResult;
-    errors.push('Server API (CF Worker + Vercel) returned no captions');
-  } catch (err) {
-    errors.push(
-      `Server API: ${err instanceof Error ? err.message : 'failed'}`,
-    );
-  }
-
-  // Strategy 2: InnerTube API via Edge Function proxy
+  // Strategy 1: InnerTube API via Edge Function proxy. These official
+  // caption paths are normally fast; keep them ahead of server-side ASR,
+  // whose first request can legitimately take several minutes.
   try {
     const innerTubeResult = await fetchViaInnerTube(videoId, lang);
     if (innerTubeResult) return innerTubeResult;
@@ -851,7 +845,7 @@ async function _fetchYouTubeTranscriptImpl(
     );
   }
 
-  // Strategy 3: Web page scraping via Edge Function proxy
+  // Strategy 2: Web page scraping via Edge Function proxy
   try {
     const webResult = await fetchViaWebPage(videoId, lang);
     if (webResult) return webResult;
@@ -862,6 +856,26 @@ async function _fetchYouTubeTranscriptImpl(
     }
     errors.push(
       `Web scraping: ${err instanceof Error ? err.message : 'failed'}`,
+    );
+  }
+
+  // Strategy 3: Server-side transcript API (CF Worker → Vercel fallback).
+  // This remains an important fallback for datacenter-blocked YouTube paths,
+  // but must not delay the official caption paths above.
+  try {
+    const serverFailures: string[] = [];
+    const serverResult = await fetchYouTubeServerTranscript(videoId, lang, (detail) => {
+      serverFailures.push(detail);
+    });
+    if (serverResult) return serverResult;
+    errors.push(
+      serverFailures.length > 0
+        ? `Server API: ${serverFailures.join('; ')}`
+        : 'Server API (CF Worker + Vercel) returned no usable transcript',
+    );
+  } catch (err) {
+    errors.push(
+      `Server API: ${err instanceof Error ? err.message : 'failed'}`,
     );
   }
 
@@ -876,11 +890,12 @@ async function _fetchYouTubeTranscriptImpl(
 
   // All strategies failed
   throw new Error(
-    `No captions/subtitles available for this video.\n\n` +
+    `Unable to fetch captions for this video.\n\n` +
       `Tried ${errors.length} methods:\n` +
       errors.map((e, i) => `  ${i + 1}. ${e}`).join('\n') +
-      `\n\nThis video may not have captions/subtitles enabled, ` +
-      `or YouTube may be temporarily blocking requests from your network.\n` +
+      `\n\nCaption metadata may exist even when a provider cannot retrieve the ` +
+      `timed-text content. YouTube may also be temporarily blocking requests ` +
+      `from the current network.\n` +
       `You can upload a subtitle file (SRT/VTT) manually.`,
   );
 }

@@ -21,6 +21,8 @@ interface YouTubeEmbedProps {
   youtubeId: string;
   startTime?: number;
   playbackRate?: number;
+  /** EchoLearn UI language, forwarded as YouTube's interface-language hint. */
+  lang?: 'en' | 'zh';
 }
 
 // ── YouTube IFrame API singleton loader ─────────────────────
@@ -91,7 +93,7 @@ function resetAPIState(): void {
 
 // ── Component ──────────────────────────────────────────────
 const YouTubeEmbed = forwardRef<PlayerHandle, YouTubeEmbedProps>(
-  ({ youtubeId, startTime, playbackRate }, ref) => {
+  ({ youtubeId, startTime, playbackRate, lang = 'en' }, ref) => {
     const containerId = useRef(`yt-${Math.random().toString(36).slice(2, 9)}`);
     const playerRef = useRef<YT.Player | null>(null);
     const [status, setStatus] = useState<'loading' | 'ready' | 'error' | 'fallback'>('loading');
@@ -101,6 +103,8 @@ const YouTubeEmbed = forwardRef<PlayerHandle, YouTubeEmbedProps>(
     startTimeRef.current = startTime;
     const playbackRateRef = useRef(playbackRate ?? 1);
     playbackRateRef.current = playbackRate ?? 1;
+    const langRef = useRef(lang);
+    langRef.current = lang;
     const retryCount = useRef(0);
     const retryTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
     // Capture the initial videoId in a ref so initPlayer doesn't depend on it
@@ -134,12 +138,15 @@ const YouTubeEmbed = forwardRef<PlayerHandle, YouTubeEmbedProps>(
           width: '100%',
           height: '100%',
           videoId: initialVideoIdRef.current,
-          playerVars: {
+          // `hl` is supported by the YouTube IFrame player, but is missing
+          // from the installed @types/youtube PlayerVars declaration.
+          playerVars: ({
             modestbranding: 1,
             rel: 0,
             cc_load_policy: 0,
+            hl: langRef.current,
             ...(startTimeRef.current !== undefined ? { start: startTimeRef.current } : {}),
-          },
+          } as YT.PlayerVars),
           events: {
             onReady: () => {
               if (statusRef.current === 'error' || statusRef.current === 'fallback') {
@@ -294,7 +301,7 @@ const YouTubeEmbed = forwardRef<PlayerHandle, YouTubeEmbedProps>(
     };
 
     // Build fallback iframe URL
-    const fallbackSrc = `https://www.youtube.com/embed/${youtubeId}?autoplay=0&rel=0&modestbranding=1${
+    const fallbackSrc = `https://www.youtube.com/embed/${youtubeId}?autoplay=0&rel=0&modestbranding=1&hl=${lang}${
       startTime !== undefined ? `&start=${Math.floor(startTime)}` : ''
     }`;
 
