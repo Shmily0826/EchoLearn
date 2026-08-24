@@ -2,6 +2,7 @@ import { useCallback, useEffect, useMemo, useRef, type RefObject } from 'react';
 import type { TranscriptLine } from '../types';
 import type { PlayerHandle } from '../components/YouTubeEmbed';
 import { SEEK_REQUEST_EVENT, type SeekRequestDetail } from '../utils/jumpToSource';
+import { getActiveLineIndex } from '../utils/transcriptSync';
 
 interface TranscriptSeekOptions {
   playerRef: RefObject<PlayerHandle | null>;
@@ -57,10 +58,7 @@ export function useTranscriptSeek({
   }, [pathname, playerRef, videoId]);
 
   const activeLineIndex = useMemo(() => {
-    for (let i = 0; i < displayLines.length; i++) {
-      if (currentTime >= displayLines[i].start && currentTime < displayLines[i].end) return i;
-    }
-    return -1;
+    return getActiveLineIndex(displayLines, currentTime);
   }, [currentTime, displayLines]);
 
   const seekTo = useCallback((seconds: number, scrollTranscript = false) => {

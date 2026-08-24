@@ -1,7 +1,61 @@
 # EchoLearn 单元测试报告（2026-08-22，更新于 2026-08-23 晚）
 
 > 本文件是给后续 AI agent / 开发者看的持久化测试报告。
-> 状态：**300 单元用例 + 5 条 E2E Study 失败恢复 + 1 条 E2E 黄金路径 + 1 条英文 i18n E2E + CI 门禁 + 每日拨测，全部在线**。
+> 状态：**311 单元用例 + 7 条 Round 7 Study E2E + 4 条 Batch 4 media-sync E2E + CI 门禁 + 每日拨测，全部在线**。
+
+## 2026-08-24 Round 7 deployment / production validation
+
+> 任务 ECHO-20260824-1808。Round 7 已完成 pre-push review 并推送；Batch 4 随后完成本地验证，但不推送。
+
+### Release
+
+- Round 7 commit：`ea66032bab3293960e04400e6becad70e711c274`，已正常 push 到 `origin/main`。
+- Vercel production deployment：`dpl_6RSGzGfeqxraaA26KRYuRtXjJo4g`，状态 **READY**。
+- Deployed revision：`ea66032bab3293960e04400e6becad70e711c274`，与 push commit 一致。
+- Production aliases：`echo-learn.uk`、`app.echo-learn.uk` 等已指向该 deployment。
+
+### Production smoke
+
+- Availability：`https://echo-learn.uk/` HTTP **200**；标题为 `EchoLearn — Learn English from YouTube Videos`。
+- Guest → Study：可进入 Study。
+- English Study：已检查 `加载中`、`前往平台观看`、`来源：`、中文时长单位及同一 Study surface，未发现已知中文 UI 泄漏。
+- Guest vocabulary：保存 `good` → Words 显示 `1 words` → 删除后显示 `0 words`；使用 fresh browser context，未登录、未写入 Firestore。
+- Real YouTube first load：`iG9CE55wbtY` 加载成功；transcript 可见，Load 按钮恢复为 `Load Video`，无 loading/error contradictory state。
+- 该视频是否为 uncached、是否复现 1–2 分钟 Whisper 首次生成未能从 smoke 中确认；真实 uncached slow-load 仍是生产风险，不作已验证成功声明。
+- 首次 smoke 的整句 selector 选中了隐藏移动端副本，修正为 visible locator 后完整 smoke 通过；这不是生产故障。
+
+## 2026-08-24 Batch 4：Media Synchronization
+
+### 原实现与边界
+
+- `usePlaybackPosition` 每 100ms 从 `PlayerHandle.getCurrentTime()` 读取媒体时间（单位：秒），负责 currentTime、位置持久化和 playback rate。
+- `useTranscriptSeek` 原本在 hook 内用 `start <= currentTime < end` 计算 `activeLineIndex`，并处理 transcript seek/deep-link。
+- Bilibili 原生跨域 iframe 不提供可信的播放时间/控制 API，因此同步 transport 仍是 AudioPlayer；本轮未改变该产品边界。
+
+### 提取与语义
+
+- 新增纯函数 `src/utils/transcriptSync.ts`：`getActiveLineIndex(lines, currentTime)`。
+- `useTranscriptSeek` 改为复用该 helper；没有改变已有行为或引入新的同步架构。
+- 语义：时间单位秒；`start` inclusive；`end` exclusive；精确 end 边界归下一条相邻字幕；空档、首条之前、末条之后返回 `-1`；按 normalized display 顺序查找，不自动排序。
+
+### 新增测试
+
+- `src/utils/__tests__/transcriptSync.test.ts`：11 条纯函数用例，覆盖空字幕、首条前、start、内部、end 边界、相邻边界、gap、前进跳跃、后退 seek、最后一条、最后之后。
+- `e2e/media-sync.spec.ts`：4 条 StudyPage + AudioPlayer 浏览器集成用例，使用受控 HTMLAudioElement `currentTime`/`timeupdate`，覆盖 time advance、pause、seek forward/backward、playback rate。
+- Media E2E 独立结果：**4/4 PASS**；重复一次：**8/8 PASS**。
+- Existing Study E2E：**7/7 PASS**（Happy 1/1、Failure Recovery 5/5、English i18n 1/1）。
+- Full standard E2E：**11/11 PASS**（7 existing Study + 4 Batch 4 media）。
+
+### 工程验证与限制
+
+- `npm test`：**311/311 PASS**，21 个测试文件。
+- `npm run lint`：0 errors，12 个既有 warnings。
+- `npx tsc -b`：PASS。
+- `npm run build`：PASS；仅有既有 chunk size / plugin timing 提示。
+- `npm run e2e -- --reporter=line`：11/11 PASS。
+- `git diff --check`：PASS。
+- 本轮未发现需要修改的同步产品 bug；未修改字幕数据模型、播放器架构或 Bilibili iframe 行为。
+- 未覆盖：真实 uncached 1–2 分钟 provider generation、Bilibili 真实短链 fallback、真实外部 provider 矩阵、Android Chrome、iOS Safari、PWA 后台/前台生命周期、Auth/Firestore 数据生命周期。
 
 ## 2026-08-24 第七轮收尾：刷新持久化取证与测试修复
 
