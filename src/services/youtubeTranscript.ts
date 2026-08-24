@@ -703,12 +703,22 @@ export async function fetchYouTubeServerTranscript(
   lang: string,
 ): Promise<TranscriptFetchResult | null> {
   const workerUrl = `${CF_WORKER_URL}/api/transcript?videoId=${encodeURIComponent(videoId)}&lang=${encodeURIComponent(lang)}`;
+  // Both endpoints can trigger server-side generation for a never-before-seen
+  // video (VPS Whisper ASR), which the product copy (study.mayTake) already
+  // tells users takes 1–3 min. The previous caps (18s / 45s) aborted the
+  // request well before that window, so an uncached video surfaced a failure
+  // even though the backend finished moments later (forcing a refresh). We give
+  // the request a bounded, generous wait that matches the documented window
+  // instead of declaring failure prematurely. The server must still respond
+  // within its own platform limit; if the underlying function is shorter, this
+  // client wait simply resolves when that 5xx/timeout arrives.
+  const SERVER_GEN_TIMEOUT_MS = 120000;
   const endpoints = [
-    { url: workerUrl, label: 'CF Worker', timeoutMs: 18000 },
+    { url: workerUrl, label: 'CF Worker', timeoutMs: SERVER_GEN_TIMEOUT_MS },
     {
       url: `/api/transcript?videoId=${encodeURIComponent(videoId)}&lang=${encodeURIComponent(lang)}`,
       label: 'Vercel server API',
-      timeoutMs: 45000,
+      timeoutMs: SERVER_GEN_TIMEOUT_MS,
     },
   ];
 

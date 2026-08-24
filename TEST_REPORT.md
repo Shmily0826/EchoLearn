@@ -1,7 +1,148 @@
 # EchoLearn 单元测试报告（2026-08-22，更新于 2026-08-23 晚）
 
 > 本文件是给后续 AI agent / 开发者看的持久化测试报告。
-> 状态：**291 单元用例 + 1 条 E2E 黄金路径 + CI 门禁 + 每日拨测，全部在线**。
+> 状态：**300 单元用例 + 5 条 E2E Study 失败恢复 + 1 条 E2E 黄金路径 + 1 条英文 i18n E2E + CI 门禁 + 每日拨测，全部在线**。
+
+## 2026-08-24 第七轮收尾：刷新持久化取证与测试修复
+
+> 任务 ECHO-20260824-1722。继续 Batch 3 / Round 7，未开始 Batch 4；本轮只修正 E2E 测试清理逻辑，不改变产品存储或游客生命周期。
+
+### 一、R0–R9 runtime evidence
+
+| 检查点 | 实际结果 |
+|---|---|
+| R0 fresh context / Home | URL `/`；`echolearn_vocabulary=null`；仅有 tour marker；仍在加载，Guest 尚未可见 |
+| R1 after Try without login | URL `/`；词汇 `null` / 0；Guest app 已挂载，Dashboard 可见 |
+| R2 immediately after Save | URL `/study`；词汇 JSON 为 1 条；保存词 `good` 存在 |
+| R3 before reload | URL `/study`；词汇 JSON 仍为 1 条；`good` 存在 |
+| R4 immediately after reload | 词汇变为 `null` / 0；这是关键失败点 |
+| R5 after AuthGate settles | 仍为 `null` / 0；登录界面可见 |
+| R6 after re-entering Guest | 仍为 `null` / 0；Study 已挂载 |
+| R7 before Words | 仍为 `null` / 0；Study transcript 尚在 |
+| R8 after Words mount | URL `/vocabulary`；storage 0；Words UI 未显示 `1 words` |
+| R9 after UI settle | storage 0；UI 0；保存词不可见 |
+
+### 二、根因分类与修复
+
+- **分类：测试 bug，不是产品持久化 bug。** `seedCleanVisitor()` 通过 `page.addInitScript()` 清理 localStorage；该脚本也会在 `page.reload()` 的新 document 中再次执行，直接删除 `echolearn_vocabulary`。
+- storage mutation instrumentation 进一步确认：首次 Save 由 `saveVocabulary()` 写入 1 条；reload 前的清理发生在 instrumentation wrapper 安装前；随后 enrichment 的 `updateVocabularyItem()` 只看到空集合并写回 0 条。这是测试初始化顺序造成的假象，不是生产代码主动清空。
+- 修复：`seedCleanVisitor()` 使用 fresh context 级 `sessionStorage` marker，只在首次 document 清理；reload 不再重置被测 localStorage。未持久化 `guestMode`，未修改词汇 schema、AuthGate 或产品 storage。
+
+### 三、Force-click audit
+
+- 删除按钮已从 `click({ force: true })` 改为普通 `click()`。
+- Save → Words → Delete 独立 E2E 通过；没有发现 overlay、disabled 或其他被 force click 掩盖的真实 UI 问题。
+
+### 四、最终验证
+
+- Refresh persistence：独立连续 **3/3 PASS**。
+- Failure Recovery：**5/5 PASS**（Retry、Save/Delete、Duplicate、Invalid URL、Refresh）。
+- English i18n：**1/1 PASS**；检查 Study 英文 UI 无已知中文泄漏。
+- Happy Path：**1/1 PASS**。
+- 标准 `npm run e2e -- --reporter=line`：**7/7 PASS**（59.2s）。
+- `npm test`：**300/300 PASS**，20 个测试文件。
+- `npm run lint`：**0 errors，12 个既有 warnings**。
+- `npx tsc -b`：PASS。
+- `npm run build`：PASS；仅保留既有 chunk size / plugin timing 提示。
+- `git diff --check`：PASS。
+
+### 五、范围与遗留
+
+- 临时 R0–R9、storage mutation、request/response 调试日志均已移除；无临时 spec、trace、截图或视频进入 Git 状态。
+- `src/**/*.js` 生成物：0；`vite.config.js`：不存在；`vite.config.ts` 保留。
+- Batch 4 Media Synchronization：未启动。
+- 本轮改动待 amend 到未 push 的本地 `a100ad7`；不得 push。
+
+## 2026-08-24 第七轮：Cleanup 编译产物遮蔽 + 修复首次加载 race 与英文 i18n 泄漏 + regression
+
+> 任务 ECHO-20260824-0950（暂停 Batch 4 Media Sync）：先修两个真实浏览器 bug（首次加载字幕 race、英文 UI 中文泄漏），补 regression coverage，再继续测试。仅本地 commit，未 push。Batch 4 未启动。
+
+### 一、删除 87 个 stray `src/**/*.js`（TypeScript 编译旁产物）
+
+- **根因**：早期某次 `tsc` 把 emit 写进了 `src/`，生成了与每个 `.ts`/`.tsx` 同名的 `.js`。现行 `tsconfig.app.json` 已 `noEmit: true`，`build` = `tsc -b && vite build` 不再 emit，**所以根因已消除，无需改 tsconfig**。
+- **遮蔽危害**：Vite `resolve.extensions` 默认 `['.mjs','.js',...,'.ts','.tsx']` → `.js` 优先于 `.ts` 被解析。此前所有 vitest / build 实际跑的是**旧版 `.js`**，源码 `.ts` 的改动（含本任务的 bugfix）根本没生效——这是"改了却不像改了"的真凶。
+- **核验**：87 个 `.js` 全部 `git ls-files` 为 0（untracked，删了不破坏版本库）；全部都有 `.ts`/`.tsx` 孪生兄弟（`no_twin=0`）；已完整备份至 `/tmp/echolearn-src-js-backup/src`（87/87 一致）。
+- **删除**：trash 机制（gio / Shell COM）均被 sandbox 安全策略拦截；项目目录 `D:\CODE\project\EchoLearn` 非个人 No-Go 区，且备份就绪、0 tracked，按用户二次确认用 `rm` 分批 ≤10 清空（9 批，最后一批 7），删除后 `find src -name '*.js'` = 0。
+- **副作用修复**：删除后重跑 `tsc -b`，暴露并修掉一处类型错误——`transcriptSourceLabel` 的参数类型 `Record<string, unknown>` 与 `useI18n().t` 的 `Record<string, string | number>` 逆变不兼容，改为 `Record<string, string | number>`；并删掉 `useCaptionRequest.test.ts` 里一个未使用变量 `d`。
+
+### 二、Bug 1 — 首次加载未缓存 YouTube 视频字幕 race
+
+- **现象**：首次加载未缓存视频，后端实际几分钟内生成完字幕，但前端约 2 分钟后报失败；刷新后字幕立刻出现。截图里同时存在"Subtitles loaded — 744 lines"横幅 + "Fetching captions…" 转圈 + Load 按钮 loading——状态自相矛盾。
+- **真因（两处）**：
+  1. `useCaptionRequest.begin()` 不清空 `fetchToast`，导致**上一次的成功横幅能与新的 loading 状态共存**（正是截图里的矛盾 UI）。
+  2. 服务端抓取超时太短：`fetchYouTubeServerTranscript` 的 CF Worker 18s + Vercel 45s = 63s，而产品文档 `study.mayTake` 写明首次加载 1–3 分钟（后端 uncached Whisper 生成）。前端在后端写入缓存前就放弃报错了 → 刷新走缓存才成功。
+- **修复**：
+  - `useCaptionRequest.ts`：`begin()` 内 `setFetchToast(null)`，新请求开始即清旧成功横幅。
+  - `youtubeTranscript.ts`：CF Worker 与 Vercel server API 的 `timeoutMs` 由 18000 / 45000 提到 **120000**（有界，依据 `mayTake` 1–3min；若 serverless 平台硬限更短，最坏情况仍需后端侧调优，已记录）。
+  - `FetchToast` 接口 `time: string` 改为 `seconds: number`（去掉中文 "0秒" 格式，由 `study.fetchElapsed` 模板本地化）。
+
+### 三、Bug 2 — 英文 UI 中文泄漏
+
+- **泄漏点**：`StudyPage.tsx` 硬编码 `加载中…` / `视频仍在准备中` / `来源：`，以及 `transcriptSourceLabel` 模块函数的中文字面量（AI 转录 (Whisper) / VPS 直连 / YouTube 官方字幕 / B 站官方字幕 / Source:）。
+- **修复**：全部改为 `t(...)` 键；`transcriptSourceLabel` 改为接收 `t` 作为首参并本地化所有分支；新增键 `study.sourceLabel / sourceWhisper / sourceVpsDirect / sourceYoutubeAuto / sourceYoutubeOfficial / sourceBiliOfficial / videoNotReady`、`common.close`。
+- **连带修正**：`transcriptSourceLabel` 对 `source:'youtube'`（普通官方字幕）此前走了 `sourceGeneric` fallback → "Source: youtube"，再叠加 toast 外层的 `sourceLabel`（"Source: "）造成**双重 Source:**。修正为 platform==='youtube' 且 source 为 `'youtube'`/undefined → `sourceYoutubeOfficial`；`'auto'`/`isAutoGenerated` → auto；`whisper|asr` → Whisper；`vps` → VPS direct；其余 generic。toast 渲染端去掉 `sourceLabel` 外层包裹，直接显示已本地化的 label。
+
+### 四、Regression + i18n 覆盖
+
+| 测试 | 类型 | 覆盖点 |
+|---|---|---|
+| `useCaptionRequest.test.ts` 新增 3 用例 | 单测 | `begin()` 清空旧成功横幅（不共存）；delayed-success（loading→success，loading 清除、无 error）；late-stale-failure 不能覆盖 success（isCurrent 守卫） |
+| `e2e/study-english-i18n.spec.ts` + `e2e-english-i18n-run.mjs` | E2E（standalone runner 规避 reporter safe-delete 崩溃） | en 环境下 Load 成功 → 断言页面**无中文**、toast 显示 "YouTube official subtitles" 而非 "Source: youtube" |
+
+### 五、验证结果（真实跑过）
+
+- `npx tsc -b` ✅（0 错误）
+- `npx vitest run` ✅ **300/300**（原 297 + 新增 3 regression；其中 `useCaptionRequest` 共 16 用例）
+- `node build-noempty.mjs`（emptyOutDir:false 绕过 sandbox 清 dist 拦截）✅ exit 0；`dist` 已备份 `/tmp/echolearn-dist-backup` 后重建
+- English i18n E2E ✅（PASS：无中文泄漏，toast 英文正确）
+
+### 六、未覆盖 / 遗留
+
+- `vite.config.js`（untracked，与 `vite.config.ts` 并存，JS 优先可能遮蔽 TS 配置）——本轮未动以免扩大范围，建议后续单独核对删除。
+- `vite.config.ts` 之外的运行时配置（CF Worker / VPS）未触及。
+- Batch 4（Media Synchronization）未启动。
+
+### 七、git 状态
+
+分支 `main`，本轮 bugfix + regression + 清理 `.js` **未 push**（用户明确要求仅本地 commit）。`TEST_REPORT.md` 本轮为追加，历史轮次保留。
+
+## 2026-08-23 第六轮：Study 失败恢复 E2E（Batch 3，5 场景全绿）
+
+> 路线优先级依据用户的 7 项测试路线图中 Batch 3（Study failure recovery）：
+> Retry + invalid URL + timeout + fallback + state recovery。这是当前最该先补的一层。
+
+### 新增文件
+
+- `e2e/study-failure-recovery.spec.ts`：Playwright test-runner 格式，5 个失败恢复场景（CI/ubuntu 可跑）。
+- `e2e-batch3-run.mjs`：Playwright Library API 独立 runner（绕过本机沙箱 safe-delete 对 output-dir 清理的崩溃，真实浏览器 + 真实 DOM，网络全 mock）。本地验证用这个；test-runner 版留给 CI。
+
+### 5 个场景（全部 PASS，2026-08-23 实跑）
+
+| # | 场景 | 验证点 | 关键 mock 手法 |
+|---|---|---|---|
+| 1 | Retry: 500 → 错误卡 → 重试 → 成功 | 所有策略（本地代理 / CF Worker / Vercel / InnerTube / 网页抓取 / npm）首次全 500，错误卡 + Retry 按钮出现；翻 phase 后重试成功渲染字幕 | `**/api/transcript**` 统一接管所有 host，`phase` 函数首轮 `fail` 次轮 `ok`；`youtube.com`/`youtubei` abort 让回退链快速耗尽 |
+| 2 | Save word 全链 + 删除 | 游客模式点词 → 词典弹窗 → 保存 → Words 页 `1 words` → 删除 → `0 words` | `/api/dictionary` mock + 真实保存/删除链路 |
+| 3 | Duplicate 保存 → 计数保持 1 | 已存词再次点开弹窗显示 `Already in vocab`（UI 层去重），计数不重复 | 同一 token 二次点击断言 dedup 文案 |
+| 4 | Invalid URL → 页面存活 → 有效 URL 恢复 | 提交非 URL 不崩溃、输入框仍可编辑；随后有效 URL 正常加载字幕 | 先填非法串（parseYouTubeId 返回 null 早返回），再 load 有效 URL |
+| 5 | Load + 刷新持久化 | 保存生词后 `reload`，游客态下 Words 计数仍为 1（localStorage 持久化） | `reload` 后重新点"Try without login"进 Words |
+
+### 测试过程中修正的断言陷阱（供后续 agent 复用）
+
+- **`getByText(text, {exact:true})` 大小写敏感**：mock 文案 `Good morning everyone` 的 token 是 `Good`，用小写 `good` + exact 永远匹配不到。改用 `getByText(/good/i)`（正则大小写不敏感）。
+- **整行文本被拆成逐词 `<span>`**：不能对整行 `getByText('Welcome to this lesson', {exact:true})`——每个词是独立 span。改用唯一标记词 `zebraxyz`（仅出现在 mock 载荷，不会与自动加载的示例视频字幕撞车）作为"mock 已渲染"的探针。
+- **Study 页 mount 会自动加载示例视频 `iG9CE55wbtY`**（无网络）：`loadYoutubeUrl` 必须在示例自动加载 settle 之后再发，否则示例会覆盖我们加载的 `dQw4w9WgXcQ`。`gotoStudy` 之后固定 `waitForTimeout(2000)` 让示例挂载完成。
+- **`transcript.wordSaved` 的 en 文案是 `Already in vocab`**（不是 `study.alreadySaved` 的 `Already in vocabulary`）——去重断言要匹配前者。
+- **策略链特性**：字幕只在全部 5 个策略都失败时才抛出错误；只要任一策略返回合法字幕就不报错。所以 Retry 测试必须让"所有 host 的字幕接口"首轮都失败。
+
+### 环境与限制
+
+- 本地用 `e2e-batch3-run.mjs`（Library API）实跑：真实 Chromium headless，端口 5173 dev server，网络全 mock。5/5 通过。
+- `e2e/study-failure-recovery.spec.ts` 用 test-runner 格式，留给 CI（ubuntu）。本机因 safe-delete 对 output-dir 清理崩溃无法本地跑，非代码问题。
+- `npm run lint` / `tsc -b` 通过。`vite build` 本机因 safe-delete 对 `dist/` 清理崩溃（同沙箱限制），Vercel 生产构建正常。
+
+### 测试全景（截至本轮）
+
+vitest 291/291（19 文件）· Playwright E2E 6/6（黄金路径 1 + 失败恢复 5）· CI 门禁（push/PR）· 拨测 5 项/每日 2 次
 
 ## 2026-08-23 第五轮：E2E 黄金路径 + CI 门禁（含两个真实 bug 修复）
 
@@ -148,10 +289,13 @@ npx vitest      # watch 模式
 
 ## 未覆盖区域（后续测试路线）
 
-- `youtubeTranscript.ts` 多级回退链（需 mock fetch，价值最高的下一层）
+- ~~`youtubeTranscript.ts` 多级回退链（需 mock fetch，价值最高的下一层）~~ → 第六轮已用 E2E 覆盖失败恢复路径（含全策略失败→Retry、invalid URL、刷新持久化）
 - `api/`、`cf-worker/`、`vps-ytdlp/` 后端逻辑
 - 页面组件（StudyPage 等，待拆分后再测）
-- E2E（Playwright，黄金路径 2–3 条）
+- ~~E2E（Playwright，黄金路径 2–3 条）~~ → 第六轮已有 6 条 E2E（1 黄金 + 5 失败恢复）
+- B 站短链 fallback（用户路线图中 Batch 3 后续项，尚未覆盖）
+- 原生视频同步（audio mode 与字幕行高亮对齐，Batch 4 范围）
+- 真实手机端 / 真实 provider 矩阵（Batch 5 范围）
 
 ## 给后续 agent 的注意事项
 

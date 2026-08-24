@@ -48,7 +48,7 @@ describe('useCaptionRequest — happy path', () => {
     expect(onSuccess).toHaveBeenCalledOnce();
     expect(hook.result.current.fetching).toBe(false);
     expect(hook.result.current.error).toBeNull();
-    expect(hook.result.current.fetchToast).toEqual({ count: 12, time: '0秒', source: 'Worker' });
+    expect(hook.result.current.fetchToast).toEqual({ count: 12, seconds: 0, source: 'Worker' });
   });
 
   it('fires no toast when onSuccess reports nothing (empty transcript)', async () => {
@@ -266,6 +266,26 @@ describe('useCaptionRequest — begin/fail manual flow (short-link resolution)',
   });
 });
 
+  it('begin() clears a stale success toast before loading a new video', async () => {
+    const hook = setup();
+
+    // First request succeeds → success toast stays visible.
+    act(() => {
+      hook.result.current.run(() => Promise.resolve('ok'), { onSuccess: () => ({ count: 5 }) });
+    });
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(0);
+    });
+    expect(hook.result.current.fetchToast?.count).toBe(5);
+
+    // A new load must wipe the old toast so it cannot sit beside the loading UI.
+    act(() => {
+      hook.result.current.begin();
+    });
+    expect(hook.result.current.fetching).toBe(true);
+    expect(hook.result.current.fetchToast).toBeNull();
+  });
+
 describe('useCaptionRequest — error and toast controls', () => {
   it('clearError and clearFetchToast reset their respective state', async () => {
     const hook = setup();
@@ -316,6 +336,76 @@ describe('useCaptionRequest — elapsed ticker', () => {
       await vi.advanceTimersByTimeAsync(0);
     });
     expect(hook.result.current.elapsed).toBe(0);
+    expect(hook.result.current.fetching).toBe(false);
+  });
+});
+
+// ── Regression: first-load race (Bug 1) ─────────────────────────────────────
+// On the first load of an uncached video the backend may take 1–3 minutes to
+// generate captions. The UI must stay in a consistent state: it must not show a
+// stale "loaded" toast beside the loading spinner, and a late failure from an
+// outdated request must never overwrite a successful result.
+
+describe('useCaptionRequest — first-load race (regression)', () => {
+  it('keeps loading state consistent while a slow request resolves (no stale toast)', async () => {
+    const hook = setup();
+    const d = deferred<{ lines: string[] }>();
+
+    act(() => {
+      hook.result.current.run(() => d.promise, { onSuccess: () => ({ count: 744 }) });
+    });
+    // Still pending → loading true, no toast yet.
+    expect(hook.result.current.fetching).toBe(true);
+    expect(hook.result.current.fetchToast).toBeNull();
+    expect(hook.result.current.error).toBeNull();
+
+    await act(async () => {
+      d.resolve({ lines: ['a', 'b'] });
+      await vi.advanceTimersByTimeAsync(0);
+    });
+
+    // Resolved: loading cleared, success toast present, no error.
+    expect(hook.result.current.fetching).toBe(false);
+    expect(hook.result.current.error).toBeNull();
+    expect(hook.result.current.fetchToast?.count).toBe(744);
+  });
+
+  it('does not let a slow stale request overwrite a newer success', async () => {
+    const hook = setup();
+    const slow = deferred<{ lines: string[] }>();
+    const fast = deferred<{ lines: string[] }>();
+
+    // Req A starts and is slow/never resolves yet.
+    act(() => {
+      hook.result.current.run(() => slow.promise, { onSuccess: () => ({ count: 1 }) });
+    });
+
+    // begin() is called for a new load (e.g. user re-triggers / next step),
+    // capturing a fresh id; the old request A is now stale.
+    act(() => {
+      hook.result.current.begin();
+    });
+    expect(hook.result.current.fetching).toBe(true);
+    expect(hook.result.current.fetchToast).toBeNull();
+
+    // Req B (the "current" one) resolves successfully.
+    act(() => {
+      hook.result.current.run(() => fast.promise, { onSuccess: () => ({ count: 99 }) });
+    });
+    await act(async () => {
+      fast.resolve({ lines: ['x'] });
+      await vi.advanceTimersByTimeAsync(0);
+    });
+    expect(hook.result.current.fetchToast?.count).toBe(99);
+    expect(hook.result.current.error).toBeNull();
+
+    // Req A finally rejects (late). It is stale → must NOT overwrite success.
+    await act(async () => {
+      slow.reject(new Error('timeout'));
+      await vi.advanceTimersByTimeAsync(0);
+    });
+    expect(hook.result.current.fetchToast?.count).toBe(99);
+    expect(hook.result.current.error).toBeNull();
     expect(hook.result.current.fetching).toBe(false);
   });
 });

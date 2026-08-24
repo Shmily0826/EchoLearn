@@ -33,7 +33,8 @@ export interface CaptionSuccessReport {
 
 export interface FetchToast {
   count: number;
-  time: string;
+  /** Elapsed wait in whole seconds (formatted by the caller for i18n). */
+  seconds: number;
   source: string | null;
 }
 
@@ -70,11 +71,10 @@ export function useCaptionRequest() {
 
   const notifyFetchSuccess = useCallback((count: number, source: string | null = null) => {
     const totalSec = Math.max(0, Math.round((Date.now() - startRef.current) / 1000));
-    const mins = Math.floor(totalSec / 60);
-    const secs = totalSec % 60;
-    const timeStr = mins > 0 ? `${mins}分${secs}秒` : `${secs}秒`;
     // Persistent toast: user closes it via the ✕ button (no auto-dismiss).
-    setFetchToast({ count, time: timeStr, source });
+    // We store the elapsed seconds as a number and let the component localize
+    // the duration string, so the English UI never shows "分/秒".
+    setFetchToast({ count, seconds: totalSec, source });
   }, []);
 
   // Live "elapsed wait" ticker: start when a fetch begins, stop + reset when
@@ -106,6 +106,11 @@ export function useCaptionRequest() {
     startRef.current = Date.now();
     resultRef.current = null;
     sourceRef.current = null;
+    // Clear any lingering success banner from a previous (different) video so a
+    // stale "Subtitles loaded" toast can never sit alongside a new fetch's
+    // spinner / loading button. This is the directly-observed inconsistency:
+    // fresh load → old toast remains → button shows "loading" + old banner.
+    setFetchToast(null);
     setFetching(true);
     setError(null);
     return { id: idRef.current };

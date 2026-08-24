@@ -217,6 +217,13 @@ const translations: Record<string, Record<Lang, string>> = {
   'study.videoNotReady':    { en: 'The video is still preparing, please try again shortly.', zh: '视频还没有准备完成，请稍后再试。' },
   'study.captionNoneTitle': { en: 'This video has no subtitles', zh: '该视频没有字幕' },
   'study.captionNoneReason': { en: 'The creator may not have added captions, or only auto-generated captions exist that we could not retrieve. You can upload an SRT/VTT file.', zh: '视频作者可能未添加字幕，或只有我们暂时无法获取的自动字幕。你可以手动上传 SRT/VTT 字幕文件。' },
+  'study.sourceLabel':     { en: 'Source: {source}', zh: '来源：{source}' },
+  'study.sourceYoutubeOfficial': { en: 'YouTube official subtitles', zh: 'YouTube 官方字幕' },
+  'study.sourceYoutubeAuto': { en: 'YouTube auto-generated subtitles', zh: 'YouTube 自动字幕' },
+  'study.sourceVpsDirect':  { en: 'VPS direct', zh: 'VPS 直连' },
+  'study.sourceWhisper':    { en: 'AI transcription (Whisper)', zh: 'AI 转录 (Whisper)' },
+  'study.sourceBiliOfficial': { en: 'Bilibili official subtitles', zh: 'B站官方字幕' },
+  'study.sourceGeneric':    { en: 'Source: {source}', zh: '来源：{source}' },
   'study.captionErrorDetails': { en: 'Technical details', zh: '技术详情' },
   'study.noVideo':       { en: 'No video loaded yet.', zh: '尚未加载视频。' },
   'study.loadToStart':   { en: 'Load a YouTube video to get started.', zh: '加载一个 YouTube 视频开始学习。' },
@@ -513,6 +520,7 @@ const translations: Record<string, Record<Lang, string>> = {
   'common.words':        { en: 'Words', zh: '词汇' },
   'common.sentences':    { en: 'Sentences', zh: '句子' },
   'common.loading':      { en: 'Loading...', zh: '加载中...' },
+  'common.close':        { en: 'Close', zh: '关闭' },
 };
 
 export function t(key: string, lang: Lang, vars?: Record<string, string | number>): string {
