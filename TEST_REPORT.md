@@ -660,3 +660,47 @@ There are no Firestore emulator or real-provider lifecycle results in this round
 ### Batch 7 final classification
 
 **BATCH 7 COMPLETE.** Real production Google OAuth, email signup/verification, verified-token refresh, Firestore persistence, logout cleanup, A→B isolation, B→A restore/isolation, and marker cleanup passed in the dedicated isolated Chrome/CDP environment. Firebase Emulator remains future infrastructure, not a release blocker.
+
+## Batch 8A — Email Verification Branding & Unverified Account Lifecycle — 2026-08-25
+
+### Scope and external configuration result
+
+- Baseline was `893968d` on `main`; no production data, project ID/number, OAuth client, secret, DNS record, or Firestore model was changed.
+- Existing production evidence showed the default verification email branding as `project-820664709629` and a Firebase-hosted action-link domain. The intended branding target is the Firebase public-facing project/product name used by Authentication email templates; this must be changed in Firebase Console without renaming the project ID or number.
+- Firebase Console inspection was attempted in the dedicated QA browser, but the signed-in identity received “the project does not exist, or you do not have permission to list the project’s apps” for `echolearn-9f369`. No Console setting was changed. A project-owner/admin takeover is required to apply and verify the branding change.
+- `auth.echo-learn.uk` is already the application’s configured Auth domain for runtime Auth flows. Whether it is selectable as the verification email action-link domain was not confirmed because the Console was inaccessible; no DNS or OAuth change was attempted.
+- No verification URL, `oobCode`, credential, token, cookie, or secret was recorded.
+
+### Unverified-account policy from current implementation
+
+| Capability | Unverified email account |
+|---|---|
+| Create account / login / resend verification | Allowed |
+| Local vocabulary, sentences, study sessions, refresh persistence | Allowed |
+| Auth-boundary cloud pull/push and Settings auto-sync | Denied until `emailVerified` is true |
+| Settings “Sync Now” / “Upload Local” | Disabled until verified |
+| Feedback | Disabled in UI and denied by Firestore rules |
+| Logout / later login | Allowed |
+| After verification | AuthContext force-refreshes the ID token, then starts cloud sync |
+
+`firestore.rules` enforces verified email for `users/{uid}/data/*` and `feedback/*`. The existing `aiAnalyses/*` rule permits authenticated writes without an email-verification check; it was left unchanged because tightening that policy requires an explicit product/security decision.
+
+### Bug found and fixed
+
+- **Symptom:** an unverified user entering Settings triggered `syncWithCloud`, which failed with the expected `auth/email-not-verified` guard. Settings displayed a sync failure even though the user had not requested cloud sync, making the lifecycle appear broken or silently ineffective.
+- **Root cause:** Settings auto-sync checked only `user?.uid`, unlike the verified-user guard used by the sync service and AuthContext.
+- **Fix:** `shouldAutoSyncUser` now requires both a non-empty UID and `emailVerified`; the Settings effect also reacts to verification-state changes. Existing cloud/local data behavior and the independent `definitionEn` / `meaningCn` model were not changed.
+- **Regression coverage:** added a focused test covering null/missing UID, unverified users, and verified users.
+
+### Validation
+
+- Vitest: `25` files / `328` tests PASS.
+- TypeScript: `npx tsc -b` PASS.
+- Lint: `npm run lint` PASS with `0` errors and `13` pre-existing hook/dependency warnings.
+- Production build: `npm run build` PASS; Vite/PWA output generated successfully, with existing chunk-size warnings only.
+- `git diff --check` PASS apart from normal Windows LF/CRLF warnings.
+- No new production unverified-account lifecycle was run in this round because the branding Console permission blocker prevented a controlled new verification-email check. The already completed Batch 7 verified Account A/B evidence remains unchanged.
+
+### Batch 8A classification
+
+**PARTIAL — CODE FIX COMPLETE; FIREBASE BRANDING AND NEW UNVERIFIED PRODUCTION EMAIL CHECK BLOCKED BY CONSOLE ACCESS.** The local lifecycle guard and regression test are complete. Remaining external work is owner/admin Console access to update and verify the public-facing email branding, confirm the action-link domain choice, and rerun a disposable unverified-account lifecycle without exposing credentials or verification artifacts.

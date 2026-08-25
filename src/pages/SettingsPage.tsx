@@ -34,6 +34,7 @@ import {
   exportSentencesCSV,
   exportAllDataJSON,
 } from '../services/exportService';
+import { shouldAutoSyncUser } from '../utils/authPolicy';
 
 // ── Local data size helper ────────────────────────────────────
 
@@ -113,7 +114,7 @@ const SettingsPage: React.FC<{ onLoginRequest?: () => void }> = ({ onLoginReques
     });
 
     // Auto-sync with cloud on mount (if user is logged in)
-    if (user?.uid) {
+    if (user && shouldAutoSyncUser(user)) {
       // This external sync begins after mount; show its progress immediately.
       // eslint-disable-next-line react-hooks/set-state-in-effect
       setFbSyncAction('syncing');
@@ -133,7 +134,7 @@ const SettingsPage: React.FC<{ onLoginRequest?: () => void }> = ({ onLoginReques
         setFbSyncMessage({ type: 'error', text: err instanceof Error ? err.message : 'Auto-sync error.' });
       });
     }
-  }, [user?.uid]);
+  }, [user?.uid, user?.emailVerified]);
 
   // ── Firebase sync now ─────────────────────────────────────
   const handleSyncNow = useCallback(async () => {
