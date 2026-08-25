@@ -496,3 +496,60 @@ npx vitest      # watch 模式
 - Isolated golden path after the fix: **10/10 passed** (`--repeat-each=10`).
 - Full local Playwright suite after the fix: **11/11 passed ×3** (`RESULTS=0,0,0`).
 - An intermediate full run correctly exposed and was fixed in the helper: the media specs' language selection triggered the tour, and the reload persistence case was on `/study`; neither required a product change.
+
+## Batch 6 Android Emulator / PWA validation — 2026-08-25
+
+### Release and production smoke
+
+- Authorized commits `66f242f` and `8048d0d` were pushed; `origin/main` now points to `8048d0d`.
+- Production homepage sanity: **HTTP 200**, `Server: Vercel`, production alias `https://echo-learn.uk/`.
+- Production lightweight smoke: Home → Try without login → Study passed. No provider matrix was repeated because this push contained documentation/E2E changes only.
+- The unauthenticated response exposed Vercel request ID `syd1::q7sp9-1787621339104-ca872b7fa2ed`; a deployment ID was not exposed by the available local CLI/HTTP interface.
+
+### Existing physical-device evidence preserved
+
+The Xiaomi 2410DPN6CC evidence remains authoritative and is not relabeled:
+
+- **PHYSICAL DEVICE — PASS:** Home, Study, Words, Dashboard, Sentences, no horizontal overflow.
+- **PHYSICAL DEVICE — PASS:** Audio mode, real playback progression, pause, forward seek, backward seek.
+- **PHYSICAL DEVICE — PASS:** Chrome background/foreground and lock/unlock with Study/audio state preserved.
+- **PHYSICAL DEVICE — PASS WITH LIMITATION:** orientation; the earlier command did not actually rotate the viewport.
+
+### Emulator environment
+
+- **ANDROID EMULATOR:** AVD `Medium_Phone`, Google APIs Play Store image, Android 17 / API 37, `sdk_gphone16k_x86_64`, 1080×2400 physical display, density 420, adb serial `emulator-5554`.
+- Chrome: `151.0.7922.137`, package `com.android.chrome`.
+- The emulator booted successfully without downloading a new system image or changing system permissions.
+
+### Android browser results
+
+- **ANDROID EMULATOR — PASS:** Production Home → Guest → Study. First-visit language chooser and tour were completed normally.
+- **ANDROID EMULATOR — PASS:** Portrait URL input focused; Android software keyboard opened (`mInputShown=true`), input and Load Video remained visible, and the page content resized without a permanent layout break. Keyboard close restored the layout.
+- **ANDROID EMULATOR — PASS WITH LIMITATION:** Android Enter/Go was exercised with the known YouTube URL; the field accepted the text, but the result was not used as a provider-success assertion because this was a live production request and the emulator keyboard path did not provide a stable automation-readable completion signal.
+- **ANDROID EMULATOR — PASS:** Study sample loaded official YouTube subtitles (61 lines), 1.0× → 1.5× selected without transcript reload/reset, and the active transcript remained present.
+- **ANDROID EMULATOR — PASS:** Real portrait → landscape → portrait rotation changed the viewport to 2400×1080. Player and transcript remained usable with no observed horizontal overflow or duplicate video; portrait was restored.
+
+### PWA results
+
+- **ANDROID EMULATOR — PASS:** Chrome offered “Install and create shortcut”; installed app name was `EchoLearn — YouTube English Learning`, and the launcher shortcut was created. Manifest/service-worker-backed install was therefore available in this environment.
+- **ANDROID EMULATOR — PASS:** Launcher shortcut opened `com.android.chrome/org.chromium.chrome.browser.webapps.WebappActivity`; the URL bar was absent and the standalone PWA loaded successfully.
+- **ANDROID EMULATOR — PASS:** Standalone PWA Guest → Study loaded the current sample transcript, retained the 1.5× state, and Audio mode exposed play/pause and rate controls.
+- **ANDROID EMULATOR — PASS:** Saved distinctive guest word `strangers`; Words showed `1 words`. After force-stop/reopen through the launcher shortcut, guest mode was re-entered and Words still showed `1 words`. This confirms local vocabulary persistence while guest auth reset was accepted.
+- **ANDROID EMULATOR — PASS:** PWA Study → Home → 8 seconds → Recents showed the Web App task with the Study/player/transcript state intact; foreground restoration succeeded.
+- **ANDROID EMULATOR — PASS WITH PHYSICAL CONFIRMATION PENDING:** PWA Study → lock 8 seconds → unlock returned to usable WebappActivity with Study, transcript, selected rate, and controls intact. Emulator evidence does not reproduce Xiaomi/HyperOS process and battery behavior.
+- **ANDROID EMULATOR — PASS:** Current strings, subtitle source display, service worker, and reload/relaunch behavior showed no stale pre-fix “no subtitles” state or blank app. No cache was forcibly cleared.
+
+### Physical confirmation pending
+
+Only a small later Xiaomi confirmation remains:
+
+1. Keyboard viewport and Enter/Go behavior.
+2. Real portrait ↔ landscape rotation.
+3. Guest save → reload/close/reopen persistence.
+4. PWA install/open.
+5. PWA background → foreground.
+6. PWA lock/unlock.
+
+### Batch 6 classification
+
+**COMPLETE WITH PHYSICAL CONFIRMATION PENDING.** No emulator/product bug was found and no product source changes were required in this closure round.
