@@ -74,11 +74,19 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   // required before local data reaches the account.
   useEffect(() => {
     if (!user?.uid || !user.emailVerified) return;
-    syncWithCloud(user.uid).then((result) => {
-      if (!result.ok) console.error('[Auth] post-login sync failed:', result.error);
+    let cancelled = false;
+    // Email verification can happen in another tab. Firebase may update the
+    // User object before the cached ID token receives the email_verified claim
+    // required by Firestore rules, so refresh the token before syncing.
+    user.getIdToken(true).then(() => {
+      if (cancelled) return;
+      return syncWithCloud(user.uid).then((result) => {
+        if (!result.ok) console.error('[Auth] post-login sync failed:', result.error);
+      });
     }).catch((error) => {
-      console.error('[Auth] post-login sync error:', error);
+      console.error('[Auth] auth token refresh/sync error:', error);
     });
+    return () => { cancelled = true; };
   }, [user?.uid, user?.emailVerified]);
 
   const signInWithGoogle = useCallback(async () => {

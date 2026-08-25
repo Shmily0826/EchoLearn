@@ -4,7 +4,7 @@ import { render, screen } from '@testing-library/react';
 import { AuthProvider, useAuth } from '../AuthContext';
 
 const mocks = vi.hoisted(() => ({
-  auth: { currentUser: { uid: 'user-a', emailVerified: true } as { uid: string; emailVerified: boolean } | null },
+  auth: { currentUser: { uid: 'user-a', emailVerified: true, getIdToken: vi.fn() } as { uid: string; emailVerified: boolean; getIdToken: ReturnType<typeof vi.fn> } | null },
   onAuthStateChanged: vi.fn(),
   signOut: vi.fn(),
   syncWithCloud: vi.fn(),
@@ -39,7 +39,7 @@ describe('AuthProvider account boundary', () => {
   beforeEach(() => {
     vi.clearAllMocks();
     localStorage.clear();
-    mocks.auth.currentUser = { uid: 'user-a', emailVerified: true };
+    mocks.auth.currentUser = { uid: 'user-a', emailVerified: true, getIdToken: vi.fn().mockResolvedValue('fresh-token') };
     mocks.signOut.mockImplementation(async () => {
       mocks.auth.currentUser = null;
     });
@@ -76,5 +76,20 @@ describe('AuthProvider account boundary', () => {
     );
 
     await vi.waitFor(() => expect(mocks.syncWithCloud).toHaveBeenCalledWith('user-a'));
+    expect(mocks.auth.currentUser?.getIdToken).toHaveBeenCalledWith(true);
+  });
+
+  it('does not start cloud merge when the verified token refresh fails', async () => {
+    const getIdToken = vi.fn().mockRejectedValue(new Error('token refresh failed'));
+    mocks.auth.currentUser = { uid: 'user-a', emailVerified: true, getIdToken };
+
+    render(
+      <AuthProvider>
+        <div>ready</div>
+      </AuthProvider>,
+    );
+
+    await vi.waitFor(() => expect(getIdToken).toHaveBeenCalledWith(true));
+    expect(mocks.syncWithCloud).not.toHaveBeenCalled();
   });
 });

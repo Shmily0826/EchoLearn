@@ -611,3 +611,35 @@ There are no Firestore emulator or real-provider lifecycle results in this round
 - **Production shell health:** `echo-learn.uk`, `app.echo-learn.uk` (redirected to `echo-learn.uk`), and `echolearn-sepia.vercel.app` each returned HTTP 200. No production data was modified.
 - **Production Auth/Firestore smoke:** not executed. No dedicated safe test identity, mailbox, second account, or existing authenticated production browser session was available; no personal account was used and no production data was fabricated. Guest/PWA production evidence remains covered by the earlier Batch 6 report.
 - **Final external gap:** real Guest→Google/email login, Firestore pull/push, refresh, logout, and Account A→B smoke evidence still require a safe dedicated test environment or user-provided authenticated session. Deterministic mock coverage remains the authoritative validation for those failure/isolation paths.
+
+### Batch 7 Production Auth/Firestore Lifecycle Validation — 2026-08-25
+
+- **Isolated browser:** standalone Google Chrome at `C:\Program Files\Google\Chrome\Application\chrome.exe`, launched with a brand-new temporary QA profile under `%TEMP%\EchoLearn-B7-QA-20260825-1544c`, localhost-only CDP on `127.0.0.1:9224`, and Sync disabled. The normal Chrome profile was not reused or terminated.
+- **Production revision:** lifecycle testing used the deployed revision corresponding to `677bd5d65656ea432b699f907e29f1f20ea99b48`; production homepage health remained HTTP 200.
+- **Guest baseline:** fresh QA profile entered Guest with `0 Saved Words`, `0 Saved Sentences`, and `0 Study Sessions`. Normal Vocabulary UI created `ECHO_B7_GUEST_A_20260825`; it survived page refresh after re-entering Guest.
+- **Google Account A — PASS:** OAuth popup created and navigated to Google in the standalone browser. Guest marker was visible after authentication, proving Guest→A local merge. `ECHO_B7_ACCOUNT_A_ONLY_20260825` was added through the normal Vocabulary UI and survived refresh. Settings showed `Last sync: Just now`; sanitized Firestore Listen/Write channel responses returned HTTP 200.
+- **Logout A — PASS:** normal Sign Out returned to logged-out state. Re-entered Guest showed `0 words`; both Guest and Account A markers were absent, confirming device-scoped cleanup.
+- **Email Account B — partial:** normal email signup returned HTTP 200 from Firebase Identity Toolkit; the manual verification checkpoint was completed. After reload, UI showed `Email verified`, but the first authenticated sync reported `vocabulary`, `sentences`, and `sessions`: `Missing or insufficient permissions.`
+- **A→B isolation — PASS for observed visibility:** Account A marker was not visible under B, and B started with zero local vocabulary. B cloud persistence could not be accepted because the initial post-verification sync was rejected by Firestore rules.
+- **B persistence / B→A restore:** not completed against the deployed revision because the discovered verification-token bug must be deployed before continuing without producing misleading persistence evidence.
+
+### Production bug found and local fix
+
+- **Symptom:** after Test Account B completed email verification, EchoLearn displayed `Email verified`, but the Auth boundary sync immediately received Firestore permission-denied results for all three collections.
+- **Root cause:** Firebase updated the in-memory `User.emailVerified` state, while the cached ID token used by Firestore still lacked the `email_verified` claim required by `firestore.rules`. `AuthContext` started `syncWithCloud` without forcing an ID-token refresh.
+- **Fix:** `AuthContext` now calls `user.getIdToken(true)` before the verified-user cloud sync and logs a meaningful refresh/sync failure. Sync is not started if token refresh fails.
+- **Regression coverage:** AuthContext tests now cover both successful forced token refresh before sync and the failure path where sync is not started after refresh rejection.
+- **Files changed locally:** `src/contexts/AuthContext.tsx`, `src/contexts/__tests__/AuthContext.test.tsx`.
+- **Deployment boundary:** the fix is local only and was not pushed or deployed, so the remaining Account B lifecycle steps are intentionally pending.
+
+### Sanitized runtime evidence
+
+- Google popup target creation and callback navigation were visible through CDP in the standalone browser; no credentials, cookies, authorization codes, or tokens were recorded.
+- Firebase Auth account lookup and Firestore Listen/Write requests were observed. Account A Firestore channels returned HTTP 200. Account B verification requests succeeded, followed by Firestore permission-denied results.
+- An unrelated existing `proxy.echo-learn.uk/health` CORS failure was observed; it did not block Google Auth or explain the Account B Firestore permission failure.
+- The earlier Codex built-in Browser OAuth white-popup result remains classified as `CODEX BROWSER ENVIRONMENT LIMITATION`, separate from this production email-verification token-refresh bug.
+
+### QA cleanup and remaining lifecycle gap
+
+- QA markers and the dedicated QA browser profile were retained temporarily to preserve evidence for the local fix and follow-up deployment validation. No unrelated production records were deleted.
+- Required next step is deploy-authorized validation of the local token-refresh fix, then B-only persistence, B logout, Account A re-login, B→A isolation, conflict/update smoke, marker cleanup, and final Batch 7 classification.
