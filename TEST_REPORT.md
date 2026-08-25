@@ -744,3 +744,18 @@ There are no Firestore emulator or real-provider lifecycle results in this round
 #### Batch 8A updated classification
 
 **READY FOR PUSH WITH DOCUMENTED EXTERNAL FOLLOW-UP.** The Firebase/OAuth user-facing email branding now passes on a newly generated email, the verified transition and cloud-sync unlock pass, and the Settings fix remains green locally. OAuth domain ownership verification and the separate `aiAnalyses` policy are documented follow-up decisions; neither was changed in this round. Local creation/persistence markers were not newly exercised and remain a known validation gap.
+
+### Batch 8A final production closure — 2026-08-26
+
+- **Release:** commits `4e1c6f1` and `832c3d4` were pushed to `origin/main`. Vercel deployment `dpl_55YNsioYS6hYwb6Ewar3jWmwgvz1` reached READY with Git SHA `832c3d4d67759751f87b7e8a634b06a3c3373565`. The production aliases `echo-learn.uk`, `app.echo-learn.uk`, and `echolearn-sepia.vercel.app` each returned HTTP 200.
+- **QA reset:** the exact disposable Auth user was rechecked by project, email, and UID in Firebase Console, then deleted after confirmation. The Auth UID and email disappeared from Authentication → Users. The empty QA documents at `users/{uid}/data/vocabulary`, `sentences`, and `sessions` were confirmed to contain no learning items and were deleted. No other Auth user, Firestore UID, project setting, or main Chrome lifecycle state was changed.
+- **New unverified signup — PASS:** the same dedicated QA email created a new Auth UID and the production Settings page showed `Email not verified`. Sync Now and Upload Local were disabled; Feedback was blocked with the verification explanation. A sanitized Settings network capture showed Identity Toolkit success but no Firestore Listen/Write requests.
+- **Local pre-verification learning — PASS:** `creativity` was added through the normal Study UI, appeared as one Vocabulary item, survived navigation/refresh, and remained local. No Firestore request was observed during the local mutation.
+- **Resend verification — PASS:** the normal Resend verification action completed and the UI displayed `Verification email sent. Check your inbox.`
+- **Verified transition — PASS:** after the user manually verified the email, a fresh production Settings load showed `Email verified`, `Last sync: Just now`, and enabled Sync Now/Upload Local. Sanitized runtime evidence recorded `securetoken` HTTP 200, Firestore Listen HTTP 200, and Firestore Write HTTP 200 responses. The local vocabulary count remained 1 and the prior permission-denied failure did not recur.
+- **Logout cleanup — PASS:** normal Sign Out returned to the logged-out Settings screen. Opening Vocabulary while logged out returned to the Guest/sign-in state and did not display the QA word, confirming device-scoped cleanup at the logout boundary.
+- **Sensitive-data boundary:** no password, verification URL, oobCode, API key, token, cookie, or credential was recorded in this report.
+
+### Batch 8A final classification
+
+**BATCH 8A COMPLETE.** Code fix, email branding, unverified local-only behavior, resend flow, manual verification transition, forced token refresh, Firestore sync unlock, refresh persistence, logout cleanup, and QA data cleanup passed. OAuth domain ownership verification and the `aiAnalyses` verification-policy decision remain explicitly deferred and were not changed.
