@@ -601,3 +601,13 @@ There are no Firestore emulator or real-provider lifecycle results in this round
 ### Batch 7 classification
 
 **BATCH 7 COMPLETE WITH EXTERNAL AUTH CONFIRMATION PENDING.** Deterministic lifecycle and isolation coverage is green; real Google OAuth and email verification delivery still require a safe dedicated external test path.
+
+### Batch 7 release closure — 2026-08-25
+
+- **Git recovery:** no stale `.git/index.lock` and no active Git process existed. Read-only ACL/process checks showed the sandbox execution identity was denied write access to `.git` metadata; the repository and working tree were otherwise healthy. No ACL, ownership, lock-file, reset, or cleanup operation was performed. A single narrowly scoped escalated Git operation successfully created commit `120b081`.
+- **Release:** `120b081 fix: harden auth firestore lifecycle` was pushed from `main`; `origin/main` now points to `120b0819791e9a0c519a4132a7716665697c2934`. The preserved `codex/android-report-20260825` branch remains unchanged at `8a607c6`.
+- **Automated post-commit validation:** Vitest 24 files / 325 tests PASS; `npx tsc -b` PASS; lint 0 errors with 12 existing warnings; build PASS; `git diff --check` PASS.
+- **Deployment:** Vercel deployment `dpl_BperZ1hDpumo7prH9qMeZhThvGJr` reached READY. Its Git SHA is exactly `120b0819791e9a0c519a4132a7716665697c2934`. Aliases included `echo-learn.uk`, `app.echo-learn.uk`, `echolearn-sepia.vercel.app`, and the main branch alias.
+- **Production shell health:** `echo-learn.uk`, `app.echo-learn.uk` (redirected to `echo-learn.uk`), and `echolearn-sepia.vercel.app` each returned HTTP 200. No production data was modified.
+- **Production Auth/Firestore smoke:** not executed. No dedicated safe test identity, mailbox, second account, or existing authenticated production browser session was available; no personal account was used and no production data was fabricated. Guest/PWA production evidence remains covered by the earlier Batch 6 report.
+- **Final external gap:** real Guest→Google/email login, Firestore pull/push, refresh, logout, and Account A→B smoke evidence still require a safe dedicated test environment or user-provided authenticated session. Deterministic mock coverage remains the authoritative validation for those failure/isolation paths.
