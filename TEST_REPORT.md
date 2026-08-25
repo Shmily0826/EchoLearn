@@ -643,3 +643,20 @@ There are no Firestore emulator or real-provider lifecycle results in this round
 
 - QA markers and the dedicated QA browser profile were retained temporarily to preserve evidence for the local fix and follow-up deployment validation. No unrelated production records were deleted.
 - Required next step is deploy-authorized validation of the local token-refresh fix, then B-only persistence, B logout, Account A re-login, B→A isolation, conflict/update smoke, marker cleanup, and final Batch 7 classification.
+
+### Batch 7 final production closure — 2026-08-25
+
+- **Release:** `56f7c98` was pushed to `origin/main` and deployed as Vercel `dpl_FrvJw1LnqRrPDnkDiKqHVNSjgHiG` with READY status. The deployment SHA matched `56f7c9817cd5923ce0ed6fa0573c56dc875536a7`. `echo-learn.uk`, `app.echo-learn.uk`, and `echolearn-sepia.vercel.app` each returned HTTP 200.
+- **Account B regression — PASS:** after loading the new bundle in the retained isolated QA profile, verified Account B showed `Last sync: Just now` with no permission error. Sanitized runtime evidence included `securetoken.googleapis.com/v1/token` HTTP 200 and Firestore Listen/Write channels HTTP 200. The previous `Missing or insufficient permissions` failure did not recur.
+- **B persistence — PASS:** `ECHO_B7_ACCOUNT_B_ONLY_20260825` was created through the normal Vocabulary UI, remained visible after refresh, and was confirmed absent from Account A.
+- **A→B isolation — PASS:** Account A marker was absent while B was authenticated; B began with zero local words after the account switch.
+- **Logout B — PASS:** normal logout cleared B's device-scoped learning state. Re-entered Guest showed no A or B marker.
+- **Account A restore — PASS:** Google Account A was selected in the standalone OAuth popup without a new credential entry. Account A cloud restore returned the A-only marker; the B-only marker remained absent. The A marker survived refresh.
+- **B→A isolation — PASS:** the B-only marker did not appear after Account A restore.
+- **Conflict/update smoke:** a production mark-mastered update was attempted on the A marker but the browser action did not produce a stable completion signal, so no production conflict claim is made. UpdatedAt and stale-cloud conflict behavior remain covered by deterministic tests only.
+- **QA cleanup — PASS:** A-only, Guest, and B-only markers were deleted through normal Vocabulary UI. Refresh confirmed zero words; after final B logout, Guest Dashboard showed `0 Saved Words`, `0 Saved Sentences`, and `0 Study Sessions`. The temporary isolated QA profile remains available for evidence and was not deleted.
+- **Known non-blocking runtime noise:** `proxy.echo-learn.uk/health` continued to report the documented CORS failure; it did not block Auth or Firestore lifecycle validation. No new Auth/Firestore defect was found after the token-refresh fix.
+
+### Batch 7 final classification
+
+**BATCH 7 COMPLETE.** Real production Google OAuth, email signup/verification, verified-token refresh, Firestore persistence, logout cleanup, A→B isolation, B→A restore/isolation, and marker cleanup passed in the dedicated isolated Chrome/CDP environment. Firebase Emulator remains future infrastructure, not a release blocker.
