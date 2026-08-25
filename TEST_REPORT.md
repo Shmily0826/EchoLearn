@@ -704,3 +704,43 @@ There are no Firestore emulator or real-provider lifecycle results in this round
 ### Batch 8A classification
 
 **PARTIAL — CODE FIX COMPLETE; FIREBASE BRANDING AND NEW UNVERIFIED PRODUCTION EMAIL CHECK BLOCKED BY CONSOLE ACCESS.** The local lifecycle guard and regression test are complete. Remaining external work is owner/admin Console access to update and verify the public-facing email branding, confirm the action-link domain choice, and rerun a disposable unverified-account lifecycle without exposing credentials or verification artifacts.
+
+### Batch 8A follow-up — branding and disposable Email QA closure evidence — 2026-08-25
+
+- **Firebase branding:** the user manually confirmed the Firebase public-facing project name as `EchoLearn`. The Firebase project ID, project number, Firebase app IDs, OAuth client IDs, Firestore IDs, Auth domain, and rules were not changed. The email template copy was intentionally left at the existing wording.
+- **Actual `%APP_NAME%` source:** Playwright inspection of Google Auth Platform → Branding found the OAuth application name still set to `project-820664709629`; Firebase’s default `%APP_NAME%` therefore resolved to the project number even though the Firebase project name was `EchoLearn`. The user manually changed the OAuth application name to `EchoLearn`, and the Google Cloud page showed “brand changes saved.”
+- **OAuth brand verification:** Google’s validation panel reports that `https://echo-learn.uk` is not registered as a domain owned by the current account. This blocks public OAuth consent-screen brand verification/display, but does not undo the saved application name. Domain ownership verification was not attempted in this round.
+- **New verification email — PASS:** after the OAuth application-name change, the disposable QA account received a new email with subject `Verify your email for EchoLearn` and body/footer `Your EchoLearn team`. The old `project-820664709629` branding was absent. The action-link domain remained the Firebase-hosted domain `echolearn-9f369.firebaseapp.com`; no custom-domain change was attempted.
+- **Sensitive-data boundary:** no password, verification URL, oobCode, API key, token, cookie, or credential was recorded in this report.
+
+#### Disposable Email QA lifecycle
+
+- The prior QA Email/Password Auth user was confirmed in the isolated browser as `Test2`, with UID `iZjkHYNCVgQfLEgjijlan4q48xC3`, verified status, and zero Vocabulary, Sentence, and Study Session records. It was deleted through Firebase Console only after exact email/UID confirmation. The email address was not deleted; no other Auth user or Firestore data was touched.
+- Re-registration with the same QA email created a new UID and initially showed `Email not verified`. The isolated QA browser displayed the verification warning, disabled Sync Now and Upload Local, and blocked Feedback with an explanatory verification message.
+- The first resend attempt showed the existing product failure message; a subsequent normal UI resend returned HTTP 200 from Firebase `accounts:sendOobCode` and displayed “Verification email sent.” No root-cause claim is made for the transient first failure.
+- **Verification transition — PASS:** after manual email verification, the isolated browser showed `Email verified` after reload, Sync Now and Upload Local became enabled, `securetoken.googleapis.com/v1/token` returned HTTP 200, Firestore Listen/Write channels returned HTTP 200, and Settings showed `Last sync: Just now`. The previous `Missing or insufficient permissions` failure did not recur.
+- Local Vocabulary/Sentence/Study creation was not completed in this follow-up; the QA account remained at zero records throughout, so no local persistence claim is made for those creation paths. The earlier production lifecycle and deterministic local coverage remain documented in Batch 6/7.
+
+#### Policy matrix from code, rules, and observed QA UI
+
+| Capability | Unverified Email | Verified Email |
+|---|---|---|
+| Login / account session | Allowed | Allowed |
+| Local Vocabulary / Sentences / Study Sessions | Intended to remain local; no new marker created in this round | Available |
+| Local refresh persistence | Covered by existing local-storage architecture/tests; not newly exercised with a marker here | Available |
+| Personal Firestore sync | Denied by client guard and rules | Enabled after ID-token refresh |
+| Manual Sync / Upload | Disabled in QA UI | Enabled in QA UI |
+| Feedback | Blocked in UI and rules | Available |
+| Resend verification | Available; one transient failure then HTTP 200 success | Not applicable |
+| Logout / login | Allowed | Allowed |
+| Post-verification transition | N/A | Verified; token refresh and cloud sync succeeded |
+
+#### Remaining policy and environment decisions
+
+- `aiAnalyses/{docId}` still permits authenticated writes without `email_verified == true`, unlike personal user data and feedback. This remains a documented **PRODUCT/SECURITY DECISION PENDING** exception; Firestore rules were not changed.
+- The separate Google Cloud project `echolearn-0826` (Project Number `887740149577`) exists independently from Firebase project `echolearn-9f369` and was not modified or deleted. Firebase Console did not expose a Firebase app for it; ownership/purpose must be confirmed before any deletion decision.
+- Production currently remains on `893968d`; the Settings auto-sync fix in local commit `4e1c6f1` was not deployed, so the old automatic `auth/email-not-verified` message observed before verification is not a local-fix production PASS. Automated tests remain authoritative for the fix until deployment.
+
+#### Batch 8A updated classification
+
+**READY FOR PUSH WITH DOCUMENTED EXTERNAL FOLLOW-UP.** The Firebase/OAuth user-facing email branding now passes on a newly generated email, the verified transition and cloud-sync unlock pass, and the Settings fix remains green locally. OAuth domain ownership verification and the separate `aiAnalyses` policy are documented follow-up decisions; neither was changed in this round. Local creation/persistence markers were not newly exercised and remain a known validation gap.
