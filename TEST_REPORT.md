@@ -553,3 +553,51 @@ Only a small later Xiaomi confirmation remains:
 ### Batch 6 classification
 
 **COMPLETE WITH PHYSICAL CONFIRMATION PENDING.** No emulator/product bug was found and no product source changes were required in this closure round.
+
+## Batch 7 — Auth + Firestore Lifecycle
+
+### Architecture
+
+| Data | Local storage | Firestore | Identity / merge | Push and pull | Account boundary |
+|---|---|---|---|---|---|
+| Vocabulary | `echolearn_vocabulary` | `users/{uid}/data/vocabulary` | `id`; union, newer `updatedAt` wins and cloud wins ties | debounced vocabulary mutation; auth-boundary/manual sync | Firestore owner rules; local device data cleared on logout |
+| Sentences | `echolearn_sentences` | `users/{uid}/data/sentences` | `id`; same policy | debounced sentence mutation; auth-boundary/manual sync | same |
+| Study sessions | `echolearn_session`, `echolearn_sessions_list` | `users/{uid}/data/sessions` | `id`; `updatedAt` / `createdAt`, newest wins; heavy transcript fields remain local | debounced session push; auth-boundary/manual sync | same |
+| Daily plan, completed videos, page tokens | local-only keys | none | no cloud merge | local only | cleared by account deletion/logout boundary |
+| Language/proxy preferences | local-only | none | no cloud merge | local only | intentionally retained as device preferences |
+
+Guest data is device-local. A verified auth transition now starts `syncWithCloud` from `AuthContext`, so the merge does not depend on Study or Settings having mounted. Firestore documents are owner-scoped and email/password cloud access is verified-email gated; Google users are Firebase-verified.
+
+### Lifecycle and merge results
+
+- **MOCK/DETERMINISTIC — PASS:** Guest local storage remains intact across failed login behavior; the new auth-boundary test verifies successful authenticated state starts the cloud merge.
+- **MOCK/DETERMINISTIC — PASS:** local + cloud vocabulary/sentence/session records are unioned, repeated sync is idempotent, and duplicate document IDs remain one item. Identity is `id`, not normalized word text; saving a new word already uses the existing word/video duplicate guard.
+- **MOCK/DETERMINISTIC — PASS:** a later local mutation wins even when the original `addedAt` is older. `updateVocabularyItem` / `updateSentenceItem` now stamp `updatedAt`; legacy records continue to fall back to `addedAt`.
+- **MOCK/DETERMINISTIC — PASS:** simultaneous sync triggers for one UID share one in-flight request. The duplicate Study mount pull was removed; Settings manual sync remains available.
+- **MOCK/DETERMINISTIC — PASS:** logout clears device-scoped learning data after Firebase sign-out, preventing Account A's cached data from becoming Account B's local data. The cloud source remains under Account A's UID.
+- **MOCK/DETERMINISTIC — PASS:** an all-category pull failure leaves local data untouched and does not upload empty arrays. A partial pull preserves the failed category and does not upload that category.
+- **MOCK/DETERMINISTIC — PASS:** failed lightweight pushes return a meaningful error, set `echolearn_firebase_sync_pending`, and do not write a false last-success timestamp. Unverified accounts are rejected before push.
+- **Rules/code inspection — PASS:** user data path is `users/{uid}/data/{collection}` and `firestore.rules` requires matching `request.auth.uid` plus verified email. No unauthorized production probe was attempted.
+
+### Bugs found and fixed
+
+1. **Auth transition had no central pull/merge trigger.** `AuthGate` switched directly from LoginPage to AppContent; only Study/Settings page effects could later pull, so a user could authenticate on another route and see stale Guest-only state. The fix is one auth-state sync trigger in `AuthContext`, with the page-level Study duplicate removed.
+2. **Lightweight push swallowed all Firestore failures.** `Promise.allSettled` results were ignored and `lastSync` was written even when every category failed. The fix validates the current verified UID, returns `SyncResult`, logs the category failure, and marks retry state.
+3. **A failed pull was represented as an empty cloud collection and could be uploaded back.** Failed categories are now excluded from the merge upload; all-category failure exits before any write.
+4. **Conflict comparison used `addedAt` only.** Enrichment, review, and edits could be newer locally while retaining an old creation timestamp. Mutable vocabulary/sentence updates now record `updatedAt`, and merge compares it first.
+5. **Logout left device-scoped learning data in place.** The logout boundary now clears study data after successful Firebase sign-out, preventing cross-account local leakage.
+
+### Test environment and validation boundary
+
+- **Mocked Auth/Firestore:** `src/contexts/__tests__/AuthContext.test.tsx` and `src/services/__tests__/firestoreSync.test.ts` cover auth transition, logout isolation, union/dedupe, conflict, concurrent triggers, pull failure, partial recovery, push failure, pending retry state, and unverified-auth rejection.
+- **Firebase emulator:** not configured (`firebase.json` contains rules/hosting only); no emulator database was created.
+- **Real production account:** not used. Real email delivery/verification and Google OAuth browser confirmation remain pending because no dedicated safe test identity/mailbox was supplied.
+- Existing Guest/PWA persistence evidence remains in the Batch 6 section above; this Batch 7 round did not use a real account or modify production data.
+
+### Remaining gaps
+
+There are no Firestore emulator or real-provider lifecycle results in this round. Cross-device deletion has no tombstone model: a successfully pushed local deletion is represented by the next full-array upload, but a stale cloud copy can reappear if a pull races before that upload; this is documented current behavior rather than expanded into a data-model migration. GitHub Gist backup remains a separate manual, PAT-scoped service and is not part of Firebase account isolation.
+
+### Batch 7 classification
+
+**BATCH 7 COMPLETE WITH EXTERNAL AUTH CONFIRMATION PENDING.** Deterministic lifecycle and isolation coverage is green; real Google OAuth and email verification delivery still require a safe dedicated external test path.

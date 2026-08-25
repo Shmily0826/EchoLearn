@@ -56,6 +56,7 @@ export interface VocabularyItem {
   sourceVideoId: string;     // YouTube video ID this word was learned from
   sourceVideoTitle?: string; // human-readable video title (optional)
   addedAt: number;           // when the word was saved (unix ms)
+  updatedAt?: number;        // last local mutation (legacy items may omit it)
   mastered: boolean;         // whether the user has mastered this word
   reviewCount: number;       // how many times the user reviewed this word
   lastReviewedAt: number;    // unix ms of last review (0 if never reviewed)
@@ -81,6 +82,7 @@ export interface SentenceItem {
   sourceVideoTitle?: string; // human-readable video title (optional)
   startTime: number;         // start time of the sentence in the video (seconds)
   addedAt: number;           // when the sentence was saved (unix ms)
+  updatedAt?: number;        // last local mutation (legacy items may omit it)
   myOwnSentence: string;     // user's own sentence using the same pattern / structure
   mastered: boolean;         // whether the user has mastered this sentence
   reviewCount: number;       // how many times the user reviewed this sentence

@@ -66,6 +66,7 @@ function migrateVocabItem(raw: Record<string, unknown>): VocabularyItem {
     sourceVideoId: (raw.sourceVideoId as string) || '',
     sourceVideoTitle: (raw.sourceVideoTitle as string) || undefined,
     addedAt: (raw.addedAt as number) ?? (raw.timestamp as number) ?? Date.now(),
+    updatedAt: (raw.updatedAt as number) ?? undefined,
     mastered: (raw.mastered as boolean) ?? false,
     reviewCount: (raw.reviewCount as number) ?? 0,
     lastReviewedAt: (raw.lastReviewedAt as number) ?? 0,
@@ -95,6 +96,7 @@ function migrateSentenceItem(raw: Record<string, unknown>): SentenceItem {
     sourceVideoTitle: (raw.sourceVideoTitle as string) || undefined,
     startTime: (raw.startTime as number) ?? 0,
     addedAt: (raw.addedAt as number) ?? (raw.timestamp as number) ?? Date.now(),
+    updatedAt: (raw.updatedAt as number) ?? undefined,
     myOwnSentence: (raw.myOwnSentence as string) || '',
     mastered: (raw.mastered as boolean) ?? false,
     reviewCount: (raw.reviewCount as number) ?? 0,
@@ -210,7 +212,7 @@ export function updateVocabularyItem(
   patch: Partial<VocabularyItem>,
 ): VocabularyItem[] {
   const items = loadVocabulary().map((v) =>
-    v.id === id ? { ...v, ...patch } : v,
+    v.id === id ? { ...v, ...patch, updatedAt: Date.now() } : v,
   );
   saveVocabulary(items);
   return items;
@@ -261,7 +263,7 @@ export function updateSentenceItem(
   patch: Partial<SentenceItem>,
 ): SentenceItem[] {
   const items = loadSentences().map((s) =>
-    s.id === id ? { ...s, ...patch } : s,
+    s.id === id ? { ...s, ...patch, updatedAt: Date.now() } : s,
   );
   saveSentences(items);
   return items;

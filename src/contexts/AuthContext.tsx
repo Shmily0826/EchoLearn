@@ -16,7 +16,7 @@ import type { User } from 'firebase/auth';
 import { FirebaseAuthentication } from '@capacitor-firebase/authentication';
 import { auth, googleProvider } from '../lib/firebase';
 import { isCapacitor } from '../utils/platform';
-import { deleteUserData } from '../services/firestoreSync';
+import { deleteUserData, syncWithCloud } from '../services/firestoreSync';
 import { clearAllLocalData } from '../utils/storage';
 import { trackEvent } from '../services/analytics';
 
@@ -68,6 +68,18 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     );
     return unsub;
   }, []);
+
+  // Keep the Guest -> account merge at the auth boundary. A user can sign in
+  // while already on Vocabulary or another route, so page mount must not be
+  // required before local data reaches the account.
+  useEffect(() => {
+    if (!user?.uid || !user.emailVerified) return;
+    syncWithCloud(user.uid).then((result) => {
+      if (!result.ok) console.error('[Auth] post-login sync failed:', result.error);
+    }).catch((error) => {
+      console.error('[Auth] post-login sync error:', error);
+    });
+  }, [user?.uid, user?.emailVerified]);
 
   const signInWithGoogle = useCallback(async () => {
     if (isCapacitor()) {
@@ -164,6 +176,9 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       try { await FirebaseAuthentication.signOut(); } catch { /* ignore */ }
     }
     await signOut(auth);
+    // Local storage is device-scoped, not account-scoped. Clear it at the
+    // account boundary so Account A data cannot be shown or pushed as B.
+    clearAllLocalData();
   }, []);
 
   return (

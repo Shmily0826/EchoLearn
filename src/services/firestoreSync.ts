@@ -97,9 +97,10 @@ export async function deleteUserData(uid: string): Promise<void> {
 
 /**
  * Merge two arrays of items by `id` field.
- * For duplicates, keep the item with the higher `addedAt` (or cloud version).
+ * For duplicates, keep the item with the later `updatedAt`/`addedAt`
+ * (or the cloud version on a tie).
  */
-function mergeById<T extends { id: string; addedAt?: number }>(
+export function mergeById<T extends { id: string; addedAt?: number; updatedAt?: number }>(
   local: T[],
   cloud: T[],
 ): T[] {
@@ -116,9 +117,9 @@ function mergeById<T extends { id: string; addedAt?: number }>(
     if (!existing) {
       map.set(item.id, item);
     } else {
-      // Keep whichever was added more recently; prefer cloud on tie
-      const localTime = item.addedAt ?? 0;
-      const cloudTime = existing.addedAt ?? 0;
+      // Keep whichever was mutated more recently; prefer cloud on tie.
+      const localTime = item.updatedAt ?? item.addedAt ?? 0;
+      const cloudTime = existing.updatedAt ?? existing.addedAt ?? 0;
       if (localTime > cloudTime) {
         map.set(item.id, item);
       }
@@ -254,11 +255,13 @@ export async function uploadToCloud(uid: string): Promise<SyncResult> {
     if (errors.length === results.length) {
       // All failed
       console.error('[Sync] Upload FAILED (all):', errors);
+      markSyncPending();
       return { ok: false, error: errors.join('; ') };
     }
 
     localStorage.setItem(LAST_SYNC_KEY, String(Date.now()));
-    localStorage.removeItem(SYNC_PENDING_KEY);
+    if (errors.length > 0) markSyncPending();
+    else localStorage.removeItem(SYNC_PENDING_KEY);
 
     if (errors.length > 0) {
       console.warn('[Sync] Upload partial:', errors);
@@ -303,7 +306,7 @@ async function downloadCollection<T>(
  * Download cloud data and merge with local data.
  * Saves merged result back to both localStorage and Firestore.
  */
-export async function syncWithCloud(uid: string): Promise<SyncResult> {
+async function syncWithCloudOnce(uid: string): Promise<SyncResult> {
   try {
     assertVerified(uid);
     const local = collectLocalData();
@@ -329,7 +332,15 @@ export async function syncWithCloud(uid: string): Promise<SyncResult> {
       }
     });
 
-    // Merge each collection
+    const downloadFailed = dlResults.map((result) => result.status === 'rejected');
+    if (downloadFailed.every(Boolean)) {
+      const error = dlErrors.join('; ');
+      console.error('[Sync] Pull FAILED (all):', error);
+      return { ok: false, error };
+    }
+
+    // Merge each collection. A failed download is not treated as an empty
+    // collection: doing so could overwrite valid cloud data on the next push.
     const mergedVocab = mergeById(local.vocabulary, cloudVocab);
     const mergedSentences = mergeById(local.sentences, cloudSentences);
     const mergedSessions = mergeSessions(local.sessions, cloudSessions);
@@ -352,11 +363,15 @@ export async function syncWithCloud(uid: string): Promise<SyncResult> {
     }
 
     // Upload merged data back to cloud (so cloud has the merged result too)
-    const ulResults = await Promise.allSettled([
-      uploadCollection(uid, 'vocabulary', mergedVocab),
-      uploadCollection(uid, 'sentences', mergedSentences),
-      uploadCollection(uid, 'sessions', mergedSessions.map(stripSession)),
-    ]);
+    const uploadTasks: Array<Promise<void> | null> = [
+      downloadFailed[0] ? null : uploadCollection(uid, 'vocabulary', mergedVocab),
+      downloadFailed[1] ? null : uploadCollection(uid, 'sentences', mergedSentences),
+      downloadFailed[2] ? null : uploadCollection(uid, 'sessions', mergedSessions.map(stripSession)),
+    ];
+    const ulResults = await Promise.all(uploadTasks.map((task) => task ? task.then(
+      () => ({ status: 'fulfilled' as const }),
+      (reason) => ({ status: 'rejected' as const, reason }),
+    ) : Promise.resolve({ status: 'skipped' as const })));
 
     const ulErrors: string[] = [];
     ulResults.forEach((r, i) => {
@@ -368,13 +383,9 @@ export async function syncWithCloud(uid: string): Promise<SyncResult> {
 
     const allErrors = [...dlErrors, ...ulErrors];
 
-    // If every download AND every upload failed, report total failure
-    if (dlErrors.length === 3 && ulErrors.length === 3) {
-      return { ok: false, error: allErrors.join('; ') };
-    }
-
     localStorage.setItem(LAST_SYNC_KEY, String(Date.now()));
-    localStorage.removeItem(SYNC_PENDING_KEY);
+    if (allErrors.length > 0) markSyncPending();
+    else localStorage.removeItem(SYNC_PENDING_KEY);
 
     const counts = {
       vocabulary: mergedVocab.length,
@@ -395,6 +406,17 @@ export async function syncWithCloud(uid: string): Promise<SyncResult> {
   }
 }
 
+const syncInFlight = new Map<string, Promise<SyncResult>>();
+
+/** Coalesce simultaneous auth/mount/manual sync triggers for one account. */
+export function syncWithCloud(uid: string): Promise<SyncResult> {
+  const existing = syncInFlight.get(uid);
+  if (existing) return existing;
+  const request = syncWithCloudOnce(uid).finally(() => syncInFlight.delete(uid));
+  syncInFlight.set(uid, request);
+  return request;
+}
+
 // ── Status ─────────────────────────────────────────────────────
 
 /**
@@ -404,7 +426,12 @@ export async function syncWithCloud(uid: string): Promise<SyncResult> {
 export async function pushItemsToCloud(
   uid: string,
   collections: Array<'vocabulary' | 'sentences'> = ['vocabulary', 'sentences'],
-): Promise<void> {
+): Promise<SyncResult> {
+  try {
+    assertVerified(uid);
+  } catch (err) {
+    return { ok: false, error: err instanceof Error ? err.message : String(err) };
+  }
   const promises: Promise<void>[] = [];
   if (collections.includes('vocabulary')) {
     promises.push(uploadCollection(uid, 'vocabulary', loadVocabulary()));
@@ -412,8 +439,18 @@ export async function pushItemsToCloud(
   if (collections.includes('sentences')) {
     promises.push(uploadCollection(uid, 'sentences', loadSentences()));
   }
-  await Promise.allSettled(promises);
+  const results = await Promise.allSettled(promises);
+  const errors = results
+    .filter((r): r is PromiseRejectedResult => r.status === 'rejected')
+    .map((r) => r.reason?.message ?? String(r.reason));
+  if (errors.length > 0) {
+    markSyncPending();
+    console.error('[Sync] Push failed:', errors);
+    return { ok: false, error: errors.join('; ') };
+  }
   localStorage.setItem(LAST_SYNC_KEY, String(Date.now()));
+  localStorage.removeItem(SYNC_PENDING_KEY);
+  return { ok: true };
 }
 
 /**
@@ -421,9 +458,17 @@ export async function pushItemsToCloud(
  * Called automatically after session save/update (debounced by the caller).
  */
 export async function pushSessionToCloud(uid: string): Promise<void> {
-  const sessions = loadAllSessions().map(stripSession);
-  await uploadCollection(uid, 'sessions', sessions);
-  localStorage.setItem(LAST_SYNC_KEY, String(Date.now()));
+  try {
+    assertVerified(uid);
+    const sessions = loadAllSessions().map(stripSession);
+    await uploadCollection(uid, 'sessions', sessions);
+    localStorage.setItem(LAST_SYNC_KEY, String(Date.now()));
+    localStorage.removeItem(SYNC_PENDING_KEY);
+  } catch (err) {
+    markSyncPending();
+    console.error('[Sync] Session push failed:', err);
+    throw err;
+  }
 }
 
 export function getLastSyncTime(): number | null {

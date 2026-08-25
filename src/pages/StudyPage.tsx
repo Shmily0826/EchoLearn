@@ -18,7 +18,7 @@ import { trackEvent } from '../services/analytics';
 import { fetchYouTubeTranscript } from '../services/youtubeTranscript';
 import { fetchBilibiliTranscript, getBilibiliVideoTitle, getBilibiliMetaByUrl } from '../services/bilibiliTranscript';
 import { enrichVocabularyItem } from '../services/vocabularyEnrichment';
-import { pushItemsToCloud, pushSessionToCloud, syncWithCloud } from '../services/firestoreSync';
+import { pushItemsToCloud, pushSessionToCloud } from '../services/firestoreSync';
 import { useAuth } from '../contexts/AuthContext';
 import { CEFR_LEVELS, type CEFRLevel } from '../services/cefrWordList';
 import { useI18n } from '../i18n/I18nContext';
@@ -126,18 +126,6 @@ const StudyPage: React.FC = () => {
       pushSessionToCloud(user.uid).catch(() => { /* silent */ });
     }, 5000);
   }, [user]);
-
-  // Auto-sync with cloud when StudyPage mounts (pull latest data from other devices)
-  useEffect(() => {
-    if (!user?.uid) return;
-    syncWithCloud(user.uid).then(() => {
-      // Refresh state from localStorage after merge
-      // eslint-disable-next-line react-hooks/immutability
-      setVocabulary(loadVocabulary());
-      // eslint-disable-next-line react-hooks/immutability
-      setSentences(loadSentences());
-    }).catch(() => { /* silent */ });
-  }, [user?.uid]);
 
   // ── Session state ──────────────────────────────────────────
   const [session, setSession] = useState<VideoStudySession | null>(null);
