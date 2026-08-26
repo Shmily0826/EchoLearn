@@ -968,3 +968,14 @@ No tombstone or schema redesign was implemented in Batch 9.
 - No real Android device or physical iOS Safari was available; Pixel 5 Chromium and iPhone 12 WebKit are browser approximations.
 - The existing live-provider uncached 1–2 minute path, forced provider outages, `aiAnalyses` policy, tombstone GC, OAuth/Search Console, custom verification domain, and existing lint/action deprecation warnings remain deferred.
 - **BATCH 11 READY FOR COMMIT.**
+
+### Batch 11 remote closure — 2026-08-26
+
+- Implementation commit `d20b24f63c6a64596945803c4e2f27f67dd2e780` was pushed to `origin/main` without force-push or unrelated branch changes.
+- GitHub Actions run `32965567329` passed on Ubuntu: test job 59s and E2E job 2m22s. The remote E2E run passed 19/19, including desktop Chromium, mobile Chromium, and mobile WebKit; the test job passed unit 340, build, lint, Java 17, and Emulator 10/10.
+- Vercel deployment `6103164932` for the implementation SHA reported success; production target was `https://echolearn-ixrre1gn6-shmily0826s-projects.vercel.app`, and `https://echo-learn.uk` returned HTTP 200.
+- No CI-specific product fix was required. The final docs-only closure commit is recorded separately after this section.
+
+### Batch 11 final classification
+
+**BATCH 11 COMPLETE.** Responsive mobile coverage, WebKit approximation, PWA artifact/preview checks, visibility/orientation, offline/reconnect smoke, CI, deployment, and production HTTP health all passed. Physical Android and iOS device validation remain explicitly unavailable rather than being conflated with browser emulation.
