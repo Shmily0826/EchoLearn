@@ -1144,3 +1144,35 @@ Browser
 ### Batch 12B final classification
 
 **BATCH 12 PARTIAL.** Production ASR is configured, but historical Worker/VPS/Groq logs are unavailable, so neither candidate can prove ASR invocation or cache completion. The controlled lifecycle coverage and exact provider decision tree are documented; no bounded product fix was justified.
+
+## Batch 12C — safe provider observability and final probe (2026-08-27)
+
+### Scope and result
+
+Batch 12C added safe correlation only. Provider order, timeout budgets, response shapes, credentials, and browser behavior were not redesigned. The Cloudflare Worker was deployed as version `82f56538-b474-41b7-b560-c9ab168d65d4`; the Vercel layer was deployed by the push of commit `bbb15f3`.
+
+- Vercel now creates `X-EchoLearn-Trace-Id`, forwards it to the VPS, exposes it in the response, and emits structured provider outcome events without logging keys, cookies, authorization headers, or response bodies.
+- Cloudflare Worker now creates/returns the same bounded trace id, forwards it to VPS transcript/ASR calls, and emits provider start/result/finish events. Debug payloads remain disabled by default.
+- VPS now accepts only a bounded safe trace-id format, returns it on transcript/ASR responses, and emits request status, duration, and success/failure outcome events. No VPS deployment was performed because this checkout has no SSH/host deployment mechanism or accessible VPS log reader.
+
+### Final uncached production probe
+
+- Candidate: `uPRSigrDt0Q` (the previously selected public no-caption candidate).
+- Worker request: completed with HTTP 404 and body `{"error":"No transcript available for this video"}`.
+- Worker trace: `112615fb-469d-4b2b-9f37-87b392f82db5`.
+- Response headers included `X-EchoLearn-Trace-Id` and `Access-Control-Expose-Headers`.
+- A second probe while attempting to attach `wrangler tail` was reset by the Worker at roughly the 90-second backend boundary; the tail connection also lost its keep-alive and could not reconnect. No historical Worker/VPS/Groq logs were available after the request, so ASR invocation, Groq response, and ASR cache write remain **NOT OBSERVABLE**.
+- The Vercel deployment was independently checked with a missing-parameter request: HTTP 400 with a valid trace header. GitHub CI run `32971914574` passed all test, E2E, emulator, build, and lint jobs.
+
+### Tests and limitations
+
+- Targeted transcript handler regression: PASS — 5/5, including trace propagation, server-side key isolation, VPS non-2xx fallback, timeout fallback, and no-key behavior.
+- TypeScript build check: PASS — `npx tsc -b`.
+- Targeted lint: PASS — `npx eslint api/transcript.ts src/api/__tests__/transcriptHandler.test.ts`.
+- Cloudflare Worker syntax: PASS — `node --check cf-worker/src/index.js`.
+- VPS Python compile check: **NOT RUN** because the local environment has no `python` executable; no claim is made for that check.
+- The final no-caption probe did not produce a transcript, so successful ASR, repeat-load cache hit, card-level transcript rendering, and late-completion deduplication remain unproven.
+
+### Batch 12C final classification
+
+**BATCH 12 INFRASTRUCTURE BLOCKED.** Safe observability is deployed at the Worker and Vercel layers, and CI is green, but the VPS source was not deployed from this checkout and production Worker/VPS/Groq logs cannot be retained or read through the available access. The final probe still returns no transcript; therefore Batch 12 cannot be classified complete and no speculative provider or timeout redesign was made.
