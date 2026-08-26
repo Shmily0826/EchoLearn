@@ -818,3 +818,54 @@ No tombstone or schema redesign was implemented in Batch 9.
 ### Batch 9 classification
 
 **BATCH 9 ARCHITECTURE DECISION REQUIRED.** All production-safe scenarios that do not require deletion protocol redesign passed or were covered by deterministic tests. The demonstrated stale-device deletion resurrection defect remains unresolved and cannot be safely fixed without choosing a tombstone/change-log/per-item deletion model.
+
+## Batch 9B — Production Tombstone Validation — 2026-08-26
+
+### Browser method and release revision
+
+- Used two fresh, independent Chrome profiles with localhost-only CDP ports `9226` (Device A) and `9227` (Device B). The normal Chrome profile was not used for learning-data lifecycle operations.
+- Both isolated devices used the same dedicated verified QA identity. No password, cookie, token, verification code, or credential body was inspected or recorded.
+- Tested production revision: `f65a0a9`, deployment `dpl_D7Bor4UDC5z15uxLay8Adj1gFemp`, state **READY**, aliases `echo-learn.uk`, `app.echo-learn.uk`, and `echolearn-sepia.vercel.app`.
+
+### Vocabulary stale-device gate — PASS
+
+- A created and synchronized a vocabulary record through the normal Study transcript UI; B received it.
+- A deleted it through the normal Vocabulary UI and synchronized the deletion.
+- B retained its stale local copy, then synchronized using the new deployed revision.
+- B removed the stale record; A and B both showed `0 words`. No resurrection was observed after another reload/sync.
+- The original Batch 9 failure is therefore resolved by the existing tombstone protocol in production.
+
+### Sentence deletion smoke — PASS
+
+- A created a sentence through the normal transcript bookmark UI, synchronized it to B, deleted it through the normal Sentence UI, and synchronized.
+- B converged to `0 sentences`; the sentence did not return after refresh.
+
+### Study Session deletion smoke — initial defect and fix
+
+- Before the fix, A deleted a session through Dashboard, but B's stale session returned after synchronization. The exact root cause was that Dashboard's single and batch delete handlers called local `deleteSession()` without calling `pushSessionToCloud()`.
+- Targeted fix: Dashboard now invokes the existing session upload helper after both single and batch deletion paths. No Firestore schema or tombstone protocol redesign was made.
+- Regression test added for authenticated session-deletion push and Guest no-op behavior.
+- After deployment, the previously stale B session was synchronized again and disappeared; Dashboard showed `0 total` sessions. Current-session cleanup remains handled by the existing `deleteSession()` path.
+
+### Batch deletion coverage
+
+- Dashboard single-session deletion was production-tested.
+- The batch-delete handler was code-reviewed against the same shared helper and covered by the targeted regression path; a separate multi-select production run was not needed after the single-delete defect was isolated and fixed.
+
+### Offline stale-device variant
+
+- B was placed offline with CDP network emulation while retaining a stale vocabulary record. The offline attempt did not claim a new successful sync or alter the stale local record.
+- After restoring the network and loading the current deployment resources, A's synchronized tombstone removed the stale B record; final B state was `0 words`.
+- Deterministic tests remain the stronger evidence for exact pending-marker and false-last-sync semantics; no new offline UI defect was found.
+
+### Runtime and serialization evidence
+
+- Production UI reported successful sync completion and zero active records after convergence. Firestore-backed operations completed without a visible error.
+- Deterministic sync coverage confirms the serialized collection shape includes active `items`, `tombstones`, `updatedAt`, and `serverUpdatedAt`, and accepts legacy documents with missing `tombstones` as `{}`.
+- QA created only disposable test records/tombstones. Tombstone retention/garbage collection was not changed and remains deferred.
+
+### QA cleanup and classification
+
+- Active QA vocabulary, sentence, and session records were removed through the normal UI. Both isolated devices ended with no visible QA learning records.
+- No unrelated user data was touched. Retained QA tombstones are harmless test-account artifacts; cleanup/GC policy is deferred to a future task.
+- **BATCH 9 COMPLETE.** Production Vocabulary, Sentence, and Session deletion paths now preserve deletions across stale-device synchronization. The only implementation defect found in Batch 9B was the missing Dashboard session push, and it was fixed, regression-tested, deployed, and re-tested.
