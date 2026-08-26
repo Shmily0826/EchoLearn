@@ -5,6 +5,67 @@ const SENTENCE_KEY = 'echolearn_sentences';
 const SESSION_KEY = 'echolearn_session';
 const SESSIONS_LIST_KEY = 'echolearn_sessions_list';
 const PLAN_KEY = 'echolearn_daily_plan';
+const VOCAB_TOMBSTONES_KEY = 'echolearn_vocabulary_tombstones';
+const SENTENCE_TOMBSTONES_KEY = 'echolearn_sentence_tombstones';
+const SESSION_TOMBSTONES_KEY = 'echolearn_session_tombstones';
+
+export type TombstoneMap = Record<string, number>;
+
+function loadTombstones(key: string): TombstoneMap {
+  try {
+    const raw = localStorage.getItem(key);
+    if (!raw) return {};
+    const parsed = JSON.parse(raw) as Record<string, unknown>;
+    if (!parsed || Array.isArray(parsed) || typeof parsed !== 'object') return {};
+    return Object.fromEntries(
+      Object.entries(parsed).filter(([, value]) => typeof value === 'number' && Number.isFinite(value)),
+    ) as TombstoneMap;
+  } catch {
+    return {};
+  }
+}
+
+function saveTombstones(key: string, tombstones: TombstoneMap): void {
+  localStorage.setItem(key, JSON.stringify(tombstones));
+}
+
+function markTombstone(key: string, id: string, deletedAt = Date.now()): TombstoneMap {
+  const tombstones = loadTombstones(key);
+  const previous = tombstones[id] ?? 0;
+  tombstones[id] = Math.max(previous, deletedAt);
+  saveTombstones(key, tombstones);
+  return tombstones;
+}
+
+function clearTombstoneIfSuperseded(key: string, id: string, liveAt: number): void {
+  const tombstones = loadTombstones(key);
+  if (tombstones[id] !== undefined && liveAt > tombstones[id]) {
+    delete tombstones[id];
+    saveTombstones(key, tombstones);
+  }
+}
+
+export function loadVocabularyTombstones(): TombstoneMap { return loadTombstones(VOCAB_TOMBSTONES_KEY); }
+export function loadSentenceTombstones(): TombstoneMap { return loadTombstones(SENTENCE_TOMBSTONES_KEY); }
+export function loadSessionTombstones(): TombstoneMap { return loadTombstones(SESSION_TOMBSTONES_KEY); }
+export function markVocabularyDeleted(id: string, deletedAt?: number): TombstoneMap {
+  return markTombstone(VOCAB_TOMBSTONES_KEY, id, deletedAt);
+}
+export function markSentenceDeleted(id: string, deletedAt?: number): TombstoneMap {
+  return markTombstone(SENTENCE_TOMBSTONES_KEY, id, deletedAt);
+}
+export function markSessionDeleted(id: string, deletedAt?: number): TombstoneMap {
+  return markTombstone(SESSION_TOMBSTONES_KEY, id, deletedAt);
+}
+export function saveVocabularyTombstones(tombstones: TombstoneMap): void {
+  saveTombstones(VOCAB_TOMBSTONES_KEY, tombstones);
+}
+export function saveSentenceTombstones(tombstones: TombstoneMap): void {
+  saveTombstones(SENTENCE_TOMBSTONES_KEY, tombstones);
+}
+export function saveSessionTombstones(tombstones: TombstoneMap): void {
+  saveTombstones(SESSION_TOMBSTONES_KEY, tombstones);
+}
 
 // ─── Spaced Repetition Helpers ───────────────────────────────
 
@@ -120,6 +181,7 @@ export function loadCurrentSession(): VideoStudySession | null {
 /** Persist the current session. Pass null to clear it. */
 export function saveCurrentSession(session: VideoStudySession | null): void {
   if (session) {
+    clearTombstoneIfSuperseded(SESSION_TOMBSTONES_KEY, session.id, session.updatedAt ?? session.createdAt);
     localStorage.setItem(SESSION_KEY, JSON.stringify(session));
     const list = loadAllSessions();
     const idx = list.findIndex((s) => s.id === session.id);
@@ -153,6 +215,7 @@ export function loadAllSessions(): VideoStudySession[] {
 export function deleteSession(id: string): void {
   const list = loadAllSessions().filter((s) => s.id !== id);
   localStorage.setItem(SESSIONS_LIST_KEY, JSON.stringify(list));
+  markSessionDeleted(id);
   const current = loadCurrentSession();
   if (current && current.id === id) {
     clearCurrentSession();
@@ -195,6 +258,7 @@ export function addVocabularyItem(item: VocabularyItem): VocabularyItem[] {
       v.sourceVideoId === item.sourceVideoId,
   );
   if (exists) return items;
+  clearTombstoneIfSuperseded(VOCAB_TOMBSTONES_KEY, item.id, item.updatedAt ?? item.addedAt);
   const updated = [item, ...items];
   saveVocabulary(updated);
   return updated;
@@ -203,6 +267,7 @@ export function addVocabularyItem(item: VocabularyItem): VocabularyItem[] {
 export function removeVocabularyItem(id: string): VocabularyItem[] {
   const items = loadVocabulary().filter((v) => v.id !== id);
   saveVocabulary(items);
+  markVocabularyDeleted(id);
   return items;
 }
 
@@ -211,9 +276,11 @@ export function updateVocabularyItem(
   id: string,
   patch: Partial<VocabularyItem>,
 ): VocabularyItem[] {
+  const updatedAt = Date.now();
   const items = loadVocabulary().map((v) =>
-    v.id === id ? { ...v, ...patch, updatedAt: Date.now() } : v,
+    v.id === id ? { ...v, ...patch, updatedAt } : v,
   );
+  clearTombstoneIfSuperseded(VOCAB_TOMBSTONES_KEY, id, updatedAt);
   saveVocabulary(items);
   return items;
 }
@@ -246,6 +313,7 @@ export function addSentenceItem(item: SentenceItem): SentenceItem[] {
     (s) => s.text === item.text && s.sourceVideoId === item.sourceVideoId,
   );
   if (exists) return items;
+  clearTombstoneIfSuperseded(SENTENCE_TOMBSTONES_KEY, item.id, item.updatedAt ?? item.addedAt);
   const updated = [item, ...items];
   saveSentences(updated);
   return updated;
@@ -254,6 +322,7 @@ export function addSentenceItem(item: SentenceItem): SentenceItem[] {
 export function removeSentenceItem(id: string): SentenceItem[] {
   const items = loadSentences().filter((s) => s.id !== id);
   saveSentences(items);
+  markSentenceDeleted(id);
   return items;
 }
 
@@ -262,9 +331,11 @@ export function updateSentenceItem(
   id: string,
   patch: Partial<SentenceItem>,
 ): SentenceItem[] {
+  const updatedAt = Date.now();
   const items = loadSentences().map((s) =>
-    s.id === id ? { ...s, ...patch, updatedAt: Date.now() } : s,
+    s.id === id ? { ...s, ...patch, updatedAt } : s,
   );
+  clearTombstoneIfSuperseded(SENTENCE_TOMBSTONES_KEY, id, updatedAt);
   saveSentences(items);
   return items;
 }
@@ -438,6 +509,9 @@ export function clearAllLocalData(): void {
   localStorage.removeItem(PLAN_KEY);
   localStorage.removeItem(COMPLETED_VIDEOS_KEY);
   localStorage.removeItem(PAGE_TOKEN_KEY);
+  localStorage.removeItem(VOCAB_TOMBSTONES_KEY);
+  localStorage.removeItem(SENTENCE_TOMBSTONES_KEY);
+  localStorage.removeItem(SESSION_TOMBSTONES_KEY);
 }
 
 /** Check if the local proxy is reachable (quick health check). */

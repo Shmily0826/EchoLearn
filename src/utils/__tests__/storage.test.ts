@@ -45,6 +45,9 @@ import {
   getTranslateLang,
   saveTranslateLang,
   clearAllLocalData,
+  loadVocabularyTombstones,
+  loadSentenceTombstones,
+  loadSessionTombstones,
 } from '../storage';
 
 const DAY_MS = 24 * 60 * 60 * 1000;
@@ -220,6 +223,7 @@ describe('session storage', () => {
     deleteSession('b');
     expect(loadAllSessions()).toEqual([]);
     expect(loadCurrentSession()).toBeNull();
+    expect(loadSessionTombstones()).toEqual({ a: expect.any(Number), b: expect.any(Number) });
   });
 
   it('deleteSession with an unknown id does not throw', () => {
@@ -282,6 +286,7 @@ describe('vocabulary storage', () => {
     const updated = updateVocabularyItem('b', { mastered: true });
     expect(updated[0].mastered).toBe(true);
     expect(updated[0].word).toBe('banana'); // merge, not replace
+    expect(loadVocabularyTombstones()).toEqual({ a: expect.any(Number) });
   });
 
   it('filters vocabulary by video', () => {
@@ -377,6 +382,7 @@ describe('sentence storage', () => {
     const updated = updateSentenceItem('b', { myOwnSentence: 'My own.' });
     expect(updated[0].myOwnSentence).toBe('My own.');
     expect(updated[0].text).toBe('Second.');
+    expect(loadSentenceTombstones()).toEqual({ a: expect.any(Number) });
   });
 
   it('dispatches a sentences-changed event on save', () => {
@@ -507,6 +513,9 @@ describe('clearAllLocalData', () => {
 
     expect(loadVocabulary()).toEqual([]);
     expect(loadSentences()).toEqual([]);
+    expect(loadVocabularyTombstones()).toEqual({});
+    expect(loadSentenceTombstones()).toEqual({});
+    expect(loadSessionTombstones()).toEqual({});
     expect(loadCurrentSession()).toBeNull();
     expect(loadAllSessions()).toEqual([]);
     expect(loadDailyPlan()).toEqual([]);

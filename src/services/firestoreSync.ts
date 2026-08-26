@@ -4,7 +4,7 @@
  * Data structure:
  *   users/{uid}/data/{collection}
  *     where collection is: vocabulary | sentences | sessions
- *     each document: { items: [...], updatedAt: <timestamp ms> }
+ *     each document: { items: [...], tombstones: { [id]: deletedAt }, updatedAt: <timestamp ms> }
  *     (dailyPlan is intentionally excluded from sync — it is local-only)
  *
  * Merge strategy:
@@ -37,7 +37,15 @@ import {
   saveAllSessions,
   loadCurrentSession,
   saveCurrentSession,
+  clearCurrentSession,
+  loadVocabularyTombstones,
+  loadSentenceTombstones,
+  loadSessionTombstones,
+  saveVocabularyTombstones,
+  saveSentenceTombstones,
+  saveSessionTombstones,
 } from '../utils/storage';
+import type { TombstoneMap } from '../utils/storage';
 import type {
   VocabularyItem,
   SentenceItem,
@@ -49,8 +57,14 @@ import type {
 type SyncCollection = 'vocabulary' | 'sentences' | 'sessions' | 'dailyPlan';
 
 interface CloudDoc<T> {
+  items?: T[];
+  tombstones?: TombstoneMap;
+  updatedAt?: number;
+}
+
+interface CollectionData<T> {
   items: T[];
-  updatedAt: number;
+  tombstones: TombstoneMap;
 }
 
 export interface SyncResult {
@@ -104,30 +118,51 @@ export function mergeById<T extends { id: string; addedAt?: number; updatedAt?: 
   local: T[],
   cloud: T[],
 ): T[] {
-  const map = new Map<string, T>();
+  return mergeCollection(local, cloud, {}, {}, (item) => item.updatedAt ?? item.addedAt ?? 0).items;
+}
 
-  // Cloud items first
-  for (const item of cloud) {
-    map.set(item.id, item);
-  }
+/**
+ * Merge one full-array collection with per-item deletion knowledge.
+ * A tombstone wins on equality so a stale device cannot resurrect a delete.
+ */
+export function mergeCollection<T extends { id: string }>(
+  local: T[],
+  cloud: T[],
+  localTombstones: TombstoneMap,
+  cloudTombstones: TombstoneMap,
+  getLiveTimestamp: (item: T) => number,
+  mergeLiveItem?: (local: T | undefined, cloud: T | undefined, winner: T) => T,
+): CollectionData<T> {
+  const localById = new Map(local.map((item) => [item.id, item]));
+  const cloudById = new Map(cloud.map((item) => [item.id, item]));
+  const ids = new Set([...cloudById.keys(), ...localById.keys(), ...Object.keys(cloudTombstones), ...Object.keys(localTombstones)]);
+  const result: T[] = [];
+  const tombstones: TombstoneMap = {};
 
-  // Local items: add if missing, or replace if local is newer
-  for (const item of local) {
-    const existing = map.get(item.id);
-    if (!existing) {
-      map.set(item.id, item);
+  for (const id of ids) {
+    const localItem = localById.get(id);
+    const cloudItem = cloudById.get(id);
+    const localDeletedAt = localTombstones[id] ?? 0;
+    const cloudDeletedAt = cloudTombstones[id] ?? 0;
+    const deletedAt = Math.max(localDeletedAt, cloudDeletedAt);
+
+    let winner: T | undefined;
+    if (localItem && cloudItem) {
+      winner = getLiveTimestamp(localItem) > getLiveTimestamp(cloudItem) ? localItem : cloudItem;
+      if (winner === cloudItem && mergeLiveItem) winner = mergeLiveItem(localItem, cloudItem, winner);
     } else {
-      // Keep whichever was mutated more recently; prefer cloud on tie.
-      const localTime = item.updatedAt ?? item.addedAt ?? 0;
-      const cloudTime = existing.updatedAt ?? existing.addedAt ?? 0;
-      if (localTime > cloudTime) {
-        map.set(item.id, item);
-      }
-      // else keep cloud version
+      winner = localItem ?? cloudItem;
     }
+
+    const liveAt = winner ? getLiveTimestamp(winner) : 0;
+    if (deletedAt > 0 && deletedAt >= liveAt) {
+      tombstones[id] = deletedAt;
+      continue;
+    }
+    if (winner) result.push(winner);
   }
 
-  return Array.from(map.values());
+  return { items: result, tombstones };
 }
 
 /**
@@ -136,40 +171,27 @@ export function mergeById<T extends { id: string; addedAt?: number; updatedAt?: 
 function mergeSessions(
   local: VideoStudySession[],
   cloud: VideoStudySession[],
-): VideoStudySession[] {
-  const map = new Map<string, VideoStudySession>();
-
-  for (const s of cloud) {
-    map.set(s.id, s);
-  }
-
-  for (const s of local) {
-    const existing = map.get(s.id);
-    if (!existing) {
-      map.set(s.id, s);
-    } else {
-      const localTime = s.updatedAt ?? s.createdAt ?? 0;
-      const cloudTime = existing.updatedAt ?? existing.createdAt ?? 0;
-      if (localTime > cloudTime) {
-        map.set(s.id, s);
-      } else {
-        // Cloud wins on timestamp, but it may have heavy fields stripped.
-        // Restore transcriptData / transcriptLines / aiAnalysis from local.
-        map.set(s.id, {
-          ...existing,
-          transcriptData: existing.transcriptData ?? s.transcriptData,
-          transcriptLines:
-            existing.transcriptLines && existing.transcriptLines.length > 0
-              ? existing.transcriptLines
-              : s.transcriptLines,
-          aiAnalysis: existing.aiAnalysis ?? s.aiAnalysis,
-        });
-      }
-    }
-  }
-
-  // Sort by createdAt desc
-  return Array.from(map.values()).sort((a, b) => (b.createdAt ?? 0) - (a.createdAt ?? 0));
+  localTombstones: TombstoneMap,
+  cloudTombstones: TombstoneMap,
+): CollectionData<VideoStudySession> {
+  const merged = mergeCollection(
+    local,
+    cloud,
+    localTombstones,
+    cloudTombstones,
+    (session) => session.updatedAt ?? session.createdAt ?? 0,
+    (localItem, _cloudItem, winner) => ({
+      ...winner,
+      transcriptData: winner.transcriptData ?? localItem?.transcriptData,
+      transcriptLines:
+        winner.transcriptLines && winner.transcriptLines.length > 0
+          ? winner.transcriptLines
+          : localItem?.transcriptLines ?? [],
+      aiAnalysis: winner.aiAnalysis ?? localItem?.aiAnalysis,
+    }),
+  );
+  merged.items.sort((a, b) => (b.createdAt ?? 0) - (a.createdAt ?? 0));
+  return merged;
 }
 
 // ── Collect local data ─────────────────────────────────────────
@@ -178,6 +200,9 @@ interface AllLocalData {
   vocabulary: VocabularyItem[];
   sentences: SentenceItem[];
   sessions: VideoStudySession[];
+  vocabularyTombstones: TombstoneMap;
+  sentenceTombstones: TombstoneMap;
+  sessionTombstones: TombstoneMap;
 }
 
 function collectLocalData(): AllLocalData {
@@ -185,6 +210,9 @@ function collectLocalData(): AllLocalData {
     vocabulary: loadVocabulary(),
     sentences: loadSentences(),
     sessions: loadAllSessions(),
+    vocabularyTombstones: loadVocabularyTombstones(),
+    sentenceTombstones: loadSentenceTombstones(),
+    sessionTombstones: loadSessionTombstones(),
   };
 }
 
@@ -222,12 +250,14 @@ async function uploadCollection<T extends { id: string }>(
   uid: string,
   collection: SyncCollection,
   items: T[],
+  tombstones: TombstoneMap = {},
 ): Promise<void> {
   const ref = getCollectionRef(uid, collection);
   // Strip undefined values from every item to prevent Firestore errors
   const cleanItems = items.map((item) => stripUndefined(item as Record<string, unknown>));
   await setDoc(ref, {
     items: cleanItems,
+    tombstones,
     updatedAt: Date.now(),
     serverUpdatedAt: serverTimestamp(),
   });
@@ -243,9 +273,9 @@ export async function uploadToCloud(uid: string): Promise<SyncResult> {
     console.log('[Sync] Upload →', { uid, vocab: data.vocabulary.length, sentences: data.sentences.length, sessions: data.sessions.length });
 
     const results = await Promise.allSettled([
-      uploadCollection(uid, 'vocabulary', data.vocabulary),
-      uploadCollection(uid, 'sentences', data.sentences),
-      uploadCollection(uid, 'sessions', data.sessions.map(stripSession)),
+      uploadCollection(uid, 'vocabulary', data.vocabulary, data.vocabularyTombstones),
+      uploadCollection(uid, 'sentences', data.sentences, data.sentenceTombstones),
+      uploadCollection(uid, 'sessions', data.sessions.map(stripSession), data.sessionTombstones),
     ]);
 
     const errors = results
@@ -294,12 +324,12 @@ export async function uploadToCloud(uid: string): Promise<SyncResult> {
 async function downloadCollection<T>(
   uid: string,
   collection: SyncCollection,
-): Promise<T[]> {
+): Promise<CollectionData<T>> {
   const ref = getCollectionRef(uid, collection);
   const snap = await getDoc(ref);
-  if (!snap.exists()) return [];
+  if (!snap.exists()) return { items: [], tombstones: {} };
   const data = snap.data() as CloudDoc<T>;
-  return data.items ?? [];
+  return { items: data.items ?? [], tombstones: data.tombstones ?? {} };
 }
 
 /**
@@ -319,10 +349,10 @@ async function syncWithCloudOnce(uid: string): Promise<SyncResult> {
       downloadCollection<VideoStudySession>(uid, 'sessions'),
     ]);
 
-    const cloudVocab = dlResults[0].status === 'fulfilled' ? dlResults[0].value : [];
-    const cloudSentences = dlResults[1].status === 'fulfilled' ? dlResults[1].value : [];
-    const cloudSessions = dlResults[2].status === 'fulfilled' ? dlResults[2].value : [];
-    console.log('[Sync] Cloud ↓', { cloudVocab: cloudVocab.length, cloudSentences: cloudSentences.length, cloudSessions: cloudSessions.length });
+    const cloudVocab = dlResults[0].status === 'fulfilled' ? dlResults[0].value : { items: [], tombstones: {} };
+    const cloudSentences = dlResults[1].status === 'fulfilled' ? dlResults[1].value : { items: [], tombstones: {} };
+    const cloudSessions = dlResults[2].status === 'fulfilled' ? dlResults[2].value : { items: [], tombstones: {} };
+    console.log('[Sync] Cloud ↓', { cloudVocab: cloudVocab.items.length, cloudSentences: cloudSentences.items.length, cloudSessions: cloudSessions.items.length });
 
     const dlErrors: string[] = [];
     dlResults.forEach((r, i) => {
@@ -341,15 +371,27 @@ async function syncWithCloudOnce(uid: string): Promise<SyncResult> {
 
     // Merge each collection. A failed download is not treated as an empty
     // collection: doing so could overwrite valid cloud data on the next push.
-    const mergedVocab = mergeById(local.vocabulary, cloudVocab);
-    const mergedSentences = mergeById(local.sentences, cloudSentences);
-    const mergedSessions = mergeSessions(local.sessions, cloudSessions);
+    const mergedVocabData = downloadFailed[0]
+      ? { items: local.vocabulary, tombstones: local.vocabularyTombstones }
+      : mergeCollection(local.vocabulary, cloudVocab.items, local.vocabularyTombstones, cloudVocab.tombstones, (item) => item.updatedAt ?? item.addedAt ?? 0);
+    const mergedSentencesData = downloadFailed[1]
+      ? { items: local.sentences, tombstones: local.sentenceTombstones }
+      : mergeCollection(local.sentences, cloudSentences.items, local.sentenceTombstones, cloudSentences.tombstones, (item) => item.updatedAt ?? item.addedAt ?? 0);
+    const mergedSessionsData = downloadFailed[2]
+      ? { items: local.sessions, tombstones: local.sessionTombstones }
+      : mergeSessions(local.sessions, cloudSessions.items, local.sessionTombstones, cloudSessions.tombstones);
+    const mergedVocab = mergedVocabData.items;
+    const mergedSentences = mergedSentencesData.items;
+    const mergedSessions = mergedSessionsData.items;
     console.log('[Sync] Merged', { vocab: mergedVocab.length, sentences: mergedSentences.length, sessions: mergedSessions.length });
 
     // Save merged data to localStorage (dailyPlan stays as-is locally)
     saveVocabulary(mergedVocab);
     saveSentences(mergedSentences);
     saveAllSessions(mergedSessions);
+    saveVocabularyTombstones(mergedVocabData.tombstones);
+    saveSentenceTombstones(mergedSentencesData.tombstones);
+    saveSessionTombstones(mergedSessionsData.tombstones);
 
     // Restore current session from merged list (the most recent one)
     const currentSession = loadCurrentSession();
@@ -357,16 +399,20 @@ async function syncWithCloudOnce(uid: string): Promise<SyncResult> {
       const found = mergedSessions.find((s) => s.id === currentSession.id);
       if (found) {
         saveCurrentSession(found);
+      } else if (mergedSessionsData.tombstones[currentSession.id] !== undefined) {
+        clearCurrentSession();
       } else if (mergedSessions.length > 0) {
         saveCurrentSession(mergedSessions[0]);
+      } else {
+        clearCurrentSession();
       }
     }
 
     // Upload merged data back to cloud (so cloud has the merged result too)
     const uploadTasks: Array<Promise<void> | null> = [
-      downloadFailed[0] ? null : uploadCollection(uid, 'vocabulary', mergedVocab),
-      downloadFailed[1] ? null : uploadCollection(uid, 'sentences', mergedSentences),
-      downloadFailed[2] ? null : uploadCollection(uid, 'sessions', mergedSessions.map(stripSession)),
+      downloadFailed[0] ? null : uploadCollection(uid, 'vocabulary', mergedVocab, mergedVocabData.tombstones),
+      downloadFailed[1] ? null : uploadCollection(uid, 'sentences', mergedSentences, mergedSentencesData.tombstones),
+      downloadFailed[2] ? null : uploadCollection(uid, 'sessions', mergedSessions.map(stripSession), mergedSessionsData.tombstones),
     ];
     const ulResults = await Promise.all(uploadTasks.map((task) => task ? task.then(
       () => ({ status: 'fulfilled' as const }),
@@ -434,10 +480,10 @@ export async function pushItemsToCloud(
   }
   const promises: Promise<void>[] = [];
   if (collections.includes('vocabulary')) {
-    promises.push(uploadCollection(uid, 'vocabulary', loadVocabulary()));
+    promises.push(uploadCollection(uid, 'vocabulary', loadVocabulary(), loadVocabularyTombstones()));
   }
   if (collections.includes('sentences')) {
-    promises.push(uploadCollection(uid, 'sentences', loadSentences()));
+    promises.push(uploadCollection(uid, 'sentences', loadSentences(), loadSentenceTombstones()));
   }
   const results = await Promise.allSettled(promises);
   const errors = results
@@ -461,7 +507,7 @@ export async function pushSessionToCloud(uid: string): Promise<void> {
   try {
     assertVerified(uid);
     const sessions = loadAllSessions().map(stripSession);
-    await uploadCollection(uid, 'sessions', sessions);
+    await uploadCollection(uid, 'sessions', sessions, loadSessionTombstones());
     localStorage.setItem(LAST_SYNC_KEY, String(Date.now()));
     localStorage.removeItem(SYNC_PENDING_KEY);
   } catch (err) {

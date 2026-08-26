@@ -1,5 +1,5 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
-import type { VocabularyItem } from '../../types';
+import type { VocabularyItem, SentenceItem, VideoStudySession } from '../../types';
 
 const mocks = vi.hoisted(() => ({
   auth: { currentUser: { uid: 'user-a', emailVerified: true } },
@@ -20,6 +20,12 @@ const mocks = vi.hoisted(() => ({
   saveAllSessions: vi.fn(),
   loadCurrentSession: vi.fn(() => null),
   saveCurrentSession: vi.fn(),
+  loadVocabularyTombstones: vi.fn(() => ({})),
+  loadSentenceTombstones: vi.fn(() => ({})),
+  loadSessionTombstones: vi.fn(() => ({})),
+  saveVocabularyTombstones: vi.fn(),
+  saveSentenceTombstones: vi.fn(),
+  saveSessionTombstones: vi.fn(),
 }));
 
 vi.mock('firebase/firestore', () => ({
@@ -44,10 +50,18 @@ vi.mock('../../utils/storage', () => ({
   saveAllSessions: mocks.saveAllSessions,
   loadCurrentSession: mocks.loadCurrentSession,
   saveCurrentSession: mocks.saveCurrentSession,
+  clearCurrentSession: vi.fn(),
+  loadVocabularyTombstones: mocks.loadVocabularyTombstones,
+  loadSentenceTombstones: mocks.loadSentenceTombstones,
+  loadSessionTombstones: mocks.loadSessionTombstones,
+  saveVocabularyTombstones: mocks.saveVocabularyTombstones,
+  saveSentenceTombstones: mocks.saveSentenceTombstones,
+  saveSessionTombstones: mocks.saveSessionTombstones,
 }));
 
 import {
   mergeById,
+  mergeCollection,
   pushItemsToCloud,
   syncWithCloud,
 } from '../firestoreSync';
@@ -101,6 +115,113 @@ describe('Firestore lifecycle sync', () => {
 
     expect(merged).toHaveLength(1);
     expect(merged[0].definitionEn).toBe('enriched locally');
+  });
+
+  it.each([
+    ['vocabulary', item('x', 100)],
+    ['sentence', { id: 'x', text: 'x', addedAt: 100 } as SentenceItem],
+    ['session', {
+      id: 'x', youtubeUrl: 'https://youtu.be/x', youtubeId: 'x', title: 'x',
+      createdAt: 100, updatedAt: 100, transcriptLines: [], status: 'draft',
+    } as VideoStudySession],
+  ])('keeps a stale local %s item deleted when cloud has a newer tombstone', (_name, value) => {
+    const merged = mergeCollection([value], [], {}, { x: 200 }, (entry) => {
+      const candidate = entry as { updatedAt?: number; addedAt?: number; createdAt?: number };
+      return candidate.updatedAt ?? candidate.addedAt ?? candidate.createdAt ?? 0;
+    });
+    expect(merged.items).toEqual([]);
+    expect(merged.tombstones).toEqual({ x: 200 });
+  });
+
+  it('lets a newer recreation supersede an older tombstone', () => {
+    const merged = mergeCollection(
+      [{ ...item('x', 200), updatedAt: 200 }],
+      [],
+      {},
+      { x: 100 },
+      (entry) => entry.updatedAt ?? entry.addedAt ?? 0,
+    );
+    expect(merged.items).toHaveLength(1);
+    expect(merged.items[0].id).toBe('x');
+    expect(merged.tombstones).toEqual({});
+  });
+
+  it('lets a local deletion beat a stale cloud live item', () => {
+    const merged = mergeCollection(
+      [],
+      [item('x', 100)],
+      { x: 200 },
+      {},
+      (entry) => entry.updatedAt ?? entry.addedAt ?? 0,
+    );
+    expect(merged.items).toEqual([]);
+    expect(merged.tombstones).toEqual({ x: 200 });
+  });
+
+  it('uses deletion as the deterministic equal-timestamp winner', () => {
+    const merged = mergeCollection(
+      [item('x', 200)],
+      [],
+      { x: 200 },
+      {},
+      (entry) => entry.updatedAt ?? entry.addedAt ?? 0,
+    );
+    expect(merged.items).toEqual([]);
+    expect(merged.tombstones).toEqual({ x: 200 });
+  });
+
+  it('preserves unrelated live items while propagating a deletion', () => {
+    const merged = mergeCollection(
+      [item('x', 100), item('y', 100)],
+      [],
+      {},
+      { x: 200 },
+      (entry) => entry.updatedAt ?? entry.addedAt ?? 0,
+    );
+    expect(merged.items.map((entry) => entry.id)).toEqual(['y']);
+    expect(merged.tombstones).toEqual({ x: 200 });
+  });
+
+  it('accepts pre-tombstone cloud documents as an empty tombstone map', async () => {
+    mocks.loadVocabulary.mockReturnValue([item('local', 10)]);
+    mocks.getDoc
+      .mockResolvedValueOnce({ exists: () => true, data: () => ({ items: [item('cloud', 20)] }) })
+      .mockResolvedValueOnce({ exists: () => true, data: () => ({ items: [] }) })
+      .mockResolvedValueOnce({ exists: () => true, data: () => ({ items: [] }) });
+
+    const result = await syncWithCloud('user-a');
+    expect(result.ok).toBe(true);
+    expect(mocks.saveVocabularyTombstones).toHaveBeenCalledWith({});
+  });
+
+  it('propagates a cloud deletion while removing the stale local copy', async () => {
+    mocks.loadVocabulary.mockReturnValue([item('x', 100)]);
+    mocks.getDoc
+      .mockResolvedValueOnce({ exists: () => true, data: () => ({ items: [], tombstones: { x: 200 } }) })
+      .mockResolvedValueOnce({ exists: () => true, data: () => ({ items: [] }) })
+      .mockResolvedValueOnce({ exists: () => true, data: () => ({ items: [] }) });
+
+    const result = await syncWithCloud('user-a');
+    expect(result.ok).toBe(true);
+    expect(mocks.saveVocabulary).toHaveBeenCalledWith([]);
+    expect(mocks.saveVocabularyTombstones).toHaveBeenCalledWith({ x: 200 });
+    const vocabWrite = mocks.setDoc.mock.calls.find((call) => String(call[0].path).endsWith('/vocabulary'));
+    expect(vocabWrite?.[1].tombstones).toEqual({ x: 200 });
+    expect(vocabWrite?.[1].items).toEqual([]);
+  });
+
+  it('simulates two devices without allowing a stale device to resurrect a delete', () => {
+    const deviceA = [item('x', 100)];
+    const deviceB = [item('x', 100)];
+    const cloudAfterADelete = { items: [] as VocabularyItem[], tombstones: { x: 200 } };
+
+    const bPull = mergeCollection(deviceB, cloudAfterADelete.items, {}, cloudAfterADelete.tombstones, (entry) => entry.updatedAt ?? entry.addedAt ?? 0);
+    expect(bPull.items).toEqual([]);
+    expect(bPull.tombstones).toEqual({ x: 200 });
+
+    const aPull = mergeCollection(deviceA.filter((entry) => entry.id !== 'x'), cloudAfterADelete.items, { x: 200 }, cloudAfterADelete.tombstones, (entry) => entry.updatedAt ?? entry.addedAt ?? 0);
+    expect(aPull.items).toEqual([]);
+    expect(aPull.tombstones).toEqual({ x: 200 });
   });
 
   it('coalesces concurrent sync triggers for the same account', async () => {

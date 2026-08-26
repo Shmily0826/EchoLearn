@@ -54,6 +54,9 @@ describe('AuthProvider account boundary', () => {
     localStorage.setItem('echolearn_vocabulary', JSON.stringify([{ id: 'a-only' }]));
     localStorage.setItem('echolearn_sentences', JSON.stringify([{ id: 'a-sentence' }]));
     localStorage.setItem('echolearn_session', JSON.stringify({ id: 'a-session' }));
+    localStorage.setItem('echolearn_vocabulary_tombstones', JSON.stringify({ 'deleted-a': 123 }));
+    localStorage.setItem('echolearn_sentence_tombstones', JSON.stringify({ 'deleted-s': 123 }));
+    localStorage.setItem('echolearn_session_tombstones', JSON.stringify({ 'deleted-session': 123 }));
 
     render(
       <AuthProvider>
@@ -66,6 +69,9 @@ describe('AuthProvider account boundary', () => {
     expect(localStorage.getItem('echolearn_vocabulary')).toBeNull();
     expect(localStorage.getItem('echolearn_sentences')).toBeNull();
     expect(localStorage.getItem('echolearn_session')).toBeNull();
+    expect(localStorage.getItem('echolearn_vocabulary_tombstones')).toBeNull();
+    expect(localStorage.getItem('echolearn_sentence_tombstones')).toBeNull();
+    expect(localStorage.getItem('echolearn_session_tombstones')).toBeNull();
   });
 
   it('starts cloud merge from the authenticated state boundary', async () => {
