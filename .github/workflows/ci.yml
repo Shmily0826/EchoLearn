@@ -28,6 +28,11 @@ jobs:
       - run: npm test
       - run: npm run build
       - run: npm run lint
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: 17
+      - run: npm run test:emulator
 
   e2e:
     runs-on: ubuntu-latest

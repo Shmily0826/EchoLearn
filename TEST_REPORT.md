@@ -869,3 +869,37 @@ No tombstone or schema redesign was implemented in Batch 9.
 - Active QA vocabulary, sentence, and session records were removed through the normal UI. Both isolated devices ended with no visible QA learning records.
 - No unrelated user data was touched. Retained QA tombstones are harmless test-account artifacts; cleanup/GC policy is deferred to a future task.
 - **BATCH 9 COMPLETE.** Production Vocabulary, Sentence, and Session deletion paths now preserve deletions across stale-device synchronization. The only implementation defect found in Batch 9B was the missing Dashboard session push, and it was fixed, regression-tested, deployed, and re-tested.
+
+## Batch 10 — Firebase Emulator + CI Regression Gates — 2026-08-26
+
+### Scope and architecture
+
+- Added a local Firestore Emulator gate using the isolated project id `echolearn-emulator`; it does not connect to production Firestore and does not require production credentials.
+- Emulator configuration enables only Firestore on port `8080`; Auth, Functions, Hosting, and production Firebase settings were not changed.
+- The local wrapper keeps Firebase CLI configuration under a temporary task-specific directory so the normal user profile is not modified.
+- `firebase-tools` is pinned to `13.35.1` because the available Java 17 runtime is supported by this version; the newer CLI required Java 21.
+
+### Emulator coverage
+
+- Rules: unauthenticated and unverified access is denied for personal data; verified owners can read/write their own data; cross-user access is denied.
+- Rules: the current `aiAnalyses` policy is captured as a regression test and explicitly not changed in this task.
+- Rules: verified feedback creation succeeds with a server timestamp; unverified feedback creation is denied.
+- Firestore integration: vocabulary, sentences, and sessions round-trip with active items, tombstones, and timestamps; legacy documents without tombstones are accepted; stale-device and updatedAt conflict merges are covered; empty collections do not overwrite another collection; own-document deletion and cross-user deletion boundaries are covered.
+
+### CI and commands
+
+- `npm run test:emulator` starts the Firestore Emulator, runs the isolated 10-test suite, and shuts the Emulator down.
+- `npm run test:ci` runs unit tests, TypeScript build checking, lint, production build, and the Emulator gate.
+- GitHub Actions now installs Java 17 and runs the Emulator gate after the existing unit/build/lint steps. Existing npm caching and Playwright E2E job remain unchanged.
+
+### Validation
+
+- `npm test`: PASS, 26 files / 340 tests.
+- `npm run test:emulator`: PASS twice, 1 file / 10 tests each run; both Emulator start/stop cycles completed successfully.
+- The CI workflow was updated locally but was not executed remotely because this task is not pushed.
+
+### Boundaries and classification
+
+- No production Firestore/Auth data, production rules, AI analysis policy, application data model, or credentials were changed.
+- Live production lifecycle, browser E2E, and remote GitHub Actions results are outside this local Emulator task and remain separately evidenced by prior batches.
+- **BATCH 10 READY FOR PUSH.** Full local CI-equivalent validation passed; remote CI and push remain intentionally pending authorization.
