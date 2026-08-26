@@ -27,6 +27,8 @@ import {
 } from '../utils/storage';
 import { getRecentVideosFromChannel, hasApiKey } from '../services/youtubeApi';
 import { useI18n } from '../i18n/I18nContext';
+import { useAuth } from '../contexts/AuthContext';
+import { syncDeletedSessions } from '../services/sessionDeletionSync';
 import { TARGET_CHANNEL } from '../config/targetChannel';
 import type {
   VocabularyItem,
@@ -56,6 +58,7 @@ function saveChannelPrefs(prefs: ChannelPrefs): void {
 
 const DashboardPage: React.FC = () => {
   const navigate = useNavigate();
+  const { user } = useAuth();
 
   const [vocabulary, setVocabulary] = useState<VocabularyItem[]>(loadVocabulary);
   const [sentences, setSentences] = useState<SentenceItem[]>(loadSentences);
@@ -222,6 +225,7 @@ const DashboardPage: React.FC = () => {
     if (currentSession?.id === id) {
       setCurrentSession(null);
     }
+    syncDeletedSessions(user?.uid);
   };
 
   const toggleSessionSelection = (id: string) => {
@@ -249,6 +253,7 @@ const DashboardPage: React.FC = () => {
     if (currentSession && ids.has(currentSession.id)) setCurrentSession(null);
     setSelectedSessionIds(new Set());
     setSelectingSessions(false);
+    syncDeletedSessions(user?.uid);
   };
 
   // ── Helper to process fetched videos result ───────────────
