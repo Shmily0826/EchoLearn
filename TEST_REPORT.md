@@ -903,3 +903,16 @@ No tombstone or schema redesign was implemented in Batch 9.
 - No production Firestore/Auth data, production rules, AI analysis policy, application data model, or credentials were changed.
 - Live production lifecycle, browser E2E, and remote GitHub Actions results are outside this local Emulator task and remain separately evidenced by prior batches.
 - **BATCH 10 READY FOR PUSH.** Full local CI-equivalent validation passed; remote CI and push remain intentionally pending authorization.
+
+### Batch 10 remote closure — 2026-08-26
+
+- Commit `3d366360e03880be6da9f5ee915ea17035217cb9` was pushed to `origin/main` without force-push; no unrelated branch was changed.
+- GitHub Actions workflow `CI` run `32955080027` was triggered by `push` on Ubuntu. The `test` job passed in 1m12s and the `e2e` job passed in 1m39s.
+- Remote `test` steps passed: `npm ci`, unit tests (340), build, lint (0 errors; existing warnings), Java 17 setup, and Firestore Emulator tests (10/10). The remote Emulator used the isolated `echolearn-emulator` project and required no production credentials.
+- Remote `e2e` steps passed: Playwright browser installation and `npm run e2e`.
+- GitHub Actions annotations contain existing warnings only: action Node 20/setup-java v4 deprecation notices and the pre-existing React Hook lint warnings. No CI-specific fix was required.
+- GitHub deployment record `6101278070` for this SHA was created by `vercel[bot]` and reported `success`; its production target was `https://echolearn-6hxzv99h7-shmily0826s-projects.vercel.app`. `https://echo-learn.uk` returned HTTP 200. The Vercel CLI was unavailable locally, so deployment success was verified through the GitHub deployment status and HTTP health check.
+
+### Batch 10 final classification
+
+**BATCH 10 COMPLETE.** Implementation, remote CI, Emulator gate, Playwright E2E, production isolation, deployment status, and TEST_REPORT closure are complete; this entry is recorded in the final documentation-only commit.
