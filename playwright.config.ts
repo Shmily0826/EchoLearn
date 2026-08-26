@@ -1,4 +1,5 @@
 import { defineConfig } from '@playwright/test';
+import { devices } from '@playwright/test';
 
 // E2E runs against the local vite dev server. The golden-path suite is
 // intentionally network-free: it uses the Study page's built-in sample video
@@ -14,6 +15,22 @@ export default defineConfig({
     baseURL: 'http://localhost:5173',
     viewport: { width: 1280, height: 720 },
   },
+  projects: [
+    {
+      name: 'desktop-chromium',
+      testIgnore: '**/mobile-pwa.spec.ts',
+    },
+    {
+      name: 'mobile-chromium',
+      testMatch: '**/mobile-pwa.spec.ts',
+      use: { ...devices['Pixel 5'] },
+    },
+    {
+      name: 'mobile-webkit',
+      testMatch: '**/mobile-pwa.spec.ts',
+      use: { ...devices['iPhone 12'] },
+    },
+  ],
   webServer: {
     command: 'npm run dev',
     url: 'http://localhost:5173',

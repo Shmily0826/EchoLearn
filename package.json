@@ -14,6 +14,7 @@
     "test:emulator": "node scripts/run-firestore-emulator.mjs",
     "test:ci": "npm test && npx tsc -b && npm run lint && npm run build && npm run test:emulator",
     "e2e": "playwright test",
+    "e2e:mobile": "playwright test --project=mobile-chromium --project=mobile-webkit",
     "health": "node scripts/health-check.mjs",
     "lint": "eslint .",
     "preview": "vite preview",

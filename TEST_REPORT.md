@@ -916,3 +916,55 @@ No tombstone or schema redesign was implemented in Batch 9.
 ### Batch 10 final classification
 
 **BATCH 10 COMPLETE.** Implementation, remote CI, Emulator gate, Playwright E2E, production isolation, deployment status, and TEST_REPORT closure are complete; this entry is recorded in the final documentation-only commit.
+
+## Batch 11 — Mobile / PWA Lifecycle — 2026-08-26
+
+### Coverage matrix
+
+| Area | Result | Evidence |
+|---|---|---|
+| Existing desktop Chromium | PASS | 11 existing E2E tests passed in the final 19-test run |
+| Mobile Chromium | PASS / EMULATED | Pixel 5 profile; 4 tests passed in each of two runs |
+| Mobile WebKit | PASS / EMULATED | iPhone 12 profile; 4 tests passed in each of two runs; not physical iOS Safari |
+| Android real device | NOT AVAILABLE | No accessible Android/ADB device in this run |
+| Physical iOS Safari | NOT AVAILABLE | Windows Playwright cannot provide physical iOS Safari evidence |
+| Responsive overflow | PASS | Dashboard, Vocabulary, Sentences, Review, Settings and Study checked at mobile viewport |
+| Long-content stress | NOT COVERED | No deterministic long-content fixture was required by the observed paths |
+| Study transcript/media UI | PASS / EMULATED | Sample transcript visible on mobile; existing desktop media-sync tests remain green |
+| Background/foreground | PASS / DETERMINISTIC | visibilitychange/pageshow lifecycle events preserve transcript and layout; OS suspension not emulated |
+| Background during loading | NOT COVERED | No delayed transcript fixture was needed after no lifecycle defect was observed |
+| Offline/reconnect | PASS / EMULATED | Loaded Guest shell remains usable offline; Study works after reconnect |
+| Orientation | PASS / EMULATED | Portrait → landscape → portrait retains Study transcript and no overflow |
+| PWA manifest | PASS | Production build manifest has standalone display, `/` scope/start URL, metadata and valid icons |
+| Service worker | PASS / PRODUCTION PREVIEW | Generated SW registered with active scope `/` in local production preview |
+| Standalone mode | PASS / CONFIGURATION | Manifest declares `display: standalone`; full installed-PWA OS chrome not available |
+| Update lifecycle | NOT COVERED | No old/new service-worker deployment fixture was necessary |
+| Touch targets/keyboard | NOT COVERED | No clear target/input defect was demonstrated in this bounded pass |
+
+### Implementation and regression coverage
+
+- Added `mobile-chromium` and `mobile-webkit` Playwright projects while preserving the existing desktop project.
+- Added `npm run e2e:mobile`; the normal `npm run e2e` now runs desktop Chromium plus the bounded mobile Chromium/WebKit suite.
+- Added reusable horizontal-overflow assertions and console/page-error checks for the mobile route smoke.
+- Added mobile navigation coverage for Dashboard, Vocabulary, Sentences, Review, Settings, and Study; Study transcript visibility after orientation/lifecycle events; offline/reconnect; manifest metadata and icon checks.
+- CI now builds before E2E and installs both Chromium and WebKit. The existing CI Emulator gate remains unchanged.
+- The only initial failures were test-harness issues: direct `page.goto` reset Guest React state, dev Vite does not serve the production manifest, WebKit was not installed locally, and Settings health probes produced expected localhost CORS noise. These were fixed in the test harness with in-app navigation, build-artifact checks, WebKit installation/CI setup, and a deterministic health fixture. No product defect was found.
+
+### Validation
+
+- `npm run e2e:mobile`: PASS twice — 8/8 each run (4 mobile Chromium, 4 mobile WebKit).
+- `npm run e2e`: PASS — 19/19 (11 desktop Chromium, 4 mobile Chromium, 4 mobile WebKit).
+- Production preview check: manifest delivered as JSON; service worker registered active with scope `/`.
+- `npm test`: PASS — 340 tests.
+- `npm run test:emulator`: PASS — 10/10.
+- `npx tsc -b`: PASS.
+- `npm run lint`: PASS — 0 errors, 13 existing warnings.
+- `npm run build`: PASS; PWA generated `dist/sw.js` and manifest.
+- `git diff --check`: PASS.
+
+### Production and device boundaries
+
+- No production Auth/Firestore lifecycle was repeated and no production data was modified.
+- No real Android device or physical iOS Safari was available; Pixel 5 Chromium and iPhone 12 WebKit are browser approximations.
+- The existing live-provider uncached 1–2 minute path, forced provider outages, `aiAnalyses` policy, tombstone GC, OAuth/Search Console, custom verification domain, and existing lint/action deprecation warnings remain deferred.
+- **BATCH 11 READY FOR COMMIT.**
