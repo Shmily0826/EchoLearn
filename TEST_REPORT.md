@@ -759,3 +759,62 @@ There are no Firestore emulator or real-provider lifecycle results in this round
 ### Batch 8A final classification
 
 **BATCH 8A COMPLETE.** Code fix, email branding, unverified local-only behavior, resend flow, manual verification transition, forced token refresh, Firestore sync unlock, refresh persistence, logout cleanup, and QA data cleanup passed. OAuth domain ownership verification and the `aiAnalyses` verification-policy decision remain explicitly deferred and were not changed.
+
+## Batch 9 — Data Integrity & Recovery — 2026-08-26
+
+### Coverage map
+
+| Area | Existing proof before Batch 9 | Batch 9 result | Safe validation boundary |
+|---|---|---|---|
+| Cross-device baseline | deterministic union/dedupe tests and earlier single-account lifecycle | **PASS** — Device A marker appeared on B; B marker appeared on A | dedicated verified QA account, two isolated profiles |
+| Same-record conflict | deterministic `updatedAt` merge test | **PASS** — later B mutation won, one record remained | dedicated QA marker |
+| Stale-device deletion resurrection | documented as a known gap; no tombstone coverage | **FAIL / ARCHITECTURE DECISION REQUIRED** | dedicated QA marker only |
+| Offline failure and retry | mocked pull/push failure and pending-state tests | **TEST-ONLY PASS**; production offline/recovery smoke retained local data and recovered, but UI pending text was not independently exposed | QA CDP network emulation plus deterministic mocks |
+| Partial collection failure | deterministic test existed | **TEST-ONLY PASS** — failed category was preserved and not uploaded as empty | mocked Firestore boundary |
+| Concurrent sync | in-memory `syncInFlight` test existed | **TEST-ONLY PASS** — same-UID requests coalesced; no duplicate mock pull | mocked Firestore boundary |
+| Account deletion | logout cleanup was covered; full deletion had no prior production evidence | **PASS** — Auth user removed, A/B returned Guest, all three user data subcollections had no documents | disposable QA account and Firebase Console read-only check |
+
+### Two-device QA evidence
+
+- Device A and Device B were separate Chrome profiles with local CDP ports `9224` and `9225`; the normal Chrome profile was not used for lifecycle data.
+- Both devices were verified as the same dedicated QA Email/Password identity before data operations. No password, cookie, token, verification URL, or credential was recorded.
+- `ECHO_B9_BASE_A` and `ECHO_B9_BASE_B` were created through the normal Vocabulary UI and synchronized in both directions.
+- The same `creativity` record was changed to `ECHO_B9_CONFLICT_A` on A, then later to `ECHO_B9_CONFLICT_B` on B. After A refreshed, only the B value remained and there was one record. This matches the existing `updatedAt` merge semantics.
+
+### Stale-device deletion resurrection — FAIL
+
+Exact scenario:
+
+1. Both devices contained the same QA record.
+2. Device A deleted `ECHO_B9_CONFLICT_B` through normal Vocabulary UI and successfully pushed the shorter array.
+3. Device A no longer displayed the marker.
+4. Device B retained its stale local copy and then refreshed/synchronized.
+5. Device B displayed `ECHO_B9_CONFLICT_B` again; sanitized Firestore Listen/Write responses were HTTP 200.
+
+Root cause: the current collection format is a full item array and `mergeById(local, cloud)` treats every item missing from cloud as a local-only item. A stale local item therefore re-enters the merged array and is uploaded again. There is no deletion event, `deletedAt`, tombstone, per-item cloud document, or collection revision that can distinguish “deleted” from “not present in this snapshot.”
+
+This requires **ARCHITECTURE / DATA MODEL DECISION REQUIRED**. Minimal options are:
+
+1. Add per-item tombstones (`deletedAt` plus item identity) and merge deletions before live items, with a later retention/garbage-collection policy.
+2. Store a per-user change log or collection revision containing additions, updates, and deletions, then compact only after all devices have advanced past the deletion.
+3. Migrate from full-array documents to per-item documents with explicit delete operations and a bounded device/version strategy.
+
+No tombstone or schema redesign was implemented in Batch 9.
+
+### Offline, partial-failure, and concurrency evidence
+
+- QA CDP network emulation interrupted a local mutation. The local vocabulary remained available, the recovered online sync completed, and Settings later showed `Last sync: Just now` with the QA data count retained. No production infrastructure or network setting was changed.
+- Existing deterministic tests passed for all-pull failure, partial category failure, failed lightweight push, retry marker state, and prevention of false successful last-sync timestamps.
+- Existing deterministic concurrency coverage passed: simultaneous `syncWithCloud('user-a')` calls returned the same in-flight Promise and performed one three-category pull. Cross-tab locking remains unimplemented and was not treated as a demonstrated defect.
+
+### Account deletion lifecycle — PASS
+
+- The disposable QA account contained only Batch 9 QA data before deletion. The first normal UI attempt correctly required recent login; after the user completed a normal re-login, the second normal UI deletion succeeded.
+- Device A returned to logged-out Guest state. Device B, after reload, also returned to logged-out Guest state and did not retain visible QA vocabulary.
+- Firebase Console read-only verification confirmed the QA Auth UID/email no longer appeared in Authentication → Users.
+- Firebase Console read-only verification showed no documents in `users/{uid}/data/vocabulary`, `sentences`, or `sessions`.
+- No other Auth user or Firestore UID was changed, and the QA mailbox was not deleted.
+
+### Batch 9 classification
+
+**BATCH 9 ARCHITECTURE DECISION REQUIRED.** All production-safe scenarios that do not require deletion protocol redesign passed or were covered by deterministic tests. The demonstrated stale-device deletion resurrection defect remains unresolved and cannot be safely fixed without choosing a tombstone/change-log/per-item deletion model.
