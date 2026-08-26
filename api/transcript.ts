@@ -19,6 +19,17 @@ const CONSENT_COOKIE =
 
 const VPS_API_URL = 'https://yt-api.echo-learn.uk';
 const VPS_TIMEOUT_MS = 45_000;
+const TRACE_HEADER = 'X-EchoLearn-Trace-Id';
+
+function createTraceId(): string {
+  return typeof crypto?.randomUUID === 'function'
+    ? crypto.randomUUID()
+    : `trace-${Date.now()}-${Math.random().toString(36).slice(2)}`;
+}
+
+function logTranscriptEvent(event: string, fields: Record<string, unknown>): void {
+  console.info(JSON.stringify({ service: 'vercel-transcript', event, ...fields }));
+}
 
 // ── Per-IP rate limiter (per serverless instance, best-effort) ──
 const RATE_LIMIT_WINDOW_MS = 60_000;
@@ -72,6 +83,7 @@ async function fetchVpsTranscript(
   videoId: string,
   lang: string,
   apiKey: string,
+  traceId: string,
 ): Promise<Record<string, unknown> | null> {
   const controller = new AbortController();
   const timer = setTimeout(() => controller.abort(), VPS_TIMEOUT_MS);
@@ -79,19 +91,27 @@ async function fetchVpsTranscript(
     const upstream = await fetch(
       `${VPS_API_URL}/api/transcript?videoId=${encodeURIComponent(videoId)}&lang=${encodeURIComponent(lang)}`,
       {
-        headers: { 'X-Api-Key': apiKey },
+        headers: { 'X-Api-Key': apiKey, [TRACE_HEADER]: traceId },
         signal: controller.signal,
       },
     );
-    if (!upstream.ok) return null;
+    if (!upstream.ok) {
+      logTranscriptEvent('vps_result', { traceId, videoId, status: upstream.status, usable: false });
+      return null;
+    }
     const data = (await upstream.json()) as unknown;
-    if (!isUsableTranscript(data)) return null;
+    if (!isUsableTranscript(data)) {
+      logTranscriptEvent('vps_result', { traceId, videoId, status: upstream.status, usable: false, reason: 'empty_or_malformed' });
+      return null;
+    }
+    logTranscriptEvent('vps_result', { traceId, videoId, status: upstream.status, usable: true, lineCount: data.lines.length });
     return { ...data, source: (data as { source?: string }).source || 'vps' };
   } catch (err) {
-    console.warn(
-      '[transcript] VPS fallback unavailable:',
-      err instanceof Error ? err.message : 'Unknown error',
-    );
+    logTranscriptEvent('vps_error', {
+      traceId,
+      videoId,
+      error: err instanceof Error && err.name === 'AbortError' ? 'timeout' : 'network_or_parse',
+    });
     return null;
   } finally {
     clearTimeout(timer);
@@ -100,11 +120,15 @@ async function fetchVpsTranscript(
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 export default async function handler(req: any, res: any): Promise<void> {
+  const traceId = createTraceId();
+  res.setHeader(TRACE_HEADER, traceId);
+  logTranscriptEvent('request_start', { traceId, method: req.method });
   // CORS headers (restricted to the app's known origins)
   const allowed = resolveOrigin(req.headers?.origin as string | undefined);
   if (allowed) res.setHeader('Access-Control-Allow-Origin', allowed);
   res.setHeader('Access-Control-Allow-Methods', 'GET, OPTIONS');
   res.setHeader('Access-Control-Allow-Headers', 'Content-Type');
+  res.setHeader('Access-Control-Expose-Headers', TRACE_HEADER);
 
   if (req.method === 'OPTIONS') {
     res.status(204).end();
@@ -132,8 +156,9 @@ export default async function handler(req: any, res: any): Promise<void> {
   try {
     const vpsKey = process.env.YTDLP_API_KEY;
     if (vpsKey) {
-      const vpsResult = await fetchVpsTranscript(videoId, lang, vpsKey);
+      const vpsResult = await fetchVpsTranscript(videoId, lang, vpsKey, traceId);
       if (vpsResult) {
+        logTranscriptEvent('request_finish', { traceId, videoId, provider: 'vps', status: 200 });
         res.status(200).json(vpsResult);
         return;
       }
@@ -177,6 +202,7 @@ export default async function handler(req: any, res: any): Promise<void> {
       }),
     );
 
+    logTranscriptEvent('request_finish', { traceId, videoId, provider: 'youtube-transcript', status: 200, lineCount: lines.length });
     res.status(200).json({
       lines,
       language: result[0]?.lang ?? lang,
@@ -184,7 +210,7 @@ export default async function handler(req: any, res: any): Promise<void> {
     });
   } catch (err) {
     const message = err instanceof Error ? err.message : 'Unknown error';
-    console.error('[transcript] Error:', message);
+    logTranscriptEvent('request_error', { traceId, videoId, status: 500, error: message.includes('disabled') ? 'transcript_disabled' : 'provider_failure' });
     res.status(500).json({ error: message });
   }
 }

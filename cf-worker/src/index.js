@@ -30,6 +30,17 @@ const INNERTUBE_API_URL =
   'https://www.youtube.com/youtubei/v1/player?prettyPrint=false';
 
 const CORS_METHODS = 'GET, POST, OPTIONS';
+const TRACE_HEADER = 'X-EchoLearn-Trace-Id';
+
+function createTraceId() {
+  return typeof crypto?.randomUUID === 'function'
+    ? crypto.randomUUID()
+    : `trace-${Date.now()}-${Math.random().toString(36).slice(2)}`;
+}
+
+function traceLog(event, fields) {
+  console.log(JSON.stringify({ service: 'cf-worker-transcript', event, ...fields }));
+}
 
 // Domains the /api/yt proxy is allowed to forward to.
 const ALLOWED_TARGET_DOMAINS = ['youtube.com', 'googlevideo.com', 'googleapis.com'];
@@ -63,6 +74,7 @@ function corsHeaders(origin) {
     'Access-Control-Allow-Methods': CORS_METHODS,
     'Access-Control-Allow-Headers': 'Content-Type',
     'Access-Control-Max-Age': '86400',
+    'Access-Control-Expose-Headers': TRACE_HEADER,
   };
   const allowed = resolveOrigin(origin);
   if (allowed) headers['Access-Control-Allow-Origin'] = allowed;
@@ -179,7 +191,7 @@ export default {
     try {
       let response;
       if (url.pathname === '/api/transcript') {
-        response = await handleTranscript(url, env);
+        response = await handleTranscript(url, env, createTraceId());
       } else if (url.pathname === '/api/bilibili') {
         response = await handleBilibili(url, env);
       } else if (url.pathname === '/api/audio') {
@@ -206,7 +218,7 @@ export default {
 
 // ── /api/transcript — Fetch YouTube transcript ────────────────
 
-async function handleTranscript(url, env) {
+async function handleTranscript(url, env, traceId) {
   const videoId = url.searchParams.get('videoId');
   const lang = url.searchParams.get('lang') || 'en';
   // Debug logs are off by default in production. To re-enable for troubleshooting,
@@ -214,8 +226,9 @@ async function handleTranscript(url, env) {
   const debug = url.searchParams.get('debug') === '1' && env.ALLOW_DEBUG === '1';
 
   if (!videoId) {
-    return jsonResponse({ error: 'Missing videoId parameter' }, 400);
+    return jsonResponse({ error: 'Missing videoId parameter' }, 400, { [TRACE_HEADER]: traceId });
   }
+  traceLog('request_start', { traceId, videoId, lang });
 
   const debugLog = [];
   const log = debug ? (msg) => debugLog.push(msg) : (msg) => console.log(msg);
@@ -226,10 +239,11 @@ async function handleTranscript(url, env) {
   // the caption path, so other users get transcripts without the developer's
   // PC being online.
   if (env && env.YTDLP_API_URL) {
-    const ytdlpResult = await fetchViaYtDlp(videoId, lang, env, log);
+    const ytdlpResult = await fetchViaYtDlp(videoId, lang, env, log, null, traceId);
     if (ytdlpResult) {
       if (debug) ytdlpResult._debug = debugLog;
-      return jsonResponse(ytdlpResult);
+      traceLog('request_finish', { traceId, videoId, provider: 'vps-transcript', status: 200, lineCount: ytdlpResult.lines?.length || 0 });
+      return jsonResponse(ytdlpResult, 200, { [TRACE_HEADER]: traceId });
     }
     log('yt-dlp service returned no transcript — falling through to other strategies');
   }
@@ -245,10 +259,13 @@ async function handleTranscript(url, env) {
       `https://www.youtube.com/watch?v=${videoId}`,
       env,
       log,
+      null,
+      traceId,
     );
     if (vpsAsr) {
       if (debug) vpsAsr._debug = debugLog;
-      return jsonResponse(vpsAsr);
+      traceLog('request_finish', { traceId, videoId, provider: 'vps-asr', status: 200, lineCount: vpsAsr.lines?.length || 0 });
+      return jsonResponse(vpsAsr, 200, { [TRACE_HEADER]: traceId });
     }
     log('VPS ASR fallback returned nothing — falling through to other strategies');
   }
@@ -257,14 +274,16 @@ async function handleTranscript(url, env) {
   const innerTubeResult = await fetchViaInnerTube(videoId, lang, env, log);
   if (innerTubeResult) {
     if (debug) innerTubeResult._debug = debugLog;
-    return jsonResponse(innerTubeResult);
+    traceLog('request_finish', { traceId, videoId, provider: 'innertube', status: 200 });
+    return jsonResponse(innerTubeResult, 200, { [TRACE_HEADER]: traceId });
   }
 
   // Strategy 2: Web page scraping
   const webResult = await fetchViaWebPage(videoId, lang, env, log);
   if (webResult) {
     if (debug) webResult._debug = debugLog;
-    return jsonResponse(webResult);
+    traceLog('request_finish', { traceId, videoId, provider: 'web', status: 200 });
+    return jsonResponse(webResult, 200, { [TRACE_HEADER]: traceId });
   }
 
   // Strategy 3: Whisper ASR (audio transcription via Groq)
@@ -276,7 +295,8 @@ async function handleTranscript(url, env) {
     const whisperResult = await fetchViaWhisper(videoId, lang, env, log);
     if (whisperResult) {
       if (debug) whisperResult._debug = debugLog;
-      return jsonResponse(whisperResult);
+      traceLog('request_finish', { traceId, videoId, provider: 'worker-whisper', status: 200, lineCount: whisperResult.lines?.length || 0 });
+      return jsonResponse(whisperResult, 200, { [TRACE_HEADER]: traceId });
     }
     log('Whisper fallback failed (audio fetch/transcription) — trying instance cascades');
   }
@@ -285,19 +305,22 @@ async function handleTranscript(url, env) {
   const invidiousResult = await fetchViaInvidious(videoId, lang, log);
   if (invidiousResult) {
     if (debug) invidiousResult._debug = debugLog;
-    return jsonResponse(invidiousResult);
+    traceLog('request_finish', { traceId, videoId, provider: 'invidious', status: 200 });
+    return jsonResponse(invidiousResult, 200, { [TRACE_HEADER]: traceId });
   }
 
   // Strategy 5: Piped API
   const pipedResult = await fetchViaPiped(videoId, lang, log);
   if (pipedResult) {
     if (debug) pipedResult._debug = debugLog;
-    return jsonResponse(pipedResult);
+    traceLog('request_finish', { traceId, videoId, provider: 'piped', status: 200 });
+    return jsonResponse(pipedResult, 200, { [TRACE_HEADER]: traceId });
   }
 
   const response = { error: 'No transcript available for this video' };
   if (debug) response._debug = debugLog;
-  return jsonResponse(response, 404);
+  traceLog('request_finish', { traceId, videoId, provider: 'none', status: 404 });
+  return jsonResponse(response, 404, { [TRACE_HEADER]: traceId });
 }
 
 // ── /api/bilibili — Fetch Bilibili transcript / metadata ──────────
@@ -436,13 +459,15 @@ async function handleInfo(url, env) {
  * Preferred over the Worker-side Whisper strategy because the VPS pulls audio
  * with yt-dlp directly instead of relying on public Piped/Invidious instances.
  */
-async function fetchViaVpsAsr(targetUrl, env, log = console.log, diagnostics = null) {
+async function fetchViaVpsAsr(targetUrl, env, log = console.log, diagnostics = null, traceId = null) {
   if (!env.YTDLP_API_URL) return null;
 
   const base = env.YTDLP_API_URL.replace(/\/+$/, '');
   const endpoint = `${base}/api/asr?url=${encodeURIComponent(targetUrl)}`;
   const headers = {};
   if (env.YTDLP_API_KEY) headers['X-Api-Key'] = env.YTDLP_API_KEY;
+  if (traceId) headers[TRACE_HEADER] = traceId;
+  traceId && traceLog('vps_asr_start', { traceId, target: 'youtube', provider: 'vps-asr' });
 
   try {
     // Download + transcode + transcribe runs synchronously on the VPS; a
@@ -452,6 +477,7 @@ async function fetchViaVpsAsr(targetUrl, env, log = console.log, diagnostics = n
       const detail = await resp.text();
       const message = `VPS ASR HTTP ${resp.status}: ${detail.substring(0, 300)}`;
       diagnostics && (diagnostics.message = message);
+      traceId && traceLog('vps_asr_result', { traceId, status: resp.status, usable: false });
       log(message);
       return null;
     }
@@ -461,11 +487,13 @@ async function fetchViaVpsAsr(targetUrl, env, log = console.log, diagnostics = n
       log('VPS ASR: empty transcript');
       return null;
     }
+    traceId && traceLog('vps_asr_result', { traceId, status: resp.status, usable: true, lineCount: data.lines.length });
     log(`VPS ASR: got ${data.lines.length} segments (${data.language})`);
     return data;
   } catch (err) {
     const message = `VPS ASR request failed: ${err.message}`;
     diagnostics && (diagnostics.message = message);
+    traceId && traceLog('vps_asr_error', { traceId, error: err?.name === 'AbortError' ? 'timeout' : 'network_or_parse' });
     log(message);
     return null;
   }
@@ -1748,11 +1776,12 @@ function handleHealthCheck() {
   });
 }
 
-function jsonResponse(data, status = 200) {
+function jsonResponse(data, status = 200, extraHeaders = {}) {
   return new Response(JSON.stringify(data), {
     status,
     headers: {
       'Content-Type': 'application/json',
+      ...extraHeaders,
     },
   });
 }
@@ -1764,7 +1793,7 @@ function jsonResponse(data, status = 200) {
  * The service returns the same { lines, language, isAutoGenerated } shape the
  * frontend expects, so we pass it straight through.
  */
-async function fetchViaYtDlp(videoId, lang, env, log, targetUrl = null) {
+async function fetchViaYtDlp(videoId, lang, env, log, targetUrl = null, traceId = null) {
   const base = env.YTDLP_API_URL.replace(/\/+$/, '');
   const qs = targetUrl
     ? `url=${encodeURIComponent(targetUrl)}&lang=${encodeURIComponent(lang)}`
@@ -1772,6 +1801,8 @@ async function fetchViaYtDlp(videoId, lang, env, log, targetUrl = null) {
   const url = `${base}/api/transcript?${qs}`;
   const headers = {};
   if (env.YTDLP_API_KEY) headers['X-Api-Key'] = env.YTDLP_API_KEY;
+  if (traceId) headers[TRACE_HEADER] = traceId;
+  traceId && traceLog('vps_transcript_start', { traceId, videoId });
 
   try {
     // Bilibili extraction must route through the flaky residential proxy and can
@@ -1779,14 +1810,17 @@ async function fetchViaYtDlp(videoId, lang, env, log, targetUrl = null) {
     const resp = await fetchWithTimeout(url, { headers }, 90000, env, log);
     if (resp.status === 404) {
       log('yt-dlp: 404 No transcript available');
+      traceId && traceLog('vps_transcript_result', { traceId, videoId, status: resp.status, usable: false });
       return null;
     }
     if (resp.status === 401) {
       log('yt-dlp: 401 unauthorized (check YTDLP_API_KEY)');
+      traceId && traceLog('vps_transcript_result', { traceId, videoId, status: resp.status, usable: false });
       return null;
     }
     if (!resp.ok) {
       log(`yt-dlp: HTTP ${resp.status}`);
+      traceId && traceLog('vps_transcript_result', { traceId, videoId, status: resp.status, usable: false });
       return null;
     }
     const data = await resp.json();

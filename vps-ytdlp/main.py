@@ -91,6 +91,48 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
+TRACE_HEADER = "X-EchoLearn-Trace-Id"
+
+
+def _trace_id(request: Request) -> str:
+    """Return only the bounded correlation id supplied by an upstream service."""
+    value = (request.headers.get(TRACE_HEADER) or "").strip()
+    if re.fullmatch(r"[A-Za-z0-9_-]{1,80}", value):
+        return value
+    return f"vps-{uuid.uuid4().hex}"
+
+
+@app.middleware("http")
+async def transcript_trace_middleware(request: Request, call_next):
+    if request.url.path not in ("/api/transcript", "/api/asr"):
+        return await call_next(request)
+    trace_id = _trace_id(request)
+    started = time.monotonic()
+    try:
+        response = await call_next(request)
+    except Exception:
+        print(json.dumps({
+            "service": "vps-transcript",
+            "event": "request_finish",
+            "traceId": trace_id,
+            "path": request.url.path,
+            "status": 500,
+            "elapsedMs": round((time.monotonic() - started) * 1000),
+            "outcome": "exception",
+        }), flush=True)
+        raise
+    response.headers[TRACE_HEADER] = trace_id
+    print(json.dumps({
+        "service": "vps-transcript",
+        "event": "request_finish",
+        "traceId": trace_id,
+        "path": request.url.path,
+        "status": response.status_code,
+        "elapsedMs": round((time.monotonic() - started) * 1000),
+        "outcome": "success" if response.status_code < 400 else "failure",
+    }), flush=True)
+    return response
+
 YTDLP_TIMEOUT = int(os.environ.get("YTDLP_TIMEOUT", "180"))
 YTDLP_PROXY = os.environ.get("YTDLP_PROXY") or ""
 YTDLP_API_KEY = os.environ.get("YTDLP_API_KEY") or ""

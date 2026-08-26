@@ -65,8 +65,21 @@ describe('api/transcript server fallback', () => {
     const [url, init] = fetchMock.mock.calls[0];
     expect(String(url)).toContain('https://yt-api.echo-learn.uk/api/transcript?');
     expect((init?.headers as Record<string, string>)['X-Api-Key']).toBe('test-vps-key');
+    expect((init?.headers as Record<string, string>)['X-EchoLearn-Trace-Id']).toMatch(/^trace-|^[0-9a-f-]{36}$/i);
+    expect(res.headers['x-echolearn-trace-id']).toMatch(/^trace-|^[0-9a-f-]{36}$/i);
     expect(res.body).not.toContain('test-vps-key');
     expect(YoutubeTranscript.fetchTranscript).not.toHaveBeenCalled();
+  });
+
+  it('keeps the trace id available when VPS fails and the npm fallback succeeds', async () => {
+    fetchMock.mockResolvedValueOnce(response({ error: 'unavailable' }, 503));
+    vi.mocked(YoutubeTranscript.fetchTranscript).mockResolvedValueOnce([
+      { text: 'traceable fallback', offset: 0, duration: 1, lang: 'en' },
+    ]);
+    const res = makeRes();
+    await handler(makeReq(), res);
+    expect(res.statusCode).toBe(200);
+    expect(res.headers['x-echolearn-trace-id']).toMatch(/^trace-|^[0-9a-f-]{36}$/i);
   });
 
   it('falls back to youtube-transcript after a VPS non-2xx response', async () => {
