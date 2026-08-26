@@ -1054,3 +1054,93 @@ Browser Study request
 ### Batch 12 final classification
 
 **BATCH 12 PARTIAL.** Controlled slow lifecycle coverage is complete and the real production request/fallback/error behavior is recorded. The high-value successful uncached Whisper lifecycle and cache transition remain unproven because the selected candidate returned a definitive disabled-caption error after the synchronous fallback chain; no product code or timeout was changed.
+
+## Batch 12B — ASR Trace + Final Uncached Validation — 2026-08-27
+
+### Commit and sync
+
+- The previously validated Batch 12 test/report changes were committed locally as `3abfb00a5ddef39aab404c30479b3960d51f4f52` (`test: cover slow transcript lifecycle`).
+- `origin/main` remains at `8f5de3ba75ad2233457326553c54ea5d6541babe`; local `main` is ahead by one. No push was performed.
+- Final working tree is clean after the report update below is committed separately.
+
+### `uPRSigrDt0Q` trace
+
+Evidence levels are kept explicit: browser request events are **PRODUCTION REAL PROVIDER** evidence; source/config conclusions are **CODE INSPECTION**; missing backend logs are **NOT OBSERVABLE**.
+
+- Browser: `uPRSigrDt0Q` entered the production server cascade after local proxy and official caption paths did not produce a transcript. The isolated browser remained in one loading state, crossed the 120-second Worker wait, then requested same-origin Vercel `/api/transcript`.
+- Worker: a Worker `/api/transcript?videoId=uPRSigrDt0Q&lang=en` request was observed, but no browser-visible Worker response was captured during the bounded post-failure observation. Whether the Worker received the request and whether it continued after the browser abandoned it is **NOT OBSERVABLE** without retained Worker logs.
+- VPS/Groq: public health reported `asr:true` and `asrMaxDuration:1800`, proving production ASR configuration is present. No retained VPS access log, yt-dlp log, audio extraction log, Groq request log, or ASR cache-write log was available for the historical request. ASR invocation is therefore **NOT OBSERVABLE**, not proven absent.
+- Vercel: the fallback request returned HTTP 500. `api/transcript.ts` catches a failed/empty VPS result and then calls `youtube-transcript`; the exact returned body matched that package’s thrown `Transcript is disabled on this video (uPRSigrDt0Q)` error. The body does not prove that the earlier VPS attempt never ran, because `fetchVpsTranscript` intentionally collapses VPS non-2xx, timeout, and network failures to `null`.
+- Cache: no Worker response or cache-hit signal was captured after the browser failure. VPS source code caches only successful transcript/ASR results in memory; no historical cache-write evidence is available.
+
+### Provider decision tree from current code
+
+```text
+Browser
+  1. local proxy (4s; skip for 5 min after failure)
+  2. InnerTube ANDROID -> WEB, then timed-text parsing
+  3. YouTube page extraction, then timed-text parsing
+  4. CF Worker transcript (120s browser wait)
+       VPS /api/transcript (Worker 90s fetch cap)
+       if no result: VPS /api/asr (Worker 240s fetch cap, when configured)
+       if no result: Worker InnerTube -> page -> Worker Whisper -> Invidious -> Piped
+  5. same-origin Vercel /api/transcript (120s browser wait)
+       VPS /api/transcript (45s AbortController cap)
+       if no result: youtube-transcript package
+  6. client-side youtube-transcript package fallback
+```
+
+- A successful transcript requires a non-empty `lines` array. A successful VPS ASR result is returned with `source:"asr"` and is cached by the VPS under its ASR-specific key.
+- VPS `/api/transcript` and `/api/asr` use separate cache keys. The transcript route does not itself call ASR; the Worker explicitly calls ASR after its VPS transcript attempt fails.
+- The VPS has a successful-result TTL cache but no transcript/ASR in-flight lock. The only in-flight lock found is for playback audio extraction, not transcript generation.
+- The browser’s promise map coalesces simultaneous frontend calls for the same video/language within one page, but it cannot deduplicate a new endpoint request after the first request is aborted or after a Retry starts.
+- Therefore, if Worker/VPS work continues after the browser’s 120-second abort, a later Vercel request or Retry can start independent VPS/ASR work unless the first request has already populated the success cache. Duplicate expensive ASR work is a code-level risk, not observed as a confirmed event in this run.
+
+### ASR readiness
+
+`NOT OBSERVABLE`
+
+- **Configured:** VPS health returned `asr:true` and the default 1800-second duration ceiling.
+- **Reachability of route:** Worker code conditionally calls VPS ASR when `YTDLP_API_URL` and `GROQ_API_KEY` are configured; health proves the VPS has Groq configuration, but does not prove the Worker secret/config binding or a historical invocation.
+- **Historical invocation:** no retained Worker/VPS/Groq logs were available for `uPRSigrDt0Q`.
+- Two well-selected no-caption production candidates reached the slow server path but both ended in the Vercel `youtube-transcript` disabled-caption error; no third candidate was attempted.
+
+### Final candidate
+
+- Executed: yes, exactly once.
+- Video: `ImMoFcCo1M0`
+- Title: `World Youth Skills Day Speech 2026 | Best English Speech for Students | School Assembly Speech`
+- Duration: 195 seconds
+- YouTube metadata: no caption tracks; public, non-live, non-Shorts English speech.
+- Result: loading remained coherent through about 141 seconds; final state was idle Load button, no transcript, one Retry error card, HTTP 500 from Vercel with `Transcript is disabled on this video (ImMoFcCo1M0)`.
+- No refresh and no Retry were performed for this final candidate.
+
+### Real uncached lifecycle and cache transition
+
+- ASR start: **NOT OBSERVABLE**.
+- First-load latency: approximately 198 seconds from submit to final Vercel error.
+- 120-second boundary: **YES**; Worker request was followed by Vercel fallback.
+- Transcript result: none.
+- Refresh required: not applicable; the first request failed and was not retried.
+- UI coherence: PASS; loading cleared, Load returned idle, Retry was available, and no stale success state appeared.
+- Cache transition: **NOT EXECUTED / NOT PROVEN**. No successful ASR result existed to repeat-load, and no cache-hit evidence was observed.
+
+### Bugs / architecture findings
+
+- No bounded frontend bug was found. Controlled delayed success/failure tests and both real production attempts showed correct loading/error/Retry state handling.
+- The principal finding is evidence and architecture risk, not a confirmed ASR provider defect: the synchronous chain permits the browser to abandon a Worker request before a potentially long VPS/ASR operation completes; Vercel separately aborts VPS transcript work after 45 seconds.
+- The current code has no transcript/ASR server-side in-flight deduplication. A post-abort Retry or Worker→Vercel fallback could duplicate expensive generation before a successful result reaches the VPS cache.
+- No broad async-job redesign or speculative timeout change was made. Any reliable late-completion handling requires an explicit architecture decision.
+
+### Validation
+
+- Prior controlled lifecycle E2E: PASS — 2/2.
+- Prior full Playwright: PASS — 21/21.
+- Prior unit: PASS — 340/340.
+- Prior Emulator: PASS — 10/10.
+- Prior TypeScript, lint, build, and diff checks: PASS; lint had 0 errors and 13 existing warnings.
+- Commit verification: local commit created successfully; no push.
+
+### Batch 12B final classification
+
+**BATCH 12 PARTIAL.** Production ASR is configured, but historical Worker/VPS/Groq logs are unavailable, so neither candidate can prove ASR invocation or cache completion. The controlled lifecycle coverage and exact provider decision tree are documented; no bounded product fix was justified.
