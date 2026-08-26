@@ -979,3 +979,78 @@ No tombstone or schema redesign was implemented in Batch 9.
 ### Batch 11 final classification
 
 **BATCH 11 COMPLETE.** Responsive mobile coverage, WebKit approximation, PWA artifact/preview checks, visibility/orientation, offline/reconnect smoke, CI, deployment, and production HTTP health all passed. Physical Android and iOS device validation remain explicitly unavailable rather than being conflated with browser emulation.
+
+## Batch 12 — Real Uncached Provider Lifecycle — 2026-08-27
+
+### Repository sync
+
+- Local `main` and `origin/main` both started at `8f5de3ba75ad2233457326553c54ea5d6541babe`; ahead/behind was `0/0` and the worktree was clean.
+- Prior provider and Study failure-recovery evidence was preserved. The original 63-second uncached race, stale `fetchToast`, and `Zq8e3xX02u8` official-caption incident remain already-known historical items, not new findings.
+
+### Current timeout architecture
+
+```text
+Browser Study request
+  -> local proxy (4s, skipped for 5 min after failure)
+  -> official InnerTube / page caption paths
+  -> CF Worker /api/transcript
+       -> VPS yt-dlp transcript (90s Worker cap)
+       -> VPS ASR/Whisper (240s Worker-side fetch cap)
+       -> Worker-side providers / Whisper fallbacks
+  -> same-origin Vercel /api/transcript
+       -> VPS transcript fetch (45s Vercel function AbortController cap)
+       -> youtube-transcript package fallback
+```
+
+- The frontend server cascade uses a 120-second timeout per endpoint. The Worker’s VPS transcript/ASR calls allow longer work, but the browser can abandon the Worker before those calls return.
+- The Vercel transcript function currently aborts its VPS request after 45 seconds. Its fallback to `youtube-transcript` is only reached after that VPS attempt returns or aborts.
+- The VPS ASR route has a default 30-minute media-duration limit and a default 180-second Groq timeout; these are service-side limits, while the Worker/Vercel/browser limits above determine whether a synchronous browser request can observe the result.
+- No timeout was changed in Batch 12. The evidence is sufficient to identify a possible client/server timeout mismatch, but not sufficient to justify an async-job architecture or a speculative timeout change.
+
+### Existing coverage and new controlled coverage
+
+- Existing hook tests already cover delayed success, stale late failure, latest-request-wins, toast reset, and elapsed loading state.
+- Existing Study E2E already covered immediate 500 → error → Retry → success.
+- Added two page-level controlled lifecycle tests to `e2e/study-failure-recovery.spec.ts`: delayed success stays loading and then renders without refresh; delayed failure clears loading and Retry succeeds. Both passed.
+
+### Real candidate and first load
+
+- Candidate: `uPRSigrDt0Q`, public English speech, 230 seconds (about 3:50), selected from current YouTube search results.
+- YouTube player metadata exposed no caption tracks. A shorter 8-second Shorts candidate was rejected as unsuitable before any EchoLearn request.
+- The isolated Guest browser submitted the candidate once. At about 29 seconds the Worker transcript request was visible; after the 120-second client budget the same-origin Vercel request was visible. The page remained in one coherent loading state throughout the slow path.
+- The first load ended after roughly 233 seconds with the Load button idle, loading cleared, no transcript, and one visible error card with Retry. The captured Vercel response was HTTP 500 with the sanitized body `Transcript is disabled on this video (uPRSigrDt0Q)`.
+- No refresh was used during the initial attempt. No success toast, transcript, or contradictory loading/error combination appeared.
+
+### 120-second boundary, retry, and cache transition
+
+- Reaching the 120-second boundary: **YES**. The Worker request did not produce a browser-visible success response in the observed window; the browser proceeded to Vercel. A bounded 45-second post-failure observation found no later Worker response or cache-hit event.
+- One controlled Retry was performed only after the first request had fully failed. It again used one Worker request followed by one Vercel request and ended with the same HTTP 500 disabled-caption response. No overlapping requests were observed.
+- A successful ASR generation and cache transition could not be established for this candidate. Therefore no repeat-load latency or cached transcript identity is claimed.
+- The candidate reached the uncached/no-caption server path, but the production evidence does not prove that Whisper completed; it cannot be recorded as a successful real ASR fixture.
+
+### Worker → Vercel fallback
+
+- The real production request exercised the deployed Worker-first then same-origin Vercel fallback naturally; no Worker outage was manufactured and no production infrastructure was changed.
+- A separate interception-only fallback test was not repeated because it would add another production provider request without improving the already-observed fallback evidence.
+
+### Bugs / architecture findings
+
+- No bounded frontend lifecycle bug was found. The UI correctly showed one loading state, cleared it on failure, exposed Retry, and did not display stale success state.
+- The remaining finding is an **architecture-level risk / incomplete evidence**, not a targeted fix: a realistic no-caption request can outlive the browser’s 120-second Worker wait, while the Vercel path independently aborts VPS work at 45 seconds. The observed candidate then surfaced a truthful provider error rather than a false frontend success/failure race.
+- Per task scope, no synchronous-to-async job redesign was started. A future change would require an explicit architecture decision and provider-side evidence showing that ASR actually completes after the downstream request is abandoned.
+
+### Validation
+
+- Controlled Study lifecycle E2E: **PASS — 2/2**.
+- Full Playwright E2E: **PASS — 21/21** (desktop Chromium, mobile Chromium, mobile WebKit).
+- `npm test`: **PASS — 340/340**.
+- `npm run test:emulator`: **PASS — 10/10**.
+- `npx tsc -b`: **PASS**.
+- `npm run lint`: **PASS — 0 errors, 13 existing warnings**.
+- `npm run build`: **PASS**.
+- `git diff --check`: **PASS**.
+- Production real-provider evidence: **PARTIAL**; one true uncached/no-caption candidate was observed, but no successful Whisper completion or cache transition was proven.
+
+### Batch 12 final classification
+
+**BATCH 12 PARTIAL.** Controlled slow lifecycle coverage is complete and the real production request/fallback/error behavior is recorded. The high-value successful uncached Whisper lifecycle and cache transition remain unproven because the selected candidate returned a definitive disabled-caption error after the synchronous fallback chain; no product code or timeout was changed.

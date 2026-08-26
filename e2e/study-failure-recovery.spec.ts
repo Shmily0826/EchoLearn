@@ -51,6 +51,7 @@ async function seedCleanVisitor(page: Page) {
 async function routeTranscript(
   page: Page,
   responses: Array<'ok' | 'fail'> | (() => 'ok' | 'fail'),
+  responseDelayMs = 0,
 ) {
   // Keep this scenario deterministic: only the local app and its mocked API
   // may proceed; every external caption strategy must fail during first load.
@@ -75,6 +76,30 @@ async function routeTranscript(
       ? responses()
       : responses[Math.min(call, responses.length - 1)];
     call += 1;
+    if (responseDelayMs > 0) {
+      return new Promise<void>((resolve) => {
+        setTimeout(async () => {
+          if (kind === 'fail') {
+            await route.fulfill({
+              status: 500,
+              contentType: 'application/json',
+              body: JSON.stringify({ error: 'upstream boom' }),
+            });
+          } else {
+            await route.fulfill({
+              status: 200,
+              contentType: 'application/json',
+              body: transcriptPayload([
+                { start: 0, end: 2, text: 'Good morning everyone' },
+                { start: 2, end: 4, text: 'Welcome to this lesson' },
+                { start: 4, end: 6, text: 'Today we learn vocabulary' },
+              ]),
+            });
+          }
+          resolve();
+        }, responseDelayMs);
+      });
+    }
     if (kind === 'fail') {
       return route.fulfill({
         status: 500,
@@ -131,6 +156,52 @@ async function expectGuestWordPersisted(page: Page) {
 }
 
 test.describe('Batch 3 — Study failure recovery', () => {
+  test('Slow first fetch stays coherent until success without refresh', async ({ page }) => {
+    await seedCleanVisitor(page);
+    await routeTranscript(page, ['ok'], 1_500);
+    await page.goto('/');
+    await enterGuestMode(page);
+
+    await page.getByRole('link', { name: 'Study' }).click();
+    await expect(page).toHaveURL(/\/study$/);
+    await loadYoutubeUrl(page);
+
+    const loadingButton = page.getByRole('button', { name: /loading/i });
+    await expect(loadingButton).toBeVisible({ timeout: 5_000 });
+    await expect(page.getByText(/unable to fetch captions|no subtitles|couldn't load/i).filter({ visible: true })).toHaveCount(0);
+
+    await expect(page.getByText(/welcome/i).filter({ visible: true }).first()).toBeVisible({
+      timeout: 20_000,
+    });
+    await expect(loadingButton).toBeHidden();
+    await expect(page.getByText(/unable to fetch captions|no subtitles|couldn't load/i).filter({ visible: true })).toHaveCount(0);
+  });
+
+  test('Late failure clears loading and Retry recovers successfully', async ({ page }) => {
+    await seedCleanVisitor(page);
+    let allowSuccess = false;
+    await routeTranscript(page, () => (allowSuccess ? 'ok' : 'fail'), 1_500);
+    await page.goto('/');
+    await enterGuestMode(page);
+
+    await page.getByRole('link', { name: 'Study' }).click();
+    await expect(page).toHaveURL(/\/study$/);
+    await loadYoutubeUrl(page);
+
+    const loadingButton = page.getByRole('button', { name: /loading/i });
+    await expect(loadingButton).toBeVisible({ timeout: 5_000 });
+    const errorCard = page.getByText(/unable to fetch captions|no subtitles|couldn't load|try again/i).filter({ visible: true }).first();
+    await expect(errorCard).toBeVisible({ timeout: 20_000 });
+    await expect(loadingButton).toBeHidden();
+
+    allowSuccess = true;
+    await page.getByRole('button', { name: /retry/i }).first().click();
+    await expect(page.getByText(/welcome/i).filter({ visible: true }).first()).toBeVisible({
+      timeout: 20_000,
+    });
+    await expect(page.getByText(/unable to fetch captions|no subtitles|couldn't load/i).filter({ visible: true })).toHaveCount(0);
+  });
+
   test('Retry: first fetch 500 → error state → click Retry → second succeeds', async ({ page }) => {
     await seedCleanVisitor(page);
     let allowSuccess = false;
