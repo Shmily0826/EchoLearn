@@ -214,6 +214,17 @@ class AudioAcquisitionTests(unittest.TestCase):
         self.assertEqual(popen.call_count, 1)
         terminate.assert_called_once()
 
+    def test_timeout_after_blocked_attempt_preserves_bounded_category(self):
+        _FakeYtdlpProcess.next_results = [
+            (1, "ERROR: Sign in to confirm you're not a bot", False),
+            (1, "", True),
+        ]
+        with tempfile.TemporaryDirectory() as directory, patch.object(
+            main.subprocess, "Popen", side_effect=_FakeYtdlpProcess
+        ):
+            with self.assertRaises(main.YouTubeAcquisitionBlocked):
+                main._download_audio("https://www.youtube.com/watch?v=test", directory)
+
     def test_process_group_helper_reaps_after_termination(self):
         process = _FakeYtdlpProcess
         process.next_results = [(1, "", False)]

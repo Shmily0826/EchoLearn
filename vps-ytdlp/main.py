@@ -1247,6 +1247,9 @@ def _download_audio(
                     elapsedMs=round((time.monotonic() - attempt_started) * 1000),
                     outcome="timeout",
                 )
+                if last_blocked_category:
+                    _trace_event("audio_extract_finish", outcome="blocked", category=last_blocked_category)
+                    raise YouTubeAcquisitionBlocked
                 return None
             for fname in sorted(os.listdir(td)):
                 if fname.endswith(".mp3"):
