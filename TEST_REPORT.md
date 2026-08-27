@@ -1176,3 +1176,36 @@ Batch 12C added safe correlation only. Provider order, timeout budgets, response
 ### Batch 12C final classification
 
 **BATCH 12 INFRASTRUCTURE BLOCKED.** Safe observability is deployed at the Worker and Vercel layers, and CI is green, but the VPS source was not deployed from this checkout and production Worker/VPS/Groq logs cannot be retained or read through the available access. The final probe still returns no transcript; therefore Batch 12 cannot be classified complete and no speculative provider or timeout redesign was made.
+
+## Batch 12D — AWS VPS verification and traced production probe (2026-08-27)
+
+### AWS host and source verification
+
+- The existing PEM fingerprint matched the task-provided fingerprint. A bounded SSH probe to `ubuntu@3.107.69.57` succeeded.
+- Host evidence matched EchoLearn: user `ubuntu`, hostname `ip-172-31-11-241`, `echolearn-ytdlp.service` active, WorkingDirectory `/opt/echolearn-ytdlp`, uvicorn `main:app`, and health endpoint available.
+- The actual production listener is port 80, not the historical port 8000. `/api/health` returned `{"status":"ok","asr":true,"asrMaxDuration":1800}` before and after deployment.
+- The remote `main.py` differed from the tracked source only by the expected 42-line tracing middleware block; no unrelated production-only source divergence was found.
+
+### Deployment and trace validation
+
+- Created the rollback backup `/opt/echolearn-ytdlp/main.py.bak-20260827-014953` before replacement.
+- Uploaded the tracked `vps-ytdlp/main.py`, passed the service-venv Python syntax check, restarted `echolearn-ytdlp.service`, and verified it remained active with a passing health response.
+- A cheap request returned `X-EchoLearn-Trace-Id: batch12d-cheap` and produced a matching safe `request_finish` journal event. The event contained only service, event, traceId, path, status, elapsedMs, and outcome; no credential values were read or logged.
+
+### Final real production probe
+
+- Candidate: `uPRSigrDt0Q`, executed once in the isolated Codex QA browser without refresh or Retry.
+- Browser state: loading remained coherent for approximately 186 seconds, then cleared to the existing “Unable to fetch captions” failure state with 0 subtitles and Retry available.
+- VPS evidence for the same observation window: `/api/transcript` request finished with HTTP 404 after `64695ms`. A preceding VPS transcript request finished with HTTP 404 after `12330ms`.
+- No VPS `/api/asr` `request_finish` event was observed in the bounded journal query. Worker-side trace logs, Groq request/result logs, media extraction details, ffmpeg details, and cache-write details are not available through the current access surface. Therefore ASR invocation, Groq outcome, ASR parsing, cache transition, late completion, and duplicate ASR work remain **NOT OBSERVABLE**.
+- The current Worker source conditionally enters the VPS ASR branch only when both `YTDLP_API_URL` and `GROQ_API_KEY` are configured. The observed absence of a VPS ASR event is consistent with the branch not being entered, but production Worker configuration/log evidence is required before calling that the root cause.
+
+### Findings and classification
+
+- AWS host identity, SSH access, production source parity, reversible deployment, VPS tracing middleware, service health, and transcript-stage failure were confirmed.
+- No bounded application code defect was proven. The remaining blocker is production observability/configuration evidence for the Worker-to-VPS-ASR/Groq path; changing timeout or provider logic without that evidence would be speculative.
+- Existing credentials and service configuration were not changed. No duplicate ASR request was confirmed.
+
+### Batch 12D final classification
+
+**BATCH 12 INFRASTRUCTURE DECISION REQUIRED.** The confirmed production VPS is healthy and now runs the tracked tracing source, but the no-caption probe still ends at transcript HTTP 404 with no observable VPS ASR invocation. A production Worker configuration/logging decision is required to determine whether the ASR branch is enabled and why it did not produce a traceable result; successful uncached ASR and cache-hit closure cannot be claimed.
