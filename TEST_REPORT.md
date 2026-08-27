@@ -1266,3 +1266,31 @@ Batch 12C added safe correlation only. Provider order, timeout budgets, response
 ### Batch 12E final classification
 
 **BATCH 12 INFRASTRUCTURE DECISION REQUIRED.** The gate is not the defect: VPS ASR is definitely invoked, but the synchronous upstream request ends in HTTP 524 before producing a result. Resolving this requires an infrastructure/upstream-duration decision or an explicitly approved asynchronous design; no speculative code change was made.
+
+## Batch 12F — direct VPS ASR timing proof (2026-08-27)
+
+### Direct probe
+
+- VPS preflight remained healthy: `echolearn-ytdlp.service` active, port 80 listening, `/api/health` returned `status: ok`, `asr:true`, and `asrMaxDuration:1800`.
+- The existing production `YTDLP_API_KEY` was used internally from the service configuration for the localhost request. Its value was not displayed, logged, or stored.
+- Fixture: `https://www.youtube.com/watch?v=uPRSigrDt0Q`.
+- Endpoint: `http://127.0.0.1:80/api/asr` on the confirmed AWS VPS.
+- Trace ID: `b12e-direct-20260827-1423`.
+- The first attempted request was rejected with HTTP 401 because `/proc` access was denied while obtaining the key; it did not enter ASR and was not treated as probe evidence. A single valid authenticated probe then ran to completion.
+
+### Result and timing
+
+- Valid direct localhost request: HTTP 502, approximately 216 seconds wall-clock, response contained 0 transcript lines.
+- VPS tracing: `/api/asr`, HTTP 502, `elapsedMs:216313`, `outcome:"failure"`.
+- The current VPS source defines `GROQ_TIMEOUT=180` seconds and returns HTTP 502 for a final Groq request failure. The measured duration is consistent with audio preparation plus the configured Groq timeout, but the deployed tracing middleware does not emit internal metadata/audio/ffmpeg/Groq stage events.
+- Therefore the exact internal sub-stage cannot be proven from available logs; Groq success, transcript parsing, and cache write did not occur. No cache repeat was performed because the first request failed.
+
+### Cloudflare/browser comparison
+
+- Previous Worker trace: VPS ASR returned HTTP 524 at approximately 125 seconds.
+- Direct VPS ASR: failed after approximately 216 seconds, exceeding both the approximately 125-second Cloudflare boundary and the approximately 120-second browser/Worker budget.
+- This proves the Cloudflare 524 is secondary to a slow/failing synchronous VPS ASR operation, not evidence of a Worker gate defect. It does not prove a healthy ASR duration because the direct request itself failed.
+
+### Batch 12F final classification
+
+**BATCH 12 INFRASTRUCTURE DECISION REQUIRED.** Direct access bypassed Cloudflare and still produced HTTP 502 after approximately 216 seconds with no transcript. The next resolution requires provider/VPS investigation or an explicitly approved asynchronous/request-lifetime design; no bounded source fix was justified and no async architecture was implemented.
