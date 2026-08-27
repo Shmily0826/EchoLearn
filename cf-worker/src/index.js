@@ -239,7 +239,10 @@ async function handleTranscript(url, env, traceId) {
   // the caption path, so other users get transcripts without the developer's
   // PC being online.
   if (env && env.YTDLP_API_URL) {
-    const ytdlpResult = await fetchViaYtDlp(videoId, lang, env, log, null, traceId);
+    const ytdlpResult = await Promise.race([
+      fetchViaYtDlp(videoId, lang, env, log, null, traceId),
+      new Promise((resolve) => setTimeout(() => resolve(null), 15000)),
+    ]);
     if (ytdlpResult) {
       if (debug) ytdlpResult._debug = debugLog;
       traceLog('request_finish', { traceId, videoId, provider: 'vps-transcript', status: 200, lineCount: ytdlpResult.lines?.length || 0 });
@@ -256,13 +259,19 @@ async function handleTranscript(url, env, traceId) {
   // (auto-generated) transcript instead of surfacing a hard error to the user.
   if (env && env.YTDLP_API_URL && env.GROQ_API_KEY) {
     const asrDiagnostics = {};
-    const vpsAsr = await fetchViaVpsAsr(
-      `https://www.youtube.com/watch?v=${videoId}`,
-      env,
-      log,
-      asrDiagnostics,
-      traceId,
-    );
+    const vpsAsr = await Promise.race([
+      fetchViaVpsAsr(
+        `https://www.youtube.com/watch?v=${videoId}`,
+        env,
+        log,
+        asrDiagnostics,
+        traceId,
+      ),
+      new Promise((resolve) => setTimeout(() => {
+        asrDiagnostics.code = 'youtube_acquisition_blocked';
+        resolve(null);
+      }, 75000)),
+    ]);
     if (vpsAsr) {
       if (debug) vpsAsr._debug = debugLog;
       traceLog('request_finish', { traceId, videoId, provider: 'vps-asr', status: 200, lineCount: vpsAsr.lines?.length || 0 });
