@@ -1425,3 +1425,7 @@ Batch 12C added safe correlation only. Provider order, timeout budgets, response
 ### Final classification
 
 **BATCH 12 CLOSED — BOUNDED YOUTUBE ACQUISITION LIMITATION.** Production blocked-media failures now terminate with a bounded, machine-readable response and coherent user-facing behavior; normal caption retrieval remains verified with the canonical `dQw4w9WgXcQ` fixture. This does not claim successful ASR for YouTube videos whose media acquisition is blocked.
+
+### Final CI correction
+
+- The docs-only CI triggered by `f3b9614` completed successfully: test and e2e jobs both passed. The earlier “pending” wording in Batch 12J was an intermediate snapshot and is superseded by this final evidence.
