@@ -68,6 +68,15 @@ test.describe('Batch 11 — mobile/PWA lifecycle', () => {
     expect(consoleErrors.filter((message) => !/favicon|service worker/i.test(message))).toEqual([]);
   });
 
+  test('Vocabulary filter toolbar wraps within a narrow mobile viewport', async ({ page }) => {
+    await startGuest(page);
+    await clickMobileNav(page, '/vocabulary', 'Words');
+    await expectNoHorizontalOverflow(page);
+
+    await expect(page.getByRole('button', { name: 'All', exact: true })).toBeVisible();
+    await expect(page.getByRole('combobox')).toBeVisible();
+  });
+
   test('Study transcript remains usable across orientation and visibility changes', async ({ page }) => {
     await startGuest(page);
     await clickMobileNav(page, '/study', 'Study');

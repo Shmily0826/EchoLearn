@@ -1429,3 +1429,30 @@ Batch 12C added safe correlation only. Provider order, timeout budgets, response
 ### Final CI correction
 
 - The docs-only CI triggered by `f3b9614` completed successfully: test and e2e jobs both passed. The earlier “pending” wording in Batch 12J was an intermediate snapshot and is superseded by this final evidence.
+
+## Batch 13 — mobile/PWA focused validation (2026-08-27)
+
+### Batch 12 visual closure
+
+- In a fresh Codex isolated QA browser tab, the blocked production fixture `uPRSigrDt0Q` completed without refresh after approximately two minutes. The loading state cleared and the page displayed the localized bounded message `This video can't currently be transcribed automatically` / `Try another video with captions.` with no misleading Retry action or infinite spinner.
+- The normal production fixture `dQw4w9WgXcQ` loaded official YouTube subtitles in approximately 10 seconds. The UI displayed 61 subtitle lines, cleared loading, and retained usable audio/study controls.
+
+### Mobile/PWA findings and fix
+
+- Physical Android detection was attempted with the configured local `adb.exe`; `adb devices -l` returned no connected devices. Physical Android and installed-PWA validation are therefore not executed.
+- Isolated mobile viewport validation at 393x873 found a P2 Vocabulary layout defect: the filter/sort toolbar kept a single-row `justify-between` layout and produced `scrollWidth=424` for a 378px content viewport. Study, Sentences, and Settings did not reproduce the overflow.
+- Fixed the Vocabulary toolbar to stack on narrow screens and restore the existing row layout at the `sm` breakpoint. Added a focused Playwright regression test covering the narrow Vocabulary toolbar and its controls.
+- Local mobile validation after the fix reported zero horizontal overflow. Study remained usable in portrait and landscape; the local deterministic sample contained 554 transcript lines and remained navigable. The browser console reported no errors or warnings during the checked flow.
+
+### Automated validation
+
+- Playwright mobile Chromium + WebKit: **10/10 passed**, including the new Vocabulary regression, orientation/visibility, offline/reconnect, and PWA manifest tests.
+- Targeted ESLint: **0 errors**, one existing `VocabularyPage` hooks dependency warning.
+- `npx tsc -b`: passed.
+- `npm run build`: passed; PWA service worker generated successfully.
+- `git diff --check`: passed, with existing Windows line-ending and Git ignore-permission warnings.
+- Long-transcript 1,000–3,000-line stress, 200–500-item Vocabulary stress, physical touch/keyboard, installed-PWA lifecycle, and controlled old→new service-worker transition were not executed. Existing deterministic mobile tests cover the lower-cost approximations; no physical-device PASS is claimed.
+
+### Batch 13 classification
+
+**SYSTEM TESTING PHASE COMPLETE — WITH PHYSICAL/PWA LIMITATIONS.** Batch 12 visual smoke passed, the only newly observed mobile defect was a bounded P2 layout issue and is fixed with regression coverage, and CI/automated mobile validation remains green. Future validation should use feature-specific tests, normal CI regression, risk-triggered production smoke, and a release checklist rather than automatically opening another large testing batch.

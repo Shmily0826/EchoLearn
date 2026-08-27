@@ -435,7 +435,7 @@ const VocabularyPage: React.FC = () => {
       </div>
 
       {/* Filter tabs + sort */}
-      <div className="flex items-center justify-between mb-6">
+      <div className="flex flex-col items-stretch gap-3 mb-6 sm:flex-row sm:items-center sm:justify-between">
         <div className="flex gap-1">
           {(['all', 'unmastered', 'mastered'] as FilterMode[]).map((f) => (
             <button
