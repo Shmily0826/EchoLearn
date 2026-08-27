@@ -202,6 +202,26 @@ class AudioAcquisitionTests(unittest.TestCase):
         download.assert_called_once()
         groq.assert_not_called()
 
+    def test_asr_continues_to_audio_when_youtube_metadata_is_blocked(self):
+        old_groq = main.GROQ_API_KEY
+        old_api_key = main.YTDLP_API_KEY
+        main.GROQ_API_KEY = "unit-test-only"
+        main.YTDLP_API_KEY = ""
+        try:
+            with patch.object(main, "_cache_get", return_value=None), patch.object(
+                main, "_fetch_meta", side_effect=main.HTTPException(status_code=404, detail="blocked")
+            ), patch.object(
+                main, "_download_audio", side_effect=main.YouTubeAcquisitionBlocked
+            ) as download:
+                with self.assertRaises(main.HTTPException) as raised:
+                    main.asr("https://www.youtube.com/watch?v=test")
+        finally:
+            main.GROQ_API_KEY = old_groq
+            main.YTDLP_API_KEY = old_api_key
+
+        self.assertEqual(raised.exception.status_code, 424)
+        download.assert_called_once()
+
     def test_timeout_terminates_and_reaps_process_group(self):
         process = _FakeYtdlpProcess
         process.next_results = [(1, "", True)]

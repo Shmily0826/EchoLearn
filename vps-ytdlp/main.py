@@ -1828,7 +1828,13 @@ def asr(
             outcome="failure",
             category=f"HTTPException:{exc.status_code}",
         )
-        raise
+        # YouTube metadata is subject to the same upstream bot-check as media.
+        # Do not stop ASR before audio acquisition gets a chance to classify
+        # that bounded failure; duration enforcement remains best-effort.
+        if _is_youtube(clean_url) and exc.status_code in {404, 504}:
+            duration = 0
+        else:
+            raise
     _trace_event(
         "metadata_finish",
         elapsedMs=round((time.monotonic() - metadata_started) * 1000),
