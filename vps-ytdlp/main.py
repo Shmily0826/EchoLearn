@@ -210,7 +210,7 @@ GROQ_MAX_BYTES = 25 * 1024 * 1024
 ASR_MAX_DURATION = int(os.environ.get("ASR_MAX_DURATION", "1800"))  # 30 min
 # Keep synchronous ASR below the Worker/browser request budget. Individual
 # yt-dlp subprocesses receive only the time remaining in this wall-clock cap.
-ASR_REQUEST_TIMEOUT = int(os.environ.get("ASR_REQUEST_TIMEOUT", "100"))
+ASR_REQUEST_TIMEOUT = int(os.environ.get("ASR_REQUEST_TIMEOUT", "75"))
 
 _VIDEO_ID_RE = re.compile(r"^[a-zA-Z0-9_-]{6,15}$")
 _ALLOWED_HOSTS = ("youtube.com", "youtu.be", "bilibili.com", "b23.tv")
