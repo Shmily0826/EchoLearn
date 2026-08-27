@@ -1209,3 +1209,60 @@ Batch 12C added safe correlation only. Provider order, timeout budgets, response
 ### Batch 12D final classification
 
 **BATCH 12 INFRASTRUCTURE DECISION REQUIRED.** The confirmed production VPS is healthy and now runs the tracked tracing source, but the no-caption probe still ends at transcript HTTP 404 with no observable VPS ASR invocation. A production Worker configuration/logging decision is required to determine whether the ASR branch is enabled and why it did not produce a traceable result; successful uncached ASR and cache-hit closure cannot be claimed.
+
+## Batch 12E — VPS ASR gate hypothesis verification (2026-08-27)
+
+### Dependency and configuration result
+
+- `fetchViaVpsAsr()` uses `YTDLP_API_URL` to construct `/api/asr`, optionally forwards `YTDLP_API_KEY`, and forwards the trace ID. It does not call Groq directly and does not consume Worker `GROQ_API_KEY`.
+- `fetchViaWhisper()` is the separate Worker-direct Groq path and continues to require Worker `GROQ_API_KEY`.
+- The Cloudflare Worker secret-name listing contained `YTDLP_API_URL`, `YTDLP_API_KEY`, and `GROQ_API_KEY`. Secret values were not read.
+- The current Worker deployment remained version `82f56538-b474-41b7-b560-c9ab168d65d4`.
+
+### Gate hypothesis decision
+
+- Hypothesis rejected. The Worker `GROQ_API_KEY` gate was not the cause of the observed skipped-ASR behavior; the production Worker had the secret binding and the subsequent controlled trace proved that the VPS ASR branch was entered.
+- No source change was made to the gate. The VPS ASR gate remains coupled only to the dependency it actually needs for the call, `YTDLP_API_URL`; the Worker-direct Whisper gate remains unchanged.
+
+### Same-fixture production trace
+
+- The same `uPRSigrDt0Q` fixture was requested once directly through the deployed Worker while a narrowly filtered Worker tail was active.
+- Trace ID: `f4cc9f91-14ed-4730-b5d2-8e7448d96f50`.
+- Worker events: `request_start` → `vps_transcript_start` → VPS transcript HTTP 404 → `vps_asr_start` → `vps_asr_result` HTTP 524 / unusable → remaining provider cascade → `request_finish` HTTP 404 with provider `none`.
+- VPS tracing recorded the transcript request finishing HTTP 404 after `24935ms`; no corresponding VPS `/api/asr` `request_finish` event appeared for the exact trace during the observation window. This is consistent with the Worker-facing upstream 524 occurring while the synchronous ASR operation exceeded the reachable request boundary.
+- Worker response was HTTP 404 with `{"error":"No transcript available for this video"}` and a matching `X-EchoLearn-Trace-Id`. No successful ASR transcript or cache transition occurred.
+- The direct Worker probe did not create a Vercel fallback request, so duplicate ASR work was not introduced by that probe. No duplicate Groq call was confirmed.
+
+### Final finding
+
+- The gate defect is not confirmed and was not patched. ASR is reachable from the Worker, but the synchronous VPS ASR request returns HTTP 524 before producing a result. Resolving the request-duration/upstream boundary requires an infrastructure or asynchronous-job decision; changing the Worker secret gate would not address it.
+
+### Batch 12E final classification
+
+**BATCH 12 INFRASTRUCTURE DECISION REQUIRED.** Production tracing now definitively proves that VPS ASR is invoked after the transcript 404, but the ASR request fails at the upstream 524 boundary before a transcript/cache result is returned. Batch 12 cannot close as complete without an infrastructure decision about the synchronous VPS ASR path or an explicitly approved asynchronous design.
+
+## Batch 12E — VPS ASR gate hypothesis verification (2026-08-27)
+
+### Dependency inspection
+
+- `fetchViaVpsAsr()` uses `YTDLP_API_URL`, optionally attaches `YTDLP_API_KEY`, and forwards the trace ID to `/api/asr`. It does not call Groq and does not consume Worker `GROQ_API_KEY`.
+- `fetchViaWhisper()` is the separate Worker-direct Groq path and still requires Worker `GROQ_API_KEY`.
+- Cloudflare secret names included `YTDLP_API_URL`, `YTDLP_API_KEY`, and `GROQ_API_KEY`; values were not read.
+- The active Worker deployment was `82f56538-b474-41b7-b560-c9ab168d65d4`.
+
+### Gate decision
+
+- The suspected gate defect was rejected. The Worker had the relevant secret bindings, and the production trace proved that the VPS ASR branch was entered after VPS transcript returned 404.
+- No Worker gate change was made. Worker-direct Whisper remains protected by its own `GROQ_API_KEY` requirement, while VPS ASR remains dependent on the VPS URL and optional forwarded API key only.
+
+### Same-fixture trace
+
+- The same `uPRSigrDt0Q` fixture was requested once directly through the deployed Worker while a narrowly filtered Worker tail was active.
+- Trace: `f4cc9f91-14ed-4730-b5d2-8e7448d96f50`.
+- Worker sequence: `request_start` → `vps_transcript_start` → transcript HTTP 404 → `vps_asr_start` → `vps_asr_result` HTTP 524 / unusable → provider cascade → final HTTP 404.
+- VPS transcript tracing recorded HTTP 404 after `24935ms`. No corresponding VPS ASR `request_finish` event appeared for the exact trace. The Worker received the upstream 524 at approximately 125 seconds.
+- The direct Worker response was HTTP 404 with no transcript. No successful ASR result or cache transition occurred, and no duplicate ASR/Groq call was confirmed.
+
+### Batch 12E final classification
+
+**BATCH 12 INFRASTRUCTURE DECISION REQUIRED.** The gate is not the defect: VPS ASR is definitely invoked, but the synchronous upstream request ends in HTTP 524 before producing a result. Resolving this requires an infrastructure/upstream-duration decision or an explicitly approved asynchronous design; no speculative code change was made.
