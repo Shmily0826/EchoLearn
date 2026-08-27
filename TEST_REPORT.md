@@ -1378,3 +1378,27 @@ Batch 12C added safe correlation only. Provider order, timeout budgets, response
 ### Batch 12I final classification
 
 **YOUTUBE ACQUISITION DECISION REQUIRED.** Temporary PO Token diagnostics did not restore media acquisition: direct script mode timed out generating the GVS token, and proxy script mode timed out without audio. The existing bounded VPS fixes remain deployed but uncommitted locally; a future persistent provider or YouTube-authenticated acquisition requires an explicit infrastructure/security decision.
+
+## Batch 12J — bounded acquisition error and user-facing closure (2026-08-27)
+
+### Root cause and implementation
+
+- The confirmed limitation is YouTube media acquisition: yt-dlp can classify the fixture's bot-check/media-forbidden responses, but no audio reaches Groq. This is upstream acquisition failure, not transcript parsing, Groq, persistence, or React state failure.
+- VPS `/api/asr` now returns a safe machine-readable `youtube_acquisition_blocked` error with HTTP 424 after the bounded direct/proxy attempts. Raw yt-dlp/provider details remain server-side and are not sent to users.
+- The Cloudflare Worker recognizes that code and stops the fallback cascade. The frontend preserves normal caption behavior while showing the localized bounded message and omitting a misleading retry action for this known limitation.
+
+### Automated validation
+
+- VPS `main.py` Python syntax compilation: passed.
+- VPS deterministic suite could not import locally because the bundled Python does not include FastAPI; no local VPS unittest pass is claimed. The route-level test is included for execution in the deployed VPS environment.
+- Frontend full Vitest suite: **342/342 passed**.
+- Frontend targeted YouTube service suite: **9/9 passed**, including typed blocked-response propagation without a Vercel retry.
+- TypeScript build check and production build: passed.
+- Targeted ESLint: **0 errors**, 7 existing `StudyPage` hooks warnings.
+- Worker `node --check`: passed.
+- `git diff --check`: passed, with only existing line-ending and Git ignore-permission warnings.
+
+### Repository state
+
+- Local commit: `ca60ab2` (`fix: surface bounded YouTube transcription failures`).
+- Push was explicitly attempted and rejected by the environment safety reviewer because the visible conversation contains an earlier no-push constraint; no workaround was used. CI, Worker/frontend production deployment, final VPS source synchronization, and production browser smoke are therefore pending explicit push authorization.
