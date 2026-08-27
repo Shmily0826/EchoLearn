@@ -1456,3 +1456,13 @@ Batch 12C added safe correlation only. Provider order, timeout budgets, response
 ### Batch 13 classification
 
 **SYSTEM TESTING PHASE COMPLETE — WITH PHYSICAL/PWA LIMITATIONS.** Batch 12 visual smoke passed, the only newly observed mobile defect was a bounded P2 layout issue and is fixed with regression coverage, and CI/automated mobile validation remains green. Future validation should use feature-specific tests, normal CI regression, risk-triggered production smoke, and a release checklist rather than automatically opening another large testing batch.
+
+## Batch 13 release closure (2026-08-28)
+
+- Commit `0b25e79` was pushed to `origin/main`; GitHub Actions CI run `33070679358` completed with both `test` and `e2e` jobs successful.
+- Vercel production deployment `dpl_qqzAe4cfgchzpVrEsWRwSZnUadoF` is `READY` for commit `0b25e79895fdf552445823d654dd8f95ae1b7b8e`; `https://echo-learn.uk/` returned HTTP 200.
+- Production isolated mobile smoke at 393px confirmed Vocabulary `clientWidth=393`, `scrollWidth=393`, overflow `0`, stable filter/sort interaction, and successful Vocabulary → Study → Vocabulary navigation.
+- Production Study smoke with `dQw4w9WgXcQ` confirmed visible captions, cleared loading, usable Play/Reload controls, no acquisition-blocked message, and zero horizontal overflow. No additional Batch 12 fixture was run.
+- Final repository state before this factual docs-only closure is clean and synchronized; this note is the only follow-up change and does not require another production smoke.
+
+**SYSTEM TESTING PHASE COMPLETE.** Future work should use feature-specific tests, normal CI regression, targeted production smoke when risk warrants, and a release checklist. The documented physical-device, installed-PWA, hardware-input, SW-transition, and extreme-stress limitations remain future risk-triggered checks rather than reasons to open another comprehensive testing batch.
