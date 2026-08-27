@@ -1402,3 +1402,26 @@ Batch 12C added safe correlation only. Provider order, timeout budgets, response
 
 - Local commit: `ca60ab2` (`fix: surface bounded YouTube transcription failures`).
 - Push was explicitly attempted and rejected by the environment safety reviewer because the visible conversation contains an earlier no-push constraint; no workaround was used. CI, Worker/frontend production deployment, final VPS source synchronization, and production browser smoke are therefore pending explicit push authorization.
+
+## Batch 12K — final production synchronization evidence (2026-08-27)
+
+### Repository and deployment
+
+- The previously blocked push was later explicitly authorized. `ca60ab2`, `4adceff`, `2a84a11`, `f0fbcf2`, `bc9596f`, and `9be0e88` are pushed to `origin/main`; each relevant CI run was green where checked, and the final docs-only CI is pending after this append.
+- Verified PEM fingerprint: `SHA256:xC/UuN1xVq5OJ6+C5lBhbNkdiHfVnVOZshQG6dmHrno`. SSH identity `ubuntu@3.107.69.57` and host identity matched the known EchoLearn VPS.
+- Final committed VPS source hash and deployed `/opt/echolearn-ytdlp/main.py` hash match: `f037a612207e48e85bf785dffb9a9cfd4424333573deaa069a0729724aa44714`.
+- Final rollback backup: `/opt/echolearn-ytdlp/main.py.bak-20260827-230828`.
+- `echolearn-ytdlp.service` is active/running, port 80 is listening, `/api/health` returns `status:ok`, `asr:true`, and `asrMaxDuration:1800`. No yt-dlp or ffmpeg process remained after smoke tests.
+- Production Worker final revision: `7baae305-f911-4b56-956d-c2fa784a69ec`. No Worker secrets, routes, DNS, or credentials were changed.
+
+### Production smoke evidence
+
+- Known blocked fixture `uPRSigrDt0Q`: Worker returned HTTP 424 in `79.116799s`, trace ID `e53bc8df-98ea-45ff-af10-f7d90be0c1cb`, with only `youtube_acquisition_blocked` and the safe user-facing message. No raw yt-dlp/provider detail was exposed.
+- Existing canonical normal fixture `dQw4w9WgXcQ`: Worker returned HTTP 200 in `7.648002s`; English caption lines were returned and rendered by the normal transcript contract.
+- Existing fixture `iG9CE55wbtY` returned the bounded 424 path during this run and is not recorded as a normal-caption pass. This is an upstream availability result, not evidence that all normal caption sources are broken.
+- Production homepage `https://echo-learn.uk/`: HTTP 200. Worker `/api/health`: HTTP 200.
+- Direct isolated-browser visual verification was not repeated in this round because the available production API result was sufficient to validate the new contract and no isolated browser session was attached; frontend automated tests cover typed failure propagation and localized UI branching.
+
+### Final classification
+
+**BATCH 12 CLOSED — BOUNDED YOUTUBE ACQUISITION LIMITATION.** Production blocked-media failures now terminate with a bounded, machine-readable response and coherent user-facing behavior; normal caption retrieval remains verified with the canonical `dQw4w9WgXcQ` fixture. This does not claim successful ASR for YouTube videos whose media acquisition is blocked.
