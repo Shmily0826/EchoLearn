@@ -211,6 +211,8 @@ const translations: Record<string, Record<Lang, string>> = {
   'study.dismiss':       { en: 'Dismiss & use manual import', zh: '忽略并使用手动导入' },
   'study.captionErrorFriendly': { en: 'Unable to fetch captions for this video', zh: '暂时无法获取该视频的字幕' },
   'study.captionErrorSuggestions': { en: 'Try again later, try a different video, or upload a subtitle file (SRT/VTT) manually.', zh: '你可以稍后重试、尝试其他视频，或手动上传字幕文件（SRT/VTT）。' },
+  'study.captionBlockedTitle': { en: "This video can't currently be transcribed automatically", zh: '当前无法自动转写这个视频' },
+  'study.captionBlockedReason': { en: 'Try another video with captions.', zh: '请尝试选择带字幕的视频。' },
   'study.biliResolveFailed': { en: 'Failed to resolve the Bilibili short link (network or server timeout). Try again later, or paste the full bilibili.com/video/BV… link instead.', zh: 'B站短链解析失败（可能是网络或服务器超时）。请稍后重试，或复制完整链接 bilibili.com/video/BV… 再粘贴。' },
   'study.biliResolveError': { en: 'Error resolving the Bilibili short link. Try again later, or paste the full bilibili.com/video/BV… link instead.', zh: 'B站短链解析出错。请稍后重试，或复制完整链接 bilibili.com/video/BV… 再粘贴。' },
   'study.biliUnrecognized': { en: 'Could not recognize this Bilibili link. Paste the full video URL (bilibili.com/video/BV…) or enter the BV id directly.', zh: '无法识别该 B 站链接。请粘贴完整视频地址（bilibili.com/video/BV…）或直接输入 BV 号。' },

@@ -255,17 +255,31 @@ async function handleTranscript(url, env, traceId) {
   // IP for media, so this recovers many "no captions" cases with a real
   // (auto-generated) transcript instead of surfacing a hard error to the user.
   if (env && env.YTDLP_API_URL && env.GROQ_API_KEY) {
+    const asrDiagnostics = {};
     const vpsAsr = await fetchViaVpsAsr(
       `https://www.youtube.com/watch?v=${videoId}`,
       env,
       log,
-      null,
+      asrDiagnostics,
       traceId,
     );
     if (vpsAsr) {
       if (debug) vpsAsr._debug = debugLog;
       traceLog('request_finish', { traceId, videoId, provider: 'vps-asr', status: 200, lineCount: vpsAsr.lines?.length || 0 });
       return jsonResponse(vpsAsr, 200, { [TRACE_HEADER]: traceId });
+    }
+    if (asrDiagnostics.code === 'youtube_acquisition_blocked') {
+      traceLog('request_finish', {
+        traceId,
+        videoId,
+        provider: 'vps-asr',
+        status: 424,
+        error: 'youtube_acquisition_blocked',
+      });
+      return jsonResponse({
+        error: 'youtube_acquisition_blocked',
+        message: 'This video cannot currently be transcribed automatically. Try another video with captions.',
+      }, 424, { [TRACE_HEADER]: traceId });
     }
     log('VPS ASR fallback returned nothing — falling through to other strategies');
   }
@@ -475,7 +489,16 @@ async function fetchViaVpsAsr(targetUrl, env, log = console.log, diagnostics = n
     const resp = await fetchWithTimeout(endpoint, { headers }, 240000);
     if (!resp.ok) {
       const detail = await resp.text();
-      const message = `VPS ASR HTTP ${resp.status}: ${detail.substring(0, 300)}`;
+      let payload = null;
+      try { payload = JSON.parse(detail); } catch { /* keep generic diagnostics */ }
+      const code = payload?.detail?.code || payload?.error;
+      if (code === 'youtube_acquisition_blocked') {
+        diagnostics && (diagnostics.code = code);
+        traceId && traceLog('vps_asr_result', { traceId, status: resp.status, usable: false, error: code });
+        log('VPS ASR reported a bounded YouTube acquisition limitation');
+        return null;
+      }
+      const message = `VPS ASR HTTP ${resp.status}`;
       diagnostics && (diagnostics.message = message);
       traceId && traceLog('vps_asr_result', { traceId, status: resp.status, usable: false });
       log(message);

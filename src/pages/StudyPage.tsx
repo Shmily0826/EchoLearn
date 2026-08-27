@@ -15,7 +15,7 @@ import { attachTranscriptToSession, createFreshStudySession, normalizeStudyUrl }
 import { lemmatize } from '../utils/lemmatizer';
 import { analyzeTranscript } from '../services/aiAnalysis';
 import { trackEvent } from '../services/analytics';
-import { fetchYouTubeTranscript } from '../services/youtubeTranscript';
+import { fetchYouTubeTranscript, YOUTUBE_ACQUISITION_BLOCKED } from '../services/youtubeTranscript';
 import { fetchBilibiliTranscript, getBilibiliVideoTitle, getBilibiliMetaByUrl } from '../services/bilibiliTranscript';
 import { enrichVocabularyItem } from '../services/vocabularyEnrichment';
 import { pushItemsToCloud, pushSessionToCloud } from '../services/firestoreSync';
@@ -200,6 +200,7 @@ const StudyPage: React.FC = () => {
   const isNoCaptions =
     !!captionError &&
     /^No captions\/subtitles available/i.test(captionError.trim());
+  const isYoutubeAcquisitionBlocked = captionError === YOUTUBE_ACQUISITION_BLOCKED;
 
   // Analysis error state
   const [analysisError, setAnalysisError] = useState<string | null>(null);
@@ -1498,21 +1499,23 @@ const StudyPage: React.FC = () => {
                     <path strokeLinecap="round" strokeLinejoin="round" d="M12 9v3.75m9-.75a9 9 0 11-18 0 9 9 0 0118 0zm-9 3.75h.008v.008H12v-.008z" />
                   </svg>
                   <p className="text-sm text-red-600 dark:text-red-400 font-medium mb-1">
-                    {isNoCaptions ? t('study.captionNoneTitle') : t('study.captionErrorFriendly')}
+                    {isYoutubeAcquisitionBlocked ? t('study.captionBlockedTitle') : isNoCaptions ? t('study.captionNoneTitle') : t('study.captionErrorFriendly')}
                   </p>
                   <p className="text-xs text-gray-500 dark:text-gray-400 mb-3">
-                    {isNoCaptions ? t('study.captionNoneReason') : t('study.captionErrorSuggestions')}
+                    {isYoutubeAcquisitionBlocked ? t('study.captionBlockedReason') : isNoCaptions ? t('study.captionNoneReason') : t('study.captionErrorSuggestions')}
                   </p>
                   <div className="flex gap-3">
-                    <button
-                      onClick={handleReloadTranscript}
-                      disabled={!videoId || fetchingCaption}
-                      title={!videoId ? t('study.videoNotReady') : undefined}
-                      className="text-xs text-indigo-500 hover:text-indigo-700 dark:hover:text-indigo-300 cursor-pointer"
-                    >
-                      {t('study.retry')}
-                    </button>
-                    <span className="text-gray-300 dark:text-gray-600">|</span>
+                    {!isYoutubeAcquisitionBlocked && <>
+                      <button
+                        onClick={handleReloadTranscript}
+                        disabled={!videoId || fetchingCaption}
+                        title={!videoId ? t('study.videoNotReady') : undefined}
+                        className="text-xs text-indigo-500 hover:text-indigo-700 dark:hover:text-indigo-300 cursor-pointer"
+                      >
+                        {t('study.retry')}
+                      </button>
+                      <span className="text-gray-300 dark:text-gray-600">|</span>
+                    </>}
                     <button
                       onClick={() => setCaptionError(null)}
                       className="text-xs text-indigo-500 hover:text-indigo-700 dark:hover:text-indigo-300 cursor-pointer"
@@ -1679,10 +1682,10 @@ const StudyPage: React.FC = () => {
                     <path strokeLinecap="round" strokeLinejoin="round" d="M12 9v3.75m9-.75a9 9 0 11-18 0 9 9 0 0118 0zm-9 3.75h.008v.008H12v-.008z" />
                   </svg>
                   <p className="text-sm text-red-600 dark:text-red-400 font-medium mb-1">
-                    {isNoCaptions ? t('study.captionNoneTitle') : t('study.captionErrorFriendly')}
+                    {isYoutubeAcquisitionBlocked ? t('study.captionBlockedTitle') : isNoCaptions ? t('study.captionNoneTitle') : t('study.captionErrorFriendly')}
                   </p>
                   <p className="text-xs text-gray-500 dark:text-gray-400 mb-3">
-                    {isNoCaptions ? t('study.captionNoneReason') : t('study.captionErrorSuggestions')}
+                    {isYoutubeAcquisitionBlocked ? t('study.captionBlockedReason') : isNoCaptions ? t('study.captionNoneReason') : t('study.captionErrorSuggestions')}
                   </p>
                   <details className="text-left mt-2">
                     <summary className="text-xs text-gray-400 dark:text-gray-500 cursor-pointer hover:text-gray-600 dark:hover:text-gray-300">{t('study.captionErrorDetails')}</summary>
@@ -1690,15 +1693,17 @@ const StudyPage: React.FC = () => {
                   </details>
                 </div>
                 <div className="flex gap-3 mt-3">
-                  <button
-                    onClick={handleReloadTranscript}
-                    disabled={!videoId || fetchingCaption}
-                    title={!videoId ? '视频仍在准备中' : undefined}
-                    className="text-xs text-indigo-500 hover:text-indigo-700 dark:hover:text-indigo-300 cursor-pointer"
-                  >
-                    {t('study.retry')}
-                  </button>
-                  <span className="text-gray-300 dark:text-gray-600">|</span>
+                  {!isYoutubeAcquisitionBlocked && <>
+                    <button
+                      onClick={handleReloadTranscript}
+                      disabled={!videoId || fetchingCaption}
+                      title={!videoId ? '视频仍在准备中' : undefined}
+                      className="text-xs text-indigo-500 hover:text-indigo-700 dark:hover:text-indigo-300 cursor-pointer"
+                    >
+                      {t('study.retry')}
+                    </button>
+                    <span className="text-gray-300 dark:text-gray-600">|</span>
+                  </>}
                   <button
                     onClick={() => setCaptionError(null)}
                     className="text-xs text-indigo-500 hover:text-indigo-700 dark:hover:text-indigo-300 cursor-pointer"

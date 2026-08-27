@@ -1294,3 +1294,87 @@ Batch 12C added safe correlation only. Provider order, timeout budgets, response
 ### Batch 12F final classification
 
 **BATCH 12 INFRASTRUCTURE DECISION REQUIRED.** Direct access bypassed Cloudflare and still produced HTTP 502 after approximately 216 seconds with no transcript. The next resolution requires provider/VPS investigation or an explicitly approved asynchronous/request-lifetime design; no bounded source fix was justified and no async architecture was implemented.
+
+## Batch 12G — VPS ASR stage diagnosis (2026-08-27)
+
+### Safe tracing deployment
+
+- Added stage-level VPS tracing for ASR start/finish, cache hit/miss, metadata, audio extraction, audio-file readiness, Groq attempts/errors/success, and cache writes.
+- Tracing fields are allow-listed and contain no API keys, cookies, authorization headers, URLs, or response bodies. Groq HTTP failures now preserve only the status/category in both traces and client-safe error details.
+- Added deterministic mock tests for successful parsing, transient HTTP errors, timeout retries, and empty/malformed speech responses. No live provider is used by the tests.
+- Created rollback backup `/opt/echolearn-ytdlp/main.py.bak-20260827-033448`, deployed the traced source, restarted `echolearn-ytdlp.service`, and verified `/api/health` remained healthy with `asr:true` and `asrMaxDuration:1800`.
+
+### Direct provider isolation
+
+- Synthetic 3-second MP3 through the deployed `_groq_transcribe()` path: Groq response received in `143ms`; `groq_success` emitted with one provider segment. This proves the VPS-to-Groq request, authentication, and response parser are functional for a valid audio file.
+- Same fixture `uPRSigrDt0Q` short-audio diagnostic: audio extraction produced no MP3. Direct yt-dlp attempts failed in roughly 1.5–1.8 seconds each; proxy attempts also produced no output. Groq was not entered for this path.
+- Bounded yt-dlp metadata comparison with and without the configured site cookie produced the same error and exit code: `Sign in to confirm you're not a bot`. The configured cookie file did not change the result and is not a YouTube-authenticated session.
+- Full localhost `/api/asr` reproduction for the same fixture: client timeout after `330.001s`, HTTP `000`, zero bytes received. The traced service still had a yt-dlp child running after the client timeout; that exact diagnostic child was terminated and the VPS health endpoint recovered. No Groq or cache-write success was observed.
+
+### Finding and classification
+
+- Root cause is the YouTube upstream bot-check blocking yt-dlp on the VPS data-center path; the existing non-YouTube cookie does not bypass it. The resulting synchronous extraction wait outlives the client/Cloudflare budgets, explaining the apparent 524/502 and the lack of transcript/cache result.
+- No bounded EchoLearn application fix is justified by this evidence. Groq, parsing, and tracing work when supplied a valid audio file. DNS, Cloudflare timeout, credentials, and provider configuration were not changed. Async architecture remains unimplemented because successful real-video ASR duration was not proven.
+
+### Batch 12G final classification
+
+**BATCH 12 INFRASTRUCTURE DECISION REQUIRED.** The VPS ASR path is now observable and the exact failure is upstream YouTube bot protection during audio/metadata extraction, followed by a synchronous request that can remain alive after the caller times out. Resolving this requires an approved YouTube acquisition/authentication or asynchronous infrastructure decision; no speculative product change was made.
+
+## Batch 12H — bounded YouTube fallback and process-lifecycle repair (2026-08-27)
+
+### Production acquisition configuration
+
+- VPS service environment contains `YTDLP_PROXY`, `YTDLP_COOKIES`, `YTDLP_API_KEY`, and `GROQ_API_KEY`; values were not displayed.
+- The configured cookie file exists and is readable by the ubuntu service user. It is a non-YouTube/site cookie and is no longer passed to YouTube commands.
+- The existing proxy endpoint is functional: a minimal egress request returned HTTP 200 in approximately 4.8 seconds, with an egress classification different from the AWS host IP. Proxy credentials and endpoint value were not exposed.
+
+### Same-fixture matrix
+
+- Direct metadata/audio path: YouTube bot-check (`Sign in to confirm you're not a bot`).
+- Explicit residential-proxy metadata path: success, yt-dlp exit 0, approximately 44 seconds.
+- Explicit residential-proxy audio path with the existing cookie: HTTP 403 while downloading video data, no MP3.
+- Explicit residential-proxy audio path without the existing cookie: `Please sign in`, no MP3.
+- Therefore the proxy can reach YouTube metadata but cannot acquire this video's media without YouTube-authenticated access. This is not a missing proxy environment variable or a Groq failure.
+
+### Bounded implementation
+
+- Added narrow yt-dlp failure classification and immediate direct-to-proxy fallback on bot-check/media-forbidden errors; deterministic bot-check errors no longer consume all direct retries.
+- Added process-group execution for yt-dlp and termination/reaping of the process group on timeout, including ffmpeg children.
+- Added a 100-second ASR wall-clock deadline and passed remaining time to metadata/audio subprocesses, preventing client timeout followed by multi-minute server retries.
+- Restricted the existing site cookie to non-YouTube targets.
+- Added deterministic tests covering bot-check fallback, proxy success handoff to Groq, bounded proxy failure, process timeout/reaping, expired deadline, cookie isolation, and all previous Groq tracing cases.
+
+### Deployment and validation
+
+- Created rollback backup `/opt/echolearn-ytdlp/main.py.bak-20260827-1725`, deployed the first bounded fallback/process fix, then created `/opt/echolearn-ytdlp/main.py.bak-20260827-1745` and deployed the final deadline/process version.
+- VPS syntax and regression suite: **10/10 passed**.
+- Post-deployment localhost ASR reproduction for `uPRSigrDt0Q`: HTTP 504 after approximately `99.1s`; no exact-fixture yt-dlp process remained afterward and `/api/health` returned `status:ok, asr:true`.
+- No successful real audio, Groq ASR, transcript cache write, cache repeat, Worker result, or browser transcript was possible because YouTube media authentication remained unavailable.
+- Frontend baseline remains the previously validated 341/341 tests, TypeScript pass, lint 0 errors/13 existing warnings, and build pass; these were not rerun because this task changed only the VPS service and was externally blocked before frontend lifecycle validation.
+
+### Batch 12H final classification
+
+**YOUTUBE ACQUISITION DECISION REQUIRED.** The bounded application defects are repaired and deployed, but the existing residential proxy only reaches metadata; this fixture's media requires YouTube-authenticated acquisition. Continuing requires an approved YouTube account/cookie architecture or another authorized acquisition provider. No credentials were requested, exported, rotated, or exposed.
+
+## Batch 12I — PO Token provider diagnostic (2026-08-27)
+
+### Runtime and provider compatibility
+
+- VPS runtime baseline: yt-dlp `2026.07.04`, Python `3.14.4`, Node `v22.22.1`, ffmpeg `8.0.1`, git `2.53.0`; approximately 15 GB disk and 502 MiB available memory were observed.
+- Production yt-dlp initially reported no PO Token provider. A temporary isolated venv installed `bgutil-ytdlp-pot-provider==1.3.2` alongside the existing yt-dlp version; no production venv changes were made.
+- The provider plugin was discovered successfully. The official script provider was compiled temporarily with the existing Node/corepack toolchain; no permanent service, Docker container, public listener, or port 4416 listener was created.
+
+### Same-fixture POT matrix
+
+- Direct `mweb + script-provider + no cookies` sanity test: provider was discovered, but the provider script timed out while generating the GVS token; yt-dlp reported that no usable GVS token was available and the video remained `LOGIN_REQUIRED`.
+- Existing-proxy `mweb + script-provider + no cookies` audio test: timed out at the 120-second bound, produced 0 audio bytes, and the provider script again timed out. No real ASR was entered.
+- Generated PO Token values, visitor data, signed URLs, cookies, and proxy credentials were not written to source, report, shell history, or persistent configuration. Temporary provider clone, venv, logs, and audio directories were removed; no provider process or port 4416 listener remained.
+
+### Decision
+
+- PO Token provider discovery was proven, but PO Token media acquisition for `uPRSigrDt0Q` was not proven. The result does not justify integrating POT args into production or creating a persistent provider service.
+- The remaining blocker is YouTube account/media authentication or provider behavior for this fixture. No account cookies were requested/exported, no credentials were changed, and no paid provider was added.
+
+### Batch 12I final classification
+
+**YOUTUBE ACQUISITION DECISION REQUIRED.** Temporary PO Token diagnostics did not restore media acquisition: direct script mode timed out generating the GVS token, and proxy script mode timed out without audio. The existing bounded VPS fixes remain deployed but uncommitted locally; a future persistent provider or YouTube-authenticated acquisition requires an explicit infrastructure/security decision.

@@ -693,6 +693,17 @@ function clearLocalProxyFailure(): void {
   localStorage.removeItem(LOCAL_PROXY_FAIL_KEY);
 }
 
+export const YOUTUBE_ACQUISITION_BLOCKED = 'youtube_acquisition_blocked';
+
+export class YouTubeAcquisitionBlockedError extends Error {
+  readonly code = YOUTUBE_ACQUISITION_BLOCKED;
+
+  constructor() {
+    super(YOUTUBE_ACQUISITION_BLOCKED);
+    this.name = 'YouTubeAcquisitionBlockedError';
+  }
+}
+
 /**
  * Calls server-side transcript APIs.
  * Tries the CF Worker first, then the same-origin Vercel function. The Vercel
@@ -739,11 +750,24 @@ export async function fetchYouTubeServerTranscript(
         console.warn(`[EchoLearn] ${endpoint.label}: empty or unusable transcript`);
       } else {
         const body = await res.text().catch(() => '');
+        let payload: { error?: unknown; detail?: { code?: unknown } } | undefined;
+        try {
+          payload = JSON.parse(body) as { error?: unknown; detail?: { code?: unknown } };
+        } catch {
+          // Keep the existing diagnostic path for non-JSON upstream failures.
+        }
+        if (
+          payload?.error === YOUTUBE_ACQUISITION_BLOCKED ||
+          payload?.detail?.code === YOUTUBE_ACQUISITION_BLOCKED
+        ) {
+          throw new YouTubeAcquisitionBlockedError();
+        }
         const detail = `${endpoint.label} HTTP ${res.status}${body ? `: ${body.substring(0, 200)}` : ''}`;
         console.warn(`[EchoLearn] ${endpoint.label} error:`, detail);
         onFailure?.(detail);
       }
     } catch (err) {
+      if (err instanceof YouTubeAcquisitionBlockedError) throw err;
       const detail = `${endpoint.label} request failed: ${err instanceof Error ? err.message : 'unknown error'}`;
       console.warn(`[EchoLearn] ${detail}`);
       onFailure?.(detail);
@@ -874,6 +898,7 @@ async function _fetchYouTubeTranscriptImpl(
         : 'Server API (CF Worker + Vercel) returned no usable transcript',
     );
   } catch (err) {
+    if (err instanceof YouTubeAcquisitionBlockedError) throw err;
     errors.push(
       `Server API: ${err instanceof Error ? err.message : 'failed'}`,
     );

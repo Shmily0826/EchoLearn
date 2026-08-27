@@ -4,6 +4,8 @@ import {
   fetchYouTubeServerTranscript,
   fetchYouTubeTranscript,
   CF_WORKER_URL,
+  YOUTUBE_ACQUISITION_BLOCKED,
+  YouTubeAcquisitionBlockedError,
 } from '../youtubeTranscript';
 
 vi.mock('youtube-transcript', () => ({
@@ -91,6 +93,17 @@ describe('fetchYouTubeServerTranscript', () => {
 
     expect(result?.lines[0].text).toBe('recovered');
     expect(fetchMock).toHaveBeenCalledTimes(2);
+  });
+
+  it('surfaces a bounded YouTube acquisition limitation without trying Vercel', async () => {
+    fetchMock.mockResolvedValueOnce(response({
+      error: YOUTUBE_ACQUISITION_BLOCKED,
+      message: 'safe user-facing message',
+    }, 424));
+
+    await expect(fetchYouTubeServerTranscript('video-id', 'en'))
+      .rejects.toBeInstanceOf(YouTubeAcquisitionBlockedError);
+    expect(fetchMock).toHaveBeenCalledTimes(1);
   });
 });
 

@@ -63,6 +63,8 @@ import hashlib
 import json
 import os
 import re
+import signal
+import socket
 import subprocess
 import sys
 import tempfile
@@ -72,6 +74,7 @@ import urllib.error
 import urllib.parse
 import urllib.request
 import uuid
+from contextvars import ContextVar
 from collections import OrderedDict
 from typing import Optional
 
@@ -92,6 +95,26 @@ app.add_middleware(
 )
 
 TRACE_HEADER = "X-EchoLearn-Trace-Id"
+_TRACE_CONTEXT: ContextVar[str | None] = ContextVar("echolearn_trace_id", default=None)
+
+
+class YouTubeAcquisitionBlocked(Exception):
+    """The source refused media acquisition in a known, bounded way."""
+
+
+def _trace_event(event: str, **fields) -> None:
+    """Emit only explicitly supplied, non-sensitive request-stage fields."""
+    trace_id = _TRACE_CONTEXT.get()
+    if not trace_id:
+        return
+    safe = {"service": "vps-transcript", "event": event, "traceId": trace_id}
+    for key, value in fields.items():
+        if isinstance(value, (bool, int, float)) or (
+            isinstance(value, str)
+            and key in {"outcome", "result", "category", "format"}
+        ):
+            safe[key] = value
+    print(json.dumps(safe), flush=True)
 
 
 def _trace_id(request: Request) -> str:
@@ -108,9 +131,18 @@ async def transcript_trace_middleware(request: Request, call_next):
         return await call_next(request)
     trace_id = _trace_id(request)
     started = time.monotonic()
+    trace_token = _TRACE_CONTEXT.set(trace_id)
     try:
         response = await call_next(request)
     except Exception:
+        if request.url.path == "/api/asr":
+            _trace_event(
+                "asr_finish",
+                status=500,
+                elapsedMs=round((time.monotonic() - started) * 1000),
+                outcome="exception",
+            )
+        _TRACE_CONTEXT.reset(trace_token)
         print(json.dumps({
             "service": "vps-transcript",
             "event": "request_finish",
@@ -121,6 +153,16 @@ async def transcript_trace_middleware(request: Request, call_next):
             "outcome": "exception",
         }), flush=True)
         raise
+    finally:
+        if request.url.path not in ("/api/transcript", "/api/asr"):
+            _TRACE_CONTEXT.reset(trace_token)
+    if request.url.path == "/api/asr":
+        _trace_event(
+            "asr_finish",
+            status=response.status_code,
+            elapsedMs=round((time.monotonic() - started) * 1000),
+            outcome="success" if response.status_code < 400 else "failure",
+        )
     response.headers[TRACE_HEADER] = trace_id
     print(json.dumps({
         "service": "vps-transcript",
@@ -131,6 +173,7 @@ async def transcript_trace_middleware(request: Request, call_next):
         "elapsedMs": round((time.monotonic() - started) * 1000),
         "outcome": "success" if response.status_code < 400 else "failure",
     }), flush=True)
+    _TRACE_CONTEXT.reset(trace_token)
     return response
 
 YTDLP_TIMEOUT = int(os.environ.get("YTDLP_TIMEOUT", "180"))
@@ -165,6 +208,9 @@ GROQ_TIMEOUT = int(os.environ.get("GROQ_TIMEOUT", "180"))
 # roughly 108 minutes of audio, so ASR_MAX_DURATION is the binding limit.
 GROQ_MAX_BYTES = 25 * 1024 * 1024
 ASR_MAX_DURATION = int(os.environ.get("ASR_MAX_DURATION", "1800"))  # 30 min
+# Keep synchronous ASR below the Worker/browser request budget. Individual
+# yt-dlp subprocesses receive only the time remaining in this wall-clock cap.
+ASR_REQUEST_TIMEOUT = int(os.environ.get("ASR_REQUEST_TIMEOUT", "100"))
 
 _VIDEO_ID_RE = re.compile(r"^[a-zA-Z0-9_-]{6,15}$")
 _ALLOWED_HOSTS = ("youtube.com", "youtu.be", "bilibili.com", "b23.tv")
@@ -536,13 +582,14 @@ def _site_args(target_url: str) -> list:
       (it returns 412 otherwise). Downloading the multi-MB audio straight from
       the CDN is ~17x faster and far less prone to the proxy dropping mid-transfer
       — this is "Plan C".
-    - Cookies (YTDLP_COOKIES, e.g. a Bilibili SESSDATA jar) are applied whenever
-      the file exists. Bilibili only exposes subtitle tracks to logged-in
+    - Cookies (YTDLP_COOKIES, e.g. a Bilibili SESSDATA jar) are applied only to
+      non-YouTube sites. Bilibili only exposes subtitle tracks to logged-in
       sessions, so the cookie is what unlocks real subtitles there — without it
-      the transcript route falls through to ASR.
+      the transcript route falls through to ASR. A site-specific cookie must
+      never be sent to YouTube accidentally.
     """
     args: list = []
-    if YTDLP_COOKIES and os.path.exists(YTDLP_COOKIES):
+    if YTDLP_COOKIES and not _is_youtube(target_url) and os.path.exists(YTDLP_COOKIES):
         args += ["--cookies", YTDLP_COOKIES]
     return args
 
@@ -922,16 +969,10 @@ def _run_ytdlp(video_id_or_url: str, lang: str, *, is_url: bool = False, part: O
     for cmd, env in cmds:
         with tempfile.TemporaryDirectory() as td:
             full = cmd + ["-o", os.path.join(td, "%(id)s")]
-            try:
-                subprocess.run(
-                    full,
-                    cwd=td,
-                    capture_output=True,
-                    text=True,
-                    timeout=YTDLP_TIMEOUT,
-                    env=env,
-                )
-            except subprocess.TimeoutExpired:
+            _returncode, _stdout, _stderr, timed_out = _run_yt_dlp(
+                full, cwd=td, env=env, timeout=YTDLP_TIMEOUT,
+            )
+            if timed_out:
                 continue
             result = _read_subtitle_file(td)
             if result:
@@ -1009,27 +1050,25 @@ def _fetch_meta(target_url: str, part: Optional[int] = None, *, attempts: int = 
     proc = None
     last_err = ""
     for attempt in range(1, attempts + 1):
-        try:
-            proc = subprocess.run(
-                cmd, capture_output=True, text=True, timeout=timeout,
-                env=_proxy_env(target_url),
-            )
-        except subprocess.TimeoutExpired:
+        returncode, stdout, stderr, timed_out = _run_yt_dlp(
+            cmd, cwd=None, env=_proxy_env(target_url), timeout=timeout,
+        )
+        if timed_out:
             raise HTTPException(status_code=504, detail="Metadata lookup timed out")
-        if proc.returncode == 0 and proc.stdout.strip():
+        if returncode == 0 and stdout and stdout.strip():
             break
-        last_err = proc.stderr.strip().splitlines()[-1] if proc.stderr else ""
+        last_err = stderr.strip().splitlines()[-1] if stderr else ""
         if attempt == attempts:
             detail = "Could not fetch video info"
             if last_err:
                 detail += f" ({last_err})"
             raise HTTPException(status_code=404, detail=detail)
 
-    if proc is None or proc.returncode != 0 or not proc.stdout.strip():
+    if returncode != 0 or not stdout or not stdout.strip():
         raise HTTPException(status_code=404, detail="Could not fetch video info")
 
     try:
-        meta = json.loads(proc.stdout)
+        meta = json.loads(stdout)
     except json.JSONDecodeError:
         raise HTTPException(status_code=502, detail="Malformed metadata")
 
@@ -1069,9 +1108,81 @@ def _multipart(fields: dict, filename: str, blob: bytes, content_type: str):
     return bytes(body), f"multipart/form-data; boundary={boundary}"
 
 
-def _download_audio(target_url: str, td: str, part: Optional[int] = None) -> Optional[str]:
+def _terminate_process_group(proc) -> None:
+    """Terminate and reap a yt-dlp process together with its ffmpeg children."""
+    if proc.poll() is not None:
+        return
+    try:
+        if os.name == "nt":
+            proc.terminate()
+        else:
+            os.killpg(os.getpgid(proc.pid), signal.SIGTERM)
+    except (OSError, ProcessLookupError):
+        try:
+            proc.terminate()
+        except OSError:
+            pass
+    try:
+        proc.wait(timeout=5)
+    except subprocess.TimeoutExpired:
+        try:
+            if os.name == "nt":
+                proc.kill()
+            else:
+                os.killpg(os.getpgid(proc.pid), signal.SIGKILL)
+        except (OSError, ProcessLookupError):
+            try:
+                proc.kill()
+            except OSError:
+                pass
+        proc.wait(timeout=5)
+
+
+def _run_yt_dlp(cmd: list, cwd: str, env: dict, timeout: int):
+    """Run yt-dlp in a killable process group and return output plus timeout state."""
+    creationflags = getattr(subprocess, "CREATE_NEW_PROCESS_GROUP", 0) if os.name == "nt" else 0
+    proc = subprocess.Popen(
+        cmd,
+        cwd=cwd,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.PIPE,
+        text=True,
+        env=env,
+        start_new_session=os.name != "nt",
+        creationflags=creationflags,
+    )
+    try:
+        stdout, stderr = proc.communicate(timeout=timeout)
+    except subprocess.TimeoutExpired:
+        _terminate_process_group(proc)
+        return None, None, None, True
+    return proc.returncode, stdout, stderr, False
+
+
+def _yt_dlp_failure_category(stderr: str) -> str:
+    """Classify only the bounded failure modes used by extraction fallback."""
+    text = (stderr or "").lower()
+    if "sign in to confirm" in text or "not a bot" in text or "please sign in" in text:
+        return "youtube_bot_check"
+    if "http error 403" in text and "youtube" in text:
+        return "youtube_media_forbidden"
+    if "proxy authentication required" in text or "407" in text:
+        return "proxy_auth_failure"
+    if "timed out" in text or "timeout" in text:
+        return "network_timeout"
+    return "extraction_failure"
+
+
+def _download_audio(
+    target_url: str,
+    td: str,
+    part: Optional[int] = None,
+    deadline: Optional[float] = None,
+) -> Optional[str]:
     """Grab the audio track and transcode to 16 kHz mono mp3 (Whisper's native
     sample rate — anything richer just inflates the upload)."""
+    extraction_started = time.monotonic()
+    _trace_event("audio_extract_start")
     cmd = [
         sys.executable,
         "-m",
@@ -1106,8 +1217,19 @@ def _download_audio(target_url: str, td: str, part: Optional[int] = None) -> Opt
     if YTDLP_PROXY and _is_youtube(target_url):
         envs.append(_proxy_env(target_url))
 
-    for env in envs:
+    last_blocked_category = None
+
+    for env_index, env in enumerate(envs):
         for attempt in range(1, YTDLP_RETRIES + 1):
+            if deadline is not None:
+                remaining = deadline - time.monotonic()
+                if remaining <= 0:
+                    _trace_event("audio_extract_finish", outcome="deadline")
+                    return None
+                attempt_timeout = min(YTDLP_TIMEOUT, max(1, int(remaining)))
+            else:
+                attempt_timeout = YTDLP_TIMEOUT
+            attempt_started = time.monotonic()
             # Clear any partial download from a previous flaky attempt so the
             # --no-overwrites flag doesn't skip because of a broken fragment.
             for fname in os.listdir(td):
@@ -1115,16 +1237,55 @@ def _download_audio(target_url: str, td: str, part: Optional[int] = None) -> Opt
                     os.remove(os.path.join(td, fname))
                 except OSError:
                     pass
-            try:
-                subprocess.run(
-                    cmd, cwd=td, capture_output=True, text=True,
-                    timeout=YTDLP_TIMEOUT, env=env,
+            returncode, _stdout, stderr, timed_out = _run_yt_dlp(
+                cmd, cwd=td, env=env, timeout=attempt_timeout,
+            )
+            if timed_out:
+                _trace_event(
+                    "audio_extract_finish",
+                    attempt=attempt,
+                    elapsedMs=round((time.monotonic() - attempt_started) * 1000),
+                    outcome="timeout",
                 )
-            except subprocess.TimeoutExpired:
                 return None
             for fname in sorted(os.listdir(td)):
                 if fname.endswith(".mp3"):
-                    return os.path.join(td, fname)
+                    path = os.path.join(td, fname)
+                    _trace_event(
+                        "audio_file_ready",
+                        durationSec=round(_audio_duration(path), 3),
+                        sizeBytes=os.path.getsize(path),
+                        format="mp3",
+                        sampleRate=16000,
+                    )
+                    _trace_event(
+                        "audio_extract_finish",
+                        attempt=attempt,
+                        elapsedMs=round((time.monotonic() - attempt_started) * 1000),
+                        totalElapsedMs=round((time.monotonic() - extraction_started) * 1000),
+                        outcome="success",
+                    )
+                    return path
+            category = _yt_dlp_failure_category(stderr) if returncode else "no_output"
+            _trace_event(
+                "audio_extract_attempt",
+                attempt=attempt,
+                elapsedMs=round((time.monotonic() - attempt_started) * 1000),
+                outcome=category,
+            )
+            if category in {"youtube_bot_check", "youtube_media_forbidden"}:
+                last_blocked_category = category
+                if env_index + 1 < len(envs):
+                    _trace_event("audio_proxy_fallback_start", outcome=category)
+                break
+    _trace_event(
+        "audio_extract_finish",
+        elapsedMs=round((time.monotonic() - extraction_started) * 1000),
+        outcome="blocked" if last_blocked_category else "failure",
+        category=last_blocked_category or "extraction_failure",
+    )
+    if last_blocked_category:
+        raise YouTubeAcquisitionBlocked
     return None
 
 
@@ -1278,14 +1439,15 @@ def _extract_playback_audio(target_url: str, part: Optional[int] = None) -> Opti
                 os.remove(out_path)
         except OSError:
             pass
-        try:
-            subprocess.run(
-                cmd, cwd=AUDIO_CACHE_DIR, capture_output=True, text=True,
-                timeout=AUDIO_DL_TIMEOUT, env=envs[(attempt - 1) % len(envs)],
-            )
-        except subprocess.TimeoutExpired:
-            # Don't burn the whole Worker budget on one hung attempt; let the
-            # backoff + next attempt (fresh proxy IP) take a shot.
+        _returncode, _stdout, _stderr, timed_out = _run_yt_dlp(
+            cmd,
+            cwd=AUDIO_CACHE_DIR,
+            env=envs[(attempt - 1) % len(envs)],
+            timeout=AUDIO_DL_TIMEOUT,
+        )
+        # Don't burn the whole Worker budget on one hung attempt; the helper
+        # has already terminated and reaped yt-dlp plus its ffmpeg children.
+        if timed_out:
             pass
         if not (os.path.exists(out_path) and os.path.getsize(out_path) > 0):
             if attempt < AUDIO_MAX_ATTEMPTS:
@@ -1352,6 +1514,8 @@ def _groq_transcribe(path: str) -> dict:
     with open(path, "rb") as fh:
         blob = fh.read()
 
+    _trace_event("audio_file_ready", sizeBytes=len(blob), format="mp3")
+
     if len(blob) > GROQ_MAX_BYTES:
         raise HTTPException(
             status_code=413,
@@ -1384,29 +1548,55 @@ def _groq_transcribe(path: str) -> dict:
     # times to absorb Groq's occasional transient 403/abuse throttle on the
     # free tier.
     raw = None
-    last_err = ""
+    groq_started = time.monotonic()
     for attempt in range(1, 3):
+        attempt_started = time.monotonic()
+        _trace_event("groq_attempt_start", attempt=attempt)
         try:
             with urllib.request.urlopen(req, timeout=GROQ_TIMEOUT) as resp:
                 raw = json.load(resp)
+            _trace_event(
+                "groq_attempt_finish",
+                attempt=attempt,
+                elapsedMs=round((time.monotonic() - attempt_started) * 1000),
+                result="response_received",
+            )
             break
         except urllib.error.HTTPError as exc:
-            last_err = exc.read().decode("utf-8", "ignore")[:400]
+            _trace_event("groq_http_error", attempt=attempt, status=exc.code)
+            _trace_event(
+                "groq_attempt_finish",
+                attempt=attempt,
+                elapsedMs=round((time.monotonic() - attempt_started) * 1000),
+                result=f"HTTPError:{exc.code}",
+            )
             # Surface 429 (out of quota) as-is; other HTTP errors may be
             # transient, so retry once.
             if exc.code == 429:
-                raise HTTPException(status_code=429, detail=f"Groq HTTP 429: {last_err}")
+                raise HTTPException(status_code=429, detail="Groq HTTP 429")
             if attempt < 2:
                 time.sleep(1)
                 continue
             status = 502
-            raise HTTPException(status_code=status, detail=f"Groq HTTP {exc.code}: {last_err}")
+            raise HTTPException(status_code=status, detail=f"Groq HTTP {exc.code}")
         except Exception as exc:  # noqa: BLE001 - transient network blips
-            last_err = str(exc)
+            if isinstance(exc, (TimeoutError, socket.timeout)):
+                category = "TimeoutError"
+            elif isinstance(exc, urllib.error.URLError):
+                category = "URLError"
+            else:
+                category = type(exc).__name__
+            _trace_event("groq_network_error", attempt=attempt, category=category)
+            _trace_event(
+                "groq_attempt_finish",
+                attempt=attempt,
+                elapsedMs=round((time.monotonic() - attempt_started) * 1000),
+                result=category,
+            )
             if attempt < 2:
                 time.sleep(1)
                 continue
-            raise HTTPException(status_code=502, detail=f"Groq request failed: {exc}")
+            raise HTTPException(status_code=502, detail=f"Groq request failed: {category}")
 
     segments = raw.get("segments") or []
     lines = [
@@ -1425,6 +1615,12 @@ def _groq_transcribe(path: str) -> dict:
         if not text:
             raise HTTPException(status_code=404, detail="Whisper returned no speech")
         lines = [{"id": "yt_1", "start": 0, "end": 0, "text": text}]
+
+    _trace_event(
+        "groq_success",
+        elapsedMs=round((time.monotonic() - groq_started) * 1000),
+        segmentCount=len(lines),
+    )
 
     return {
         "lines": lines,
@@ -1539,6 +1735,7 @@ def asr(
     notably Bilibili, which serves audio anonymously but hides subtitle tracks
     behind a login.
     """
+    _trace_event("asr_start")
     clean_url, part = _extract_part(url)
 
     if not GROQ_API_KEY:
@@ -1556,7 +1753,9 @@ def asr(
     if _is_bilibili(clean_url):
         cached = _cache_get(url, "__asr__")
         if cached is not None:
+            _trace_event("asr_cache_hit")
             return JSONResponse(cached)
+        _trace_event("asr_cache_miss")
         # Do not make ASR depend on a separate metadata lookup. Bilibili's
         # view API can transiently fail even while playurl/CDN audio works;
         # previously that surfaced as 404 "Could not fetch Bilibili info" and
@@ -1564,10 +1763,25 @@ def asr(
         # path below performs its own view lookup and can retry it. Duration
         # is still enforced when metadata is available, but metadata failure
         # is non-fatal here.
+        metadata_started = time.monotonic()
+        _trace_event("metadata_start")
         try:
             duration = int(_fetch_meta(clean_url, part).get("duration") or 0)
-        except HTTPException:
+        except HTTPException as exc:
+            _trace_event(
+                "metadata_finish",
+                elapsedMs=round((time.monotonic() - metadata_started) * 1000),
+                outcome="failure",
+                category=f"HTTPException:{exc.status_code}",
+            )
             duration = 0
+        else:
+            _trace_event(
+                "metadata_finish",
+                elapsedMs=round((time.monotonic() - metadata_started) * 1000),
+                durationSec=duration,
+                outcome="success",
+            )
         if duration > ASR_MAX_DURATION:
             raise HTTPException(
                 status_code=413,
@@ -1578,15 +1792,46 @@ def asr(
             )
         payload = _bilibili_asr(clean_url, part)
         _cache_put(url, "__asr__", payload)
+        _trace_event("cache_write", result="success", lineCount=len(payload.get("lines") or []))
         return JSONResponse(payload)
 
     # ASR costs real quota, so a cache hit is worth much more here than on the
     # subtitle routes.
     cached = _cache_get(url, "__asr__")
     if cached is not None:
+        _trace_event("asr_cache_hit")
         return JSONResponse(cached)
+    _trace_event("asr_cache_miss")
 
-    duration = int(_fetch_meta(clean_url, part).get("duration") or 0)
+    asr_deadline = time.monotonic() + ASR_REQUEST_TIMEOUT
+    _trace_event("asr_budget_start", budgetSec=ASR_REQUEST_TIMEOUT)
+    metadata_started = time.monotonic()
+    _trace_event("metadata_start")
+    try:
+        remaining = max(1, int(asr_deadline - time.monotonic()))
+        duration = int(
+            _fetch_meta(
+                clean_url,
+                part,
+                attempts=1,
+                timeout=min(YTDLP_TIMEOUT, remaining),
+            ).get("duration")
+            or 0
+        )
+    except HTTPException as exc:
+        _trace_event(
+            "metadata_finish",
+            elapsedMs=round((time.monotonic() - metadata_started) * 1000),
+            outcome="failure",
+            category=f"HTTPException:{exc.status_code}",
+        )
+        raise
+    _trace_event(
+        "metadata_finish",
+        elapsedMs=round((time.monotonic() - metadata_started) * 1000),
+        durationSec=duration,
+        outcome="success",
+    )
     if duration > ASR_MAX_DURATION:
         raise HTTPException(
             status_code=413,
@@ -1597,12 +1842,23 @@ def asr(
         )
 
     with tempfile.TemporaryDirectory() as td:
-        audio_path = _download_audio(clean_url, td, part)
+        try:
+            audio_path = _download_audio(clean_url, td, part, deadline=asr_deadline)
+        except YouTubeAcquisitionBlocked:
+            _trace_event("asr_finish", outcome="blocked", category="youtube_acquisition")
+            raise HTTPException(
+                status_code=424,
+                detail={
+                    "code": "youtube_acquisition_blocked",
+                    "message": "YouTube media acquisition is currently unavailable",
+                },
+            )
         if not audio_path:
             raise HTTPException(status_code=502, detail="Could not download audio")
         payload = _groq_transcribe(audio_path)
 
     _cache_put(url, "__asr__", payload)
+    _trace_event("cache_write", result="success", lineCount=len(payload.get("lines") or []))
     return JSONResponse(payload)
 
 
