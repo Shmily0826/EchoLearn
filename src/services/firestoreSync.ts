@@ -78,6 +78,12 @@ export interface SyncResult {
 const LAST_SYNC_KEY = 'echolearn_firebase_last_sync';
 const SYNC_PENDING_KEY = 'echolearn_firebase_sync_pending';
 
+/** Clear account-scoped sync markers at an auth boundary. */
+export function clearSyncMetadata(): void {
+  localStorage.removeItem(LAST_SYNC_KEY);
+  localStorage.removeItem(SYNC_PENDING_KEY);
+}
+
 function getCollectionRef(uid: string, collection: SyncCollection): DocumentReference<DocumentData> {
   return doc(db, 'users', uid, 'data', collection);
 }

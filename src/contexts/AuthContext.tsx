@@ -16,7 +16,7 @@ import type { User } from 'firebase/auth';
 import { FirebaseAuthentication } from '@capacitor-firebase/authentication';
 import { auth, googleProvider } from '../lib/firebase';
 import { isCapacitor } from '../utils/platform';
-import { deleteUserData, syncWithCloud } from '../services/firestoreSync';
+import { clearSyncMetadata, deleteUserData, syncWithCloud } from '../services/firestoreSync';
 import { clearAllLocalData } from '../utils/storage';
 import { trackEvent } from '../services/analytics';
 
@@ -180,13 +180,23 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   }, []);
 
   const logOut = useCallback(async () => {
+    const accountAtStart = auth.currentUser;
     if (isCapacitor()) {
       try { await FirebaseAuthentication.signOut(); } catch { /* ignore */ }
     }
-    await signOut(auth);
+    try {
+      await signOut(auth);
+    } catch (error) {
+      // Some adapters may reject after already completing the auth transition.
+      // Only clear account-bound local state once Firebase confirms signed-out.
+      if (auth.currentUser !== null) throw error;
+    }
     // Local storage is device-scoped, not account-scoped. Clear it at the
     // account boundary so Account A data cannot be shown or pushed as B.
-    clearAllLocalData();
+    if (auth.currentUser === null || accountAtStart === null) {
+      clearAllLocalData();
+      clearSyncMetadata();
+    }
   }, []);
 
   return (

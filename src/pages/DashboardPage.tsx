@@ -95,6 +95,17 @@ const DashboardPage: React.FC = () => {
     };
   }, []);
 
+  // Cloud sync and Study can update session history without remounting this
+  // page. Keep the mounted dashboard in lockstep with persisted session state.
+  useEffect(() => {
+    const refreshSessions = () => {
+      setSessions(loadAllSessions());
+      setCurrentSession(loadCurrentSession());
+    };
+    window.addEventListener('echolearn:sessions-changed', refreshSessions);
+    return () => window.removeEventListener('echolearn:sessions-changed', refreshSessions);
+  }, []);
+
   const statusLabel = (status: string) => {
     const key = `dash.status${status.charAt(0).toUpperCase() + status.slice(1)}`;
     return t(key);

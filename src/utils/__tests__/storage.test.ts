@@ -190,6 +190,7 @@ describe('session storage', () => {
   it('also records the session in the history list', () => {
     saveCurrentSession(makeSession());
     expect(loadAllSessions()).toHaveLength(1);
+    expect(dispatchedEvents).toContain('echolearn:sessions-changed');
   });
 
   it('updates an existing history entry in place instead of duplicating', () => {
@@ -494,6 +495,8 @@ describe('preferences', () => {
   it('translation language defaults to zh and can be changed', () => {
     expect(getTranslateLang()).toBe('zh');
     saveTranslateLang('en');
+    localStorage.setItem('echolearn_firebase_last_sync', '123');
+    localStorage.setItem('echolearn_firebase_sync_pending', 'true');
     expect(getTranslateLang()).toBe('en');
   });
 });
@@ -524,5 +527,10 @@ describe('clearAllLocalData', () => {
     // Device preferences deliberately survive.
     expect(getLocalProxyUrl()).toBe('https://my-proxy.dev');
     expect(getTranslateLang()).toBe('en');
+    expect(dispatchedEvents).toEqual(expect.arrayContaining([
+      'echolearn:vocab-changed',
+      'echolearn:sentences-changed',
+      'echolearn:sessions-changed',
+    ]));
   });
 });

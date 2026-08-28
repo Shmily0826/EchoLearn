@@ -1,6 +1,6 @@
 // @vitest-environment jsdom
-import { beforeEach, describe, expect, it, vi } from 'vitest';
-import { render, screen } from '@testing-library/react';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import { cleanup, render, screen } from '@testing-library/react';
 import { AuthProvider, useAuth } from '../AuthContext';
 
 const mocks = vi.hoisted(() => ({
@@ -8,6 +8,7 @@ const mocks = vi.hoisted(() => ({
   onAuthStateChanged: vi.fn(),
   signOut: vi.fn(),
   syncWithCloud: vi.fn(),
+  clearSyncMetadata: vi.fn(),
 }));
 
 vi.mock('firebase/auth', () => ({
@@ -26,16 +27,18 @@ vi.mock('../../lib/firebase', () => ({ auth: mocks.auth, googleProvider: {} }));
 vi.mock('../../services/firestoreSync', () => ({
   deleteUserData: vi.fn(),
   syncWithCloud: mocks.syncWithCloud,
+  clearSyncMetadata: mocks.clearSyncMetadata,
 }));
 vi.mock('../../services/analytics', () => ({ trackEvent: vi.fn() }));
 vi.mock('../../utils/platform', () => ({ isCapacitor: () => false }));
 
-function LogoutButton() {
+function LogoutButton({ onError }: { onError?: (error: unknown) => void }) {
   const { logOut } = useAuth();
-  return <button onClick={() => void logOut()}>Log out</button>;
+  return <button onClick={() => void logOut().catch(onError)}>Log out</button>;
 }
 
 describe('AuthProvider account boundary', () => {
+  afterEach(() => cleanup());
   beforeEach(() => {
     vi.clearAllMocks();
     localStorage.clear();
@@ -54,6 +57,9 @@ describe('AuthProvider account boundary', () => {
     localStorage.setItem('echolearn_vocabulary', JSON.stringify([{ id: 'a-only' }]));
     localStorage.setItem('echolearn_sentences', JSON.stringify([{ id: 'a-sentence' }]));
     localStorage.setItem('echolearn_session', JSON.stringify({ id: 'a-session' }));
+    localStorage.setItem('echolearn_firebase_last_sync', '123');
+    localStorage.setItem('echolearn_firebase_sync_pending', 'true');
+    localStorage.setItem('echolearn_lang', 'en');
     localStorage.setItem('echolearn_vocabulary_tombstones', JSON.stringify({ 'deleted-a': 123 }));
     localStorage.setItem('echolearn_sentence_tombstones', JSON.stringify({ 'deleted-s': 123 }));
     localStorage.setItem('echolearn_session_tombstones', JSON.stringify({ 'deleted-session': 123 }));
@@ -69,9 +75,23 @@ describe('AuthProvider account boundary', () => {
     expect(localStorage.getItem('echolearn_vocabulary')).toBeNull();
     expect(localStorage.getItem('echolearn_sentences')).toBeNull();
     expect(localStorage.getItem('echolearn_session')).toBeNull();
+    expect(mocks.clearSyncMetadata).toHaveBeenCalledTimes(1);
+    expect(localStorage.getItem('echolearn_lang')).toBe('en');
     expect(localStorage.getItem('echolearn_vocabulary_tombstones')).toBeNull();
     expect(localStorage.getItem('echolearn_sentence_tombstones')).toBeNull();
     expect(localStorage.getItem('echolearn_session_tombstones')).toBeNull();
+  });
+
+  it('preserves local data and propagates a failed sign-out while auth remains active', async () => {
+    mocks.signOut.mockRejectedValue(new Error('network unavailable'));
+    localStorage.setItem('echolearn_vocabulary', JSON.stringify([{ id: 'a-only' }]));
+    const onError = vi.fn();
+    render(<AuthProvider><LogoutButton onError={onError} /></AuthProvider>);
+    screen.getByRole('button', { name: 'Log out' }).click();
+    await vi.waitFor(() => expect(mocks.signOut).toHaveBeenCalledTimes(1));
+    await vi.waitFor(() => expect(onError).toHaveBeenCalledWith(expect.objectContaining({ message: 'network unavailable' })));
+    expect(localStorage.getItem('echolearn_vocabulary')).not.toBeNull();
+    expect(mocks.clearSyncMetadata).not.toHaveBeenCalled();
   });
 
   it('starts cloud merge from the authenticated state boundary', async () => {

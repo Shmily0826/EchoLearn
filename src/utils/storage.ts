@@ -9,6 +9,16 @@ const VOCAB_TOMBSTONES_KEY = 'echolearn_vocabulary_tombstones';
 const SENTENCE_TOMBSTONES_KEY = 'echolearn_sentence_tombstones';
 const SESSION_TOMBSTONES_KEY = 'echolearn_session_tombstones';
 
+export const STORAGE_CHANGE_EVENTS = {
+  vocabulary: 'echolearn:vocab-changed',
+  sentences: 'echolearn:sentences-changed',
+  sessions: 'echolearn:sessions-changed',
+} as const;
+
+function dispatchStorageChange(type: string): void {
+  if (typeof window !== 'undefined') window.dispatchEvent(new CustomEvent(type));
+}
+
 export type TombstoneMap = Record<string, number>;
 
 function loadTombstones(key: string): TombstoneMap {
@@ -191,6 +201,7 @@ export function saveCurrentSession(session: VideoStudySession | null): void {
       list.unshift(session);
     }
     localStorage.setItem(SESSIONS_LIST_KEY, JSON.stringify(list));
+    dispatchStorageChange(STORAGE_CHANGE_EVENTS.sessions);
   } else {
     localStorage.removeItem(SESSION_KEY);
   }
@@ -199,6 +210,7 @@ export function saveCurrentSession(session: VideoStudySession | null): void {
 /** Clear the current session entirely. */
 export function clearCurrentSession(): void {
   localStorage.removeItem(SESSION_KEY);
+  dispatchStorageChange(STORAGE_CHANGE_EVENTS.sessions);
 }
 
 /** Load all saved sessions (history). */
@@ -219,12 +231,15 @@ export function deleteSession(id: string): void {
   const current = loadCurrentSession();
   if (current && current.id === id) {
     clearCurrentSession();
+  } else {
+    dispatchStorageChange(STORAGE_CHANGE_EVENTS.sessions);
   }
 }
 
 /** Replace the entire sessions list (used by cloud sync). */
 export function saveAllSessions(sessions: VideoStudySession[]): void {
   localStorage.setItem(SESSIONS_LIST_KEY, JSON.stringify(sessions));
+  dispatchStorageChange(STORAGE_CHANGE_EVENTS.sessions);
 }
 
 // ─── Vocabulary ──────────────────────────────────────────────
@@ -246,7 +261,7 @@ export function loadVocabularyByVideo(videoId: string): VocabularyItem[] {
 
 export function saveVocabulary(items: VocabularyItem[]): void {
   localStorage.setItem(VOCAB_KEY, JSON.stringify(items));
-  window.dispatchEvent(new CustomEvent('echolearn:vocab-changed'));
+  dispatchStorageChange(STORAGE_CHANGE_EVENTS.vocabulary);
 }
 
 export function addVocabularyItem(item: VocabularyItem): VocabularyItem[] {
@@ -304,7 +319,7 @@ export function loadSentencesByVideo(videoId: string): SentenceItem[] {
 
 export function saveSentences(items: SentenceItem[]): void {
   localStorage.setItem(SENTENCE_KEY, JSON.stringify(items));
-  window.dispatchEvent(new CustomEvent('echolearn:sentences-changed'));
+  dispatchStorageChange(STORAGE_CHANGE_EVENTS.sentences);
 }
 
 export function addSentenceItem(item: SentenceItem): SentenceItem[] {
@@ -512,6 +527,9 @@ export function clearAllLocalData(): void {
   localStorage.removeItem(VOCAB_TOMBSTONES_KEY);
   localStorage.removeItem(SENTENCE_TOMBSTONES_KEY);
   localStorage.removeItem(SESSION_TOMBSTONES_KEY);
+  dispatchStorageChange(STORAGE_CHANGE_EVENTS.vocabulary);
+  dispatchStorageChange(STORAGE_CHANGE_EVENTS.sentences);
+  dispatchStorageChange(STORAGE_CHANGE_EVENTS.sessions);
 }
 
 /** Check if the local proxy is reachable (quick health check). */

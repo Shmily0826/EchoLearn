@@ -64,6 +64,7 @@ import {
   mergeCollection,
   pushItemsToCloud,
   syncWithCloud,
+  clearSyncMetadata,
 } from '../firestoreSync';
 
 const item = (id: string, addedAt: number, definitionEn = ''): VocabularyItem => ({
@@ -95,6 +96,16 @@ describe('Firestore lifecycle sync', () => {
     mocks.loadSentences.mockReturnValue([]);
     mocks.loadAllSessions.mockReturnValue([]);
     mocks.loadCurrentSession.mockReturnValue(null);
+  });
+
+  it('clears account-scoped sync metadata without touching device preferences', () => {
+    localStorage.setItem('echolearn_firebase_last_sync', '123');
+    localStorage.setItem('echolearn_firebase_sync_pending', 'true');
+    localStorage.setItem('echolearn_lang', 'en');
+    clearSyncMetadata();
+    expect(localStorage.getItem('echolearn_firebase_last_sync')).toBeNull();
+    expect(localStorage.getItem('echolearn_firebase_sync_pending')).toBeNull();
+    expect(localStorage.getItem('echolearn_lang')).toBe('en');
   });
 
   it('unions local/cloud records and dedupes by id with cloud winning timestamp ties', () => {
