@@ -1187,7 +1187,7 @@ const StudyPage: React.FC = () => {
             )}
 
             {videoId && displayLines.length > 0 && !audioMode && platform === 'youtube' && (
-              <p className="mt-2 px-3 py-2 text-xs text-slate-600 dark:text-slate-300 bg-slate-100 dark:bg-slate-800/80 rounded-lg break-words" role="status">
+              <p className="mt-2 w-full min-w-0 max-w-full overflow-hidden px-3 py-2 text-xs text-slate-600 dark:text-slate-300 bg-slate-100 dark:bg-slate-800/80 rounded-lg break-words" role="status">
                 {t('study.playerStillLoading')}
               </p>
             )}
@@ -1473,7 +1473,7 @@ const StudyPage: React.FC = () => {
                     </div>
                   </div>
                 )}
-                <p className="px-3 py-1.5 text-[11px] text-indigo-600 dark:text-indigo-300 bg-indigo-50/70 dark:bg-indigo-950/30 border-b border-indigo-100 dark:border-indigo-900 break-words">
+                <p className="w-full min-w-0 max-w-full overflow-hidden px-3 py-1.5 text-[11px] text-indigo-600 dark:text-indigo-300 bg-indigo-50/70 dark:bg-indigo-950/30 border-b border-indigo-100 dark:border-indigo-900 break-words">
                   {t('study.transcriptHint')}
                 </p>
                 <MobileTranscriptPanel
@@ -1669,7 +1669,7 @@ const StudyPage: React.FC = () => {
             <div className="flex-1 overflow-y-auto min-h-0 pr-1 order-2">
             {displayLines.length > 0 ? (
               <>
-                <p className="mb-2 px-3 py-2 text-xs text-indigo-700 dark:text-indigo-300 bg-indigo-50/70 dark:bg-indigo-950/30 border border-indigo-100 dark:border-indigo-900 rounded-lg break-words">
+                <p className="mb-2 w-full min-w-0 max-w-full overflow-hidden px-3 py-2 text-xs text-indigo-700 dark:text-indigo-300 bg-indigo-50/70 dark:bg-indigo-950/30 border border-indigo-100 dark:border-indigo-900 rounded-lg break-words">
                   {t('study.transcriptHint')}
                 </p>
                 <TranscriptViewer
