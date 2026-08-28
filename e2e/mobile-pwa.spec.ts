@@ -5,7 +5,7 @@ import { enterGuestMode } from './helpers/guestMode';
 
 const routes = [
   { path: '/', label: 'Dashboard' },
-  { path: '/vocabulary', label: 'Words' },
+  { path: '/vocabulary', label: 'Vocabulary' },
   { path: '/sentences', label: 'Sentences' },
   { path: '/review', label: 'Review' },
   { path: '/settings', label: 'Settings' },
@@ -43,6 +43,18 @@ async function clickMobileNav(page: Page, path: string, label: string) {
 }
 
 test.describe('Batch 11 — mobile/PWA lifecycle', () => {
+  test('fresh guest can reach Study without a blocking tour', async ({ page }) => {
+    await page.addInitScript(() => localStorage.clear());
+    await page.goto('/');
+    await page.getByRole('button', { name: 'Try without login', exact: true }).click();
+    await page.getByRole('button', { name: 'Skip for now', exact: true }).click();
+    await expect(page.getByRole('button', { name: 'Start studying', exact: true })).toBeVisible();
+    await expect(page.locator('.driver-overlay')).toHaveCount(0);
+    await page.getByRole('button', { name: 'Start studying', exact: true }).click();
+    await expect(page).toHaveURL(/\/study$/);
+    await expectNoHorizontalOverflow(page);
+  });
+
   test('mobile navigation and major pages fit without horizontal overflow', async ({ page }) => {
     const consoleErrors: string[] = [];
     page.on('console', (message) => {
@@ -70,7 +82,7 @@ test.describe('Batch 11 — mobile/PWA lifecycle', () => {
 
   test('Vocabulary filter toolbar wraps within a narrow mobile viewport', async ({ page }) => {
     await startGuest(page);
-    await clickMobileNav(page, '/vocabulary', 'Words');
+    await clickMobileNav(page, '/vocabulary', 'Vocabulary');
     await expectNoHorizontalOverflow(page);
 
     await expect(page.getByRole('button', { name: 'All', exact: true })).toBeVisible();

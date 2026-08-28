@@ -62,12 +62,13 @@ test('sample video study → save word → vocabulary and dashboard update', asy
   const saveButton = page.locator('#tour-transcript-save-word');
   await expect(saveButton).toBeVisible();
   await saveButton.click();
+  await expect(page.getByRole('status').filter({ hasText: 'Saved to Vocabulary' })).toBeVisible();
   // Saving awaits dictionary enrichment and then persists. The popup closing
   // marks completion — wait for it before navigating.
   await expect(saveButton).toBeHidden({ timeout: 45_000 });
 
   // ── Words page lists the saved word ──
-  await page.getByRole('link', { name: 'Words' }).click();
+  await page.getByRole('link', { name: 'Vocabulary' }).click();
   await expect(page.getByText('1 words')).toBeVisible({ timeout: 10_000 });
   // The card renders the headword together with its phonetic (when the
   // dictionary answered), so match on a leading-word regex instead of exact.

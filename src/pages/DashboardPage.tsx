@@ -423,12 +423,24 @@ const DashboardPage: React.FC = () => {
     <div className="max-w-5xl mx-auto px-4 sm:px-6 py-6 sm:py-10">
       {/* Hero */}
       <div className="mb-6 sm:mb-10">
-        <h1 className="text-2xl sm:text-3xl font-bold text-gray-900 dark:text-gray-100 tracking-tight">
-          {t('dash.welcome')}
-        </h1>
-        <p className="mt-2 text-gray-500 dark:text-gray-400 max-w-2xl leading-relaxed text-sm sm:text-base">
-          {t('dash.subtitle')}
-        </p>
+        <div className="flex flex-col sm:flex-row sm:items-end sm:justify-between gap-4">
+          <div>
+            <h1 className="text-2xl sm:text-3xl font-bold text-gray-900 dark:text-gray-100 tracking-tight">
+              {t('dash.welcome')}
+            </h1>
+            <p className="mt-2 text-gray-500 dark:text-gray-400 max-w-2xl leading-relaxed text-sm sm:text-base">
+              {t('dash.subtitle')}
+            </p>
+          </div>
+          <button
+            type="button"
+            onClick={() => navigate('/study')}
+            className="w-full sm:w-auto shrink-0 inline-flex items-center justify-center gap-2 px-5 py-2.5 rounded-lg bg-indigo-600 text-white text-sm font-semibold shadow-sm hover:bg-indigo-700 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-indigo-500 focus-visible:ring-offset-2 transition-colors cursor-pointer"
+          >
+            {t('dash.startStudying')}
+            <span aria-hidden="true">→</span>
+          </button>
+        </div>
       </div>
 
       {/* Stat cards */}
@@ -859,7 +871,7 @@ const DashboardPage: React.FC = () => {
       )}
 
       {/* Recent sessions */}
-      <div>
+      <div id="tour-recent-sessions">
         {(() => {
           const activeSessions = sessions.filter((s) => s.status !== 'completed');
           const completedSessions = sessions.filter((s) => s.status === 'completed');
@@ -910,9 +922,13 @@ const DashboardPage: React.FC = () => {
               {sessions.length === 0 ? (
                 <div className="bg-white dark:bg-slate-800 rounded-xl border border-gray-200 dark:border-slate-700 shadow-sm p-10 text-center">
                   <p className="text-gray-400 dark:text-gray-500 text-sm">{t('dash.noSessions')}</p>
-                  <p className="text-gray-400 dark:text-gray-500 text-xs mt-1">
-                    {t('dash.startFirst')}
-                  </p>
+                  <button
+                    type="button"
+                    onClick={() => navigate('/study')}
+                    className="mt-3 text-sm font-medium text-indigo-600 dark:text-indigo-400 hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-indigo-500 rounded cursor-pointer"
+                  >
+                    {t('dash.startFirst')} →
+                  </button>
                 </div>
               ) : (
                 <>
@@ -1113,6 +1129,10 @@ const StatCard: React.FC<{
       id={id}
       className={`${c.bg} rounded-xl p-5 border border-transparent ${onClick ? 'cursor-pointer hover:shadow-md transition-shadow' : ''}`}
       onClick={onClick}
+      onKeyDown={onClick ? (event) => { if (event.key === 'Enter' || event.key === ' ') { event.preventDefault(); onClick(); } } : undefined}
+      role={onClick ? 'button' : undefined}
+      tabIndex={onClick ? 0 : undefined}
+      aria-label={onClick ? `${label}: ${value}` : undefined}
     >
       <div className="flex items-center gap-3 mb-3">
         <div className={`${c.iconBg} ${c.text} p-2 rounded-lg`}>{icon}</div>

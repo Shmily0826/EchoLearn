@@ -1,10 +1,10 @@
 import { useState } from 'react';
 import { useI18n } from '../i18n/I18nContext';
-import { TOUR_START_EVENT, TOUR_LANG_CHOSEN_KEY } from './tourEvents';
+import { TOUR_LANG_CHOSEN_KEY } from './tourEvents';
 
 /**
  * First-ever-visit language picker. Shows a modal before anything else so the
- * user chooses EN / 中文 before the tour starts. If a language is already
+ * user chooses EN / 中文. If a language is already
  * stored (returning user) or the choice was previously made, it renders nothing.
  */
 const LanguageChooser: React.FC = () => {
@@ -25,8 +25,11 @@ const LanguageChooser: React.FC = () => {
     setLang(picked);
     localStorage.setItem(TOUR_LANG_CHOSEN_KEY, '1');
     setOpen(false);
-    // Defer so React re-renders with the new language before the tour reads it.
-    window.setTimeout(() => window.dispatchEvent(new Event(TOUR_START_EVENT)), 60);
+  };
+
+  const skip = () => {
+    localStorage.setItem(TOUR_LANG_CHOSEN_KEY, '1');
+    setOpen(false);
   };
 
   if (!open) return null;
@@ -67,6 +70,13 @@ const LanguageChooser: React.FC = () => {
             {t('lang.zh')}
           </button>
         </div>
+        <button
+          type="button"
+          onClick={skip}
+          className="mt-4 text-sm text-gray-500 dark:text-gray-400 hover:text-indigo-600 dark:hover:text-indigo-300 underline underline-offset-2 cursor-pointer"
+        >
+          {t('lang.skip')}
+        </button>
       </div>
     </div>
   );

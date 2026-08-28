@@ -214,7 +214,7 @@ const TranscriptViewer: React.FC<TranscriptViewerProps> = ({
     word: string,
     context: string,
     lineStart: number,
-    e: React.MouseEvent,
+    e: React.MouseEvent | React.KeyboardEvent,
   ) => {
     e.stopPropagation();
     const rect = (e.target as HTMLElement).getBoundingClientRect();
@@ -628,10 +628,14 @@ const TranscriptViewer: React.FC<TranscriptViewerProps> = ({
                         <span
                           key={i}
                           onClick={(e) => handleWordClick(token, line.text, line.start, e)}
-                          className={`inline-block mx-[1px] px-1 md:px-0.5 py-0.5 md:py-0 rounded cursor-pointer transition-colors ${
+                          onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); handleWordClick(token, line.text, line.start, e); } }}
+                          role="button"
+                          tabIndex={0}
+                          aria-label={`Look up ${token}`}
+                          className={`inline-block mx-[1px] px-1 md:px-0.5 py-0.5 md:py-0 rounded cursor-pointer transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-indigo-400 ${
                             saved
                               ? 'bg-amber-100 dark:bg-amber-900/50 text-amber-800 dark:text-amber-300 hover:bg-amber-200 dark:hover:bg-amber-800'
-                              : 'hover:bg-indigo-100 dark:hover:bg-indigo-900/40 hover:text-indigo-700 dark:hover:text-indigo-300'
+                              : 'hover:bg-indigo-100 dark:hover:bg-indigo-900/40 hover:text-indigo-700 dark:hover:text-indigo-300 underline decoration-indigo-200/70 underline-offset-2'
                           }`}
                         >
                           {token}
@@ -654,6 +658,7 @@ const TranscriptViewer: React.FC<TranscriptViewerProps> = ({
                     }
                   }}
                   title={sentenceSaved ? 'Remove bookmark' : 'Save sentence'}
+                  aria-label={sentenceSaved ? 'Remove bookmark' : 'Save sentence'}
                   className={`flex-shrink-0 p-1.5 md:p-1 rounded transition-colors cursor-pointer ${
                     sentenceSaved
                       ? 'text-violet-500 dark:text-violet-400 hover:text-violet-700 dark:hover:text-violet-300'

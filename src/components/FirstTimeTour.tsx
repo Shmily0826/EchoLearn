@@ -204,28 +204,18 @@ const FirstTimeTour: React.FC = () => {
             },
           },
           {
-            element: '#tour-channel-card',
             popover: {
-              title: tt('tour.channelTitle'),
-              description: tt('tour.channelBody'),
+              title: tt('tour.studyFirstTitle'),
+              description: tt('tour.studyFirstBody'),
               side: 'bottom',
-              align: 'start',
+              align: 'center',
             },
           },
           {
-            element: '#tour-today-plan',
+            element: '#tour-recent-sessions',
             popover: {
-              title: tt('tour.planTitle'),
-              description: tt('tour.planBody'),
-              side: 'top',
-              align: 'start',
-            },
-          },
-          {
-            element: '#tour-review-card',
-            popover: {
-              title: tt('tour.reviewTitle'),
-              description: tt('tour.reviewBody'),
+              title: tt('tour.continueTitle'),
+              description: tt('tour.continueBody'),
               side: 'bottom',
               align: 'center',
             },
@@ -272,18 +262,8 @@ const FirstTimeTour: React.FC = () => {
     const handler = () => startTour(true);
     window.addEventListener(TOUR_START_EVENT, handler);
 
-    let timer: number | undefined;
-    if (
-      pathname === '/' &&
-      !localStorage.getItem(TOUR_KEY) &&
-      localStorage.getItem(TOUR_LANG_CHOSEN_KEY)
-    ) {
-      timer = window.setTimeout(() => startTour(false), 700);
-    }
-
     return () => {
       window.removeEventListener(TOUR_START_EVENT, handler);
-      if (timer) window.clearTimeout(timer);
     };
   }, [t, pathname, navigate]);
 

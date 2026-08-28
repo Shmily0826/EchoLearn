@@ -284,8 +284,8 @@ const LoginPage: React.FC<{ onGuest?: () => void }> = ({ onGuest }) => {
           <div className="mt-6 pt-5 border-t" style={{ borderColor: 'var(--color-border)' }}>
             <button
               onClick={onGuest}
-              className="w-full py-2.5 rounded-xl text-sm font-medium transition-colors cursor-pointer hover:bg-gray-50 dark:hover:bg-gray-800"
-              style={{ color: 'var(--color-text-muted)', border: '1px dashed var(--color-border)' }}
+              className="w-full py-2.5 rounded-xl text-sm font-semibold transition-colors cursor-pointer hover:bg-indigo-50 dark:hover:bg-indigo-950/40 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-indigo-500"
+              style={{ color: 'var(--color-text)', border: '1px solid var(--color-border)', backgroundColor: 'var(--color-input-bg)' }}
             >
               {t('login.guest')}
             </button>

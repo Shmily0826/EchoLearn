@@ -34,23 +34,14 @@ export async function enterGuestMode(page: Page) {
     break;
   }
 
-  let languageWasChosen = false;
   if (needsLanguageChoice) {
     await expect(englishButton).toBeVisible();
     await englishButton.click();
     await expect(englishButton).toBeHidden();
-    languageWasChosen = true;
   }
 
-  const closeButton = page.getByRole('button', { name: 'Close', exact: true });
-  if (languageWasChosen) {
-    await expect(closeButton).toBeVisible();
-    await closeButton.click();
-    await expect(closeButton).toBeHidden();
-  } else if (await closeButton.isVisible().catch(() => false)) {
-    await closeButton.click();
-    await expect(closeButton).toBeHidden();
-  }
-
+  // Choosing or skipping the language no longer starts a blocking tour.
+  // Keep this helper focused on the stable app-shell navigation invariant.
   await expect(studyNav).toBeVisible();
+  await expect(page.locator('.driver-overlay')).toHaveCount(0);
 }

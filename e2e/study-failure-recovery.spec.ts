@@ -253,7 +253,7 @@ test.describe('Batch 3 — Study failure recovery', () => {
     await expectGuestWordPersisted(page);
 
     // Words page lists it.
-    await page.getByRole('link', { name: 'Words' }).click();
+    await page.getByRole('link', { name: 'Vocabulary' }).click();
     await expect(page.getByText('1 words')).toBeVisible({ timeout: 10_000 });
     await expect(page.getByText(/^good\b/).filter({ visible: true }).first()).toBeVisible();
 
@@ -294,7 +294,7 @@ test.describe('Batch 3 — Study failure recovery', () => {
     await expect(page.getByText('Already in vocab', { exact: true })).toBeVisible();
 
     // Words count must be exactly 1 (no duplicate).
-    await page.getByRole('link', { name: 'Words' }).click();
+    await page.getByRole('link', { name: 'Vocabulary' }).click();
     await expect(page.getByText('1 words')).toBeVisible({ timeout: 10_000 });
   });
 
@@ -343,7 +343,7 @@ test.describe('Batch 3 — Study failure recovery', () => {
     await page.reload();
     await enterGuestMode(page);
 
-    await page.getByRole('link', { name: 'Words' }).click();
+    await page.getByRole('link', { name: 'Vocabulary' }).click();
     await expect(page.getByText('1 words')).toBeVisible({ timeout: 10_000 });
   });
 });

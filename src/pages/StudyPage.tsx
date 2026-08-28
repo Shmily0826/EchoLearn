@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useCallback, useMemo, useRef } from 'react';
-import { useLocation } from 'react-router-dom';
+import { useLocation, useNavigate } from 'react-router-dom';
 import YouTubeEmbed, { type PlayerHandle } from '../components/YouTubeEmbed';
 import BilibiliEmbed from '../components/BilibiliEmbed';
 import AudioPlayer from '../components/AudioPlayer';
@@ -97,9 +97,12 @@ const SAMPLE_FALLBACK_TRANSCRIPT: TranscriptLine[] = sampleTranscript;
 const StudyPage: React.FC = () => {
   const { t, lang } = useI18n();
   const { user } = useAuth();
+  const navigate = useNavigate();
 
   // Guest mode: toast prompt when trying to use login-required features
   const [loginToast, setLoginToast] = useState(false);
+  const [saveToast, setSaveToast] = useState<'vocabulary' | 'sentences' | null>(null);
+  const saveToastTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const loginToastTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const showLoginToast = useCallback(() => {
     setLoginToast(true);
@@ -944,6 +947,9 @@ const StudyPage: React.FC = () => {
   // Cloud sync below no-ops without a signed-in user, so no login gate here.
   const handleAddVocabulary = useCallback((item: VocabularyItem) => {
     setVocabulary(addVocabularyItem(item));
+    setSaveToast('vocabulary');
+    if (saveToastTimer.current) clearTimeout(saveToastTimer.current);
+    saveToastTimer.current = setTimeout(() => setSaveToast(null), 4500);
     trackEvent('word_saved');
     triggerCloudSync();
     // Every save path (AI, transcript, popup and quick-add) is enriched the
@@ -957,6 +963,9 @@ const StudyPage: React.FC = () => {
 
   const handleAddSentence = useCallback((item: SentenceItem) => {
     setSentences(addSentenceItem(item));
+    setSaveToast('sentences');
+    if (saveToastTimer.current) clearTimeout(saveToastTimer.current);
+    saveToastTimer.current = setTimeout(() => setSaveToast(null), 4500);
     trackEvent('sentence_saved');
     triggerCloudSync();
   }, [triggerCloudSync, setSentences]);
@@ -1175,6 +1184,12 @@ const StudyPage: React.FC = () => {
                   <p className="text-gray-400 dark:text-gray-500 text-sm">{t('study.pasteStart')}</p>
                 </div>
               </div>
+            )}
+
+            {videoId && displayLines.length > 0 && !audioMode && platform === 'youtube' && (
+              <p className="mt-2 px-3 py-2 text-xs text-slate-600 dark:text-slate-300 bg-slate-100 dark:bg-slate-800/80 rounded-lg" role="status">
+                {t('study.playerStillLoading')}
+              </p>
             )}
 
             {/* Sleep timer toast */}
@@ -1458,6 +1473,9 @@ const StudyPage: React.FC = () => {
                     </div>
                   </div>
                 )}
+                <p className="px-3 py-1.5 text-[11px] text-indigo-600 dark:text-indigo-300 bg-indigo-50/70 dark:bg-indigo-950/30 border-b border-indigo-100 dark:border-indigo-900">
+                  {t('study.transcriptHint')}
+                </p>
                 <MobileTranscriptPanel
                   lines={displayLines}
                   activeLineIndex={activeLineIndex}
@@ -1650,7 +1668,11 @@ const StudyPage: React.FC = () => {
             {/* Scrollable content area — fills the space between header and toolbar */}
             <div className="flex-1 overflow-y-auto min-h-0 pr-1 order-2">
             {displayLines.length > 0 ? (
-              <TranscriptViewer
+              <>
+                <p className="mb-2 px-3 py-2 text-xs text-indigo-700 dark:text-indigo-300 bg-indigo-50/70 dark:bg-indigo-950/30 border border-indigo-100 dark:border-indigo-900 rounded-lg">
+                  {t('study.transcriptHint')}
+                </p>
+                <TranscriptViewer
                 lines={displayLines}
                 videoId={videoId || 'unknown'}
                 videoTitle={sessionTitle}
@@ -1662,7 +1684,8 @@ const StudyPage: React.FC = () => {
                 savedSentenceIds={savedSentenceIds}
                 activeLineIndex={activeLineIndex}
                 onSeekTo={handleSeekTo}
-              />
+                />
+              </>
             ) : fetchingCaption ? (
               <div className="flex flex-col items-center justify-center py-16 text-gray-400 dark:text-gray-500">
                 <svg className="animate-spin w-8 h-8 mb-3 text-indigo-400" fill="none" viewBox="0 0 24 24">
@@ -1776,6 +1799,20 @@ const StudyPage: React.FC = () => {
               <path strokeLinecap="round" strokeLinejoin="round" d="M6 18L18 6M6 6l12 12" />
             </svg>
           </button>
+        </div>
+      )}
+
+      {saveToast && (
+        <div className="fixed bottom-20 md:bottom-6 left-4 right-4 md:left-6 md:right-auto md:max-w-md z-50 px-4 py-3 rounded-xl shadow-lg border text-sm flex items-center gap-3 bg-emerald-50 dark:bg-emerald-950 border-emerald-200 dark:border-emerald-800 text-emerald-700 dark:text-emerald-300" role="status">
+          <span className="font-medium flex-1">{t(saveToast === 'vocabulary' ? 'study.wordSaved' : 'study.sentenceSaved')}</span>
+          <button
+            type="button"
+            onClick={() => navigate(saveToast === 'vocabulary' ? '/vocabulary' : '/sentences')}
+            className="shrink-0 font-semibold underline underline-offset-2 hover:text-emerald-900 dark:hover:text-emerald-100 cursor-pointer"
+          >
+            {t(saveToast === 'vocabulary' ? 'study.openVocabulary' : 'study.openSentences')}
+          </button>
+          <button type="button" onClick={() => setSaveToast(null)} aria-label={t('common.close')} className="shrink-0 text-emerald-500 hover:text-emerald-800 cursor-pointer">×</button>
         </div>
       )}
     </div>

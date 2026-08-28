@@ -4,13 +4,14 @@ const translations: Record<string, Record<Lang, string>> = {
   // ── Layout / Nav ─────────────────────────────────────────
   'nav.dashboard':       { en: 'Dashboard',  zh: '主页' },
   'nav.study':           { en: 'Study',      zh: '学习' },
-  'nav.words':           { en: 'Words',      zh: '词汇' },
+  'nav.words':           { en: 'Vocabulary', zh: '词汇' },
   'nav.sentences':       { en: 'Sentences',  zh: '句子' },
   'nav.review':          { en: 'Review',     zh: '复习' },
   'nav.settings':        { en: 'Settings',   zh: '设置' },
   'nav.install':         { en: 'Install',    zh: '安装' },
   'darkMode.on':         { en: 'Switch to dark mode',  zh: '切换深色模式' },
   'darkMode.off':        { en: 'Switch to light mode', zh: '切换浅色模式' },
+  'lang.skip':           { en: 'Skip for now', zh: '暂时跳过' },
 
   // ── First-time bubble tour ──────────────────────────────
   'tour.next':           { en: 'Next', zh: '下一步' },
@@ -19,7 +20,11 @@ const translations: Record<string, Record<Lang, string>> = {
   'tour.close':          { en: 'Skip tour', zh: '跳过引导' },
   'tour.progress':       { en: '{{current}} of {{total}}', zh: '{{current}} / {{total}}' },
   'tour.welcomeTitle':   { en: 'Welcome to EchoLearn', zh: '欢迎使用 EchoLearn' },
-  'tour.welcomeBody':    { en: 'Here is a quick 4-step guide to help you get started with video-based English learning.', zh: '一个简短的 4 步引导，帮你快速上手用视频学英语。' },
+  'tour.welcomeBody':    { en: 'A quick guide to help you get started with video-based English learning.', zh: '快速了解如何用视频开始学英语。' },
+  'tour.studyFirstTitle': { en: 'Start studying from a video', zh: '从视频开始学习' },
+  'tour.studyFirstBody': { en: 'Open Study to paste a YouTube or Bilibili link, read the transcript, and save useful words and sentences.', zh: '打开学习页，粘贴 YouTube 或 Bilibili 链接，阅读字幕并保存有用的单词和句子。' },
+  'tour.continueTitle': { en: 'Keep learning over time', zh: '持续学习' },
+  'tour.continueBody': { en: 'Return to a recent session or open Review when saved items are ready. Channel plans and analytics are available when you need them.', zh: '从最近学习记录继续，或在有待复习内容时打开复习。频道计划和数据分析可按需使用。' },
   'tour.channelTitle':   { en: 'Fetch videos from a channel', zh: '从频道获取视频' },
   'tour.channelBody':    { en: 'Enter a YouTube channel handle (e.g. @EnglishClass101) or Channel ID, then click "Fetch Latest Videos". EchoLearn adds up to 10 new videos to your daily plan and skips the ones you have already completed.', zh: '输入 YouTube 频道名（如 @EnglishClass101）或频道 ID，点击"获取最新视频"，EchoLearn 会把最多 10 个新视频加入今日计划，并自动跳过已完成的。' },
   'tour.planTitle':      { en: "Today's plan", zh: '今日计划' },
@@ -102,6 +107,7 @@ const translations: Record<string, Record<Lang, string>> = {
   'dash.savedSentences': { en: 'Saved Sentences', zh: '已存句子' },
   'dash.studySessions':  { en: 'Study Sessions', zh: '学习记录' },
   'dash.todayReview':    { en: "Today's Review", zh: '今日复习' },
+  'dash.startStudying':  { en: 'Start studying', zh: '开始学习' },
   'dash.streak':         { en: 'Day Streak', zh: '连续天数' },
   'dash.onboardTitle':   { en: 'Welcome to EchoLearn! 🎓', zh: '欢迎使用 EchoLearn！🎓' },
   'dash.onboardDesc':    { en: 'Three steps to start learning from YouTube videos:', zh: '三步开始从 YouTube 视频学英语：' },
@@ -138,7 +144,7 @@ const translations: Record<string, Record<Lang, string>> = {
   'dash.recentSessions': { en: 'Recent Sessions', zh: '最近学习' },
   'dash.total':          { en: 'total', zh: '共' },
   'dash.noSessions':     { en: 'No study sessions yet.', zh: '还没有学习记录。' },
-  'dash.startFirst':     { en: 'Head to Study to start your first session.', zh: '前往学习开始第一次学习吧。' },
+  'dash.startFirst':     { en: 'Start your first session', zh: '开始第一次学习' },
   'dash.open':           { en: 'Open', zh: '打开' },
   'dash.delete':         { en: 'Delete', zh: '删除' },
     'dash.deleteSession':  { en: 'Delete this study session?', zh: '确定要删除这个学习记录吗？' },
@@ -517,6 +523,12 @@ const translations: Record<string, Record<Lang, string>> = {
   // ── Playback Resume ─────────────────────────────────────
   'study.resumedAt':     { en: 'Resumed at {time}', zh: '已从 {time} 继续播放' },
   'study.loginRequired': { en: 'Sign in to save words, sentences and use AI analysis.', zh: '登录后可保存词汇、句子和使用 AI 分析。' },
+  'study.transcriptHint': { en: 'Tip: click a word for its definition. Click a sentence to jump to that moment; use the bookmark to save it.', zh: '提示：点击单词查看释义，点击句子跳转到对应位置，使用书签保存句子。' },
+  'study.playerStillLoading': { en: 'The transcript is ready below. The video player loads separately, so you can start studying now.', zh: '下面的字幕已经准备好。视频播放器独立加载，你现在就可以开始学习。' },
+  'study.wordSaved': { en: 'Saved to Vocabulary', zh: '已保存到词汇' },
+  'study.sentenceSaved': { en: 'Saved to Sentences', zh: '已保存到句子' },
+  'study.openVocabulary': { en: 'Open Vocabulary', zh: '打开词汇' },
+  'study.openSentences': { en: 'Open Sentences', zh: '打开句子' },
 
   // ── Common ───────────────────────────────────────────────
   'common.words':        { en: 'Words', zh: '词汇' },
