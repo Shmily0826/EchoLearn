@@ -53,6 +53,13 @@ body {
   min-height: 100vh;
 }
 
+/* Keep responsive Study layout transitions from leaking a stale child width
+   into the document scroll area while orientation/media queries settle. */
+.study-main {
+  min-width: 0;
+  overflow-x: hidden;
+}
+
 /* Smooth transitions for theme changes. Do not transition every `div`: on
    mobile, transcript highlight/scroll repaints can briefly interpolate a
    dark surface through white. Components that need animated surfaces opt in
