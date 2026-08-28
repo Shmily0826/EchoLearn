@@ -215,6 +215,13 @@ describe('session storage', () => {
     expect(loadAllSessions()).toHaveLength(1);
   });
 
+  it('notifies consumers when the current session is cleared through saveCurrentSession', () => {
+    saveCurrentSession(makeSession());
+    dispatchedEvents = [];
+    saveCurrentSession(null);
+    expect(dispatchedEvents).toContain('echolearn:sessions-changed');
+  });
+
   it('deleteSession removes from history and clears it if it is current', () => {
     saveCurrentSession(makeSession({ id: 'a' }));
     saveCurrentSession(makeSession({ id: 'b' }));

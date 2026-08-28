@@ -94,6 +94,17 @@ describe('AuthProvider account boundary', () => {
     expect(mocks.clearSyncMetadata).not.toHaveBeenCalled();
   });
 
+  it('does not clear local data when sign-out resolves without ending auth', async () => {
+    mocks.signOut.mockResolvedValue(undefined);
+    localStorage.setItem('echolearn_vocabulary', JSON.stringify([{ id: 'a-only' }]));
+    const onError = vi.fn();
+    render(<AuthProvider><LogoutButton onError={onError} /></AuthProvider>);
+    screen.getByRole('button', { name: 'Log out' }).click();
+    await vi.waitFor(() => expect(onError).toHaveBeenCalledWith(expect.objectContaining({ message: 'auth/sign-out-incomplete' })));
+    expect(localStorage.getItem('echolearn_vocabulary')).not.toBeNull();
+    expect(mocks.clearSyncMetadata).not.toHaveBeenCalled();
+  });
+
   it('starts cloud merge from the authenticated state boundary', async () => {
     render(
       <AuthProvider>

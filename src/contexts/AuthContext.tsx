@@ -160,6 +160,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     }
     // Wipe local study data on this device too.
     clearAllLocalData();
+    clearSyncMetadata();
     try {
       await deleteUser(u);
     } catch (err) {
@@ -180,23 +181,26 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   }, []);
 
   const logOut = useCallback(async () => {
-    const accountAtStart = auth.currentUser;
     if (isCapacitor()) {
       try { await FirebaseAuthentication.signOut(); } catch { /* ignore */ }
     }
+    let signOutError: unknown = null;
     try {
       await signOut(auth);
     } catch (error) {
-      // Some adapters may reject after already completing the auth transition.
-      // Only clear account-bound local state once Firebase confirms signed-out.
-      if (auth.currentUser !== null) throw error;
+      signOutError = error;
+    }
+    // Firebase auth state is authoritative. A rejected sign-out may still have
+    // completed the boundary, but a resolved sign-out that leaves a user
+    // active is also inconsistent and must not clear that user's data.
+    if (auth.currentUser !== null) {
+      if (signOutError) throw signOutError;
+      throw new Error('auth/sign-out-incomplete');
     }
     // Local storage is device-scoped, not account-scoped. Clear it at the
     // account boundary so Account A data cannot be shown or pushed as B.
-    if (auth.currentUser === null || accountAtStart === null) {
-      clearAllLocalData();
-      clearSyncMetadata();
-    }
+    clearAllLocalData();
+    clearSyncMetadata();
   }, []);
 
   return (

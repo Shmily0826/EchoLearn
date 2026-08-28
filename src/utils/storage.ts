@@ -203,7 +203,7 @@ export function saveCurrentSession(session: VideoStudySession | null): void {
     localStorage.setItem(SESSIONS_LIST_KEY, JSON.stringify(list));
     dispatchStorageChange(STORAGE_CHANGE_EVENTS.sessions);
   } else {
-    localStorage.removeItem(SESSION_KEY);
+    clearCurrentSession();
   }
 }
 
