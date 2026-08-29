@@ -42,6 +42,24 @@ function traceLog(event, fields) {
   console.log(JSON.stringify({ service: 'cf-worker-transcript', event, ...fields }));
 }
 
+/** Resolve a provider within a bounded window without leaving a live timer. */
+function boundedProviderCall(providerPromise, timeoutMs, onTimeout) {
+  let timer;
+  return new Promise((resolve) => {
+    timer = setTimeout(() => {
+      onTimeout();
+      resolve(null);
+    }, timeoutMs);
+    providerPromise.then((value) => {
+      clearTimeout(timer);
+      resolve(value);
+    }, () => {
+      clearTimeout(timer);
+      resolve(null);
+    });
+  });
+}
+
 // Domains the /api/yt proxy is allowed to forward to.
 const ALLOWED_TARGET_DOMAINS = ['youtube.com', 'googlevideo.com', 'googleapis.com'];
 
@@ -221,6 +239,7 @@ export default {
 async function handleTranscript(url, env, traceId) {
   const videoId = url.searchParams.get('videoId');
   const lang = url.searchParams.get('lang') || 'en';
+  const allowAsr = url.searchParams.get('allowAsr') === '1';
   // Debug logs are off by default in production. To re-enable for troubleshooting,
   // set the ALLOW_DEBUG=1 environment variable (e.g. `npx wrangler secret put ALLOW_DEBUG`).
   const debug = url.searchParams.get('debug') === '1' && env.ALLOW_DEBUG === '1';
@@ -238,59 +257,21 @@ async function handleTranscript(url, env, traceId) {
   // active when YTDLP_API_URL is configured. Requires no residential proxy for
   // the caption path, so other users get transcripts without the developer's
   // PC being online.
+  let captionProviderTimedOut = false;
   if (env && env.YTDLP_API_URL) {
-    const ytdlpResult = await Promise.race([
+    const ytdlpResult = await boundedProviderCall(
       fetchViaYtDlp(videoId, lang, env, log, null, traceId),
-      new Promise((resolve) => setTimeout(() => resolve(null), 15000)),
-    ]);
+      5000,
+      () => {
+        captionProviderTimedOut = true;
+      },
+    );
     if (ytdlpResult) {
       if (debug) ytdlpResult._debug = debugLog;
       traceLog('request_finish', { traceId, videoId, provider: 'vps-transcript', status: 200, lineCount: ytdlpResult.lines?.length || 0 });
       return jsonResponse(ytdlpResult, 200, { [TRACE_HEADER]: traceId });
     }
     log('yt-dlp service returned no transcript — falling through to other strategies');
-  }
-
-  // Strategy 0b: VPS Whisper ASR — when the caption path above fails (e.g. a
-  // transient YouTube bot-check on the proxy's egress IP), let the VPS pull the
-  // *audio* and transcribe it. The VPS downloads through the same residential
-  // proxy, which is far more reliable than the Worker's own Cloudflare egress
-  // IP for media, so this recovers many "no captions" cases with a real
-  // (auto-generated) transcript instead of surfacing a hard error to the user.
-  if (env && env.YTDLP_API_URL && env.GROQ_API_KEY) {
-    const asrDiagnostics = {};
-    const vpsAsr = await Promise.race([
-      fetchViaVpsAsr(
-        `https://www.youtube.com/watch?v=${videoId}`,
-        env,
-        log,
-        asrDiagnostics,
-        traceId,
-      ),
-      new Promise((resolve) => setTimeout(() => {
-        asrDiagnostics.code = 'youtube_acquisition_blocked';
-        resolve(null);
-      }, 75000)),
-    ]);
-    if (vpsAsr) {
-      if (debug) vpsAsr._debug = debugLog;
-      traceLog('request_finish', { traceId, videoId, provider: 'vps-asr', status: 200, lineCount: vpsAsr.lines?.length || 0 });
-      return jsonResponse(vpsAsr, 200, { [TRACE_HEADER]: traceId });
-    }
-    if (asrDiagnostics.code === 'youtube_acquisition_blocked') {
-      traceLog('request_finish', {
-        traceId,
-        videoId,
-        provider: 'vps-asr',
-        status: 424,
-        error: 'youtube_acquisition_blocked',
-      });
-      return jsonResponse({
-        error: 'youtube_acquisition_blocked',
-        message: 'This video cannot currently be transcribed automatically. Try another video with captions.',
-      }, 424, { [TRACE_HEADER]: traceId });
-    }
-    log('VPS ASR fallback returned nothing — falling through to other strategies');
   }
 
   // Strategy 1: InnerTube player API (multi-client)
@@ -309,22 +290,7 @@ async function handleTranscript(url, env, traceId) {
     return jsonResponse(webResult, 200, { [TRACE_HEADER]: traceId });
   }
 
-  // Strategy 3: Whisper ASR (audio transcription via Groq)
-  // Tried EARLY (before the flaky Invidious/Piped instances) when a key is
-  // configured: it covers videos with no captions and is far less affected by
-  // YouTube's datacenter-IP caption throttling. Falls through to the instance
-  // cascades below if audio download/transcription fails.
-  if (env && env.GROQ_API_KEY) {
-    const whisperResult = await fetchViaWhisper(videoId, lang, env, log);
-    if (whisperResult) {
-      if (debug) whisperResult._debug = debugLog;
-      traceLog('request_finish', { traceId, videoId, provider: 'worker-whisper', status: 200, lineCount: whisperResult.lines?.length || 0 });
-      return jsonResponse(whisperResult, 200, { [TRACE_HEADER]: traceId });
-    }
-    log('Whisper fallback failed (audio fetch/transcription) — trying instance cascades');
-  }
-
-  // Strategy 4: Invidious API (third-party YouTube frontends)
+  // Strategy 3: Invidious API (third-party YouTube frontends)
   const invidiousResult = await fetchViaInvidious(videoId, lang, log);
   if (invidiousResult) {
     if (debug) invidiousResult._debug = debugLog;
@@ -332,7 +298,7 @@ async function handleTranscript(url, env, traceId) {
     return jsonResponse(invidiousResult, 200, { [TRACE_HEADER]: traceId });
   }
 
-  // Strategy 5: Piped API
+  // Strategy 4: Piped API
   const pipedResult = await fetchViaPiped(videoId, lang, log);
   if (pipedResult) {
     if (debug) pipedResult._debug = debugLog;
@@ -340,10 +306,59 @@ async function handleTranscript(url, env, traceId) {
     return jsonResponse(pipedResult, 200, { [TRACE_HEADER]: traceId });
   }
 
-  const response = { error: 'No transcript available for this video' };
+  // ASR is deliberately last: all reasonable caption-only providers above
+  // must be exhausted first. Prefer the VPS ASR path when configured; the
+  // Worker-side Whisper path is only used when there is no VPS, preventing two
+  // paid/slow ASR attempts in one acquisition flow.
+  if (allowAsr && env && env.YTDLP_API_URL) {
+    const asrDiagnostics = {};
+    const vpsAsr = await Promise.race([
+      fetchViaVpsAsr(
+        `https://www.youtube.com/watch?v=${videoId}`,
+        env,
+        log,
+        asrDiagnostics,
+        traceId,
+      ),
+      new Promise((resolve) => setTimeout(() => {
+        asrDiagnostics.code = 'provider_timeout';
+        resolve(null);
+      }, 75000)),
+    ]);
+    if (vpsAsr) {
+      if (debug) vpsAsr._debug = debugLog;
+      traceLog('request_finish', { traceId, videoId, provider: 'vps-asr', status: 200, lineCount: vpsAsr.lines?.length || 0 });
+      return jsonResponse(vpsAsr, 200, { [TRACE_HEADER]: traceId });
+    }
+    if (asrDiagnostics.code === 'provider_timeout') {
+      traceLog('request_finish', { traceId, videoId, provider: 'vps-asr', status: 504, error: 'provider_timeout' });
+      return jsonResponse({ error: 'provider_timeout', message: 'Transcript provider timed out.' }, 504, { [TRACE_HEADER]: traceId });
+    }
+    log('VPS ASR fallback returned nothing');
+  } else if (allowAsr && env && env.GROQ_API_KEY) {
+    const whisperResult = await fetchViaWhisper(videoId, lang, env, log);
+    if (whisperResult) {
+      if (debug) whisperResult._debug = debugLog;
+      traceLog('request_finish', { traceId, videoId, provider: 'worker-whisper', status: 200, lineCount: whisperResult.lines?.length || 0 });
+      return jsonResponse(whisperResult, 200, { [TRACE_HEADER]: traceId });
+    }
+    log('Whisper fallback failed');
+  }
+
+  // VPS ASR availability is represented by YTDLP_API_URL, while Worker
+  // Whisper availability is represented by GROQ_API_KEY. Explicit allowAsr=1
+  // is still required before either generation path can run.
+  const asrAvailable = !!(env && (env.YTDLP_API_URL || env.GROQ_API_KEY));
+  const error = asrAvailable && !allowAsr
+    ? { error: 'asr_required', message: 'Caption providers could not provide a transcript; explicit ASR opt-in is required.' }
+    : captionProviderTimedOut
+      ? { error: 'provider_timeout', message: 'Caption providers timed out.' }
+    : { error: 'captions_not_found', message: 'No caption transcript is available for this video.' };
+  const response = error;
   if (debug) response._debug = debugLog;
-  traceLog('request_finish', { traceId, videoId, provider: 'none', status: 404 });
-  return jsonResponse(response, 404, { [TRACE_HEADER]: traceId });
+  const status = response.error === 'asr_required' ? 409 : response.error === 'provider_timeout' ? 504 : 404;
+  traceLog('request_finish', { traceId, videoId, provider: 'none', status, error: response.error });
+  return jsonResponse(response, status, { [TRACE_HEADER]: traceId });
 }
 
 // ── /api/bilibili — Fetch Bilibili transcript / metadata ──────────

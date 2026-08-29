@@ -84,7 +84,7 @@ async function fetchVpsTranscript(
   lang: string,
   apiKey: string,
   traceId: string,
-): Promise<Record<string, unknown> | null> {
+): Promise<{ data: Record<string, unknown> | null; code?: string }> {
   const controller = new AbortController();
   const timer = setTimeout(() => controller.abort(), VPS_TIMEOUT_MS);
   try {
@@ -97,22 +97,22 @@ async function fetchVpsTranscript(
     );
     if (!upstream.ok) {
       logTranscriptEvent('vps_result', { traceId, videoId, status: upstream.status, usable: false });
-      return null;
+      return { data: null, code: upstream.status === 404 ? 'captions_not_found' : upstream.status === 408 || upstream.status === 504 ? 'provider_timeout' : undefined };
     }
     const data = (await upstream.json()) as unknown;
     if (!isUsableTranscript(data)) {
       logTranscriptEvent('vps_result', { traceId, videoId, status: upstream.status, usable: false, reason: 'empty_or_malformed' });
-      return null;
+      return { data: null, code: 'captions_not_found' };
     }
     logTranscriptEvent('vps_result', { traceId, videoId, status: upstream.status, usable: true, lineCount: data.lines.length });
-    return { ...data, source: (data as { source?: string }).source || 'vps' };
+    return { data: { ...data, source: (data as { source?: string }).source || 'vps' } };
   } catch (err) {
     logTranscriptEvent('vps_error', {
       traceId,
       videoId,
       error: err instanceof Error && err.name === 'AbortError' ? 'timeout' : 'network_or_parse',
     });
-    return null;
+    return { data: null, code: err instanceof Error && err.name === 'AbortError' ? 'provider_timeout' : undefined };
   } finally {
     clearTimeout(timer);
   }
@@ -153,13 +153,18 @@ export default async function handler(req: any, res: any): Promise<void> {
     return;
   }
 
+  let vpsFailureCode: string | undefined;
   try {
     const vpsKey = process.env.YTDLP_API_KEY;
+    // This is the useful recovery path after Worker transport/generic 5xx
+    // failures. It calls the VPS caption transcript route, not /api/asr;
+    // frontend structured Worker outcomes stop before reaching this endpoint.
     if (vpsKey) {
-      const vpsResult = await fetchVpsTranscript(videoId, lang, vpsKey, traceId);
-      if (vpsResult) {
+      const vpsOutcome = await fetchVpsTranscript(videoId, lang, vpsKey, traceId);
+      vpsFailureCode = vpsOutcome.code;
+      if (vpsOutcome.data) {
         logTranscriptEvent('request_finish', { traceId, videoId, provider: 'vps', status: 200 });
-        res.status(200).json(vpsResult);
+        res.status(200).json(vpsOutcome.data);
         return;
       }
     }
@@ -186,7 +191,8 @@ export default async function handler(req: any, res: any): Promise<void> {
     });
 
     if (!result || result.length === 0) {
-      res.status(404).json({ error: 'No transcript found for this video' });
+      const code = vpsFailureCode || 'captions_not_found';
+      res.status(code === 'provider_timeout' ? 504 : 404).json({ error: code, code, message: 'No transcript found for this video' });
       return;
     }
 
@@ -210,7 +216,9 @@ export default async function handler(req: any, res: any): Promise<void> {
     });
   } catch (err) {
     const message = err instanceof Error ? err.message : 'Unknown error';
-    logTranscriptEvent('request_error', { traceId, videoId, status: 500, error: message.includes('disabled') ? 'transcript_disabled' : 'provider_failure' });
-    res.status(500).json({ error: message });
+    const code = vpsFailureCode || (message.toLowerCase().includes('disabled') ? 'transcript_disabled' : 'provider_failure');
+    const status = code === 'provider_timeout' ? 504 : 500;
+    logTranscriptEvent('request_error', { traceId, videoId, status, error: code });
+    res.status(status).json({ error: code, code, message });
   }
 }

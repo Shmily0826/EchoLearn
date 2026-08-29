@@ -43,10 +43,6 @@ describe('fetchYouTubeServerTranscript', () => {
 
   it.each([
     ['network failure', () => fetchMock.mockRejectedValueOnce(new Error('network down'))],
-    ['timeout', () => {
-      const error = new Error('aborted'); error.name = 'AbortError';
-      fetchMock.mockRejectedValueOnce(error);
-    }],
     ['Worker 500', () => fetchMock.mockResolvedValueOnce(response({ error: 'bad gateway' }, 500))],
   ])('falls back to same-origin Vercel after Worker %s', async (_label, setup) => {
     setup();
@@ -155,7 +151,7 @@ describe('fetchYouTubeTranscript provider order and failure classification', () 
 
     fetchMock
       // Both server endpoints fail, so the official paths are next.
-      .mockResolvedValueOnce(response({ error: 'worker timed out' }, 504))
+      .mockResolvedValueOnce(response({ error: 'worker unavailable' }, 500))
       .mockResolvedValueOnce(response({ error: 'vercel timed out' }, 504))
       // ANDROID and WEB InnerTube requests return usable player responses but
       // no tracks, so the page strategy is the next official path.
@@ -189,5 +185,38 @@ describe('fetchYouTubeTranscript provider order and failure classification', () 
     expect(failure?.message).toContain(
       'Caption metadata may exist even when a provider cannot retrieve',
     );
+  });
+
+  it('does not retry Vercel after a Worker provider timeout', async () => {
+    fetchMock.mockResolvedValueOnce(response({ error: 'provider_timeout' }, 504));
+
+    await expect(fetchYouTubeServerTranscript('video-id', 'en'))
+      .rejects.toMatchObject({ code: 'provider_timeout' });
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+  });
+
+  it('does not retry Vercel after a Worker captions-not-found outcome', async () => {
+    fetchMock.mockResolvedValueOnce(response({ error: 'captions_not_found', code: 'captions_not_found' }, 404));
+
+    await expect(fetchYouTubeServerTranscript('video-id', 'en'))
+      .rejects.toMatchObject({ code: 'captions_not_found' });
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+  });
+
+  it('keeps ASR opt-in off by default and propagates asr_required', async () => {
+    fetchMock.mockResolvedValueOnce(response({ error: 'asr_required', code: 'asr_required' }, 409));
+
+    await expect(fetchYouTubeServerTranscript('video-id', 'en'))
+      .rejects.toMatchObject({ code: 'asr_required' });
+    expect(String(fetchMock.mock.calls[0][0])).not.toContain('allowAsr');
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+  });
+
+  it('adds the ASR opt-in only for an explicit server request', async () => {
+    fetchMock.mockResolvedValueOnce(response({ lines: [{ text: 'asr' }], language: 'en' }));
+
+    await expect(fetchYouTubeServerTranscript('video-id', 'en', undefined, { allowAsr: true }))
+      .resolves.toMatchObject({ lines: [{ text: 'asr' }] });
+    expect(String(fetchMock.mock.calls[0][0])).toContain('allowAsr=1');
   });
 });

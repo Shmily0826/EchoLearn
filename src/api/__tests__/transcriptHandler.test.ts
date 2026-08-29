@@ -28,10 +28,10 @@ function makeRes(): MockRes {
   return res;
 }
 
-function makeReq(videoId = 'dQw4w9WgXcQ') {
+function makeReq(videoId = 'dQw4w9WgXcQ', allowAsr = false) {
   return {
     method: 'GET',
-    query: { videoId, lang: 'en' },
+    query: { videoId, lang: 'en', ...(allowAsr ? { allowAsr: '1' } : {}) },
     headers: { origin: 'https://echo-learn.uk', 'x-forwarded-for': Math.random().toString() },
   };
 }
@@ -58,7 +58,7 @@ describe('api/transcript server fallback', () => {
   it('uses the authenticated VPS first and keeps the key server-side', async () => {
     fetchMock.mockResolvedValueOnce(response({ lines: [{ text: 'from VPS' }], language: 'en' }));
     const res = makeRes();
-    await handler(makeReq(), res);
+    await handler(makeReq(undefined, true), res);
     expect(res.statusCode).toBe(200);
     expect(JSON.parse(res.body).source).toBe('vps');
     expect(fetchMock).toHaveBeenCalledTimes(1);
@@ -77,7 +77,7 @@ describe('api/transcript server fallback', () => {
       { text: 'traceable fallback', offset: 0, duration: 1, lang: 'en' },
     ]);
     const res = makeRes();
-    await handler(makeReq(), res);
+    await handler(makeReq(undefined, true), res);
     expect(res.statusCode).toBe(200);
     expect(res.headers['x-echolearn-trace-id']).toMatch(/^trace-|^[0-9a-f-]{36}$/i);
   });
@@ -88,7 +88,7 @@ describe('api/transcript server fallback', () => {
       { text: 'from npm', offset: 0, duration: 2, lang: 'en' },
     ]);
     const res = makeRes();
-    await handler(makeReq(), res);
+    await handler(makeReq(undefined, true), res);
     expect(res.statusCode).toBe(200);
     expect(JSON.parse(res.body).lines[0].text).toBe('from npm');
     expect(YoutubeTranscript.fetchTranscript).toHaveBeenCalledTimes(1);
@@ -102,7 +102,7 @@ describe('api/transcript server fallback', () => {
       { text: 'fallback', offset: 1, duration: 2, lang: 'en' },
     ]);
     const res = makeRes();
-    await handler(makeReq(), res);
+    await handler(makeReq(undefined, true), res);
     expect(res.statusCode).toBe(200);
     expect(JSON.parse(res.body).lines[0].text).toBe('fallback');
   });
@@ -116,5 +116,28 @@ describe('api/transcript server fallback', () => {
     await handler(makeReq(), res);
     expect(fetchMock).not.toHaveBeenCalled();
     expect(res.statusCode).toBe(200);
+  });
+
+  it('keeps Vercel VPS caption fallback available without an ASR opt-in', async () => {
+    fetchMock.mockResolvedValueOnce(response({ lines: [{ text: 'caption-only' }], language: 'en' }));
+    const res = makeRes();
+    await handler(makeReq(), res);
+    expect(res.statusCode).toBe(200);
+    expect(JSON.parse(res.body).lines[0].text).toBe('caption-only');
+    expect(String(fetchMock.mock.calls[0][0])).toContain('/api/transcript?');
+    expect(String(fetchMock.mock.calls[0][0])).not.toContain('allowAsr');
+  });
+
+  it('does not relabel a VPS timeout followed by disabled npm as transcript_disabled', async () => {
+    const error = new Error('upstream timeout');
+    error.name = 'AbortError';
+    fetchMock.mockRejectedValueOnce(error);
+    vi.mocked(YoutubeTranscript.fetchTranscript).mockRejectedValueOnce(
+      new Error('Transcript is disabled on this video'),
+    );
+    const res = makeRes();
+    await handler(makeReq(undefined, true), res);
+    expect(res.statusCode).toBe(504);
+    expect(JSON.parse(res.body).code).toBe('provider_timeout');
   });
 });

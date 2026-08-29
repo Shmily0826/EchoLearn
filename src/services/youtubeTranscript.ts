@@ -695,6 +695,26 @@ function clearLocalProxyFailure(): void {
 }
 
 export const YOUTUBE_ACQUISITION_BLOCKED = 'youtube_acquisition_blocked';
+export const TRANSCRIPT_ERROR_CODES = {
+  CAPTIONS_NOT_FOUND: 'captions_not_found',
+  ACQUISITION_BLOCKED: YOUTUBE_ACQUISITION_BLOCKED,
+  PROVIDER_TIMEOUT: 'provider_timeout',
+  TRANSCRIPT_DISABLED: 'transcript_disabled',
+  ASR_REQUIRED: 'asr_required',
+} as const;
+
+export type TranscriptErrorCode =
+  (typeof TRANSCRIPT_ERROR_CODES)[keyof typeof TRANSCRIPT_ERROR_CODES];
+
+export class YouTubeTranscriptError extends Error {
+  readonly code: TranscriptErrorCode;
+
+  constructor(code: TranscriptErrorCode, message?: string) {
+    super(message ?? code);
+    this.name = 'YouTubeTranscriptError';
+    this.code = code;
+  }
+}
 
 export class YouTubeAcquisitionBlockedError extends Error {
   readonly code = YOUTUBE_ACQUISITION_BLOCKED;
@@ -715,28 +735,29 @@ export async function fetchYouTubeServerTranscript(
   videoId: string,
   lang: string,
   onFailure?: (detail: string) => void,
+  options: { allowAsr?: boolean } = {},
 ): Promise<TranscriptFetchResult | null> {
-  const workerUrl = `${CF_WORKER_URL}/api/transcript?videoId=${encodeURIComponent(videoId)}&lang=${encodeURIComponent(lang)}`;
-  // Both endpoints can trigger server-side generation for a never-before-seen
-  // video (VPS Whisper ASR), which the product copy (study.mayTake) already
-  // tells users takes 1–3 min. The previous caps (18s / 45s) aborted the
-  // request well before that window, so an uncached video surfaced a failure
-  // even though the backend finished moments later (forcing a refresh). We give
-  // the request a bounded, generous wait that matches the documented window
-  // instead of declaring failure prematurely. The server must still respond
-  // within its own platform limit; if the underlying function is shorter, this
-  // client wait simply resolves when that 5xx/timeout arrives.
-  const SERVER_GEN_TIMEOUT_MS = 120000;
+  const asrParam = options.allowAsr ? '&allowAsr=1' : '';
+  const workerUrl = `${CF_WORKER_URL}/api/transcript?videoId=${encodeURIComponent(videoId)}&lang=${encodeURIComponent(lang)}${asrParam}`;
+  // Vercel's endpoint is a caption fallback; allowAsr is a Worker-only
+  // generation opt-in and carries no meaning on this route.
+  const vercelUrl = `/api/transcript?videoId=${encodeURIComponent(videoId)}&lang=${encodeURIComponent(lang)}`;
+  // Caption acquisition is a fast path. A server response that says the
+  // provider timed out/was blocked/not-found is authoritative for this flow;
+  // only transport and generic 5xx failures justify trying the other server.
+  const WORKER_TIMEOUT_MS = 12000;
+  const VERCEL_TIMEOUT_MS = 8000;
   const endpoints = [
-    { url: workerUrl, label: 'CF Worker', timeoutMs: SERVER_GEN_TIMEOUT_MS },
+    { url: workerUrl, label: 'CF Worker', timeoutMs: WORKER_TIMEOUT_MS },
     {
-      url: `/api/transcript?videoId=${encodeURIComponent(videoId)}&lang=${encodeURIComponent(lang)}`,
+      url: vercelUrl,
       label: 'Vercel server API',
-      timeoutMs: SERVER_GEN_TIMEOUT_MS,
+      timeoutMs: VERCEL_TIMEOUT_MS,
     },
   ];
 
-  for (const endpoint of endpoints) {
+  for (let index = 0; index < endpoints.length; index++) {
+    const endpoint = endpoints[index];
     try {
       const res = await fetchWithTimeout(endpoint.url, { timeoutMs: endpoint.timeoutMs });
       if (res.ok) {
@@ -751,17 +772,17 @@ export async function fetchYouTubeServerTranscript(
         console.warn(`[EchoLearn] ${endpoint.label}: empty or unusable transcript`);
       } else {
         const body = await res.text().catch(() => '');
-        let payload: { error?: unknown; detail?: { code?: unknown } } | undefined;
+        let payload: { error?: unknown; code?: unknown; message?: unknown; detail?: { code?: unknown } } | undefined;
         try {
-          payload = JSON.parse(body) as { error?: unknown; detail?: { code?: unknown } };
+          payload = JSON.parse(body) as { error?: unknown; code?: unknown; message?: unknown; detail?: { code?: unknown } };
         } catch {
           // Keep the existing diagnostic path for non-JSON upstream failures.
         }
-        if (
-          payload?.error === YOUTUBE_ACQUISITION_BLOCKED ||
-          payload?.detail?.code === YOUTUBE_ACQUISITION_BLOCKED
-        ) {
-          throw new YouTubeAcquisitionBlockedError();
+        const code = payload?.code ?? payload?.detail?.code ?? payload?.error
+          ?? (res.status === 408 || res.status === 504 ? TRANSCRIPT_ERROR_CODES.PROVIDER_TIMEOUT : undefined);
+        if (Object.values(TRANSCRIPT_ERROR_CODES).includes(code as TranscriptErrorCode)) {
+          if (code === YOUTUBE_ACQUISITION_BLOCKED) throw new YouTubeAcquisitionBlockedError();
+          throw new YouTubeTranscriptError(code as TranscriptErrorCode, String(payload?.message ?? code));
         }
         const detail = `${endpoint.label} HTTP ${res.status}${body ? `: ${body.substring(0, 200)}` : ''}`;
         console.warn(`[EchoLearn] ${endpoint.label} error:`, detail);
@@ -769,9 +790,15 @@ export async function fetchYouTubeServerTranscript(
       }
     } catch (err) {
       if (err instanceof YouTubeAcquisitionBlockedError) throw err;
+      if (err instanceof YouTubeTranscriptError) throw err;
       const detail = `${endpoint.label} request failed: ${err instanceof Error ? err.message : 'unknown error'}`;
       console.warn(`[EchoLearn] ${detail}`);
       onFailure?.(detail);
+      // A client timeout is a provider timeout, not evidence that the Vercel
+      // endpoint can help; calling it would repeat the same VPS bottleneck.
+      if (index === 0 && err instanceof Error && err.name === 'AbortError') {
+        throw new YouTubeTranscriptError(TRANSCRIPT_ERROR_CODES.PROVIDER_TIMEOUT, 'Transcript provider timed out');
+      }
     }
   }
 
@@ -871,6 +898,7 @@ async function _fetchYouTubeTranscriptImpl(
     );
   } catch (err) {
     if (err instanceof YouTubeAcquisitionBlockedError) throw err;
+    if (err instanceof YouTubeTranscriptError) throw err;
     errors.push(
       `Server API: ${err instanceof Error ? err.message : 'failed'}`,
     );
