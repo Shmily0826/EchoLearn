@@ -26,6 +26,7 @@ const fetchMock = vi.fn<(input: RequestInfo | URL, init?: RequestInit) => Promis
 beforeEach(() => {
   fetchMock.mockReset();
   vi.stubGlobal('fetch', fetchMock as unknown as typeof fetch);
+  localStorage.clear();
 });
 
 afterEach(() => vi.unstubAllGlobals());
@@ -108,7 +109,32 @@ describe('fetchYouTubeServerTranscript', () => {
 });
 
 describe('fetchYouTubeTranscript provider order and failure classification', () => {
-  it('tries fast official paths before slow server fallbacks and does not claim captions are absent', async () => {
+  it('does not probe the local proxy when no proxy is configured', async () => {
+    fetchMock.mockResolvedValueOnce(response({ lines: [{ text: 'worker' }], language: 'en' }));
+
+    const result = await fetchYouTubeTranscript('no-local-proxy', 'en');
+    const urls = fetchMock.mock.calls.map(([url]) => String(url));
+
+    expect(result?.lines[0].text).toBe('worker');
+    expect(urls.some((url) => url.includes('proxy.echo-learn.uk'))).toBe(false);
+    expect(urls.some((url) => url.startsWith(CF_WORKER_URL))).toBe(true);
+  });
+
+  it('attempts an explicit local proxy and falls back to the server path', async () => {
+    localStorage.setItem('echolearn_local_proxy_url', 'https://proxy.echo-learn.uk');
+    fetchMock
+      .mockRejectedValueOnce(new Error('local proxy unavailable'))
+      .mockResolvedValueOnce(response({ lines: [{ text: 'server fallback' }], language: 'en' }));
+
+    const result = await fetchYouTubeTranscript('explicit-local-proxy', 'en');
+    const urls = fetchMock.mock.calls.map(([url]) => String(url));
+
+    expect(result?.lines[0].text).toBe('server fallback');
+    expect(urls[0]).toContain('https://proxy.echo-learn.uk/api/transcript?');
+    expect(urls[1]).toContain(CF_WORKER_URL);
+  });
+
+  it('uses official paths after server fallbacks and does not claim captions are absent', async () => {
     const emptyPlayerResponse = {
       playabilityStatus: { status: 'OK' },
       captions: { playerCaptionsTracklistRenderer: { captionTracks: [] } },
@@ -128,8 +154,9 @@ describe('fetchYouTubeTranscript provider order and failure classification', () 
     const pageHtml = `var ytInitialPlayerResponse = ${JSON.stringify(pagePlayerResponse)};`;
 
     fetchMock
-      // Local proxy is unavailable.
-      .mockRejectedValueOnce(new Error('local proxy unavailable'))
+      // Both server endpoints fail, so the official paths are next.
+      .mockResolvedValueOnce(response({ error: 'worker timed out' }, 504))
+      .mockResolvedValueOnce(response({ error: 'vercel timed out' }, 504))
       // ANDROID and WEB InnerTube requests return usable player responses but
       // no tracks, so the page strategy is the next official path.
       .mockResolvedValueOnce(response(emptyPlayerResponse))
@@ -140,8 +167,7 @@ describe('fetchYouTubeTranscript provider order and failure classification', () 
       .mockResolvedValueOnce(response(''))
       .mockResolvedValueOnce(response(''))
       .mockResolvedValueOnce(response(''))
-      // Both server endpoints fail after the fast official paths.
-      .mockResolvedValueOnce(response({ error: 'worker timed out' }, 504))
+      // The npm fallback also fails after the official paths.
       .mockResolvedValueOnce(response({ error: 'npm fallback disabled' }, 500));
     vi.mocked(YoutubeTranscript.fetchTranscript).mockRejectedValueOnce(
       new Error('Transcript is disabled on this video'),
@@ -159,7 +185,7 @@ describe('fetchYouTubeTranscript provider order and failure classification', () 
     const pageIndex = urls.findIndex((url) => url.includes('watch'));
     const workerIndex = urls.findIndex((url) => url.startsWith(CF_WORKER_URL));
     expect(pageIndex).toBeGreaterThanOrEqual(0);
-    expect(workerIndex).toBeGreaterThan(pageIndex);
+    expect(workerIndex).toBeLessThan(pageIndex);
     expect(failure?.message).toContain(
       'Caption metadata may exist even when a provider cannot retrieve',
     );

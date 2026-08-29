@@ -2,9 +2,9 @@
  * YouTube transcript auto-fetch service.
  *
  * Multi-strategy approach:
- *   1. Local proxy (when available)
- *   2. Official YouTube InnerTube/page paths via the app proxy
- *   3. Server-side transcript services (may take minutes for ASR generation)
+ *   1. Explicitly configured local proxy (when available)
+ *   2. Server-side transcript services (CF Worker → Vercel/VPS)
+ *   3. Official YouTube InnerTube/page paths via the app proxy
  *   4. youtube-transcript npm package — final fallback
  *
  * In dev mode, requests go through Vite's proxy to bypass CORS.
@@ -606,7 +606,7 @@ async function fetchViaWebPage(
   }
 }
 
-// ── Strategy 0: Local proxy (uses your residential IP) ────────
+// ── Strategy 0: Explicit local proxy (uses your residential IP) ─
 
 import { getLocalProxyUrl } from '../utils/storage';
 
@@ -625,6 +625,7 @@ async function fetchViaLocalProxy(
   }
 
   const baseUrl = getLocalProxyUrl();
+  if (!baseUrl) return null;
 
   try {
     const controller = new AbortController();
@@ -842,50 +843,21 @@ async function _fetchYouTubeTranscriptImpl(
 ): Promise<TranscriptFetchResult> {
   const errors: string[] = [];
 
-  // Strategy 0: Local proxy (residential IP — best chance)
-  try {
-    const localResult = await fetchViaLocalProxy(videoId, lang);
-    if (localResult) return localResult;
-    errors.push('Local proxy returned no captions');
-  } catch (err) {
-    errors.push(
-      `Local proxy: ${err instanceof Error ? err.message : 'failed'}`,
-    );
-  }
-
-  // Strategy 1: InnerTube API via Edge Function proxy. These official
-  // caption paths are normally fast; keep them ahead of server-side ASR,
-  // whose first request can legitimately take several minutes.
-  try {
-    const innerTubeResult = await fetchViaInnerTube(videoId, lang);
-    if (innerTubeResult) return innerTubeResult;
-    errors.push('InnerTube API returned no captions');
-  } catch (err) {
-    if (err instanceof Error && err.message.includes('rate-limiting')) {
-      throw err;
+  // Strategy 0: Explicit local proxy (opt-in; no production default probe).
+  if (getLocalProxyUrl()) {
+    try {
+      const localResult = await fetchViaLocalProxy(videoId, lang);
+      if (localResult) return localResult;
+      errors.push('Local proxy returned no captions');
+    } catch (err) {
+      errors.push(
+        `Local proxy: ${err instanceof Error ? err.message : 'failed'}`,
+      );
     }
-    errors.push(
-      `InnerTube: ${err instanceof Error ? err.message : 'failed'}`,
-    );
   }
 
-  // Strategy 2: Web page scraping via Edge Function proxy
-  try {
-    const webResult = await fetchViaWebPage(videoId, lang);
-    if (webResult) return webResult;
-    errors.push('Web page scraping found no captions');
-  } catch (err) {
-    if (err instanceof Error && err.message.includes('rate-limiting')) {
-      throw err;
-    }
-    errors.push(
-      `Web scraping: ${err instanceof Error ? err.message : 'failed'}`,
-    );
-  }
-
-  // Strategy 3: Server-side transcript API (CF Worker → Vercel fallback).
-  // This remains an important fallback for datacenter-blocked YouTube paths,
-  // but must not delay the official caption paths above.
+  // Strategy 1: Server-side transcript API (CF Worker → Vercel fallback).
+  // This is the default production path and keeps VPS credentials server-side.
   try {
     const serverFailures: string[] = [];
     const serverResult = await fetchYouTubeServerTranscript(videoId, lang, (detail) => {
@@ -901,6 +873,34 @@ async function _fetchYouTubeTranscriptImpl(
     if (err instanceof YouTubeAcquisitionBlockedError) throw err;
     errors.push(
       `Server API: ${err instanceof Error ? err.message : 'failed'}`,
+    );
+  }
+
+  // Strategy 2: InnerTube API via Edge Function proxy.
+  try {
+    const innerTubeResult = await fetchViaInnerTube(videoId, lang);
+    if (innerTubeResult) return innerTubeResult;
+    errors.push('InnerTube API returned no captions');
+  } catch (err) {
+    if (err instanceof Error && err.message.includes('rate-limiting')) {
+      throw err;
+    }
+    errors.push(
+      `InnerTube: ${err instanceof Error ? err.message : 'failed'}`,
+    );
+  }
+
+  // Strategy 3: Web page scraping via Edge Function proxy
+  try {
+    const webResult = await fetchViaWebPage(videoId, lang);
+    if (webResult) return webResult;
+    errors.push('Web page scraping found no captions');
+  } catch (err) {
+    if (err instanceof Error && err.message.includes('rate-limiting')) {
+      throw err;
+    }
+    errors.push(
+      `Web scraping: ${err instanceof Error ? err.message : 'failed'}`,
     );
   }
 

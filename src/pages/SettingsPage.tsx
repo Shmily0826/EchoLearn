@@ -107,11 +107,13 @@ const SettingsPage: React.FC<{ onLoginRequest?: () => void }> = ({ onLoginReques
 
   // Initialise on mount
   useEffect(() => {
-    // Auto-check local proxy status
-    checkLocalProxy().then((result) => {
-      setProxyStatus(result.ok ? 'online' : 'offline');
-      setProxyMessage(result.ok ? 'Proxy is running' : (result.error || 'Not reachable'));
-    });
+    // Only check a proxy after the user has explicitly configured one.
+    if (getLocalProxyUrl()) {
+      checkLocalProxy().then((result) => {
+        setProxyStatus(result.ok ? 'online' : 'offline');
+        setProxyMessage(result.ok ? 'Proxy is running' : (result.error || 'Not reachable'));
+      });
+    }
 
     // Auto-sync with cloud on mount (if user is logged in)
     if (user && shouldAutoSyncUser(user)) {

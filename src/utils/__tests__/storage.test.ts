@@ -482,8 +482,8 @@ describe('page token storage', () => {
 });
 
 describe('preferences', () => {
-  it('local proxy URL defaults to the production proxy', () => {
-    expect(getLocalProxyUrl()).toBe('https://proxy.echo-learn.uk');
+  it('local proxy URL is empty until explicitly configured', () => {
+    expect(getLocalProxyUrl()).toBe('');
   });
 
   it('saves a custom proxy URL and trims trailing slashes', () => {
@@ -493,10 +493,10 @@ describe('preferences', () => {
     expect(getLocalProxyUrl()).toBe('https://my-proxy.dev');
   });
 
-  it('clearing the proxy URL restores the default', () => {
+  it('clearing the proxy URL removes the opt-in configuration', () => {
     saveLocalProxyUrl('https://my-proxy.dev');
     clearLocalProxyUrl();
-    expect(getLocalProxyUrl()).toBe('https://proxy.echo-learn.uk');
+    expect(getLocalProxyUrl()).toBe('');
   });
 
   it('translation language defaults to zh and can be changed', () => {

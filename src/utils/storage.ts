@@ -480,11 +480,10 @@ export function clearPageToken(channelKey: string): void {
 // ─── Local Proxy URL ──────────────────────────────────────────
 
 const PROXY_URL_KEY = 'echolearn_local_proxy_url';
-const DEFAULT_PROXY_URL = 'https://proxy.echo-learn.uk';
 
-/** Get the configured local proxy URL, or the default. */
+/** Get the explicitly configured local proxy URL, or an empty string. */
 export function getLocalProxyUrl(): string {
-  return localStorage.getItem(PROXY_URL_KEY) || DEFAULT_PROXY_URL;
+  return localStorage.getItem(PROXY_URL_KEY) || '';
 }
 
 /** Save a custom local proxy URL. */
@@ -506,7 +505,7 @@ export function saveTranslateLang(lang: string): void {
   localStorage.setItem(TRANSLATE_LANG_KEY, lang);
 }
 
-/** Clear the custom proxy URL (reset to default). */
+/** Clear the custom proxy URL. */
 export function clearLocalProxyUrl(): void {
   localStorage.removeItem(PROXY_URL_KEY);
 }
@@ -535,6 +534,7 @@ export function clearAllLocalData(): void {
 /** Check if the local proxy is reachable (quick health check). */
 export async function checkLocalProxy(): Promise<{ ok: boolean; error?: string }> {
   const url = getLocalProxyUrl();
+  if (!url) return { ok: false, error: 'No local proxy configured' };
   try {
     const controller = new AbortController();
     const timeout = setTimeout(() => controller.abort(), 3000);
