@@ -152,10 +152,22 @@ function AppContent({ onLoginRequest }: { onLoginRequest?: () => void }) {
  */
 function AuthGate() {
   const { user, loading } = useAuth();
-  const [guestMode, setGuestMode] = useState(false);
+  const [guestMode, setGuestMode] = useState(() => {
+    try {
+      return localStorage.getItem('echolearn_guest_mode') === 'true';
+    } catch {
+      return false;
+    }
+  });
 
-  const handleGuest = useCallback(() => setGuestMode(true), []);
-  const handleLoginRequest = useCallback(() => setGuestMode(false), []);
+  const handleGuest = useCallback(() => {
+    setGuestMode(true);
+    try { localStorage.setItem('echolearn_guest_mode', 'true'); } catch { /* noop */ }
+  }, []);
+  const handleLoginRequest = useCallback(() => {
+    setGuestMode(false);
+    try { localStorage.removeItem('echolearn_guest_mode'); } catch { /* noop */ }
+  }, []);
 
   if (loading) {
     // Initial auth state check — show a minimal loader

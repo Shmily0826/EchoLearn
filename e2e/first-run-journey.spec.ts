@@ -24,5 +24,6 @@ test('fresh guest language choice does not reopen after reload', async ({ page }
   await expect(page.getByRole('link', { name: 'Study', exact: true }).first()).toBeVisible();
   await page.reload();
   await expect(page.getByRole('button', { name: 'English', exact: true })).toHaveCount(0);
+  await expect(page.getByRole('link', { name: 'Study', exact: true }).first()).toBeVisible();
   await expect(page.locator('.driver-overlay')).toHaveCount(0);
 });
