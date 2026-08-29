@@ -17,8 +17,9 @@ test('fresh guest can skip language choice without an automatic tour', async ({ 
 });
 
 test('fresh guest language choice does not reopen after reload', async ({ page }) => {
-  await page.addInitScript(() => localStorage.clear());
   await page.goto('/');
+  await page.evaluate(() => localStorage.clear());
+  await page.reload();
   await page.getByRole('button', { name: 'Try without login', exact: true }).click();
   await page.getByRole('button', { name: 'English', exact: true }).click();
   await expect(page.getByRole('link', { name: 'Study', exact: true }).first()).toBeVisible();
