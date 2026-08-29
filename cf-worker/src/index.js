@@ -31,6 +31,7 @@ const INNERTUBE_API_URL =
 
 const CORS_METHODS = 'GET, POST, OPTIONS';
 const TRACE_HEADER = 'X-EchoLearn-Trace-Id';
+const CAPTION_DEADLINE_MS = 11000;
 
 function createTraceId() {
   return typeof crypto?.randomUUID === 'function'
@@ -58,6 +59,79 @@ function boundedProviderCall(providerPromise, timeoutMs, onTimeout) {
       resolve(null);
     });
   });
+}
+
+function createCaptionContext(timeoutMs = CAPTION_DEADLINE_MS) {
+  const controller = new AbortController();
+  const deadlineAt = Date.now() + timeoutMs;
+  const timer = setTimeout(() => controller.abort(), timeoutMs);
+  return {
+    controller,
+    signal: controller.signal,
+    deadlineAt,
+    remainingBudget() { return Math.max(0, deadlineAt - Date.now()); },
+    expired() { return Date.now() >= deadlineAt || controller.signal.aborted; },
+    dispose() { clearTimeout(timer); },
+  };
+}
+
+function createProviderContext(parent, timeoutMs) {
+  requireCaptionBudget(parent);
+  const controller = new AbortController();
+  const deadlineAt = Math.min(parent.deadlineAt, Date.now() + timeoutMs);
+  const onAbort = () => controller.abort();
+  parent.signal.addEventListener('abort', onAbort, { once: true });
+  const timer = setTimeout(() => controller.abort(), Math.max(1, deadlineAt - Date.now()));
+  return {
+    controller,
+    signal: controller.signal,
+    deadlineAt,
+    remainingBudget() { return Math.max(0, deadlineAt - Date.now()); },
+    expired() { return Date.now() >= deadlineAt || controller.signal.aborted; },
+    dispose() {
+      clearTimeout(timer);
+      parent.signal.removeEventListener('abort', onAbort);
+    },
+  };
+}
+
+class CaptionDeadlineError extends Error {
+  constructor() {
+    super('Caption provider deadline exceeded');
+    this.name = 'CaptionDeadlineError';
+    this.code = 'provider_timeout';
+  }
+}
+
+function requireCaptionBudget(context) {
+  if (context?.expired()) throw new CaptionDeadlineError();
+  return context;
+}
+
+function providerTimeout(timeoutMs, context) {
+  requireCaptionBudget(context);
+  return Math.max(1, Math.min(timeoutMs, context?.remainingBudget?.() ?? timeoutMs));
+}
+
+async function readResponseBody(response, method, context) {
+  if (!context) return response[method]();
+  requireCaptionBudget(context);
+  const remaining = context.remainingBudget();
+  if (remaining <= 0) throw new CaptionDeadlineError();
+  let timer;
+  try {
+    return await Promise.race([
+      response[method](),
+      new Promise((_, reject) => {
+        timer = setTimeout(() => {
+          context.controller.abort();
+          reject(new CaptionDeadlineError());
+        }, remaining);
+      }),
+    ]);
+  } finally {
+    clearTimeout(timer);
+  }
 }
 
 // Domains the /api/yt proxy is allowed to forward to.
@@ -251,6 +325,7 @@ async function handleTranscript(url, env, traceId) {
 
   const debugLog = [];
   const log = debug ? (msg) => debugLog.push(msg) : (msg) => console.log(msg);
+  const captionContext = createCaptionContext();
 
   // Strategy 0: yt-dlp service on a VPS (client-signature rotation bypasses
   // YouTube's datacenter-IP bot check). Most robust server-side path; only
@@ -258,14 +333,18 @@ async function handleTranscript(url, env, traceId) {
   // the caption path, so other users get transcripts without the developer's
   // PC being online.
   let captionProviderTimedOut = false;
+  try {
   if (env && env.YTDLP_API_URL) {
+    const vpsContext = createProviderContext(captionContext, 5000);
     const ytdlpResult = await boundedProviderCall(
-      fetchViaYtDlp(videoId, lang, env, log, null, traceId),
-      5000,
+      fetchViaYtDlp(videoId, lang, env, log, null, traceId, vpsContext),
+      providerTimeout(5000, captionContext),
       () => {
         captionProviderTimedOut = true;
+        vpsContext.controller.abort();
       },
     );
+    vpsContext.dispose();
     if (ytdlpResult) {
       if (debug) ytdlpResult._debug = debugLog;
       traceLog('request_finish', { traceId, videoId, provider: 'vps-transcript', status: 200, lineCount: ytdlpResult.lines?.length || 0 });
@@ -275,7 +354,7 @@ async function handleTranscript(url, env, traceId) {
   }
 
   // Strategy 1: InnerTube player API (multi-client)
-  const innerTubeResult = await fetchViaInnerTube(videoId, lang, env, log);
+  const innerTubeResult = await fetchViaInnerTube(videoId, lang, env, log, captionContext);
   if (innerTubeResult) {
     if (debug) innerTubeResult._debug = debugLog;
     traceLog('request_finish', { traceId, videoId, provider: 'innertube', status: 200 });
@@ -283,7 +362,7 @@ async function handleTranscript(url, env, traceId) {
   }
 
   // Strategy 2: Web page scraping
-  const webResult = await fetchViaWebPage(videoId, lang, env, log);
+  const webResult = await fetchViaWebPage(videoId, lang, env, log, captionContext);
   if (webResult) {
     if (debug) webResult._debug = debugLog;
     traceLog('request_finish', { traceId, videoId, provider: 'web', status: 200 });
@@ -291,7 +370,7 @@ async function handleTranscript(url, env, traceId) {
   }
 
   // Strategy 3: Invidious API (third-party YouTube frontends)
-  const invidiousResult = await fetchViaInvidious(videoId, lang, log);
+  const invidiousResult = await fetchViaInvidious(videoId, lang, log, captionContext);
   if (invidiousResult) {
     if (debug) invidiousResult._debug = debugLog;
     traceLog('request_finish', { traceId, videoId, provider: 'invidious', status: 200 });
@@ -299,11 +378,26 @@ async function handleTranscript(url, env, traceId) {
   }
 
   // Strategy 4: Piped API
-  const pipedResult = await fetchViaPiped(videoId, lang, log);
+  const pipedResult = await fetchViaPiped(videoId, lang, log, captionContext);
   if (pipedResult) {
     if (debug) pipedResult._debug = debugLog;
     traceLog('request_finish', { traceId, videoId, provider: 'piped', status: 200 });
     return jsonResponse(pipedResult, 200, { [TRACE_HEADER]: traceId });
+  }
+  } catch (err) {
+    if (err instanceof CaptionDeadlineError) {
+      traceLog('request_finish', { traceId, videoId, provider: 'caption-cascade', status: 504, error: 'provider_timeout', deadlineAt: captionContext.deadlineAt });
+      return jsonResponse({ error: 'provider_timeout', message: 'Caption providers timed out.' }, 504, { [TRACE_HEADER]: traceId });
+    }
+    throw err;
+  } finally {
+    captionContext.dispose();
+  }
+
+  // Caption-only deadline is also the boundary before any generation path.
+  if (captionContext.expired()) {
+    traceLog('request_finish', { traceId, videoId, provider: 'caption-cascade', status: 504, error: 'provider_timeout', deadlineAt: captionContext.deadlineAt });
+    return jsonResponse({ error: 'provider_timeout', message: 'Caption providers timed out.' }, 504, { [TRACE_HEADER]: traceId });
   }
 
   // ASR is deliberately last: all reasonable caption-only providers above
@@ -684,13 +778,17 @@ async function handleAudio(request, env) {
 /**
  * Fetch with a timeout to avoid hanging on dead instances.
  */
-async function fetchWithTimeout(url, init = {}, timeoutMs = 8000) {
+async function fetchWithTimeout(url, init = {}, timeoutMs = 8000, context = null) {
+  const effectiveTimeout = providerTimeout(timeoutMs, context);
   const controller = new AbortController();
-  const timer = setTimeout(() => controller.abort(), timeoutMs);
+  const onAbort = () => controller.abort();
+  context?.signal.addEventListener('abort', onAbort, { once: true });
+  const timer = setTimeout(() => controller.abort(), effectiveTimeout);
   try {
     return await fetch(url, { ...init, signal: controller.signal });
   } finally {
     clearTimeout(timer);
+    context?.signal.removeEventListener('abort', onAbort);
   }
 }
 
@@ -706,7 +804,7 @@ async function fetchWithTimeout(url, init = {}, timeoutMs = 8000) {
  * downloads like googlevideo audio are expensive — those fall through to a
  * normal fetch). When no key is set, this is a transparent pass-through.
  */
-async function proxiedFetch(url, init = {}, timeoutMs = 15000, env = {}, log = console.log) {
+async function proxiedFetch(url, init = {}, timeoutMs = 15000, env = {}, log = console.log, context = null) {
   const key = env && env.SCRAPE_API_KEY;
   if (key) {
     const method = (init.method || 'GET').toUpperCase();
@@ -730,7 +828,7 @@ async function proxiedFetch(url, init = {}, timeoutMs = 15000, env = {}, log = c
           gw.searchParams.set('premium_proxy', 'true');
           gw.searchParams.set('proxy_country', 'us');
           log(`[scrape:zenrows→${host}]`);
-          return doScrapeFetch(gw.toString(), timeoutMs, log);
+          return doScrapeFetch(gw.toString(), timeoutMs, log, context);
         } else {
           const gw = new URL('https://app.scrapingbee.com/api/v1');
           gw.searchParams.set('api_key', key);
@@ -740,24 +838,24 @@ async function proxiedFetch(url, init = {}, timeoutMs = 15000, env = {}, log = c
           gw.searchParams.set('country_code', 'us');
           gw.searchParams.set('timeout', String(Math.min(timeoutMs, 60000)));
           log(`[scrape:scrapingbee→${host}]`);
-          return doScrapeFetch(gw.toString(), timeoutMs, log);
+          return doScrapeFetch(gw.toString(), timeoutMs, log, context);
         }
       }
     }
   }
-  return fetchWithTimeout(url, init, timeoutMs);
+  return fetchWithTimeout(url, init, timeoutMs, context);
 }
 
 /**
  * Perform a scraping-API gateway fetch and log the outcome (status + a short
  * body snippet) so debug traces show whether the gateway itself succeeded.
  */
-async function doScrapeFetch(gwUrl, timeoutMs, log = console.log) {
+async function doScrapeFetch(gwUrl, timeoutMs, log = console.log, context = null) {
   try {
-    const resp = await fetchWithTimeout(gwUrl, {}, timeoutMs);
+    const resp = await fetchWithTimeout(gwUrl, {}, timeoutMs, context);
     let snippet = '';
     try {
-      const buf = await resp.clone().text();
+      const buf = await readResponseBody(resp.clone(), 'text', context);
       snippet = buf.slice(0, 200).replace(/\s+/g, ' ');
     } catch (_) {
       /* ignore */
@@ -770,7 +868,8 @@ async function doScrapeFetch(gwUrl, timeoutMs, log = console.log) {
   }
 }
 
-async function fetchViaInnerTube(videoId, lang, env, log = console.log) {
+async function fetchViaInnerTube(videoId, lang, env, log = console.log, context = null) {
+  requireCaptionBudget(context);
   // Try ANDROID first (most reliable for captions), then IOS, then WEB, then TV
   const clients = [
     {
@@ -814,7 +913,7 @@ async function fetchViaInnerTube(videoId, lang, env, log = console.log) {
         ? `${INNERTUBE_API_URL}&key=${client.apiKey}`
         : INNERTUBE_API_URL;
 
-      const resp = await fetch(apiUrl, {
+      const resp = await fetchWithTimeout(apiUrl, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
@@ -834,14 +933,14 @@ async function fetchViaInnerTube(videoId, lang, env, log = console.log) {
           contentCheckOk: true,
           racyCheckOk: true,
         }),
-      });
+      }, 8000, context);
 
       if (!resp.ok) {
         log(`InnerTube ${client.name}: HTTP ${resp.status}`);
         continue;
       }
 
-      const data = await resp.json();
+      const data = await readResponseBody(resp, 'json', context);
       const status = data?.playabilityStatus?.status;
 
       if (status === 'LOGIN_REQUIRED') {
@@ -862,9 +961,10 @@ async function fetchViaInnerTube(videoId, lang, env, log = console.log) {
       }
 
       log(`InnerTube ${client.name}: found ${tracks.length} caption track(s)`);
-      const result = await fetchFromTracks(tracks, lang, env, log);
+      const result = await fetchFromTracks(tracks, lang, env, log, context);
       if (result) return result;
     } catch (err) {
+      if (err instanceof CaptionDeadlineError) throw err;
       log(`InnerTube ${client.name} error: ${err.message}`);
     }
   }
@@ -878,8 +978,9 @@ async function fetchViaInnerTube(videoId, lang, env, log = console.log) {
 // caption track list (more reliable than scraping the JS-rendered watch
 // page) from a residential IP, bypassing YouTube's datacenter-IP bot check.
 
-async function fetchViaInnerTubeGet(videoId, lang, env, log = console.log) {
+async function fetchViaInnerTubeGet(videoId, lang, env, log = console.log, context = null) {
   if (!(env && env.SCRAPE_API_KEY)) return null;
+  requireCaptionBudget(context);
   const key = 'AIzaSyA8eiZmM1FaDVjRy-df2KTyQ_vz_yYM39w';
   const url = `https://www.youtube.com/youtubei/v1/player?videoId=${videoId}&key=${key}&prettyPrint=false`;
   try {
@@ -892,15 +993,16 @@ async function fetchViaInnerTubeGet(videoId, lang, env, log = console.log) {
           'X-Goog-Api-Key': key,
         },
       },
-      30000,
+      providerTimeout(30000, context),
       env,
       log,
+      context,
     );
     if (!resp.ok) {
       log(`InnerTube-GET: HTTP ${resp.status}`);
       return null;
     }
-    const data = await resp.json();
+    const data = await readResponseBody(resp, 'json', context);
     const status = data?.playabilityStatus?.status;
     if (status !== 'OK') {
       log(`InnerTube-GET: ${status} — ${data?.playabilityStatus?.reason}`);
@@ -912,8 +1014,9 @@ async function fetchViaInnerTubeGet(videoId, lang, env, log = console.log) {
       return null;
     }
     log(`InnerTube-GET: found ${tracks.length} caption track(s)`);
-    return fetchFromTracks(tracks, lang, env, log);
+    return fetchFromTracks(tracks, lang, env, log, context);
   } catch (err) {
+    if (err instanceof CaptionDeadlineError) throw err;
     log(`InnerTube-GET error: ${err.message}`);
     return null;
   }
@@ -921,8 +1024,9 @@ async function fetchViaInnerTubeGet(videoId, lang, env, log = console.log) {
 
 // ── Web page scraping strategy ────────────────────────────────
 
-async function fetchViaWebPage(videoId, lang, env, log = console.log) {
+async function fetchViaWebPage(videoId, lang, env, log = console.log, context = null) {
   try {
+    requireCaptionBudget(context);
     const pageUrl = `https://www.youtube.com/watch?v=${videoId}&bpctr=9999&has_verified=1`;
     const resp = await proxiedFetch(pageUrl, {
       headers: {
@@ -931,14 +1035,14 @@ async function fetchViaWebPage(videoId, lang, env, log = console.log) {
         'Accept': 'text/html,application/xhtml+xml',
         'Cookie': CONSENT_COOKIE,
       },
-    }, 45000, env, log);
+    }, providerTimeout(45000, context), env, log, context);
 
     if (!resp.ok) {
       log(`Web page: HTTP ${resp.status}`);
       return null;
     }
 
-    const html = await resp.text();
+    const html = await readResponseBody(resp, 'text', context);
     log(`Web page: ${html.length} bytes`);
 
     // Check if this is a CAPTCHA/bot challenge page (not just the word appearing in JS code)
@@ -1008,7 +1112,7 @@ async function fetchViaWebPage(videoId, lang, env, log = console.log) {
         }
 
         log(`Web page: found ${tracks.length} caption track(s)`);
-        const result = await fetchFromTracks(tracks, lang, env, log);
+        const result = await fetchFromTracks(tracks, lang, env, log, context);
         if (result) return result;
       } catch (e) {
         log(`Web page: JSON parse failed: ${e.message}`);
@@ -1018,6 +1122,7 @@ async function fetchViaWebPage(videoId, lang, env, log = console.log) {
     log('Web page: could not extract player response');
     return null;
   } catch (err) {
+    if (err instanceof CaptionDeadlineError) throw err;
     log(`Web page error: ${err.message}`);
     return null;
   }
@@ -1066,7 +1171,8 @@ function extractJsonObject(src, startIdx) {
 
 // ── Fetch and parse caption tracks ────────────────────────────
 
-async function fetchFromTracks(tracks, lang, env, log = console.log) {
+async function fetchFromTracks(tracks, lang, env, log = console.log, context = null) {
+  requireCaptionBudget(context);
   // Select best track for the requested language
   const manual = tracks.find((t) => t.languageCode === lang && t.kind !== 'asr');
   const auto = tracks.find((t) => t.languageCode === lang && t.kind === 'asr');
@@ -1093,10 +1199,10 @@ async function fetchFromTracks(tracks, lang, env, log = console.log) {
         'Referer': 'https://www.youtube.com/',
         'Origin': 'https://www.youtube.com',
       };
-      let resp = await fetchWithTimeout(captionUrl, { headers: capHeaders }, 20000);
+      let resp = await fetchWithTimeout(captionUrl, { headers: capHeaders }, 20000, context);
       let directBodyLen = 0;
       try {
-        const probe = await resp.clone().text();
+        const probe = await readResponseBody(resp.clone(), 'text', context);
         directBodyLen = probe.length;
       } catch (_) {
         /* ignore */
@@ -1105,11 +1211,11 @@ async function fetchFromTracks(tracks, lang, env, log = console.log) {
         log(
           `Caption direct fetch ${resp.status} len=${directBodyLen}, trying scrape gateway`,
         );
-        resp = await proxiedFetch(captionUrl, { headers: capHeaders }, 30000, env, log);
+        resp = await proxiedFetch(captionUrl, { headers: capHeaders }, 30000, env, log, context);
       }
 
       if (!resp.ok) continue;
-      const text = await resp.text();
+      const text = await readResponseBody(resp, 'text', context);
 
       const lines = parseCaptionData(text);
       if (lines.length > 0) {
@@ -1121,6 +1227,7 @@ async function fetchFromTracks(tracks, lang, env, log = console.log) {
         };
       }
     } catch (err) {
+      if (err instanceof CaptionDeadlineError) throw err;
       console.warn(`Caption fetch (${fmt || 'default'}) failed:`, err.message);
       continue;
     }
@@ -1304,7 +1411,8 @@ const INVIDIOUS_INSTANCES = [
   'https://yewtu.be',
 ];
 
-async function fetchViaInvidious(videoId, lang, log = console.log) {
+async function fetchViaInvidious(videoId, lang, log = console.log, context = null) {
+  requireCaptionBudget(context);
   const instances = getAliveInstances(INVIDIOUS_INSTANCES);
   if (instances.length === 0) {
     log('Invidious: all instances in cooldown, skipping');
@@ -1312,13 +1420,14 @@ async function fetchViaInvidious(videoId, lang, log = console.log) {
   }
 
   for (const instance of instances) {
+    requireCaptionBudget(context);
     const hostname = new URL(instance).hostname;
     try {
       // Invidious API: GET /api/v1/captions/:id
       const captionsUrl = `${instance}/api/v1/captions/${videoId}`;
       const resp = await fetchWithTimeout(captionsUrl, {
         headers: { 'User-Agent': BROWSER_UA, 'Accept': 'application/json' },
-      }, 8000);
+      }, providerTimeout(8000, context), context);
 
       if (!resp.ok) {
         log(`Invidious (${hostname}): HTTP ${resp.status}`);
@@ -1326,7 +1435,10 @@ async function fetchViaInvidious(videoId, lang, log = console.log) {
         continue;
       }
 
-      const data = await resp.json().catch(() => null);
+      const data = await readResponseBody(resp, 'json', context).catch((err) => {
+        if (err instanceof CaptionDeadlineError) throw err;
+        return null;
+      });
       if (!data) {
         log(`Invidious (${hostname}): invalid JSON response`);
         recordFailure(instance);
@@ -1364,12 +1476,12 @@ async function fetchViaInvidious(videoId, lang, log = console.log) {
             tryUrl += (tryUrl.includes('?') ? '&' : '?') + `format=${fmt}`;
           }
 
-          const captionResp = await fetch(tryUrl, {
+          const captionResp = await fetchWithTimeout(tryUrl, {
             headers: { 'User-Agent': BROWSER_UA, 'Accept': '*/*' },
-          });
+          }, 8000, context);
 
           if (!captionResp.ok) continue;
-          const captionText = await captionResp.text();
+          const captionText = await readResponseBody(captionResp, 'text', context);
 
           if (captionText.length === 0) {
             log(`Invidious (${hostname}): empty caption (${fmt || 'default'})`);
@@ -1386,7 +1498,8 @@ async function fetchViaInvidious(videoId, lang, log = console.log) {
               isAutoGenerated: track.kind === 'asr',
             };
           }
-        } catch {
+        } catch (err) {
+          if (err instanceof CaptionDeadlineError) throw err;
           continue;
         }
       }
@@ -1394,6 +1507,7 @@ async function fetchViaInvidious(videoId, lang, log = console.log) {
       log(`Invidious (${hostname}): all formats returned empty`);
       recordFailure(instance);
     } catch (err) {
+      if (err instanceof CaptionDeadlineError) throw err;
       log(`Invidious (${hostname}): ${err.message}`);
       recordFailure(instance);
     }
@@ -1417,7 +1531,8 @@ const PIPED_INSTANCES = [
   'https://api.piped.privacydev.net',
 ];
 
-async function fetchViaPiped(videoId, lang, log = console.log) {
+async function fetchViaPiped(videoId, lang, log = console.log, context = null) {
+  requireCaptionBudget(context);
   const instances = getAliveInstances(PIPED_INSTANCES);
   if (instances.length === 0) {
     log('Piped: all instances in cooldown, skipping');
@@ -1425,11 +1540,12 @@ async function fetchViaPiped(videoId, lang, log = console.log) {
   }
 
   for (const instance of instances) {
+    requireCaptionBudget(context);
     const hostname = new URL(instance).hostname;
     try {
       const resp = await fetchWithTimeout(`${instance}/streams/${videoId}`, {
         headers: { 'User-Agent': BROWSER_UA, 'Accept': 'application/json' },
-      }, 8000);
+      }, providerTimeout(8000, context), context);
 
       if (!resp.ok) {
         log(`Piped (${hostname}): HTTP ${resp.status}`);
@@ -1437,7 +1553,7 @@ async function fetchViaPiped(videoId, lang, log = console.log) {
         continue;
       }
 
-      const data = await resp.json();
+      const data = await readResponseBody(resp, 'json', context);
       const subtitles = data.subtitles;
       if (!Array.isArray(subtitles) || subtitles.length === 0) {
         log(`Piped (${hostname}): no subtitles`);
@@ -1459,15 +1575,15 @@ async function fetchViaPiped(videoId, lang, log = console.log) {
         continue;
       }
 
-      const subResp = await fetch(sub.url, {
+      const subResp = await fetchWithTimeout(sub.url, {
         headers: { 'User-Agent': BROWSER_UA, 'Accept': '*/*' },
-      });
+      }, 8000, context);
 
       if (!subResp.ok) {
         recordFailure(instance);
         continue;
       }
-      const subText = await subResp.text();
+      const subText = await readResponseBody(subResp, 'text', context);
 
       let lines = parseCaptionData(subText);
       if (lines.length === 0 && subText.includes('WEBVTT')) {
@@ -1486,6 +1602,7 @@ async function fetchViaPiped(videoId, lang, log = console.log) {
 
       recordFailure(instance);
     } catch (err) {
+      if (err instanceof CaptionDeadlineError) throw err;
       log(`Piped (${hostname}): ${err.message}`);
       recordFailure(instance);
     }
@@ -1840,7 +1957,7 @@ function jsonResponse(data, status = 200, extraHeaders = {}) {
  * The service returns the same { lines, language, isAutoGenerated } shape the
  * frontend expects, so we pass it straight through.
  */
-async function fetchViaYtDlp(videoId, lang, env, log, targetUrl = null, traceId = null) {
+async function fetchViaYtDlp(videoId, lang, env, log, targetUrl = null, traceId = null, context = null) {
   const base = env.YTDLP_API_URL.replace(/\/+$/, '');
   const qs = targetUrl
     ? `url=${encodeURIComponent(targetUrl)}&lang=${encodeURIComponent(lang)}`
@@ -1854,7 +1971,7 @@ async function fetchViaYtDlp(videoId, lang, env, log, targetUrl = null, traceId 
   try {
     // Bilibili extraction must route through the flaky residential proxy and can
     // run ~60s; give it headroom so a slow-but-valid fetch isn't cut at the edge.
-    const resp = await fetchWithTimeout(url, { headers }, targetUrl ? 90000 : 15000, env, log);
+    const resp = await fetchWithTimeout(url, { headers }, targetUrl ? 90000 : 15000, context);
     if (resp.status === 404) {
       log('yt-dlp: 404 No transcript available');
       traceId && traceLog('vps_transcript_result', { traceId, videoId, status: resp.status, usable: false });
@@ -1870,7 +1987,7 @@ async function fetchViaYtDlp(videoId, lang, env, log, targetUrl = null, traceId 
       traceId && traceLog('vps_transcript_result', { traceId, videoId, status: resp.status, usable: false });
       return null;
     }
-    const data = await resp.json();
+    const data = await readResponseBody(resp, 'json', context);
     if (data && Array.isArray(data.lines) && data.lines.length > 0) {
       log(`yt-dlp: got ${data.lines.length} lines (${data.language})`);
       return {
@@ -1881,7 +1998,20 @@ async function fetchViaYtDlp(videoId, lang, env, log, targetUrl = null, traceId 
     }
     return null;
   } catch (err) {
+    if (err instanceof CaptionDeadlineError) throw err;
     log(`yt-dlp fetch error: ${err.message}`);
     return null;
   }
 }
+
+// Narrow named exports keep the Worker runtime contract unchanged while
+// allowing deterministic unit tests to exercise the deadline primitives and
+// request handler without a deployed Worker.
+export {
+  CAPTION_DEADLINE_MS,
+  CaptionDeadlineError,
+  createCaptionContext,
+  createProviderContext,
+  handleTranscript,
+  readResponseBody,
+};

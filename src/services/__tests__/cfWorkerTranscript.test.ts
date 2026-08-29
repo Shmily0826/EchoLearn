@@ -1,7 +1,15 @@
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
 // Vite's raw import lets this contract test run in the browser-oriented
 // TypeScript project without adding Node-only test types to the app build.
 import source from '../../../cf-worker/src/index.js?raw';
+import {
+  CAPTION_DEADLINE_MS,
+  createCaptionContext,
+  createProviderContext,
+  handleTranscript,
+  readResponseBody,
+// @ts-expect-error The Worker is plain JavaScript; this import is test-only.
+} from '../../../cf-worker/src/index.js';
 
 describe('CF Worker transcript routing contract', () => {
   it('keeps all caption providers before the ASR block', () => {
@@ -26,4 +34,94 @@ describe('CF Worker transcript routing contract', () => {
     expect(source).toContain('captionProviderTimedOut = true');
     expect(source).toContain('const asrAvailable = !!(env && (env.YTDLP_API_URL || env.GROQ_API_KEY))');
   });
+
+  it('keeps a VPS-local timeout cancellable without aborting the global caption budget', () => {
+    vi.useFakeTimers();
+    const globalContext = createCaptionContext();
+    const vpsContext = createProviderContext(globalContext, 5000);
+
+    vi.advanceTimersByTime(5000);
+
+    expect(vpsContext.signal.aborted).toBe(true);
+    expect(globalContext.signal.aborted).toBe(false);
+    expect(globalContext.remainingBudget()).toBeGreaterThan(0);
+
+    vpsContext.dispose();
+    globalContext.dispose();
+    vi.useRealTimers();
+  });
+
+  it('returns provider_timeout when a caption body read hangs until the global deadline', async () => {
+    const context = createCaptionContext(20);
+    const response = { text: () => new Promise<string>(() => {}) } as unknown as Response;
+
+    await expect(readResponseBody(response, 'text', context)).rejects.toMatchObject({
+      code: 'provider_timeout',
+    });
+    context.dispose();
+  });
+});
+
+describe('CF Worker caption deadline behavior', () => {
+  it('returns a typed 504 when the caption cascade reaches its global deadline', async () => {
+    vi.useFakeTimers();
+    const originalFetch = globalThis.fetch;
+    globalThis.fetch = vi.fn((_input, init) => new Promise<Response>((_, reject) => {
+      init?.signal?.addEventListener('abort', () => reject(new DOMException('aborted', 'AbortError')), { once: true });
+    })) as typeof fetch;
+
+    try {
+      const resultPromise = handleTranscript(
+        new URL('https://worker.test/api/transcript?videoId=video-id&lang=en'),
+        {},
+        'deadline-trace',
+      );
+      await vi.advanceTimersByTimeAsync(CAPTION_DEADLINE_MS);
+      const result = await resultPromise;
+      expect(result.status).toBe(504);
+      expect(await result.json()).toMatchObject({ error: 'provider_timeout' });
+    } finally {
+      globalThis.fetch = originalFetch;
+      vi.useRealTimers();
+    }
+  });
+
+  it('lets a later cheap caption provider succeed after the VPS local cap', async () => {
+    const originalFetch = globalThis.fetch;
+    const calls: string[] = [];
+    globalThis.fetch = vi.fn((input, init) => {
+      const url = String(input);
+      calls.push(url);
+      if (url.startsWith('https://vps.test/')) {
+        return new Promise<Response>((_, reject) => {
+          init?.signal?.addEventListener('abort', () => reject(new DOMException('aborted', 'AbortError')), { once: true });
+        });
+      }
+      if (url.includes('youtubei/v1/player')) {
+        return Promise.resolve(new Response(JSON.stringify({
+          playabilityStatus: { status: 'OK' },
+          captions: { playerCaptionsTracklistRenderer: { captionTracks: [] } },
+        }), { status: 200 }));
+      }
+      return Promise.resolve(new Response('', { status: 404 }));
+    }) as typeof fetch;
+
+    try {
+      const resultPromise = handleTranscript(
+        new URL('https://worker.test/api/transcript?videoId=video-id&lang=en'),
+        { YTDLP_API_URL: 'https://vps.test' },
+        'test-trace',
+      );
+      await new Promise((resolve) => setTimeout(resolve, 5050));
+      const result = await resultPromise;
+
+      expect(calls[0]).toContain('https://vps.test/');
+      expect(calls.some((url) => url.includes('youtubei/v1/player'))).toBe(true);
+      expect(result.status).not.toBe(504);
+      expect(result.status).toBe(409);
+      expect(CAPTION_DEADLINE_MS).toBe(11000);
+    } finally {
+      globalThis.fetch = originalFetch;
+    }
+  }, 15000);
 });
