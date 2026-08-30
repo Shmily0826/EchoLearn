@@ -791,7 +791,10 @@ export async function fetchYouTubeServerTranscript(
           ?? (res.status === 408 || res.status === 504 ? TRANSCRIPT_ERROR_CODES.PROVIDER_TIMEOUT : undefined);
         if (Object.values(TRANSCRIPT_ERROR_CODES).includes(code as TranscriptErrorCode)) {
           if (code === YOUTUBE_ACQUISITION_BLOCKED) throw new YouTubeAcquisitionBlockedError();
-          const recovery = payload?.recovery;
+          // Only the Worker owns an explicit ASR route. Vercel is a caption
+          // fallback and must not advertise recovery metadata even if an
+          // upstream payload happens to contain it.
+          const recovery = endpoint.label === 'CF Worker' ? payload?.recovery : undefined;
           const structuredRecovery = recovery && typeof recovery === 'object'
             && (recovery as { canAsr?: unknown }).canAsr === true
             && (recovery as { requiresExplicitOptIn?: unknown }).requiresExplicitOptIn === true

@@ -102,6 +102,14 @@ class YouTubeAcquisitionBlocked(Exception):
     """The source refused media acquisition in a known, bounded way."""
 
 
+class TranscriptProviderTimeout(Exception):
+    """Every caption acquisition attempt exceeded its subprocess deadline."""
+
+
+class TranscriptProviderFailure(Exception):
+    """Caption acquisition failed without enough evidence to call it absence."""
+
+
 def _trace_event(event: str, **fields) -> None:
     """Emit only explicitly supplied, non-sensitive request-stage fields."""
     trace_id = _TRACE_CONTEXT.get()
@@ -966,17 +974,29 @@ def _run_ytdlp(video_id_or_url: str, lang: str, *, is_url: bool = False, part: O
         cmds = [(base_cmd + _site_args(target_url), _no_proxy_env())]
         if YTDLP_PROXY:
             cmds.append((base_cmd + _site_args(target_url), _proxy_env(target_url)))
+    saw_timeout = False
+    saw_completed_attempt = False
+    saw_nonzero_exit = False
     for cmd, env in cmds:
         with tempfile.TemporaryDirectory() as td:
             full = cmd + ["-o", os.path.join(td, "%(id)s")]
-            _returncode, _stdout, _stderr, timed_out = _run_yt_dlp(
+            returncode, _stdout, _stderr, timed_out = _run_yt_dlp(
                 full, cwd=td, env=env, timeout=YTDLP_TIMEOUT,
             )
             if timed_out:
+                saw_timeout = True
+                continue
+            saw_completed_attempt = True
+            if returncode != 0:
+                saw_nonzero_exit = True
                 continue
             result = _read_subtitle_file(td)
             if result:
                 return result
+    if saw_timeout and not saw_completed_attempt:
+        raise TranscriptProviderTimeout()
+    if saw_nonzero_exit:
+        raise TranscriptProviderFailure()
     return None
 
 
@@ -1642,6 +1662,17 @@ def transcript(
     lang: str = Query("en"),
     request: Request = None,
 ):
+    # FastAPI resolves Query metadata before HTTP calls, but a direct Python
+    # call with an omitted optional argument receives the Query object itself.
+    # Normalize at this boundary so the handler remains deterministic for both
+    # invocation styles.
+    if not isinstance(video_id, str):
+        video_id = None
+    if not isinstance(url, str):
+        url = None
+    if not isinstance(lang, str):
+        lang = "en"
+
     target = url or video_id
     if not target:
         raise HTTPException(status_code=400, detail="Missing videoId or url")
@@ -1667,7 +1698,26 @@ def transcript(
     if cached is not None:
         return JSONResponse(cached)
 
-    result = _run_ytdlp(clean_target, lang, is_url=is_url, part=part)
+    try:
+        result = _run_ytdlp(clean_target, lang, is_url=is_url, part=part)
+    except TranscriptProviderTimeout:
+        return JSONResponse(
+            {
+                "error": "provider_timeout",
+                "code": "provider_timeout",
+                "message": "Transcript provider timed out.",
+            },
+            status_code=504,
+        )
+    except TranscriptProviderFailure:
+        return JSONResponse(
+            {
+                "error": "provider_failure",
+                "code": "provider_failure",
+                "message": "Transcript provider failed.",
+            },
+            status_code=502,
+        )
 
     # Bilibili videos often expose only a Chinese AI subtitle ("ai-zh"). The app
     # is for English learners, so a Chinese-only transcript is useless for
@@ -1678,8 +1728,13 @@ def transcript(
         result = None
 
     if not result:
-        raise HTTPException(
-            status_code=404, detail="No transcript available for this video"
+        return JSONResponse(
+            {
+                "error": "captions_not_found",
+                "code": "captions_not_found",
+                "message": "No transcript available for this video.",
+            },
+            status_code=404,
         )
 
     lines, language, is_auto, bvid = result

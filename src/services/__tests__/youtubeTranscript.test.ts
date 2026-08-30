@@ -209,6 +209,27 @@ describe('fetchYouTubeTranscript provider order and failure classification', () 
       });
   });
 
+  it('keeps Vercel timeout truth while dropping unsupported Vercel recovery metadata', async () => {
+    fetchMock
+      .mockResolvedValueOnce(response({ error: 'Worker unavailable' }, 500))
+      .mockResolvedValueOnce(response({
+        error: 'provider_timeout',
+        code: 'provider_timeout',
+        recovery: { canAsr: true, requiresExplicitOptIn: true },
+      }, 504));
+
+    let failure: unknown;
+    try {
+      await fetchYouTubeServerTranscript('video-id', 'en');
+    } catch (err) {
+      failure = err;
+    }
+
+    expect(failure).toMatchObject({ code: 'provider_timeout' });
+    expect((failure as { recovery?: unknown }).recovery).toBeUndefined();
+    expect(fetchMock).toHaveBeenCalledTimes(2);
+  });
+
   it('does not retry Vercel after a Worker captions-not-found outcome', async () => {
     fetchMock.mockResolvedValueOnce(response({ error: 'captions_not_found', code: 'captions_not_found' }, 404));
 

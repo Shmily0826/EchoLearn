@@ -140,4 +140,68 @@ describe('api/transcript server fallback', () => {
     expect(res.statusCode).toBe(504);
     expect(JSON.parse(res.body).code).toBe('provider_timeout');
   });
+
+  it('preserves a structured VPS timeout and never advertises unsupported ASR recovery', async () => {
+    fetchMock.mockResolvedValueOnce(response({
+      detail: { code: 'provider_timeout', message: 'upstream detail' },
+      recovery: { canAsr: true, requiresExplicitOptIn: true },
+    }, 502));
+    vi.mocked(YoutubeTranscript.fetchTranscript).mockRejectedValueOnce(new Error('Transcript is disabled on this video'));
+
+    const res = makeRes();
+    await handler(makeReq(), res);
+
+    expect(res.statusCode).toBe(504);
+    expect(JSON.parse(res.body)).toEqual({
+      error: 'provider_timeout',
+      code: 'provider_timeout',
+      message: 'Transcript provider timed out.',
+    });
+  });
+
+  it('does not relabel a generic VPS failure as transcript_disabled', async () => {
+    fetchMock.mockResolvedValueOnce(response({ error: 'upstream unavailable' }, 502));
+    vi.mocked(YoutubeTranscript.fetchTranscript).mockRejectedValueOnce(new Error('Transcript is disabled on this video'));
+
+    const res = makeRes();
+    await handler(makeReq(), res);
+
+    expect(res.statusCode).toBe(500);
+    expect(JSON.parse(res.body)).toEqual({
+      error: 'provider_failure',
+      code: 'provider_failure',
+      message: 'Transcript provider failed.',
+    });
+  });
+
+  it('preserves VPS acquisition blocking and ASR-required compatibility without recovery metadata', async () => {
+    fetchMock.mockResolvedValueOnce(response({
+      detail: { code: 'youtube_acquisition_blocked' },
+    }, 424));
+    vi.mocked(YoutubeTranscript.fetchTranscript).mockRejectedValueOnce(new Error('npm fallback failed'));
+
+    const blocked = makeRes();
+    await handler(makeReq(), blocked);
+    expect(blocked.statusCode).toBe(403);
+    expect(JSON.parse(blocked.body)).toEqual({
+      error: 'youtube_acquisition_blocked',
+      code: 'youtube_acquisition_blocked',
+      message: 'YouTube media acquisition is currently unavailable.',
+    });
+
+    fetchMock.mockResolvedValueOnce(response({
+      code: 'asr_required',
+      recovery: { canAsr: true, requiresExplicitOptIn: true },
+    }, 409));
+    vi.mocked(YoutubeTranscript.fetchTranscript).mockRejectedValueOnce(new Error('npm fallback failed'));
+
+    const asrRequired = makeRes();
+    await handler(makeReq(), asrRequired);
+    expect(asrRequired.statusCode).toBe(409);
+    expect(JSON.parse(asrRequired.body)).toEqual({
+      error: 'asr_required',
+      code: 'asr_required',
+      message: 'Explicit ASR opt-in is required for transcript recovery.',
+    });
+  });
 });

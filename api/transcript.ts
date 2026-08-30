@@ -79,12 +79,83 @@ function isUsableTranscript(data: unknown): data is {
   return Array.isArray(candidate.lines) && candidate.lines.length > 0;
 }
 
+const TRANSCRIPT_FAILURE_CODES = {
+  CAPTIONS_NOT_FOUND: 'captions_not_found',
+  ACQUISITION_BLOCKED: 'youtube_acquisition_blocked',
+  PROVIDER_TIMEOUT: 'provider_timeout',
+  TRANSCRIPT_DISABLED: 'transcript_disabled',
+  ASR_REQUIRED: 'asr_required',
+  PROVIDER_FAILURE: 'provider_failure',
+} as const;
+
+type TranscriptFailureCode = (typeof TRANSCRIPT_FAILURE_CODES)[keyof typeof TRANSCRIPT_FAILURE_CODES];
+
+interface TranscriptFailure {
+  code: TranscriptFailureCode;
+  status: number;
+  message: string;
+}
+
+function failureForCode(code: TranscriptFailureCode): TranscriptFailure {
+  switch (code) {
+    case TRANSCRIPT_FAILURE_CODES.PROVIDER_TIMEOUT:
+      return { code, status: 504, message: 'Transcript provider timed out.' };
+    case TRANSCRIPT_FAILURE_CODES.ACQUISITION_BLOCKED:
+      return { code, status: 403, message: 'YouTube media acquisition is currently unavailable.' };
+    case TRANSCRIPT_FAILURE_CODES.TRANSCRIPT_DISABLED:
+      return { code, status: 404, message: 'Transcript is disabled on this video.' };
+    case TRANSCRIPT_FAILURE_CODES.ASR_REQUIRED:
+      return { code, status: 409, message: 'Explicit ASR opt-in is required for transcript recovery.' };
+    case TRANSCRIPT_FAILURE_CODES.PROVIDER_FAILURE:
+      return { code, status: 500, message: 'Transcript provider failed.' };
+    case TRANSCRIPT_FAILURE_CODES.CAPTIONS_NOT_FOUND:
+    default:
+      return { code: TRANSCRIPT_FAILURE_CODES.CAPTIONS_NOT_FOUND, status: 404, message: 'No caption transcript is available for this video.' };
+  }
+}
+
+function structuredFailureCode(payload: unknown): TranscriptFailureCode | undefined {
+  if (!payload || typeof payload !== 'object') return undefined;
+  const candidate = payload as {
+    code?: unknown;
+    error?: unknown;
+    detail?: { code?: unknown };
+  };
+  const values = [candidate.code, candidate.detail?.code, candidate.error];
+  return values.find((value): value is TranscriptFailureCode =>
+    typeof value === 'string'
+    && Object.values(TRANSCRIPT_FAILURE_CODES).includes(value as TranscriptFailureCode),
+  );
+}
+
+function classifyVpsFailure(status: number, payload: unknown): TranscriptFailure {
+  const structuredCode = structuredFailureCode(payload);
+  if (structuredCode) return failureForCode(structuredCode);
+  if (status === 408 || status === 504) return failureForCode(TRANSCRIPT_FAILURE_CODES.PROVIDER_TIMEOUT);
+  if (status === 404) return failureForCode(TRANSCRIPT_FAILURE_CODES.CAPTIONS_NOT_FOUND);
+  return failureForCode(TRANSCRIPT_FAILURE_CODES.PROVIDER_FAILURE);
+}
+
+function classifyYoutubeFailure(message: string): TranscriptFailure {
+  const normalized = message.toLowerCase();
+  if (normalized.includes('timeout') || normalized.includes('timed out')) {
+    return failureForCode(TRANSCRIPT_FAILURE_CODES.PROVIDER_TIMEOUT);
+  }
+  if (normalized.includes('disabled')) {
+    return failureForCode(TRANSCRIPT_FAILURE_CODES.TRANSCRIPT_DISABLED);
+  }
+  if (normalized.includes('no transcripts') || normalized.includes('no transcript')) {
+    return failureForCode(TRANSCRIPT_FAILURE_CODES.CAPTIONS_NOT_FOUND);
+  }
+  return failureForCode(TRANSCRIPT_FAILURE_CODES.PROVIDER_FAILURE);
+}
+
 async function fetchVpsTranscript(
   videoId: string,
   lang: string,
   apiKey: string,
   traceId: string,
-): Promise<{ data: Record<string, unknown> | null; code?: string }> {
+): Promise<{ data: Record<string, unknown> | null; failure?: TranscriptFailure }> {
   const controller = new AbortController();
   const timer = setTimeout(() => controller.abort(), VPS_TIMEOUT_MS);
   try {
@@ -96,13 +167,23 @@ async function fetchVpsTranscript(
       },
     );
     if (!upstream.ok) {
-      logTranscriptEvent('vps_result', { traceId, videoId, status: upstream.status, usable: false });
-      return { data: null, code: upstream.status === 404 ? 'captions_not_found' : upstream.status === 408 || upstream.status === 504 ? 'provider_timeout' : undefined };
+      const payload = await upstream.json().catch(() => undefined);
+      const failure = classifyVpsFailure(upstream.status, payload);
+      logTranscriptEvent('vps_result', { traceId, videoId, status: upstream.status, usable: false, error: failure.code });
+      return { data: null, failure };
     }
-    const data = (await upstream.json()) as unknown;
+    let data: unknown;
+    try {
+      data = await upstream.json();
+    } catch {
+      const failure = failureForCode(TRANSCRIPT_FAILURE_CODES.PROVIDER_FAILURE);
+      logTranscriptEvent('vps_result', { traceId, videoId, status: upstream.status, usable: false, reason: 'malformed_json', error: failure.code });
+      return { data: null, failure };
+    }
     if (!isUsableTranscript(data)) {
-      logTranscriptEvent('vps_result', { traceId, videoId, status: upstream.status, usable: false, reason: 'empty_or_malformed' });
-      return { data: null, code: 'captions_not_found' };
+      const failure = failureForCode(TRANSCRIPT_FAILURE_CODES.CAPTIONS_NOT_FOUND);
+      logTranscriptEvent('vps_result', { traceId, videoId, status: upstream.status, usable: false, reason: 'empty_or_malformed', error: failure.code });
+      return { data: null, failure };
     }
     logTranscriptEvent('vps_result', { traceId, videoId, status: upstream.status, usable: true, lineCount: data.lines.length });
     return { data: { ...data, source: (data as { source?: string }).source || 'vps' } };
@@ -112,7 +193,14 @@ async function fetchVpsTranscript(
       videoId,
       error: err instanceof Error && err.name === 'AbortError' ? 'timeout' : 'network_or_parse',
     });
-    return { data: null, code: err instanceof Error && err.name === 'AbortError' ? 'provider_timeout' : undefined };
+    return {
+      data: null,
+      failure: failureForCode(
+        err instanceof Error && err.name === 'AbortError'
+          ? TRANSCRIPT_FAILURE_CODES.PROVIDER_TIMEOUT
+          : TRANSCRIPT_FAILURE_CODES.PROVIDER_FAILURE,
+      ),
+    };
   } finally {
     clearTimeout(timer);
   }
@@ -153,7 +241,7 @@ export default async function handler(req: any, res: any): Promise<void> {
     return;
   }
 
-  let vpsFailureCode: string | undefined;
+  let vpsFailure: TranscriptFailure | undefined;
   try {
     const vpsKey = process.env.YTDLP_API_KEY;
     // This is the useful recovery path after Worker transport/generic 5xx
@@ -161,7 +249,7 @@ export default async function handler(req: any, res: any): Promise<void> {
     // frontend structured Worker outcomes stop before reaching this endpoint.
     if (vpsKey) {
       const vpsOutcome = await fetchVpsTranscript(videoId, lang, vpsKey, traceId);
-      vpsFailureCode = vpsOutcome.code;
+      vpsFailure = vpsOutcome.failure;
       if (vpsOutcome.data) {
         logTranscriptEvent('request_finish', { traceId, videoId, provider: 'vps', status: 200 });
         res.status(200).json(vpsOutcome.data);
@@ -191,8 +279,8 @@ export default async function handler(req: any, res: any): Promise<void> {
     });
 
     if (!result || result.length === 0) {
-      const code = vpsFailureCode || 'captions_not_found';
-      res.status(code === 'provider_timeout' ? 504 : 404).json({ error: code, code, message: 'No transcript found for this video' });
+      const failure = vpsFailure || failureForCode(TRANSCRIPT_FAILURE_CODES.CAPTIONS_NOT_FOUND);
+      res.status(failure.status).json({ error: failure.code, code: failure.code, message: failure.message });
       return;
     }
 
@@ -216,9 +304,8 @@ export default async function handler(req: any, res: any): Promise<void> {
     });
   } catch (err) {
     const message = err instanceof Error ? err.message : 'Unknown error';
-    const code = vpsFailureCode || (message.toLowerCase().includes('disabled') ? 'transcript_disabled' : 'provider_failure');
-    const status = code === 'provider_timeout' ? 504 : 500;
-    logTranscriptEvent('request_error', { traceId, videoId, status, error: code });
-    res.status(status).json({ error: code, code, message });
+    const failure = vpsFailure || classifyYoutubeFailure(message);
+    logTranscriptEvent('request_error', { traceId, videoId, status: failure.status, error: failure.code });
+    res.status(failure.status).json({ error: failure.code, code: failure.code, message: failure.message });
   }
 }

@@ -70,11 +70,12 @@ class GroqTracingTests(unittest.TestCase):
 
     def test_success_emits_safe_stage_and_segment_events(self):
         payload = {"language": "en", "segments": [{"start": 0, "end": 1, "text": "hello"}]}
-        with tempfile.NamedTemporaryFile(suffix=".mp3") as audio, redirect_stdout(io.StringIO()) as output:
-            audio.write(b"tiny-audio")
-            audio.flush()
+        with tempfile.TemporaryDirectory() as directory, redirect_stdout(io.StringIO()) as output:
+            audio_path = f"{directory}/audio.mp3"
+            with open(audio_path, "wb") as audio:
+                audio.write(b"tiny-audio")
             with patch.object(main.urllib.request, "urlopen", return_value=_response(payload)):
-                result = main._groq_transcribe(audio.name)
+                result = main._groq_transcribe(audio_path)
 
         log = output.getvalue()
         self.assertEqual(len(result["lines"]), 1)
@@ -88,11 +89,12 @@ class GroqTracingTests(unittest.TestCase):
     def test_http_error_is_classified_and_transient_error_retries(self):
         error = HTTPError("https://api.groq.com", 403, "forbidden", {}, io.BytesIO(b"private body"))
         payload = {"language": "en", "segments": [{"start": 0, "end": 1, "text": "retry"}]}
-        with tempfile.NamedTemporaryFile(suffix=".mp3") as audio, redirect_stdout(io.StringIO()) as output:
-            audio.write(b"tiny-audio")
-            audio.flush()
+        with tempfile.TemporaryDirectory() as directory, redirect_stdout(io.StringIO()) as output:
+            audio_path = f"{directory}/audio.mp3"
+            with open(audio_path, "wb") as audio:
+                audio.write(b"tiny-audio")
             with patch.object(main.urllib.request, "urlopen", side_effect=[error, _response(payload)]) as call:
-                result = main._groq_transcribe(audio.name)
+                result = main._groq_transcribe(audio_path)
 
         log = output.getvalue()
         self.assertEqual(call.call_count, 2)
@@ -102,13 +104,14 @@ class GroqTracingTests(unittest.TestCase):
         self.assertNotIn("private body", log)
 
     def test_timeout_is_classified_and_retries_without_exposing_details(self):
-        with tempfile.NamedTemporaryFile(suffix=".mp3") as audio, redirect_stdout(io.StringIO()) as output:
-            audio.write(b"tiny-audio")
-            audio.flush()
+        with tempfile.TemporaryDirectory() as directory, redirect_stdout(io.StringIO()) as output:
+            audio_path = f"{directory}/audio.mp3"
+            with open(audio_path, "wb") as audio:
+                audio.write(b"tiny-audio")
             with patch.object(main.urllib.request, "urlopen", side_effect=TimeoutError("private network detail")):
                 with patch.object(main.time, "sleep"):
                     with self.assertRaises(main.HTTPException) as raised:
-                        main._groq_transcribe(audio.name)
+                        main._groq_transcribe(audio_path)
 
         log = output.getvalue()
         self.assertEqual(raised.exception.status_code, 502)
@@ -117,12 +120,13 @@ class GroqTracingTests(unittest.TestCase):
         self.assertNotIn("private network detail", log)
 
     def test_empty_response_fails_as_no_speech_without_success_event(self):
-        with tempfile.NamedTemporaryFile(suffix=".mp3") as audio, redirect_stdout(io.StringIO()) as output:
-            audio.write(b"tiny-audio")
-            audio.flush()
+        with tempfile.TemporaryDirectory() as directory, redirect_stdout(io.StringIO()) as output:
+            audio_path = f"{directory}/audio.mp3"
+            with open(audio_path, "wb") as audio:
+                audio.write(b"tiny-audio")
             with patch.object(main.urllib.request, "urlopen", return_value=_response({})):
                 with self.assertRaises(main.HTTPException) as raised:
-                    main._groq_transcribe(audio.name)
+                    main._groq_transcribe(audio_path)
 
         log = output.getvalue()
         self.assertEqual(raised.exception.status_code, 404)
@@ -249,12 +253,16 @@ class AudioAcquisitionTests(unittest.TestCase):
         process = _FakeYtdlpProcess
         process.next_results = [(1, "", False)]
         proc = process(cwd=".")
-        with patch.object(main.os, "getpgid", return_value=proc.pid), patch.object(
-            main.os, "killpg"
-        ) as killpg:
-            main._terminate_process_group(proc)
-
-        killpg.assert_called_once()
+        if main.os.name == "nt":
+            with patch.object(proc, "terminate") as terminate:
+                main._terminate_process_group(proc)
+            terminate.assert_called_once()
+        else:
+            with patch.object(main.os, "getpgid", return_value=proc.pid), patch.object(
+                main.os, "killpg"
+            ) as killpg:
+                main._terminate_process_group(proc)
+            killpg.assert_called_once()
         self.assertTrue(proc.waited)
 
     def test_site_cookie_is_not_sent_to_youtube(self):
@@ -280,6 +288,69 @@ class AudioAcquisitionTests(unittest.TestCase):
 
         self.assertIsNone(result)
         popen.assert_not_called()
+
+
+class TranscriptRouteTests(unittest.TestCase):
+    def setUp(self):
+        self.proxy = main.YTDLP_PROXY
+        self.api_key = main.YTDLP_API_KEY
+        main.YTDLP_PROXY = ""
+        main.YTDLP_API_KEY = ""
+
+    def tearDown(self):
+        main.YTDLP_PROXY = self.proxy
+        main.YTDLP_API_KEY = self.api_key
+
+    def test_all_caption_attempts_timing_out_returns_structured_504(self):
+        with patch.object(main, "_cache_get", return_value=None), patch.object(
+            main, "_run_yt_dlp", return_value=(None, None, None, True)
+        ) as run:
+            response = main.transcript(video_id="dQw4w9WgXcQ", lang="en")
+
+        self.assertEqual(response.status_code, 504)
+        self.assertEqual(
+            json.loads(response.body),
+            {
+                "error": "provider_timeout",
+                "code": "provider_timeout",
+                "message": "Transcript provider timed out.",
+            },
+        )
+        run.assert_called_once()
+
+    def test_clean_caption_absence_remains_structured_404(self):
+        with patch.object(main, "_cache_get", return_value=None), patch.object(
+            main, "_run_yt_dlp", return_value=(0, "", "", False)
+        ):
+            response = main.transcript(video_id="dQw4w9WgXcQ", lang="en")
+
+        self.assertEqual(response.status_code, 404)
+        self.assertEqual(
+            json.loads(response.body),
+            {
+                "error": "captions_not_found",
+                "code": "captions_not_found",
+                "message": "No transcript available for this video.",
+            },
+        )
+
+    def test_nonzero_caption_provider_failure_is_not_relabelled_as_absence(self):
+        with patch.object(main, "_cache_get", return_value=None), patch.object(
+            main,
+            "_run_yt_dlp",
+            return_value=(1, "", "ERROR: provider failure", False),
+        ):
+            response = main.transcript(video_id="dQw4w9WgXcQ", lang="en")
+
+        self.assertEqual(response.status_code, 502)
+        self.assertEqual(
+            json.loads(response.body),
+            {
+                "error": "provider_failure",
+                "code": "provider_failure",
+                "message": "Transcript provider failed.",
+            },
+        )
 
 
 if __name__ == "__main__":
