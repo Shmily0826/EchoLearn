@@ -195,6 +195,20 @@ describe('fetchYouTubeTranscript provider order and failure classification', () 
     expect(fetchMock).toHaveBeenCalledTimes(1);
   });
 
+  it('preserves structured ASR recovery metadata from a Worker timeout', async () => {
+    fetchMock.mockResolvedValueOnce(response({
+      error: 'provider_timeout',
+      message: 'Caption providers timed out.',
+      recovery: { canAsr: true, requiresExplicitOptIn: true },
+    }, 504));
+
+    await expect(fetchYouTubeServerTranscript('video-id', 'en'))
+      .rejects.toMatchObject({
+        code: 'provider_timeout',
+        recovery: { canAsr: true, requiresExplicitOptIn: true },
+      });
+  });
+
   it('does not retry Vercel after a Worker captions-not-found outcome', async () => {
     fetchMock.mockResolvedValueOnce(response({ error: 'captions_not_found', code: 'captions_not_found' }, 404));
 
@@ -204,10 +218,17 @@ describe('fetchYouTubeTranscript provider order and failure classification', () 
   });
 
   it('keeps ASR opt-in off by default and propagates asr_required', async () => {
-    fetchMock.mockResolvedValueOnce(response({ error: 'asr_required', code: 'asr_required' }, 409));
+    fetchMock.mockResolvedValueOnce(response({
+      error: 'asr_required',
+      code: 'asr_required',
+      recovery: { canAsr: true, requiresExplicitOptIn: true },
+    }, 409));
 
     await expect(fetchYouTubeServerTranscript('video-id', 'en'))
-      .rejects.toMatchObject({ code: 'asr_required' });
+      .rejects.toMatchObject({
+        code: 'asr_required',
+        recovery: { canAsr: true, requiresExplicitOptIn: true },
+      });
     expect(String(fetchMock.mock.calls[0][0])).not.toContain('allowAsr');
     expect(fetchMock).toHaveBeenCalledTimes(1);
   });

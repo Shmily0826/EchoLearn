@@ -113,6 +113,23 @@ function providerTimeout(timeoutMs, context) {
   return Math.max(1, Math.min(timeoutMs, context?.remainingBudget?.() ?? timeoutMs));
 }
 
+// This is configuration/routability capability only; it is not a health check.
+function asrRecovery(env) {
+  return env && (env.YTDLP_API_URL || env.GROQ_API_KEY)
+    ? { canAsr: true, requiresExplicitOptIn: true }
+    : undefined;
+}
+
+function transcriptErrorResponse(payload, status, env, options = {}) {
+  const recovery = options.includeRecovery ? asrRecovery(env) : undefined;
+  const headers = options.headers || {};
+  return jsonResponse(
+    recovery ? { ...payload, recovery } : payload,
+    status,
+    headers,
+  );
+}
+
 async function readResponseBody(response, method, context) {
   if (!context) return response[method]();
   requireCaptionBudget(context);
@@ -325,6 +342,57 @@ async function handleTranscript(url, env, traceId) {
 
   const debugLog = [];
   const log = debug ? (msg) => debugLog.push(msg) : (msg) => console.log(msg);
+
+  // Explicit ASR is an opt-in route, not a slower caption request. Keeping it
+  // before the caption context guarantees one intentional ASR branch and avoids
+  // spending the caption deadline before the paid/slow operation starts.
+  if (allowAsr) {
+    if (env && env.YTDLP_API_URL) {
+      const asrDiagnostics = {};
+      const vpsAsr = await Promise.race([
+        fetchViaVpsAsr(
+          `https://www.youtube.com/watch?v=${videoId}`,
+          env,
+          log,
+          asrDiagnostics,
+          traceId,
+        ),
+        new Promise((resolve) => setTimeout(() => {
+          asrDiagnostics.code = 'provider_timeout';
+          resolve(null);
+        }, 75000)),
+      ]);
+      if (vpsAsr) {
+        if (debug) vpsAsr._debug = debugLog;
+        traceLog('request_finish', { traceId, videoId, provider: 'vps-asr', status: 200, lineCount: vpsAsr.lines?.length || 0 });
+        return jsonResponse(vpsAsr, 200, { [TRACE_HEADER]: traceId });
+      }
+      if (asrDiagnostics.code === 'provider_timeout') {
+        traceLog('request_finish', { traceId, videoId, provider: 'vps-asr', status: 504, error: 'provider_timeout' });
+        return transcriptErrorResponse({ error: 'provider_timeout', message: 'Transcript provider timed out.' }, 504, env, { includeRecovery: true, headers: { [TRACE_HEADER]: traceId } });
+      }
+      if (asrDiagnostics.code === 'youtube_acquisition_blocked') {
+        const response = { error: 'youtube_acquisition_blocked', message: 'YouTube audio acquisition is currently blocked.' };
+        if (debug) response._debug = debugLog;
+        traceLog('request_finish', { traceId, videoId, provider: 'vps-asr', status: 403, error: response.error });
+        return transcriptErrorResponse(response, 403, env, { headers: { [TRACE_HEADER]: traceId } });
+      }
+      log('VPS ASR fallback returned nothing');
+    } else if (env && env.GROQ_API_KEY) {
+      const whisperResult = await fetchViaWhisper(videoId, lang, env, log);
+      if (whisperResult) {
+        if (debug) whisperResult._debug = debugLog;
+        traceLog('request_finish', { traceId, videoId, provider: 'worker-whisper', status: 200, lineCount: whisperResult.lines?.length || 0 });
+        return jsonResponse(whisperResult, 200, { [TRACE_HEADER]: traceId });
+      }
+      log('Whisper fallback failed');
+    }
+    const response = { error: 'captions_not_found', message: 'No transcript could be generated from audio.' };
+    if (debug) response._debug = debugLog;
+    traceLog('request_finish', { traceId, videoId, provider: 'asr', status: 404, error: response.error });
+    return transcriptErrorResponse(response, 404, env, { headers: { [TRACE_HEADER]: traceId } });
+  }
+
   const captionContext = createCaptionContext();
 
   // Strategy 0: yt-dlp service on a VPS (client-signature rotation bypasses
@@ -387,7 +455,7 @@ async function handleTranscript(url, env, traceId) {
   } catch (err) {
     if (err instanceof CaptionDeadlineError) {
       traceLog('request_finish', { traceId, videoId, provider: 'caption-cascade', status: 504, error: 'provider_timeout', deadlineAt: captionContext.deadlineAt });
-      return jsonResponse({ error: 'provider_timeout', message: 'Caption providers timed out.' }, 504, { [TRACE_HEADER]: traceId });
+      return transcriptErrorResponse({ error: 'provider_timeout', message: 'Caption providers timed out.' }, 504, env, { includeRecovery: true, headers: { [TRACE_HEADER]: traceId } });
     }
     throw err;
   } finally {
@@ -397,62 +465,23 @@ async function handleTranscript(url, env, traceId) {
   // Caption-only deadline is also the boundary before any generation path.
   if (captionContext.expired()) {
     traceLog('request_finish', { traceId, videoId, provider: 'caption-cascade', status: 504, error: 'provider_timeout', deadlineAt: captionContext.deadlineAt });
-    return jsonResponse({ error: 'provider_timeout', message: 'Caption providers timed out.' }, 504, { [TRACE_HEADER]: traceId });
-  }
-
-  // ASR is deliberately last: all reasonable caption-only providers above
-  // must be exhausted first. Prefer the VPS ASR path when configured; the
-  // Worker-side Whisper path is only used when there is no VPS, preventing two
-  // paid/slow ASR attempts in one acquisition flow.
-  if (allowAsr && env && env.YTDLP_API_URL) {
-    const asrDiagnostics = {};
-    const vpsAsr = await Promise.race([
-      fetchViaVpsAsr(
-        `https://www.youtube.com/watch?v=${videoId}`,
-        env,
-        log,
-        asrDiagnostics,
-        traceId,
-      ),
-      new Promise((resolve) => setTimeout(() => {
-        asrDiagnostics.code = 'provider_timeout';
-        resolve(null);
-      }, 75000)),
-    ]);
-    if (vpsAsr) {
-      if (debug) vpsAsr._debug = debugLog;
-      traceLog('request_finish', { traceId, videoId, provider: 'vps-asr', status: 200, lineCount: vpsAsr.lines?.length || 0 });
-      return jsonResponse(vpsAsr, 200, { [TRACE_HEADER]: traceId });
-    }
-    if (asrDiagnostics.code === 'provider_timeout') {
-      traceLog('request_finish', { traceId, videoId, provider: 'vps-asr', status: 504, error: 'provider_timeout' });
-      return jsonResponse({ error: 'provider_timeout', message: 'Transcript provider timed out.' }, 504, { [TRACE_HEADER]: traceId });
-    }
-    log('VPS ASR fallback returned nothing');
-  } else if (allowAsr && env && env.GROQ_API_KEY) {
-    const whisperResult = await fetchViaWhisper(videoId, lang, env, log);
-    if (whisperResult) {
-      if (debug) whisperResult._debug = debugLog;
-      traceLog('request_finish', { traceId, videoId, provider: 'worker-whisper', status: 200, lineCount: whisperResult.lines?.length || 0 });
-      return jsonResponse(whisperResult, 200, { [TRACE_HEADER]: traceId });
-    }
-    log('Whisper fallback failed');
+    return transcriptErrorResponse({ error: 'provider_timeout', message: 'Caption providers timed out.' }, 504, env, { includeRecovery: true, headers: { [TRACE_HEADER]: traceId } });
   }
 
   // VPS ASR availability is represented by YTDLP_API_URL, while Worker
   // Whisper availability is represented by GROQ_API_KEY. Explicit allowAsr=1
   // is still required before either generation path can run.
   const asrAvailable = !!(env && (env.YTDLP_API_URL || env.GROQ_API_KEY));
-  const error = asrAvailable && !allowAsr
-    ? { error: 'asr_required', message: 'Caption providers could not provide a transcript; explicit ASR opt-in is required.' }
-    : captionProviderTimedOut
-      ? { error: 'provider_timeout', message: 'Caption providers timed out.' }
-    : { error: 'captions_not_found', message: 'No caption transcript is available for this video.' };
+  const error = captionProviderTimedOut
+    ? { error: 'provider_timeout', message: 'Caption providers timed out.' }
+    : asrAvailable
+      ? { error: 'asr_required', message: 'Caption providers could not provide a transcript; explicit ASR opt-in is required.' }
+      : { error: 'captions_not_found', message: 'No caption transcript is available for this video.' };
   const response = error;
   if (debug) response._debug = debugLog;
   const status = response.error === 'asr_required' ? 409 : response.error === 'provider_timeout' ? 504 : 404;
   traceLog('request_finish', { traceId, videoId, provider: 'none', status, error: response.error });
-  return jsonResponse(response, status, { [TRACE_HEADER]: traceId });
+  return transcriptErrorResponse(response, status, env, { includeRecovery: response.error === 'asr_required', headers: { [TRACE_HEADER]: traceId } });
 }
 
 // ── /api/bilibili — Fetch Bilibili transcript / metadata ──────────
@@ -2010,6 +2039,7 @@ async function fetchViaYtDlp(videoId, lang, env, log, targetUrl = null, traceId 
 export {
   CAPTION_DEADLINE_MS,
   CaptionDeadlineError,
+  asrRecovery,
   createCaptionContext,
   createProviderContext,
   handleTranscript,

@@ -706,13 +706,20 @@ export const TRANSCRIPT_ERROR_CODES = {
 export type TranscriptErrorCode =
   (typeof TRANSCRIPT_ERROR_CODES)[keyof typeof TRANSCRIPT_ERROR_CODES];
 
+export interface TranscriptRecovery {
+  canAsr: boolean;
+  requiresExplicitOptIn: boolean;
+}
+
 export class YouTubeTranscriptError extends Error {
   readonly code: TranscriptErrorCode;
+  readonly recovery?: TranscriptRecovery;
 
-  constructor(code: TranscriptErrorCode, message?: string) {
+  constructor(code: TranscriptErrorCode, message?: string, recovery?: TranscriptRecovery) {
     super(message ?? code);
     this.name = 'YouTubeTranscriptError';
     this.code = code;
+    this.recovery = recovery;
   }
 }
 
@@ -774,7 +781,7 @@ export async function fetchYouTubeServerTranscript(
         console.warn(`[EchoLearn] ${endpoint.label}: empty or unusable transcript`);
       } else {
         const body = await res.text().catch(() => '');
-        let payload: { error?: unknown; code?: unknown; message?: unknown; detail?: { code?: unknown } } | undefined;
+        let payload: { error?: unknown; code?: unknown; message?: unknown; detail?: { code?: unknown }; recovery?: unknown } | undefined;
         try {
           payload = JSON.parse(body) as { error?: unknown; code?: unknown; message?: unknown; detail?: { code?: unknown } };
         } catch {
@@ -784,7 +791,13 @@ export async function fetchYouTubeServerTranscript(
           ?? (res.status === 408 || res.status === 504 ? TRANSCRIPT_ERROR_CODES.PROVIDER_TIMEOUT : undefined);
         if (Object.values(TRANSCRIPT_ERROR_CODES).includes(code as TranscriptErrorCode)) {
           if (code === YOUTUBE_ACQUISITION_BLOCKED) throw new YouTubeAcquisitionBlockedError();
-          throw new YouTubeTranscriptError(code as TranscriptErrorCode, String(payload?.message ?? code));
+          const recovery = payload?.recovery;
+          const structuredRecovery = recovery && typeof recovery === 'object'
+            && (recovery as { canAsr?: unknown }).canAsr === true
+            && (recovery as { requiresExplicitOptIn?: unknown }).requiresExplicitOptIn === true
+            ? { canAsr: true, requiresExplicitOptIn: true }
+            : undefined;
+          throw new YouTubeTranscriptError(code as TranscriptErrorCode, String(payload?.message ?? code), structuredRecovery);
         }
         const detail = `${endpoint.label} HTTP ${res.status}${body ? `: ${body.substring(0, 200)}` : ''}`;
         console.warn(`[EchoLearn] ${endpoint.label} error:`, detail);

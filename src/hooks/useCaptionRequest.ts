@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
+import type { TranscriptRecovery } from '../services/youtubeTranscript';
 
 /**
  * Caption request lifecycle for the Study page.
@@ -56,6 +57,16 @@ export interface CaptionRunOptions<T> {
   begin?: boolean;
 }
 
+function recoveryOf(err: unknown): TranscriptRecovery | null {
+  if (!err || typeof err !== 'object' || !('recovery' in err)) return null;
+  const recovery = (err as { recovery?: unknown }).recovery;
+  return recovery && typeof recovery === 'object'
+    && (recovery as { canAsr?: unknown }).canAsr === true
+    && (recovery as { requiresExplicitOptIn?: unknown }).requiresExplicitOptIn === true
+    ? { canAsr: true, requiresExplicitOptIn: true }
+    : null;
+}
+
 function errorCodeOf(err: unknown): string | null {
   if (!err || typeof err !== 'object' || !('code' in err)) return null;
   const code = (err as { code?: unknown }).code;
@@ -66,6 +77,7 @@ export function useCaptionRequest() {
   const [fetching, setFetching] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [errorCode, setErrorCode] = useState<string | null>(null);
+  const [recovery, setRecovery] = useState<TranscriptRecovery | null>(null);
   const [fetchToast, setFetchToast] = useState<FetchToast | null>(null);
   // Live "elapsed wait" seconds shown during the (often multi-minute) fetch.
   const [elapsed, setElapsed] = useState(0);
@@ -121,6 +133,7 @@ export function useCaptionRequest() {
     setFetching(true);
     setError(null);
     setErrorCode(null);
+    setRecovery(null);
     return { id: idRef.current };
   }, []);
 
@@ -170,6 +183,7 @@ export function useCaptionRequest() {
                 : 'Unknown error fetching captions',
           );
           setErrorCode(errorCodeOf(err));
+          setRecovery(recoveryOf(err));
         })
         .finally(() => end(handle));
     },
@@ -186,6 +200,7 @@ export function useCaptionRequest() {
       if (handle && handle.id !== idRef.current) return;
       setError(message);
       setErrorCode(null);
+      setRecovery(null);
       setFetching(false);
     },
     [],
@@ -199,6 +214,7 @@ export function useCaptionRequest() {
   const clearError = useCallback(() => {
     setError(null);
     setErrorCode(null);
+    setRecovery(null);
   }, []);
   const clearFetchToast = useCallback(() => setFetchToast(null), []);
 
@@ -206,6 +222,7 @@ export function useCaptionRequest() {
     fetching,
     error,
     errorCode,
+    recovery,
     setError,
     clearError,
     elapsed,

@@ -2,6 +2,7 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { renderHook, act } from '@testing-library/react';
 import { useCaptionRequest } from '../useCaptionRequest';
+import { YouTubeTranscriptError } from '../../services/youtubeTranscript';
 
 /** A controllable promise so tests decide exactly when a "request" settles. */
 function deferred<T>() {
@@ -97,6 +98,26 @@ describe('useCaptionRequest — happy path', () => {
     });
 
     expect(hook.result.current.error).toBe('Failed to load this part');
+  });
+
+  it('preserves structured recovery metadata on the current failure', async () => {
+    const hook = setup();
+    const d = deferred<unknown>();
+
+    act(() => {
+      hook.result.current.run(() => d.promise);
+    });
+    await act(async () => {
+      d.reject(new YouTubeTranscriptError(
+        'provider_timeout',
+        'Caption providers timed out.',
+        { canAsr: true, requiresExplicitOptIn: true },
+      ));
+      await vi.advanceTimersByTimeAsync(0);
+    });
+
+    expect(hook.result.current.errorCode).toBe('provider_timeout');
+    expect(hook.result.current.recovery).toEqual({ canAsr: true, requiresExplicitOptIn: true });
   });
 });
 

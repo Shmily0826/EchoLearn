@@ -193,6 +193,7 @@ const StudyPage: React.FC = () => {
     error: captionError,
     clearError: clearCaptionError,
     errorCode: captionErrorCode,
+    recovery: captionRecovery,
     elapsed: fetchElapsed,
     fetchToast,
     clearFetchToast,
@@ -1567,12 +1568,12 @@ const StudyPage: React.FC = () => {
                     {isAsrRequired ? t('study.asrRequiredReason') : asrRecoveryRequested ? t('study.asrFailedReason') : isYoutubeAcquisitionBlocked ? t('study.captionBlockedReason') : isNoCaptions ? t('study.captionNoneReason') : t('study.captionErrorSuggestions')}
                   </p>
                   <div className="flex gap-3">
-                    {shouldOfferAsrRecovery(captionErrorCode, asrRecoveryRequested) && (
+                    {shouldOfferAsrRecovery(captionErrorCode, asrRecoveryRequested, captionRecovery) && (
                       <button onClick={handleGenerateTranscript} disabled={!videoId || fetchingCaption} className="text-xs font-medium text-indigo-600 hover:text-indigo-800 dark:text-indigo-400 cursor-pointer disabled:opacity-50">
                         {fetchingCaption ? t('study.asrGenerating') : t('study.generateTranscript')}
                       </button>
                     )}
-                    {shouldOfferAsrRecovery(captionErrorCode, asrRecoveryRequested) && <span className="text-gray-300 dark:text-gray-600">|</span>}
+                    {shouldOfferAsrRecovery(captionErrorCode, asrRecoveryRequested, captionRecovery) && <span className="text-gray-300 dark:text-gray-600">|</span>}
                     {!isYoutubeAcquisitionBlocked && <>
                       <button
                         onClick={handleReloadTranscript}
@@ -1766,12 +1767,12 @@ const StudyPage: React.FC = () => {
                   </details>
                 </div>
                 <div className="flex gap-3 mt-3">
-                  {shouldOfferAsrRecovery(captionErrorCode, asrRecoveryRequested) && (
+                  {shouldOfferAsrRecovery(captionErrorCode, asrRecoveryRequested, captionRecovery) && (
                     <button onClick={handleGenerateTranscript} disabled={!videoId || fetchingCaption} className="text-xs font-medium text-indigo-600 hover:text-indigo-800 dark:text-indigo-400 cursor-pointer disabled:opacity-50">
                       {fetchingCaption ? t('study.asrGenerating') : t('study.generateTranscript')}
                     </button>
                   )}
-                  {shouldOfferAsrRecovery(captionErrorCode, asrRecoveryRequested) && <span className="text-gray-300 dark:text-gray-600">|</span>}
+                  {shouldOfferAsrRecovery(captionErrorCode, asrRecoveryRequested, captionRecovery) && <span className="text-gray-300 dark:text-gray-600">|</span>}
                   {!isYoutubeAcquisitionBlocked && <>
                     <button
                       onClick={handleReloadTranscript}
