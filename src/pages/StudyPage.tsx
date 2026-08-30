@@ -15,7 +15,11 @@ import { attachTranscriptToSession, createFreshStudySession, normalizeStudyUrl }
 import { lemmatize } from '../utils/lemmatizer';
 import { analyzeTranscript } from '../services/aiAnalysis';
 import { trackEvent } from '../services/analytics';
-import { fetchYouTubeTranscript, YOUTUBE_ACQUISITION_BLOCKED } from '../services/youtubeTranscript';
+import {
+  fetchYouTubeTranscript,
+  TRANSCRIPT_ERROR_CODES,
+  YOUTUBE_ACQUISITION_BLOCKED,
+} from '../services/youtubeTranscript';
 import { fetchBilibiliTranscript, getBilibiliVideoTitle, getBilibiliMetaByUrl } from '../services/bilibiliTranscript';
 import { enrichVocabularyItem } from '../services/vocabularyEnrichment';
 import { pushItemsToCloud, pushSessionToCloud } from '../services/firestoreSync';
@@ -28,6 +32,7 @@ import { useAudioMode } from '../hooks/useAudioMode';
 import { usePlaybackPosition } from '../hooks/usePlaybackPosition';
 import { useTranscriptSeek } from '../hooks/useTranscriptSeek';
 import { getVideoTitle } from '../services/youtubeApi';
+import { shouldOfferAsrRecovery } from './studyAsrRecovery';
 import sampleTranscript from '../data/sample-transcript.json';
 import {
   loadVocabulary,
@@ -186,7 +191,8 @@ const StudyPage: React.FC = () => {
   const {
     fetching: fetchingCaption,
     error: captionError,
-    setError: setCaptionError,
+    clearError: clearCaptionError,
+    errorCode: captionErrorCode,
     elapsed: fetchElapsed,
     fetchToast,
     clearFetchToast,
@@ -204,6 +210,8 @@ const StudyPage: React.FC = () => {
     !!captionError &&
     /^No captions\/subtitles available/i.test(captionError.trim());
   const isYoutubeAcquisitionBlocked = captionError === YOUTUBE_ACQUISITION_BLOCKED;
+  const isAsrRequired = captionErrorCode === TRANSCRIPT_ERROR_CODES.ASR_REQUIRED;
+  const [asrRecoveryRequested, setAsrRecoveryRequested] = useState(false);
 
   // Analysis error state
   const [analysisError, setAnalysisError] = useState<string | null>(null);
@@ -459,8 +467,9 @@ const StudyPage: React.FC = () => {
     setBiliPage(saved.biliPage);
     setBiliParts(undefined);
     setAnalysis(null);
+    setAsrRecoveryRequested(false);
     setStreamChars(0);
-    setCaptionError(null);
+    clearCaptionError();
 
     refreshTitleForVideo(
       saved.youtubeUrl,
@@ -613,6 +622,7 @@ const StudyPage: React.FC = () => {
     const detected = detectPlatform(urlInput);
     if (!detected) return;
 
+    setAsrRecoveryRequested(false);
     setPlatform(detected);
 
     const persistTranscriptInto = (sess: VideoStudySession, lines: TranscriptLine[]) => {
@@ -790,7 +800,8 @@ const StudyPage: React.FC = () => {
     setRawBlocks([]);
     setSentenceLines([]);
     setAnalysis(null);
-    setCaptionError(null);
+    setAsrRecoveryRequested(false);
+    clearCaptionError();
     setPlatform('youtube');
     setBiliPage(undefined);
     setBiliParts(undefined);
@@ -798,6 +809,7 @@ const StudyPage: React.FC = () => {
 
   // ── Reload transcript for the current video ────────────────
   const handleReloadTranscript = useCallback(() => {
+    setAsrRecoveryRequested(false);
     if (!videoId) {
       failCaptionRequest(t('study.videoNotReady'));
       return;
@@ -826,6 +838,38 @@ const StudyPage: React.FC = () => {
       },
     );
   }, [videoId, platform, session, biliPage]);
+
+  // ASR is deliberately a separate, user-triggered action. It uses the same
+  // latest-request-wins machinery as captions, so a video switch invalidates
+  // a late ASR response and the disabled button prevents duplicate clicks.
+  const handleGenerateTranscript = useCallback(() => {
+    if (!videoId || platform !== 'youtube' || fetchingCaption) return;
+    setAsrRecoveryRequested(true);
+    runCaptionRequest(
+      () => fetchYouTubeTranscript(videoId, 'en', { allowAsr: true }),
+      {
+        onSuccess: (res) => {
+          if (res.lines.length === 0) {
+            throw new Error('Explicit ASR returned no transcript');
+          }
+          const sLines = normalizeTranscriptToSentences(res.lines);
+          setRawBlocks(res.lines);
+          setSentenceLines(sLines);
+          if (session) {
+            const updated = {
+              ...session,
+              transcriptLines: res.lines,
+              transcriptData: { rawBlocks: res.lines, sentenceLines: sLines },
+            };
+            saveCurrentSession(updated);
+            setSession(updated);
+          }
+          setAsrRecoveryRequested(false);
+          return { count: res.lines.length, source: transcriptSourceLabel(t, 'youtube', res) };
+        },
+      },
+    );
+  }, [videoId, platform, fetchingCaption, session, t, runCaptionRequest]);
 
   // ── Switch Bilibili part (分p) ────────────────────────────
   const handleBiliPartChange = useCallback(
@@ -1502,9 +1546,9 @@ const StudyPage: React.FC = () => {
                   <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
                   <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z" />
                 </svg>
-                <p className="text-sm">{platform === 'bilibili' ? t('study.fetchingFullBili') : t('study.fetchingFull')}</p>
+                <p className="text-sm">{asrRecoveryRequested ? t('study.asrGeneratingStatus') : platform === 'bilibili' ? t('study.fetchingFullBili') : t('study.fetchingFull')}</p>
                 <p className="text-xs mt-1 text-gray-300 dark:text-gray-500">
-                  {platform === 'bilibili' ? t('study.mayTakeBili') : t('study.mayTake')}
+                  {asrRecoveryRequested ? t('study.asrRequiredReason') : platform === 'bilibili' ? t('study.mayTakeBili') : t('study.mayTake')}
                   {' · '}{t('study.fetchElapsed', { sec: fetchElapsed })}
                 </p>
               </div>
@@ -1517,12 +1561,18 @@ const StudyPage: React.FC = () => {
                     <path strokeLinecap="round" strokeLinejoin="round" d="M12 9v3.75m9-.75a9 9 0 11-18 0 9 9 0 0118 0zm-9 3.75h.008v.008H12v-.008z" />
                   </svg>
                   <p className="text-sm text-red-600 dark:text-red-400 font-medium mb-1">
-                    {isYoutubeAcquisitionBlocked ? t('study.captionBlockedTitle') : isNoCaptions ? t('study.captionNoneTitle') : t('study.captionErrorFriendly')}
+                    {isAsrRequired ? t('study.asrRequiredTitle') : asrRecoveryRequested ? t('study.asrFailedTitle') : isYoutubeAcquisitionBlocked ? t('study.captionBlockedTitle') : isNoCaptions ? t('study.captionNoneTitle') : t('study.captionErrorFriendly')}
                   </p>
                   <p className="text-xs text-gray-500 dark:text-gray-400 mb-3">
-                    {isYoutubeAcquisitionBlocked ? t('study.captionBlockedReason') : isNoCaptions ? t('study.captionNoneReason') : t('study.captionErrorSuggestions')}
+                    {isAsrRequired ? t('study.asrRequiredReason') : asrRecoveryRequested ? t('study.asrFailedReason') : isYoutubeAcquisitionBlocked ? t('study.captionBlockedReason') : isNoCaptions ? t('study.captionNoneReason') : t('study.captionErrorSuggestions')}
                   </p>
                   <div className="flex gap-3">
+                    {shouldOfferAsrRecovery(captionErrorCode, asrRecoveryRequested) && (
+                      <button onClick={handleGenerateTranscript} disabled={!videoId || fetchingCaption} className="text-xs font-medium text-indigo-600 hover:text-indigo-800 dark:text-indigo-400 cursor-pointer disabled:opacity-50">
+                        {fetchingCaption ? t('study.asrGenerating') : t('study.generateTranscript')}
+                      </button>
+                    )}
+                    {shouldOfferAsrRecovery(captionErrorCode, asrRecoveryRequested) && <span className="text-gray-300 dark:text-gray-600">|</span>}
                     {!isYoutubeAcquisitionBlocked && <>
                       <button
                         onClick={handleReloadTranscript}
@@ -1535,7 +1585,7 @@ const StudyPage: React.FC = () => {
                       <span className="text-gray-300 dark:text-gray-600">|</span>
                     </>}
                     <button
-                      onClick={() => setCaptionError(null)}
+                      onClick={() => { setAsrRecoveryRequested(false); clearCaptionError(); }}
                       className="text-xs text-indigo-500 hover:text-indigo-700 dark:hover:text-indigo-300 cursor-pointer"
                     >
                       {t('study.dismiss')}
@@ -1692,9 +1742,9 @@ const StudyPage: React.FC = () => {
                   <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
                   <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z" />
                 </svg>
-                <p className="text-sm">{platform === 'bilibili' ? t('study.fetchingFullBili') : t('study.fetchingFull')}</p>
+                <p className="text-sm">{asrRecoveryRequested ? t('study.asrGeneratingStatus') : platform === 'bilibili' ? t('study.fetchingFullBili') : t('study.fetchingFull')}</p>
                 <p className="text-xs mt-1 text-gray-300 dark:text-gray-500">
-                  {platform === 'bilibili' ? t('study.mayTakeBili') : t('study.mayTake')}
+                  {asrRecoveryRequested ? t('study.asrRequiredReason') : platform === 'bilibili' ? t('study.mayTakeBili') : t('study.mayTake')}
                   {' · '}{t('study.fetchElapsed', { sec: fetchElapsed })}
                 </p>
               </div>
@@ -1705,10 +1755,10 @@ const StudyPage: React.FC = () => {
                     <path strokeLinecap="round" strokeLinejoin="round" d="M12 9v3.75m9-.75a9 9 0 11-18 0 9 9 0 0118 0zm-9 3.75h.008v.008H12v-.008z" />
                   </svg>
                   <p className="text-sm text-red-600 dark:text-red-400 font-medium mb-1">
-                    {isYoutubeAcquisitionBlocked ? t('study.captionBlockedTitle') : isNoCaptions ? t('study.captionNoneTitle') : t('study.captionErrorFriendly')}
+                    {isAsrRequired ? t('study.asrRequiredTitle') : asrRecoveryRequested ? t('study.asrFailedTitle') : isYoutubeAcquisitionBlocked ? t('study.captionBlockedTitle') : isNoCaptions ? t('study.captionNoneTitle') : t('study.captionErrorFriendly')}
                   </p>
                   <p className="text-xs text-gray-500 dark:text-gray-400 mb-3">
-                    {isYoutubeAcquisitionBlocked ? t('study.captionBlockedReason') : isNoCaptions ? t('study.captionNoneReason') : t('study.captionErrorSuggestions')}
+                    {isAsrRequired ? t('study.asrRequiredReason') : asrRecoveryRequested ? t('study.asrFailedReason') : isYoutubeAcquisitionBlocked ? t('study.captionBlockedReason') : isNoCaptions ? t('study.captionNoneReason') : t('study.captionErrorSuggestions')}
                   </p>
                   <details className="text-left mt-2">
                     <summary className="text-xs text-gray-400 dark:text-gray-500 cursor-pointer hover:text-gray-600 dark:hover:text-gray-300">{t('study.captionErrorDetails')}</summary>
@@ -1716,6 +1766,12 @@ const StudyPage: React.FC = () => {
                   </details>
                 </div>
                 <div className="flex gap-3 mt-3">
+                  {shouldOfferAsrRecovery(captionErrorCode, asrRecoveryRequested) && (
+                    <button onClick={handleGenerateTranscript} disabled={!videoId || fetchingCaption} className="text-xs font-medium text-indigo-600 hover:text-indigo-800 dark:text-indigo-400 cursor-pointer disabled:opacity-50">
+                      {fetchingCaption ? t('study.asrGenerating') : t('study.generateTranscript')}
+                    </button>
+                  )}
+                  {shouldOfferAsrRecovery(captionErrorCode, asrRecoveryRequested) && <span className="text-gray-300 dark:text-gray-600">|</span>}
                   {!isYoutubeAcquisitionBlocked && <>
                     <button
                       onClick={handleReloadTranscript}
@@ -1728,7 +1784,7 @@ const StudyPage: React.FC = () => {
                     <span className="text-gray-300 dark:text-gray-600">|</span>
                   </>}
                   <button
-                    onClick={() => setCaptionError(null)}
+                    onClick={() => { setAsrRecoveryRequested(false); clearCaptionError(); }}
                     className="text-xs text-indigo-500 hover:text-indigo-700 dark:hover:text-indigo-300 cursor-pointer"
                   >
                     {t('study.dismiss')}

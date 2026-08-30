@@ -219,4 +219,25 @@ describe('fetchYouTubeTranscript provider order and failure classification', () 
       .resolves.toMatchObject({ lines: [{ text: 'asr' }] });
     expect(String(fetchMock.mock.calls[0][0])).toContain('allowAsr=1');
   });
+
+  it('uses the bounded ASR budget and never falls back to Vercel', async () => {
+    vi.useFakeTimers();
+    let signal: AbortSignal | undefined;
+    fetchMock.mockImplementation((_url, init) => {
+      signal = init?.signal as AbortSignal;
+      return new Promise((_resolve, reject) => {
+        signal?.addEventListener('abort', () => reject(Object.assign(new Error('aborted'), { name: 'AbortError' })));
+      });
+    });
+
+    const request = fetchYouTubeServerTranscript('video-id', 'en', undefined, { allowAsr: true });
+    const rejection = expect(request).rejects.toMatchObject({ code: 'provider_timeout' });
+    await vi.advanceTimersByTimeAsync(89_999);
+    expect(signal?.aborted).toBe(false);
+    await vi.advanceTimersByTimeAsync(1);
+    await rejection;
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+    expect(String(fetchMock.mock.calls[0][0])).toContain('allowAsr=1');
+    vi.useRealTimers();
+  });
 });

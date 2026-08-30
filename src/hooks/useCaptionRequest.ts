@@ -56,9 +56,16 @@ export interface CaptionRunOptions<T> {
   begin?: boolean;
 }
 
+function errorCodeOf(err: unknown): string | null {
+  if (!err || typeof err !== 'object' || !('code' in err)) return null;
+  const code = (err as { code?: unknown }).code;
+  return typeof code === 'string' ? code : null;
+}
+
 export function useCaptionRequest() {
   const [fetching, setFetching] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [errorCode, setErrorCode] = useState<string | null>(null);
   const [fetchToast, setFetchToast] = useState<FetchToast | null>(null);
   // Live "elapsed wait" seconds shown during the (often multi-minute) fetch.
   const [elapsed, setElapsed] = useState(0);
@@ -113,6 +120,7 @@ export function useCaptionRequest() {
     setFetchToast(null);
     setFetching(true);
     setError(null);
+    setErrorCode(null);
     return { id: idRef.current };
   }, []);
 
@@ -161,6 +169,7 @@ export function useCaptionRequest() {
                 ? err.message
                 : 'Unknown error fetching captions',
           );
+          setErrorCode(errorCodeOf(err));
         })
         .finally(() => end(handle));
     },
@@ -176,6 +185,7 @@ export function useCaptionRequest() {
     (message: string, handle?: CaptionHandle) => {
       if (handle && handle.id !== idRef.current) return;
       setError(message);
+      setErrorCode(null);
       setFetching(false);
     },
     [],
@@ -186,12 +196,16 @@ export function useCaptionRequest() {
     idRef.current += 1;
   }, []);
 
-  const clearError = useCallback(() => setError(null), []);
+  const clearError = useCallback(() => {
+    setError(null);
+    setErrorCode(null);
+  }, []);
   const clearFetchToast = useCallback(() => setFetchToast(null), []);
 
   return {
     fetching,
     error,
+    errorCode,
     setError,
     clearError,
     elapsed,

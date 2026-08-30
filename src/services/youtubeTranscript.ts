@@ -745,7 +745,9 @@ export async function fetchYouTubeServerTranscript(
   // Caption acquisition is a fast path. A server response that says the
   // provider timed out/was blocked/not-found is authoritative for this flow;
   // only transport and generic 5xx failures justify trying the other server.
-  const WORKER_TIMEOUT_MS = 12000;
+  // Caption-only requests stay fast. Explicit ASR includes the Worker VPS
+  // budget (75s) plus a small transport buffer, but remains bounded.
+  const WORKER_TIMEOUT_MS = options.allowAsr ? 90000 : 12000;
   const VERCEL_TIMEOUT_MS = 8000;
   const endpoints = [
     { url: workerUrl, label: 'CF Worker', timeoutMs: WORKER_TIMEOUT_MS },
@@ -754,7 +756,7 @@ export async function fetchYouTubeServerTranscript(
       label: 'Vercel server API',
       timeoutMs: VERCEL_TIMEOUT_MS,
     },
-  ];
+  ].slice(0, options.allowAsr ? 1 : 2);
 
   for (let index = 0; index < endpoints.length; index++) {
     const endpoint = endpoints[index];
@@ -798,6 +800,9 @@ export async function fetchYouTubeServerTranscript(
       // endpoint can help; calling it would repeat the same VPS bottleneck.
       if (index === 0 && err instanceof Error && err.name === 'AbortError') {
         throw new YouTubeTranscriptError(TRANSCRIPT_ERROR_CODES.PROVIDER_TIMEOUT, 'Transcript provider timed out');
+      }
+      if (options.allowAsr && index === 0) {
+        throw err;
       }
     }
   }
@@ -867,6 +872,7 @@ export interface TranscriptFetchResult {
 async function _fetchYouTubeTranscriptImpl(
   videoId: string,
   lang = 'en',
+  options: { allowAsr?: boolean } = {},
 ): Promise<TranscriptFetchResult> {
   const errors: string[] = [];
 
@@ -889,8 +895,11 @@ async function _fetchYouTubeTranscriptImpl(
     const serverFailures: string[] = [];
     const serverResult = await fetchYouTubeServerTranscript(videoId, lang, (detail) => {
       serverFailures.push(detail);
-    });
+    }, options);
     if (serverResult) return serverResult;
+    if (options.allowAsr) {
+      throw new Error('Explicit ASR request returned no transcript');
+    }
     errors.push(
       serverFailures.length > 0
         ? `Server API: ${serverFailures.join('; ')}`
@@ -899,6 +908,7 @@ async function _fetchYouTubeTranscriptImpl(
   } catch (err) {
     if (err instanceof YouTubeAcquisitionBlockedError) throw err;
     if (err instanceof YouTubeTranscriptError) throw err;
+    if (options.allowAsr) throw err;
     errors.push(
       `Server API: ${err instanceof Error ? err.message : 'failed'}`,
     );
@@ -963,11 +973,12 @@ const _transcriptFetchCache = new Map<string, Promise<TranscriptFetchResult>>();
 export async function fetchYouTubeTranscript(
   videoId: string,
   lang = 'en',
+  options: { allowAsr?: boolean } = {},
 ): Promise<TranscriptFetchResult> {
-  const key = `${videoId}:${lang}`;
+  const key = `${videoId}:${lang}:${options.allowAsr ? 'asr' : 'captions'}`;
   const cached = _transcriptFetchCache.get(key);
   if (cached) return cached;
-  const p = _fetchYouTubeTranscriptImpl(videoId, lang);
+  const p = _fetchYouTubeTranscriptImpl(videoId, lang, options);
   _transcriptFetchCache.set(key, p);
   p.finally(() => {
     if (_transcriptFetchCache.get(key) === p) _transcriptFetchCache.delete(key);
