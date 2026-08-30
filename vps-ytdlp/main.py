@@ -97,6 +97,36 @@ app.add_middleware(
 TRACE_HEADER = "X-EchoLearn-Trace-Id"
 _TRACE_CONTEXT: ContextVar[str | None] = ContextVar("echolearn_trace_id", default=None)
 
+_YTDLP_FAILURE_CATEGORIES = frozenset({
+    "youtube_bot_check",
+    "http_403",
+    "http_429",
+    "proxy_auth",
+    "proxy_connect",
+    "network",
+    "player_challenge",
+    "format_unavailable",
+    "timeout",
+    "tls_network",
+    "extraction_failure",
+    "unknown",
+})
+_YTDLP_FAILURE_SIGNATURES = frozenset({
+    "signin_required",
+    "http_403",
+    "http_429",
+    "proxy_auth",
+    "proxy_connect",
+    "network_error",
+    "player_challenge",
+    "format_unavailable",
+    "timeout",
+    "tls_network",
+    "nonzero_exit",
+    "no_output",
+    "unknown",
+})
+
 
 class YouTubeAcquisitionBlocked(Exception):
     """The source refused media acquisition in a known, bounded way."""
@@ -119,8 +149,12 @@ def _trace_event(event: str, **fields) -> None:
     for key, value in fields.items():
         if isinstance(value, (bool, int, float)) or (
             isinstance(value, str)
-            and key in {"outcome", "result", "category", "format"}
+            and key in {"outcome", "result", "category", "format", "mode", "signature"}
         ):
+            if key == "mode" and value not in {"direct", "proxy"}:
+                continue
+            if key == "signature" and value not in _YTDLP_FAILURE_SIGNATURES:
+                continue
             safe[key] = value
     print(json.dumps(safe), flush=True)
 
@@ -1179,18 +1213,87 @@ def _run_yt_dlp(cmd: list, cwd: str, env: dict, timeout: int):
     return proc.returncode, stdout, stderr, False
 
 
+def _yt_dlp_failure_evidence(
+    stderr: str | None,
+    *,
+    returncode: int | None = 1,
+    timed_out: bool = False,
+    mode: str | None = None,
+) -> tuple[str, str]:
+    """Return an allow-listed category and signature without retaining stderr.
+
+    The signature is a normalized marker, never a substring of provider output.
+    Keep the matching intentionally coarse: it is diagnostic evidence, not a
+    second yt-dlp error parser.
+    """
+    text = stderr.lower() if isinstance(stderr, str) else ""
+    if timed_out or "timed out" in text or "timeout" in text:
+        return "timeout", "timeout"
+    if (
+        "sign in to confirm" in text
+        or "not a bot" in text
+        or "please sign in" in text
+        or "confirm you're not a bot" in text
+    ):
+        return "youtube_bot_check", "signin_required"
+    if "proxy authentication required" in text or "proxy auth" in text or re.search(r"\b407\b", text):
+        return "proxy_auth", "proxy_auth"
+    if (
+        "http error 403" in text
+        or "403 forbidden" in text
+        or "status code 403" in text
+    ):
+        return "http_403", "http_403"
+    if (
+        "http error 429" in text
+        or "429 too many requests" in text
+        or "status code 429" in text
+    ):
+        return "http_429", "http_429"
+    if (
+        "player challenge" in text
+        or "javascript challenge" in text
+        or "signature extraction" in text
+        or "po token" in text
+    ):
+        return "player_challenge", "player_challenge"
+    if (
+        "requested format is not available" in text
+        or "format is not available" in text
+        or "no video formats found" in text
+    ):
+        return "format_unavailable", "format_unavailable"
+    if (
+        "certificate verify failed" in text
+        or "ssl error" in text
+        or "tls handshake" in text
+        or "wrong version number" in text
+    ):
+        return "tls_network", "tls_network"
+    if (
+        "proxyconnect" in text
+        or "proxy connection" in text
+        or "proxy error" in text
+        or "tunnel connection failed" in text
+    ):
+        return "proxy_connect", "proxy_connect"
+    if (
+        "connection refused" in text
+        or "connection reset" in text
+        or "network is unreachable" in text
+        or "name or service not known" in text
+    ):
+        return ("proxy_connect", "proxy_connect") if mode == "proxy" else ("network", "network_error")
+    if not text.strip():
+        return "unknown", "no_output"
+    if returncode not in (None, 0):
+        return "extraction_failure", "nonzero_exit"
+    return "unknown", "unknown"
+
+
 def _yt_dlp_failure_category(stderr: str) -> str:
-    """Classify only the bounded failure modes used by extraction fallback."""
-    text = (stderr or "").lower()
-    if "sign in to confirm" in text or "not a bot" in text or "please sign in" in text:
-        return "youtube_bot_check"
-    if "http error 403" in text and "youtube" in text:
-        return "youtube_media_forbidden"
-    if "proxy authentication required" in text or "407" in text:
-        return "proxy_auth_failure"
-    if "timed out" in text or "timeout" in text:
-        return "network_timeout"
-    return "extraction_failure"
+    """Return the bounded failure category used by extraction diagnostics."""
+    return _yt_dlp_failure_evidence(stderr)[0]
 
 
 def _download_audio(
@@ -1237,7 +1340,11 @@ def _download_audio(
     if YTDLP_PROXY and _is_youtube(target_url):
         envs.append(_proxy_env(target_url))
 
-    last_blocked_category = None
+    blocked_evidence = False
+    last_category = None
+    last_signature = None
+    last_mode = None
+    attempt_count = 0
 
     for env_index, env in enumerate(envs):
         for attempt in range(1, YTDLP_RETRIES + 1):
@@ -1260,15 +1367,40 @@ def _download_audio(
             returncode, _stdout, stderr, timed_out = _run_yt_dlp(
                 cmd, cwd=td, env=env, timeout=attempt_timeout,
             )
+            mode = "direct" if env_index == 0 else "proxy"
+            attempt_count += 1
             if timed_out:
+                category, signature = _yt_dlp_failure_evidence(
+                    stderr, returncode=returncode, timed_out=True, mode=mode,
+                )
+                last_category, last_signature, last_mode = category, signature, mode
+                _trace_event(
+                    "audio_extract_attempt",
+                    attempt=attempt,
+                    elapsedMs=round((time.monotonic() - attempt_started) * 1000),
+                    mode=mode,
+                    outcome=category,
+                    category=category,
+                    signature=signature,
+                )
                 _trace_event(
                     "audio_extract_finish",
                     attempt=attempt,
                     elapsedMs=round((time.monotonic() - attempt_started) * 1000),
+                    mode=mode,
                     outcome="timeout",
+                    category=category,
+                    signature=signature,
                 )
-                if last_blocked_category:
-                    _trace_event("audio_extract_finish", outcome="blocked", category=last_blocked_category)
+                if blocked_evidence:
+                    _trace_event(
+                        "audio_extract_finish",
+                        outcome="blocked",
+                        category=category,
+                        mode=mode,
+                        signature=signature,
+                        blockedEvidence=True,
+                    )
                     raise YouTubeAcquisitionBlocked
                 return None
             for fname in sorted(os.listdir(td)):
@@ -1280,34 +1412,61 @@ def _download_audio(
                         sizeBytes=os.path.getsize(path),
                         format="mp3",
                         sampleRate=16000,
+                        mode=mode,
+                    )
+                    _trace_event(
+                        "audio_extract_attempt",
+                        attempt=attempt,
+                        elapsedMs=round((time.monotonic() - attempt_started) * 1000),
+                        mode=mode,
+                        outcome="success",
+                        category="success",
                     )
                     _trace_event(
                         "audio_extract_finish",
                         attempt=attempt,
                         elapsedMs=round((time.monotonic() - attempt_started) * 1000),
                         totalElapsedMs=round((time.monotonic() - extraction_started) * 1000),
+                        mode=mode,
                         outcome="success",
                     )
                     return path
-            category = _yt_dlp_failure_category(stderr) if returncode else "no_output"
+            category, signature = _yt_dlp_failure_evidence(
+                stderr, returncode=returncode, mode=mode,
+            )
+            last_category, last_signature, last_mode = category, signature, mode
             _trace_event(
                 "audio_extract_attempt",
                 attempt=attempt,
                 elapsedMs=round((time.monotonic() - attempt_started) * 1000),
+                mode=mode,
                 outcome=category,
+                category=category,
+                signature=signature,
             )
-            if category in {"youtube_bot_check", "youtube_media_forbidden"}:
-                last_blocked_category = category
+            if category in {"youtube_bot_check", "http_403"}:
+                blocked_evidence = True
                 if env_index + 1 < len(envs):
-                    _trace_event("audio_proxy_fallback_start", outcome=category)
+                    _trace_event(
+                        "audio_proxy_fallback_start",
+                        outcome=category,
+                        mode=mode,
+                        signature=signature,
+                    )
                 break
+    final_category = last_category or "unknown"
+    final_signature = last_signature or "unknown"
     _trace_event(
         "audio_extract_finish",
         elapsedMs=round((time.monotonic() - extraction_started) * 1000),
-        outcome="blocked" if last_blocked_category else "failure",
-        category=last_blocked_category or "extraction_failure",
+        attempts=attempt_count,
+        mode=last_mode,
+        outcome="blocked" if blocked_evidence else "failure",
+        category=final_category,
+        signature=final_signature,
+        blockedEvidence=blocked_evidence,
     )
-    if last_blocked_category:
+    if blocked_evidence:
         raise YouTubeAcquisitionBlocked
     return None
 

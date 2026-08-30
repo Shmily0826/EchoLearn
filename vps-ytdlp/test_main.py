@@ -26,6 +26,10 @@ def _response(payload):
     return _Response(json.dumps(payload).encode("utf-8"))
 
 
+def _trace_lines(output):
+    return [json.loads(line) for line in output.getvalue().splitlines() if line.strip()]
+
+
 class _FakeYtdlpProcess:
     next_results = []
 
@@ -146,6 +150,78 @@ class AudioAcquisitionTests(unittest.TestCase):
         main.YTDLP_PROXY = self.proxy
         main.YTDLP_RETRIES = self.retries
         main._TRACE_CONTEXT.reset(self.trace_token)
+
+    def test_failure_classifier_uses_allowlisted_categories_and_signatures(self):
+        cases = [
+            (
+                "ERROR: Sign in to confirm you're not a bot; token=UNSAFE_TOKEN",
+                "youtube_bot_check",
+                "signin_required",
+                "direct",
+            ),
+            ("ERROR: HTTP Error 403: Forbidden", "http_403", "http_403", "proxy"),
+            ("ERROR: HTTP Error 429: Too Many Requests", "http_429", "http_429", "proxy"),
+            ("ERROR: Proxy authentication required", "proxy_auth", "proxy_auth", "proxy"),
+            ("ERROR: HTTP 407", "proxy_auth", "proxy_auth", "proxy"),
+            ("ERROR: proxy connection reset", "proxy_connect", "proxy_connect", "proxy"),
+            ("ERROR: JavaScript challenge required", "player_challenge", "player_challenge", "direct"),
+            ("ERROR: Requested format is not available", "format_unavailable", "format_unavailable", "direct"),
+            ("ERROR: TLS handshake failed", "tls_network", "tls_network", "direct"),
+            ("ERROR: decoder failed", "extraction_failure", "nonzero_exit", "direct"),
+            ("", "unknown", "no_output", "direct"),
+        ]
+        for stderr, category, signature, mode in cases:
+            with self.subTest(category=category):
+                result = main._yt_dlp_failure_evidence(stderr, mode=mode)
+                self.assertEqual(result, (category, signature))
+                self.assertIn(category, main._YTDLP_FAILURE_CATEGORIES)
+                self.assertIn(signature, main._YTDLP_FAILURE_SIGNATURES)
+
+    def test_audio_attempt_trace_is_safe_and_final_category_uses_latest_proxy_failure(self):
+        secret = "https://user:UNSAFE_PASSWORD@proxy.example:8080/path?token=UNSAFE_TOKEN"
+        stderr_values = [
+            f"ERROR: Sign in to confirm you're not a bot {secret}",
+            f"ERROR: proxy connection reset {secret}",
+            f"ERROR: HTTP Error 429: Too Many Requests {secret}",
+            f"ERROR: decoder failed raw-provider-stderr {secret}",
+        ]
+        _FakeYtdlpProcess.next_results = [(1, stderr, False) for stderr in stderr_values]
+        with tempfile.TemporaryDirectory() as directory, patch.object(
+            main.subprocess, "Popen", side_effect=_FakeYtdlpProcess
+        ), redirect_stdout(io.StringIO()) as output:
+            with self.assertRaises(main.YouTubeAcquisitionBlocked):
+                main._download_audio("https://www.youtube.com/watch?v=test", directory)
+
+        events = _trace_lines(output)
+        attempts = [event for event in events if event.get("event") == "audio_extract_attempt"]
+        self.assertEqual(len(attempts), 4)
+        self.assertEqual(
+            (attempts[0]["mode"], attempts[0]["attempt"], attempts[0]["category"], attempts[0]["signature"]),
+            ("direct", 1, "youtube_bot_check", "signin_required"),
+        )
+        self.assertEqual([event["mode"] for event in attempts[1:]], ["proxy", "proxy", "proxy"])
+        self.assertEqual([event["attempt"] for event in attempts[1:]], [1, 2, 3])
+        self.assertEqual(
+            [event["category"] for event in attempts[1:]],
+            ["proxy_connect", "http_429", "extraction_failure"],
+        )
+
+        final = [
+            event
+            for event in events
+            if event.get("event") == "audio_extract_finish" and "attempts" in event
+        ][-1]
+        self.assertEqual(final["outcome"], "blocked")
+        self.assertEqual(final["category"], "extraction_failure")
+        self.assertEqual(final["signature"], "nonzero_exit")
+        self.assertEqual(final["mode"], "proxy")
+        self.assertEqual(final["attempts"], 4)
+        self.assertTrue(final["blockedEvidence"])
+        log = output.getvalue()
+        self.assertNotIn(secret, log)
+        self.assertNotIn("UNSAFE_PASSWORD", log)
+        self.assertNotIn("raw-provider-stderr", log)
+        self.assertNotIn("UNSAFE_TOKEN", log)
 
     def test_bot_check_switches_to_proxy_without_repeating_direct_attempts(self):
         _FakeYtdlpProcess.next_results = [
