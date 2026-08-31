@@ -225,6 +225,103 @@ YTDLP_CACHE_TTL = int(os.environ.get("YTDLP_CACHE_TTL", "3600"))  # seconds
 YTDLP_COOKIES = os.environ.get("YTDLP_COOKIES") or ""
 YTDLP_RETRIES = int(os.environ.get("YTDLP_RETRIES", "5"))  # yt-dlp subprocess attempts
 
+# A proxy connection refusal is endpoint-level evidence, rather than a
+# video-specific extraction failure. Keep that negative result briefly so a
+# burst of difficult-video requests does not repeat the full proxy retry loop.
+# 45 seconds is long enough to collapse repeated doomed attempts while short
+# enough to re-probe a provider that repairs the listener without creating a
+# prolonged outage. This is deliberately process-local and proxy-only.
+PROXY_CIRCUIT_TTL_SECONDS = 45
+_PROXY_CIRCUIT_LOCK = threading.Lock()
+_PROXY_CIRCUIT_OPEN_UNTIL = 0.0
+_PROXY_CIRCUIT_PROXY_KEY = None
+
+
+def _proxy_circuit_proxy_key() -> str | None:
+    """Return a non-sensitive identity for the currently configured proxy."""
+    if not YTDLP_PROXY:
+        return None
+    return hashlib.sha256(YTDLP_PROXY.encode("utf-8")).hexdigest()
+
+
+def _proxy_circuit_is_open() -> tuple[bool, int]:
+    """Return whether the current proxy is temporarily known unavailable."""
+    global _PROXY_CIRCUIT_OPEN_UNTIL, _PROXY_CIRCUIT_PROXY_KEY
+
+    proxy_key = _proxy_circuit_proxy_key()
+    if not proxy_key:
+        return False, 0
+
+    now = time.monotonic()
+    expired = False
+    with _PROXY_CIRCUIT_LOCK:
+        if _PROXY_CIRCUIT_PROXY_KEY != proxy_key:
+            _PROXY_CIRCUIT_OPEN_UNTIL = 0.0
+            _PROXY_CIRCUIT_PROXY_KEY = None
+            return False, 0
+        if _PROXY_CIRCUIT_OPEN_UNTIL <= now:
+            if _PROXY_CIRCUIT_OPEN_UNTIL:
+                expired = True
+            _PROXY_CIRCUIT_OPEN_UNTIL = 0.0
+            _PROXY_CIRCUIT_PROXY_KEY = None
+            remaining = 0
+        else:
+            remaining = max(1, int(_PROXY_CIRCUIT_OPEN_UNTIL - now))
+
+    if expired:
+        _trace_event("audio_proxy_circuit_expired", outcome="closed")
+    return remaining > 0, remaining
+
+
+def _proxy_circuit_trip(category: str, signature: str) -> None:
+    """Open the breaker only for deterministic proxy endpoint failures."""
+    global _PROXY_CIRCUIT_OPEN_UNTIL, _PROXY_CIRCUIT_PROXY_KEY
+
+    if category != "proxy_connect":
+        return
+    proxy_key = _proxy_circuit_proxy_key()
+    if not proxy_key:
+        return
+
+    now = time.monotonic()
+    transitioned = False
+    with _PROXY_CIRCUIT_LOCK:
+        if (
+            _PROXY_CIRCUIT_PROXY_KEY != proxy_key
+            or _PROXY_CIRCUIT_OPEN_UNTIL <= now
+        ):
+            _PROXY_CIRCUIT_PROXY_KEY = proxy_key
+            _PROXY_CIRCUIT_OPEN_UNTIL = now + PROXY_CIRCUIT_TTL_SECONDS
+            transitioned = True
+
+    if transitioned:
+        _trace_event(
+            "audio_proxy_circuit_open",
+            outcome="open",
+            category=category,
+            signature=signature,
+            mode="proxy",
+            ttlSec=PROXY_CIRCUIT_TTL_SECONDS,
+        )
+
+
+def _proxy_circuit_record_success() -> None:
+    """Close a matching breaker after a successful proxy acquisition."""
+    global _PROXY_CIRCUIT_OPEN_UNTIL, _PROXY_CIRCUIT_PROXY_KEY
+
+    proxy_key = _proxy_circuit_proxy_key()
+    if not proxy_key:
+        return
+
+    was_open = False
+    with _PROXY_CIRCUIT_LOCK:
+        if _PROXY_CIRCUIT_PROXY_KEY == proxy_key and _PROXY_CIRCUIT_OPEN_UNTIL:
+            was_open = True
+            _PROXY_CIRCUIT_OPEN_UNTIL = 0.0
+            _PROXY_CIRCUIT_PROXY_KEY = None
+    if was_open:
+        _trace_event("audio_proxy_circuit_reset", outcome="closed", mode="proxy")
+
 # Audio-only extraction budgets. A single yt-dlp call can blow the Cloudflare
 # Worker's ~180s window if the residential proxy is slow, so we cap the
 # per-attempt subprocess timeout tightly and allow several attempts
@@ -1347,7 +1444,26 @@ def _download_audio(
     attempt_count = 0
 
     for env_index, env in enumerate(envs):
+        mode = "direct" if env_index == 0 else "proxy"
         for attempt in range(1, YTDLP_RETRIES + 1):
+            if mode == "proxy":
+                circuit_open, remaining = _proxy_circuit_is_open()
+                if circuit_open:
+                    blocked_evidence = blocked_evidence or bool(last_category in {
+                        "youtube_bot_check", "http_403"
+                    })
+                    last_category = "proxy_connect"
+                    last_signature = "proxy_connect"
+                    last_mode = mode
+                    _trace_event(
+                        "audio_proxy_circuit_skip",
+                        outcome="open",
+                        category="proxy_connect",
+                        signature="proxy_connect",
+                        mode=mode,
+                        remainingSec=remaining,
+                    )
+                    break
             if deadline is not None:
                 remaining = deadline - time.monotonic()
                 if remaining <= 0:
@@ -1367,7 +1483,6 @@ def _download_audio(
             returncode, _stdout, stderr, timed_out = _run_yt_dlp(
                 cmd, cwd=td, env=env, timeout=attempt_timeout,
             )
-            mode = "direct" if env_index == 0 else "proxy"
             attempt_count += 1
             if timed_out:
                 category, signature = _yt_dlp_failure_evidence(
@@ -1422,6 +1537,8 @@ def _download_audio(
                         outcome="success",
                         category="success",
                     )
+                    if mode == "proxy":
+                        _proxy_circuit_record_success()
                     _trace_event(
                         "audio_extract_finish",
                         attempt=attempt,
@@ -1454,6 +1571,11 @@ def _download_audio(
                         signature=signature,
                     )
                 break
+            if mode == "proxy" and category == "proxy_connect":
+                _proxy_circuit_trip(category, signature)
+                break
+        if mode == "proxy" and (last_category == "proxy_connect" or _proxy_circuit_is_open()[0]):
+            break
     final_category = last_category or "unknown"
     final_signature = last_signature or "unknown"
     _trace_event(

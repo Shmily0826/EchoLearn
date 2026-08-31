@@ -143,12 +143,20 @@ class AudioAcquisitionTests(unittest.TestCase):
         self.trace_token = main._TRACE_CONTEXT.set("audio-test-trace")
         self.proxy = main.YTDLP_PROXY
         self.retries = main.YTDLP_RETRIES
+        with main._PROXY_CIRCUIT_LOCK:
+            self.circuit_open_until = main._PROXY_CIRCUIT_OPEN_UNTIL
+            self.circuit_proxy_key = main._PROXY_CIRCUIT_PROXY_KEY
+            main._PROXY_CIRCUIT_OPEN_UNTIL = 0.0
+            main._PROXY_CIRCUIT_PROXY_KEY = None
         main.YTDLP_PROXY = "configured-proxy"
         main.YTDLP_RETRIES = 3
 
     def tearDown(self):
         main.YTDLP_PROXY = self.proxy
         main.YTDLP_RETRIES = self.retries
+        with main._PROXY_CIRCUIT_LOCK:
+            main._PROXY_CIRCUIT_OPEN_UNTIL = self.circuit_open_until
+            main._PROXY_CIRCUIT_PROXY_KEY = self.circuit_proxy_key
         main._TRACE_CONTEXT.reset(self.trace_token)
 
     def test_failure_classifier_uses_allowlisted_categories_and_signatures(self):
@@ -163,7 +171,7 @@ class AudioAcquisitionTests(unittest.TestCase):
             ("ERROR: HTTP Error 429: Too Many Requests", "http_429", "http_429", "proxy"),
             ("ERROR: Proxy authentication required", "proxy_auth", "proxy_auth", "proxy"),
             ("ERROR: HTTP 407", "proxy_auth", "proxy_auth", "proxy"),
-            ("ERROR: proxy connection reset", "proxy_connect", "proxy_connect", "proxy"),
+            ("ERROR: proxy connection refused", "proxy_connect", "proxy_connect", "proxy"),
             ("ERROR: JavaScript challenge required", "player_challenge", "player_challenge", "direct"),
             ("ERROR: Requested format is not available", "format_unavailable", "format_unavailable", "direct"),
             ("ERROR: TLS handshake failed", "tls_network", "tls_network", "direct"),
@@ -181,8 +189,8 @@ class AudioAcquisitionTests(unittest.TestCase):
         secret = "https://user:UNSAFE_PASSWORD@proxy.example:8080/path?token=UNSAFE_TOKEN"
         stderr_values = [
             f"ERROR: Sign in to confirm you're not a bot {secret}",
-            f"ERROR: proxy connection reset {secret}",
             f"ERROR: HTTP Error 429: Too Many Requests {secret}",
+            f"ERROR: decoder failed raw-provider-stderr {secret}",
             f"ERROR: decoder failed raw-provider-stderr {secret}",
         ]
         _FakeYtdlpProcess.next_results = [(1, stderr, False) for stderr in stderr_values]
@@ -203,7 +211,7 @@ class AudioAcquisitionTests(unittest.TestCase):
         self.assertEqual([event["attempt"] for event in attempts[1:]], [1, 2, 3])
         self.assertEqual(
             [event["category"] for event in attempts[1:]],
-            ["proxy_connect", "http_429", "extraction_failure"],
+            ["http_429", "extraction_failure", "extraction_failure"],
         )
 
         final = [
@@ -222,6 +230,99 @@ class AudioAcquisitionTests(unittest.TestCase):
         self.assertNotIn("UNSAFE_PASSWORD", log)
         self.assertNotIn("raw-provider-stderr", log)
         self.assertNotIn("UNSAFE_TOKEN", log)
+
+    def test_proxy_connect_trips_breaker_and_second_acquisition_skips_proxy(self):
+        secret = "https://user:UNSAFE_PASSWORD@proxy.example:8080/path?token=UNSAFE_TOKEN"
+        _FakeYtdlpProcess.next_results = [
+            (1, "ERROR: Sign in to confirm you're not a bot", False),
+            (1, f"ERROR: connection refused {secret}", False),
+            (1, "ERROR: Sign in to confirm you're not a bot", False),
+        ]
+        with tempfile.TemporaryDirectory() as directory, patch.object(
+            main.subprocess, "Popen", side_effect=_FakeYtdlpProcess
+        ) as popen, redirect_stdout(io.StringIO()) as output:
+            with self.assertRaises(main.YouTubeAcquisitionBlocked):
+                main._download_audio("https://www.youtube.com/watch?v=first", directory)
+            with self.assertRaises(main.YouTubeAcquisitionBlocked):
+                main._download_audio("https://www.youtube.com/watch?v=second", directory)
+
+        self.assertEqual(popen.call_count, 3)
+        self.assertTrue(main._PROXY_CIRCUIT_OPEN_UNTIL > main.time.monotonic())
+        events = _trace_lines(output)
+        self.assertTrue(any(event.get("event") == "audio_proxy_circuit_open" for event in events))
+        self.assertTrue(any(event.get("event") == "audio_proxy_circuit_skip" for event in events))
+        log = output.getvalue()
+        self.assertNotIn(secret, log)
+        self.assertNotIn("UNSAFE_PASSWORD", log)
+        self.assertNotIn("UNSAFE_TOKEN", log)
+
+    def test_expired_proxy_breaker_allows_a_fresh_proxy_attempt(self):
+        main._proxy_circuit_trip("proxy_connect", "proxy_connect")
+        with main._PROXY_CIRCUIT_LOCK:
+            main._PROXY_CIRCUIT_OPEN_UNTIL = main.time.monotonic() - 1
+        _FakeYtdlpProcess.next_results = [
+            (1, "ERROR: Sign in to confirm you're not a bot", False),
+            (1, "ERROR: HTTP Error 403: Forbidden", False),
+        ]
+        with tempfile.TemporaryDirectory() as directory, patch.object(
+            main.subprocess, "Popen", side_effect=_FakeYtdlpProcess
+        ) as popen:
+            with self.assertRaises(main.YouTubeAcquisitionBlocked):
+                main._download_audio("https://www.youtube.com/watch?v=expired", directory)
+
+        self.assertEqual(popen.call_count, 2)
+        self.assertEqual(main._PROXY_CIRCUIT_OPEN_UNTIL, 0.0)
+
+    def test_non_connect_proxy_failures_do_not_trip_breaker(self):
+        cases = [
+            ("http_403", "ERROR: HTTP Error 403: Forbidden", 2),
+            ("player_challenge", "ERROR: JavaScript challenge required", 4),
+            ("extraction_failure", "ERROR: decoder failed", 4),
+        ]
+        for category, stderr, expected_calls in cases:
+            with self.subTest(category=category):
+                with main._PROXY_CIRCUIT_LOCK:
+                    main._PROXY_CIRCUIT_OPEN_UNTIL = 0.0
+                    main._PROXY_CIRCUIT_PROXY_KEY = None
+                _FakeYtdlpProcess.next_results = [
+                    (1, "ERROR: Sign in to confirm you're not a bot", False),
+                    *[(1, stderr, False) for _ in range(expected_calls - 1)],
+                ]
+                with tempfile.TemporaryDirectory() as directory, patch.object(
+                    main.subprocess, "Popen", side_effect=_FakeYtdlpProcess
+                ) as popen:
+                    with self.assertRaises(main.YouTubeAcquisitionBlocked):
+                        main._download_audio(
+                            "https://www.youtube.com/watch?v=non-trip", directory
+                        )
+                self.assertEqual(popen.call_count, expected_calls)
+                self.assertEqual(main._PROXY_CIRCUIT_OPEN_UNTIL, 0.0)
+
+    def test_successful_proxy_attempt_keeps_breaker_closed(self):
+        _FakeYtdlpProcess.next_results = [
+            (1, "ERROR: Sign in to confirm you're not a bot", False),
+            (0, "", False),
+        ]
+        with tempfile.TemporaryDirectory() as directory, patch.object(
+            main.subprocess, "Popen", side_effect=_FakeYtdlpProcess
+        ), patch.object(main, "_audio_duration", return_value=2.0):
+            result = main._download_audio("https://www.youtube.com/watch?v=success", directory)
+
+        self.assertTrue(result.endswith("audio.mp3"))
+        self.assertEqual(main._PROXY_CIRCUIT_OPEN_UNTIL, 0.0)
+        self.assertEqual(main._PROXY_CIRCUIT_PROXY_KEY, None)
+
+    def test_open_proxy_breaker_does_not_touch_caption_direct_path(self):
+        main._proxy_circuit_trip("proxy_connect", "proxy_connect")
+        result = ([{"id": "yt_1", "start": 0.0, "end": 1.0, "text": "hello"}], "en", False, None)
+        with patch.object(main, "_cache_get", return_value=None), patch.object(
+            main, "_run_ytdlp", return_value=result
+        ) as run:
+            response = main.transcript(video_id="dQw4w9WgXcQ", lang="en")
+
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(json.loads(response.body)["lines"][0]["text"], "hello")
+        run.assert_called_once()
 
     def test_bot_check_switches_to_proxy_without_repeating_direct_attempts(self):
         _FakeYtdlpProcess.next_results = [
