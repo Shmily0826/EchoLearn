@@ -1100,34 +1100,113 @@ def _run_ytdlp(video_id_or_url: str, lang: str, *, is_url: bool = False, part: O
     # YouTube: the TVHTML5 client bypasses the datacenter bot-check, so try NO
     # proxy first (fast, free) and only fall back to the proxy if that fails.
     if _is_bilibili(target_url):
-        cmds = [(base_cmd + _site_args(target_url), _no_proxy_env())]
+        cmds = [(base_cmd + _site_args(target_url), _no_proxy_env(), "direct")]
     else:
-        cmds = [(base_cmd + _site_args(target_url), _no_proxy_env())]
+        cmds = [(base_cmd + _site_args(target_url), _no_proxy_env(), "direct")]
         if YTDLP_PROXY:
-            cmds.append((base_cmd + _site_args(target_url), _proxy_env(target_url)))
+            cmds.append((base_cmd + _site_args(target_url), _proxy_env(target_url), "proxy"))
     saw_timeout = False
     saw_completed_attempt = False
     saw_nonzero_exit = False
-    for cmd, env in cmds:
+    last_failure_category = "unknown"
+    last_failure_signature = "unknown"
+    started = time.monotonic()
+    attempted = 0
+    _trace_event("caption_extract_start", candidateCount=len(cmds))
+    for attempt, (cmd, env, mode) in enumerate(cmds, start=1):
         with tempfile.TemporaryDirectory() as td:
             full = cmd + ["-o", os.path.join(td, "%(id)s")]
+            attempted = attempt
+            attempt_started = time.monotonic()
+            _trace_event("caption_extract_attempt_start", attempt=attempt, mode=mode)
             returncode, _stdout, _stderr, timed_out = _run_yt_dlp(
                 full, cwd=td, env=env, timeout=YTDLP_TIMEOUT,
             )
+            elapsed_ms = round((time.monotonic() - attempt_started) * 1000)
             if timed_out:
                 saw_timeout = True
+                last_failure_category, last_failure_signature = _yt_dlp_failure_evidence(
+                    None, timed_out=True, mode=mode,
+                )
+                _trace_event(
+                    "caption_extract_attempt_finish",
+                    attempt=attempt,
+                    mode=mode,
+                    elapsedMs=elapsed_ms,
+                    outcome="timeout",
+                    category=last_failure_category,
+                    signature=last_failure_signature,
+                )
                 continue
             saw_completed_attempt = True
             if returncode != 0:
                 saw_nonzero_exit = True
+                last_failure_category, last_failure_signature = _yt_dlp_failure_evidence(
+                    _stderr, returncode=returncode, mode=mode,
+                )
+                _trace_event(
+                    "caption_extract_attempt_finish",
+                    attempt=attempt,
+                    mode=mode,
+                    elapsedMs=elapsed_ms,
+                    outcome="failure",
+                    category=last_failure_category,
+                    signature=last_failure_signature,
+                )
                 continue
             result = _read_subtitle_file(td)
             if result:
+                _trace_event(
+                    "caption_extract_attempt_finish",
+                    attempt=attempt,
+                    mode=mode,
+                    elapsedMs=elapsed_ms,
+                    outcome="success",
+                    result="subtitle",
+                )
+                _trace_event(
+                    "caption_extract_finish",
+                    attempts=attempted,
+                    elapsedMs=round((time.monotonic() - started) * 1000),
+                    outcome="success",
+                    result="subtitle",
+                )
                 return result
+            _trace_event(
+                "caption_extract_attempt_finish",
+                attempt=attempt,
+                mode=mode,
+                elapsedMs=elapsed_ms,
+                outcome="no_caption",
+                result="empty",
+            )
     if saw_timeout and not saw_completed_attempt:
+        _trace_event(
+            "caption_extract_finish",
+            attempts=attempted,
+            elapsedMs=round((time.monotonic() - started) * 1000),
+            outcome="timeout",
+            category=last_failure_category,
+            signature=last_failure_signature,
+        )
         raise TranscriptProviderTimeout()
     if saw_nonzero_exit:
+        _trace_event(
+            "caption_extract_finish",
+            attempts=attempted,
+            elapsedMs=round((time.monotonic() - started) * 1000),
+            outcome="failure",
+            category=last_failure_category,
+            signature=last_failure_signature,
+        )
         raise TranscriptProviderFailure()
+    _trace_event(
+        "caption_extract_finish",
+        attempts=attempted,
+        elapsedMs=round((time.monotonic() - started) * 1000),
+        outcome="no_caption",
+        result="empty",
+    )
     return None
 
 

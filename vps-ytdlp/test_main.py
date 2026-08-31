@@ -530,5 +530,115 @@ class TranscriptRouteTests(unittest.TestCase):
         )
 
 
+class CaptionExtractionTracingTests(unittest.TestCase):
+    def setUp(self):
+        self.trace_token = main._TRACE_CONTEXT.set("caption-test-trace")
+        self.proxy = main.YTDLP_PROXY
+        main.YTDLP_PROXY = ""
+
+    def tearDown(self):
+        main.YTDLP_PROXY = self.proxy
+        main._TRACE_CONTEXT.reset(self.trace_token)
+
+    def test_success_emits_safe_attempt_and_finish_events(self):
+        result = ([{"id": "yt_1", "start": 0, "end": 1, "text": "hello"}], "en", False, None)
+        with patch.object(main, "_run_yt_dlp", return_value=(0, "", "", False)), patch.object(
+            main, "_read_subtitle_file", return_value=result
+        ), redirect_stdout(io.StringIO()) as output:
+            self.assertEqual(main._run_ytdlp("dQw4w9WgXcQ", "en"), result)
+
+        events = _trace_lines(output)
+        self.assertEqual(events[0], {
+            "service": "vps-transcript",
+            "event": "caption_extract_start",
+            "traceId": "caption-test-trace",
+            "candidateCount": 1,
+        })
+        attempt = next(event for event in events if event["event"] == "caption_extract_attempt_finish")
+        self.assertEqual(
+            (attempt["attempt"], attempt["mode"], attempt["outcome"], attempt["result"]),
+            (1, "direct", "success", "subtitle"),
+        )
+        self.assertIsInstance(attempt["elapsedMs"], int)
+        final = events[-1]
+        self.assertEqual(
+            (final["event"], final["attempts"], final["outcome"], final["result"]),
+            ("caption_extract_finish", 1, "success", "subtitle"),
+        )
+
+    def test_attempt_index_follows_existing_direct_then_proxy_candidates(self):
+        main.YTDLP_PROXY = "configured-proxy"
+        result = ([{"id": "yt_1", "start": 0, "end": 1, "text": "hello"}], "en", False, None)
+        with patch.object(
+            main,
+            "_run_yt_dlp",
+            side_effect=[(1, "", "ERROR: decoder failed", False), (0, "", "", False)],
+        ), patch.object(main, "_read_subtitle_file", return_value=result), redirect_stdout(
+            io.StringIO()
+        ) as output:
+            self.assertEqual(main._run_ytdlp("dQw4w9WgXcQ", "en"), result)
+
+        attempts = [event for event in _trace_lines(output) if event["event"] == "caption_extract_attempt_finish"]
+        self.assertEqual(
+            [(event["attempt"], event["mode"], event["outcome"]) for event in attempts],
+            [(1, "direct", "failure"), (2, "proxy", "success")],
+        )
+
+    def test_nonzero_failure_uses_bounded_category_without_stderr_or_url(self):
+        secret = "https://user:UNSAFE_PASSWORD@proxy.example:8080/path?token=UNSAFE_TOKEN"
+        stderr = f"ERROR: Sign in to confirm you're not a bot {secret} raw-provider-stderr"
+        with patch.object(main, "_run_yt_dlp", return_value=(1, "", stderr, False)), redirect_stdout(
+            io.StringIO()
+        ) as output:
+            with self.assertRaises(main.TranscriptProviderFailure):
+                main._run_ytdlp("dQw4w9WgXcQ", "en")
+
+        events = _trace_lines(output)
+        attempt = next(event for event in events if event["event"] == "caption_extract_attempt_finish")
+        self.assertEqual(
+            (attempt["attempt"], attempt["mode"], attempt["outcome"], attempt["category"], attempt["signature"]),
+            (1, "direct", "failure", "youtube_bot_check", "signin_required"),
+        )
+        final = events[-1]
+        self.assertEqual(
+            (final["event"], final["attempts"], final["outcome"], final["category"], final["signature"]),
+            ("caption_extract_finish", 1, "failure", "youtube_bot_check", "signin_required"),
+        )
+        log = output.getvalue()
+        self.assertNotIn(secret, log)
+        self.assertNotIn("UNSAFE_PASSWORD", log)
+        self.assertNotIn("UNSAFE_TOKEN", log)
+        self.assertNotIn("raw-provider-stderr", log)
+        self.assertNotIn("https://www.youtube.com/watch", log)
+
+    def test_timeout_and_empty_result_keep_distinct_safe_outcomes(self):
+        with patch.object(main, "_run_yt_dlp", return_value=(None, None, None, True)), redirect_stdout(
+            io.StringIO()
+        ) as timeout_output:
+            with self.assertRaises(main.TranscriptProviderTimeout):
+                main._run_ytdlp("dQw4w9WgXcQ", "en")
+
+        timeout_events = _trace_lines(timeout_output)
+        self.assertEqual(
+            (timeout_events[-1]["outcome"], timeout_events[-1]["category"], timeout_events[-1]["signature"]),
+            ("timeout", "timeout", "timeout"),
+        )
+
+        with patch.object(main, "_run_yt_dlp", return_value=(0, "", "", False)), patch.object(
+            main, "_read_subtitle_file", return_value=None
+        ), redirect_stdout(io.StringIO()) as empty_output:
+            self.assertIsNone(main._run_ytdlp("dQw4w9WgXcQ", "en"))
+
+        empty_events = _trace_lines(empty_output)
+        self.assertEqual(
+            (empty_events[-2]["outcome"], empty_events[-2]["result"]),
+            ("no_caption", "empty"),
+        )
+        self.assertEqual(
+            (empty_events[-1]["outcome"], empty_events[-1]["result"]),
+            ("no_caption", "empty"),
+        )
+
+
 if __name__ == "__main__":
     unittest.main()
