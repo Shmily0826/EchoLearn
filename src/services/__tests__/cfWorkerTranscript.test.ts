@@ -8,16 +8,17 @@ import {
   createProviderContext,
   handleTranscript,
   readResponseBody,
+  runCaptionStage,
 // @ts-expect-error The Worker is plain JavaScript; this import is test-only.
 } from '../../../cf-worker/src/index.js';
 
 describe('CF Worker transcript routing contract', () => {
   it('keeps the direct ASR block before caption providers', () => {
     const providers = [
-      'const innerTubeResult = await fetchViaInnerTube',
-      'const webResult = await fetchViaWebPage',
-      'const invidiousResult = await fetchViaInvidious',
-      'const pipedResult = await fetchViaPiped',
+      'const innerTubeResult = await runCaptionStage',
+      'const webResult = await runCaptionStage',
+      'const invidiousResult = await runCaptionStage',
+      'const pipedResult = await runCaptionStage',
     ].map((marker) => source.indexOf(marker));
     const asr = source.indexOf('if (allowAsr)');
 
@@ -33,6 +34,33 @@ describe('CF Worker transcript routing contract', () => {
     expect(source).toContain('clearTimeout(timer)');
     expect(source).toContain('captionProviderTimedOut = true');
     expect(source).toContain('const asrAvailable = !!(env && (env.YTDLP_API_URL || env.GROQ_API_KEY))');
+  });
+
+  it('records only trace-safe stage fields for every caption provider', () => {
+    for (const stage of ['vps_caption', 'innertube', 'webpage', 'invidious', 'piped', 'deadline']) {
+      expect(source).toContain(`'${stage}'`);
+    }
+    expect(source).toContain("traceLog('caption_stage'");
+    expect(source).not.toContain('caption_stage", { url');
+  });
+
+  it('logs stage outcome and elapsed time without provider error content', async () => {
+    const log = vi.spyOn(console, 'log').mockImplementation(() => undefined);
+    try {
+      await expect(runCaptionStage('webpage', 'safe-trace', async () => null)).resolves.toBeNull();
+      const payload = JSON.parse(String(log.mock.calls[0][0]));
+      expect(payload).toMatchObject({
+        service: 'cf-worker-transcript',
+        event: 'caption_stage',
+        traceId: 'safe-trace',
+        stage: 'webpage',
+        outcome: 'unusable',
+      });
+      expect(payload).toHaveProperty('elapsedMs');
+      expect(JSON.stringify(payload)).not.toContain('secret-provider-error');
+    } finally {
+      log.mockRestore();
+    }
   });
 
   it('keeps a VPS-local timeout cancellable without aborting the global caption budget', () => {

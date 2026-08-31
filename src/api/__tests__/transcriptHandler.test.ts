@@ -174,6 +174,38 @@ describe('api/transcript server fallback', () => {
     });
   });
 
+  it('returns a typed provider timeout when the final npm caption fallback exceeds its budget', async () => {
+    vi.useFakeTimers();
+    fetchMock.mockResolvedValueOnce(response({ error: 'upstream unavailable' }, 502));
+    let fallbackSignal: AbortSignal | undefined;
+    fetchMock.mockImplementationOnce((_url, init) => {
+      fallbackSignal = init?.signal as AbortSignal;
+      return new Promise<Response>((_, reject) => {
+        fallbackSignal?.addEventListener('abort', () => reject(new DOMException('aborted', 'AbortError')));
+      });
+    });
+    vi.mocked(YoutubeTranscript.fetchTranscript).mockImplementationOnce(
+      (_videoId, options) => options.fetch('https://youtube.test/captions'),
+    );
+
+    try {
+      const res = makeRes();
+      const pending = handler(makeReq(), res);
+      await vi.advanceTimersByTimeAsync(2_000);
+      await pending;
+
+      expect(res.statusCode).toBe(504);
+      expect(fallbackSignal?.aborted).toBe(true);
+      expect(JSON.parse(res.body)).toEqual({
+        error: 'provider_timeout',
+        code: 'provider_timeout',
+        message: 'Transcript provider timed out.',
+      });
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
   it('preserves VPS acquisition blocking and ASR-required compatibility without recovery metadata', async () => {
     fetchMock.mockResolvedValueOnce(response({
       detail: { code: 'youtube_acquisition_blocked' },

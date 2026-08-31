@@ -94,8 +94,11 @@ export default async function handler(req: any, res: any): Promise<void> {
       res.status(400).json({ error: 'Invalid Bilibili part number' });
       return;
     }
-    upstreamPath = `/api/bilibili?bvid=${encodeURIComponent(bvid)}&lang=${encodeURIComponent(lang)}`;
-    if (part) upstreamPath += `&p=${encodeURIComponent(part)}`;
+    // The VPS exposes Bilibili caption retrieval through its generic
+    // /api/transcript route; it has no /api/bilibili endpoint. Keep this
+    // fallback caption-only so a Worker failure never starts paid ASR.
+    const canonicalUrl = `https://www.bilibili.com/video/${encodeURIComponent(bvid)}${part ? `?p=${encodeURIComponent(part)}` : ''}`;
+    upstreamPath = `/api/transcript?url=${encodeURIComponent(canonicalUrl)}&lang=${encodeURIComponent(lang)}`;
   }
 
   const apiKey = process.env.YTDLP_API_KEY;

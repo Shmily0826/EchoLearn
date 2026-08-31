@@ -113,6 +113,32 @@ function providerTimeout(timeoutMs, context) {
   return Math.max(1, Math.min(timeoutMs, context?.remainingBudget?.() ?? timeoutMs));
 }
 
+/**
+ * Emit a trace-safe result for a named caption stage. Provider error bodies,
+ * URLs, headers, and payloads stay inside the provider implementations.
+ */
+async function runCaptionStage(stage, traceId, work, outcomeOf = null) {
+  const startedAt = Date.now();
+  try {
+    const result = await work();
+    traceLog('caption_stage', {
+      traceId,
+      stage,
+      outcome: outcomeOf ? outcomeOf(result) : (result ? 'success' : 'unusable'),
+      elapsedMs: Date.now() - startedAt,
+    });
+    return result;
+  } catch (err) {
+    traceLog('caption_stage', {
+      traceId,
+      stage,
+      outcome: err instanceof CaptionDeadlineError ? 'timeout' : 'failure',
+      elapsedMs: Date.now() - startedAt,
+    });
+    throw err;
+  }
+}
+
 // This is configuration/routability capability only; it is not a health check.
 function asrRecovery(env) {
   return env && (env.YTDLP_API_URL || env.GROQ_API_KEY)
@@ -404,15 +430,26 @@ async function handleTranscript(url, env, traceId) {
   try {
   if (env && env.YTDLP_API_URL) {
     const vpsContext = createProviderContext(captionContext, 5000);
-    const ytdlpResult = await boundedProviderCall(
-      fetchViaYtDlp(videoId, lang, env, log, null, traceId, vpsContext),
-      providerTimeout(5000, captionContext),
-      () => {
-        captionProviderTimedOut = true;
-        vpsContext.controller.abort();
-      },
-    );
-    vpsContext.dispose();
+    let vpsTimedOut = false;
+    let ytdlpResult;
+    try {
+      ytdlpResult = await runCaptionStage(
+        'vps_caption',
+        traceId,
+        () => boundedProviderCall(
+          fetchViaYtDlp(videoId, lang, env, log, null, traceId, vpsContext),
+          providerTimeout(5000, captionContext),
+          () => {
+            vpsTimedOut = true;
+            captionProviderTimedOut = true;
+            vpsContext.controller.abort();
+          },
+        ),
+        (result) => vpsTimedOut ? 'timeout' : (result ? 'success' : 'unusable'),
+      );
+    } finally {
+      vpsContext.dispose();
+    }
     if (ytdlpResult) {
       if (debug) ytdlpResult._debug = debugLog;
       traceLog('request_finish', { traceId, videoId, provider: 'vps-transcript', status: 200, lineCount: ytdlpResult.lines?.length || 0 });
@@ -422,7 +459,9 @@ async function handleTranscript(url, env, traceId) {
   }
 
   // Strategy 1: InnerTube player API (multi-client)
-  const innerTubeResult = await fetchViaInnerTube(videoId, lang, env, log, captionContext);
+  const innerTubeResult = await runCaptionStage(
+    'innertube', traceId, () => fetchViaInnerTube(videoId, lang, env, log, captionContext),
+  );
   if (innerTubeResult) {
     if (debug) innerTubeResult._debug = debugLog;
     traceLog('request_finish', { traceId, videoId, provider: 'innertube', status: 200 });
@@ -430,7 +469,9 @@ async function handleTranscript(url, env, traceId) {
   }
 
   // Strategy 2: Web page scraping
-  const webResult = await fetchViaWebPage(videoId, lang, env, log, captionContext);
+  const webResult = await runCaptionStage(
+    'webpage', traceId, () => fetchViaWebPage(videoId, lang, env, log, captionContext),
+  );
   if (webResult) {
     if (debug) webResult._debug = debugLog;
     traceLog('request_finish', { traceId, videoId, provider: 'web', status: 200 });
@@ -438,7 +479,9 @@ async function handleTranscript(url, env, traceId) {
   }
 
   // Strategy 3: Invidious API (third-party YouTube frontends)
-  const invidiousResult = await fetchViaInvidious(videoId, lang, log, captionContext);
+  const invidiousResult = await runCaptionStage(
+    'invidious', traceId, () => fetchViaInvidious(videoId, lang, log, captionContext),
+  );
   if (invidiousResult) {
     if (debug) invidiousResult._debug = debugLog;
     traceLog('request_finish', { traceId, videoId, provider: 'invidious', status: 200 });
@@ -446,7 +489,9 @@ async function handleTranscript(url, env, traceId) {
   }
 
   // Strategy 4: Piped API
-  const pipedResult = await fetchViaPiped(videoId, lang, log, captionContext);
+  const pipedResult = await runCaptionStage(
+    'piped', traceId, () => fetchViaPiped(videoId, lang, log, captionContext),
+  );
   if (pipedResult) {
     if (debug) pipedResult._debug = debugLog;
     traceLog('request_finish', { traceId, videoId, provider: 'piped', status: 200 });
@@ -454,6 +499,7 @@ async function handleTranscript(url, env, traceId) {
   }
   } catch (err) {
     if (err instanceof CaptionDeadlineError) {
+      traceLog('caption_stage', { traceId, stage: 'deadline', outcome: 'timeout', elapsedMs: CAPTION_DEADLINE_MS });
       traceLog('request_finish', { traceId, videoId, provider: 'caption-cascade', status: 504, error: 'provider_timeout', deadlineAt: captionContext.deadlineAt });
       return transcriptErrorResponse({ error: 'provider_timeout', message: 'Caption providers timed out.' }, 504, env, { includeRecovery: true, headers: { [TRACE_HEADER]: traceId } });
     }
@@ -464,6 +510,7 @@ async function handleTranscript(url, env, traceId) {
 
   // Caption-only deadline is also the boundary before any generation path.
   if (captionContext.expired()) {
+    traceLog('caption_stage', { traceId, stage: 'deadline', outcome: 'timeout', elapsedMs: CAPTION_DEADLINE_MS });
     traceLog('request_finish', { traceId, videoId, provider: 'caption-cascade', status: 504, error: 'provider_timeout', deadlineAt: captionContext.deadlineAt });
     return transcriptErrorResponse({ error: 'provider_timeout', message: 'Caption providers timed out.' }, 504, env, { includeRecovery: true, headers: { [TRACE_HEADER]: traceId } });
   }
@@ -2044,4 +2091,5 @@ export {
   createProviderContext,
   handleTranscript,
   readResponseBody,
+  runCaptionStage,
 };

@@ -18,7 +18,11 @@ const CONSENT_COOKIE =
   'CONSENT=PENDING+987; SOCS=CAISNQgDEitib3FfaWRlbnRpdHlmcm9udGVuZHVpc2VydmVyXzIwMjMwODI5LjA3X3AxGgJlbiACGgYIgJnSmgY';
 
 const VPS_API_URL = 'https://yt-api.echo-learn.uk';
-const VPS_TIMEOUT_MS = 45_000;
+// The client gives the Vercel fallback an 8-second budget. Keep the upstream
+// attempt shorter so this handler can still return a typed response instead of
+// being abandoned as a generic server error.
+const VPS_TIMEOUT_MS = 5_000;
+const NPM_FALLBACK_TIMEOUT_MS = 2_000;
 const TRACE_HEADER = 'X-EchoLearn-Trace-Id';
 
 function createTraceId(): string {
@@ -150,6 +154,40 @@ function classifyYoutubeFailure(message: string): TranscriptFailure {
   return failureForCode(TRANSCRIPT_FAILURE_CODES.PROVIDER_FAILURE);
 }
 
+async function fetchYoutubeTranscriptWithTimeout<T>(
+  work: (signal: AbortSignal) => Promise<T>,
+): Promise<T> {
+  const controller = new AbortController();
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  let timedOut = false;
+  try {
+    try {
+      return await Promise.race([
+        work(controller.signal),
+        new Promise<never>((_, reject) => {
+          timer = setTimeout(() => {
+            timedOut = true;
+            controller.abort();
+            reject(new Error('youtube-transcript provider timed out'));
+          }, NPM_FALLBACK_TIMEOUT_MS);
+        }),
+      ]);
+    } catch (err) {
+      // controller.abort() can make the work promise reject before the
+      // synthetic timeout wins Promise.race. The local marker makes that race
+      // deterministic and keeps the public error contract typed.
+      if (timedOut) {
+        const error = new Error('youtube-transcript provider timed out');
+        error.name = 'AbortError';
+        throw error;
+      }
+      throw err;
+    }
+  } finally {
+    if (timer) clearTimeout(timer);
+  }
+}
+
 async function fetchVpsTranscript(
   videoId: string,
   lang: string,
@@ -259,24 +297,24 @@ export default async function handler(req: any, res: any): Promise<void> {
 
     const { YoutubeTranscript } = await import('youtube-transcript');
 
-    // Custom fetch that adds CONSENT cookie to all YouTube requests
-    const customFetch = (url: string | URL | Request, init?: RequestInit) => {
-      const headers = new Headers(init?.headers);
-      headers.set('Cookie', CONSENT_COOKIE);
-      // Also set a realistic browser UA as fallback
-      if (!headers.has('User-Agent')) {
-        headers.set(
-          'User-Agent',
-          'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/125.0.0.0 Safari/537.36',
-        );
-      }
-      return fetch(url, { ...init, headers });
-    };
-
-    const result = await YoutubeTranscript.fetchTranscript(videoId, {
-      lang,
-      fetch: customFetch,
-    });
+    const result = await fetchYoutubeTranscriptWithTimeout(
+      (signal) => {
+        // Custom fetch adds the consent cookie while retaining an abort signal
+        // for this short Vercel fallback budget.
+        const customFetch = (url: string | URL | Request, init?: RequestInit) => {
+          const headers = new Headers(init?.headers);
+          headers.set('Cookie', CONSENT_COOKIE);
+          if (!headers.has('User-Agent')) {
+            headers.set(
+              'User-Agent',
+              'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/125.0.0.0 Safari/537.36',
+            );
+          }
+          return fetch(url, { ...init, headers, signal });
+        };
+        return YoutubeTranscript.fetchTranscript(videoId, { lang, fetch: customFetch });
+      },
+    );
 
     if (!result || result.length === 0) {
       const failure = vpsFailure || failureForCode(TRANSCRIPT_FAILURE_CODES.CAPTIONS_NOT_FOUND);
@@ -304,7 +342,12 @@ export default async function handler(req: any, res: any): Promise<void> {
     });
   } catch (err) {
     const message = err instanceof Error ? err.message : 'Unknown error';
-    const failure = vpsFailure || classifyYoutubeFailure(message);
+    const fallbackFailure = classifyYoutubeFailure(message);
+    // A generic VPS failure should not hide a definite timeout from the final
+    // fallback. Preserve existing VPS classification for all other outcomes.
+    const failure = fallbackFailure.code === TRANSCRIPT_FAILURE_CODES.PROVIDER_TIMEOUT
+      ? fallbackFailure
+      : (vpsFailure || fallbackFailure);
     logTranscriptEvent('request_error', { traceId, videoId, status: failure.status, error: failure.code });
     res.status(failure.status).json({ error: failure.code, code: failure.code, message: failure.message });
   }

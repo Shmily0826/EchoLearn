@@ -222,7 +222,7 @@ describe('api/bilibili handler — upstream forwarding', () => {
     expect(res.body).toContain('no subtitles');
   });
 
-  it('forwards transcript requests with bvid, lang and part', async () => {
+  it('forwards transcript requests through the VPS caption route with a canonical URL and part', async () => {
     fetchMock.mockResolvedValueOnce(upstreamResponse('{"lines":[]}'));
 
     const res = makeRes();
@@ -230,9 +230,10 @@ describe('api/bilibili handler — upstream forwarding', () => {
 
     expect(fetchMock).toHaveBeenCalledTimes(1);
     const called = String(fetchMock.mock.calls[0][0]);
-    expect(called).toContain('/api/bilibili?bvid=BV1xx411c7mD');
+    expect(called).toContain('/api/transcript?url=');
+    expect(called).not.toContain('/api/bilibili');
+    expect(decodeURIComponent(called)).toContain('https://www.bilibili.com/video/BV1xx411c7mD?p=2');
     expect(called).toContain('lang=en');
-    expect(called).toContain('p=2');
     expect(res.statusCode).toBe(200);
   });
 
