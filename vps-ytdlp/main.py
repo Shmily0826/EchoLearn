@@ -59,6 +59,8 @@ with no subtitle track), the caller falls back to ASR, which sidesteps the login
 wall by transcribing the audio instead — no SESSDATA cookie needed for that.
 """
 
+import asyncio
+import contextlib
 import hashlib
 import json
 import os
@@ -140,6 +142,10 @@ class TranscriptProviderFailure(Exception):
     """Caption acquisition failed without enough evidence to call it absence."""
 
 
+class CaptionRequestCancelled(Exception):
+    """The upstream client disconnected while caption extraction was running."""
+
+
 def _trace_event(event: str, **fields) -> None:
     """Emit only explicitly supplied, non-sensitive request-stage fields."""
     trace_id = _TRACE_CONTEXT.get()
@@ -149,11 +155,15 @@ def _trace_event(event: str, **fields) -> None:
     for key, value in fields.items():
         if isinstance(value, (bool, int, float)) or (
             isinstance(value, str)
-            and key in {"outcome", "result", "category", "format", "mode", "signature"}
+            and key in {"outcome", "result", "category", "format", "mode", "signature", "phase", "reason"}
         ):
             if key == "mode" and value not in {"direct", "proxy"}:
                 continue
             if key == "signature" and value not in _YTDLP_FAILURE_SIGNATURES:
+                continue
+            if key == "phase" and value not in {"process_start", "metadata", "player", "metadata_player_ready", "subtitle_acquisition", "extraction"}:
+                continue
+            if key == "reason" and value not in {"client_disconnect"}:
                 continue
             safe[key] = value
     print(json.dumps(safe), flush=True)
@@ -1069,7 +1079,14 @@ def _playlist_flag(part: Optional[int]) -> list:
     return ["--no-playlist"]
 
 
-def _run_ytdlp(video_id_or_url: str, lang: str, *, is_url: bool = False, part: Optional[int] = None):
+def _run_ytdlp(
+    video_id_or_url: str,
+    lang: str,
+    *,
+    is_url: bool = False,
+    part: Optional[int] = None,
+    cancel_event: threading.Event | None = None,
+):
     target_url = video_id_or_url if is_url else f"https://www.youtube.com/watch?v={video_id_or_url}"
     sub_langs = "en,ai-en,zh-CN,ai-zh,en.*,zh.*,ai.*"  # ECHOLEARN_BILI_SUB_LANGS
     base_cmd = [
@@ -1116,12 +1133,41 @@ def _run_ytdlp(video_id_or_url: str, lang: str, *, is_url: bool = False, part: O
     for attempt, (cmd, env, mode) in enumerate(cmds, start=1):
         with tempfile.TemporaryDirectory() as td:
             full = cmd + ["-o", os.path.join(td, "%(id)s")]
+            # yt-dlp evaluates this static template after URL/player metadata
+            # filtering and before subtitle writing.  The marker contains no
+            # video fields, URLs, stderr, cookies, or proxy configuration.
+            phase_file = os.path.join(td, ".caption-phase")
+            full += ["--print-to-file", "after_filter:metadata_player_ready", phase_file]
             attempted = attempt
             attempt_started = time.monotonic()
             _trace_event("caption_extract_attempt_start", attempt=attempt, mode=mode)
-            returncode, _stdout, _stderr, timed_out = _run_yt_dlp(
-                full, cwd=td, env=env, timeout=YTDLP_TIMEOUT,
-            )
+            try:
+                returncode, _stdout, _stderr, timed_out = _run_yt_dlp(
+                    full,
+                    cwd=td,
+                    env=env,
+                    timeout=YTDLP_TIMEOUT,
+                    cancel_event=cancel_event,
+                    phase_file=phase_file,
+                )
+            except CaptionRequestCancelled:
+                elapsed_ms = round((time.monotonic() - attempt_started) * 1000)
+                _trace_event(
+                    "caption_extract_attempt_finish",
+                    attempt=attempt,
+                    mode=mode,
+                    elapsedMs=elapsed_ms,
+                    outcome="cancelled",
+                    reason="client_disconnect",
+                )
+                _trace_event(
+                    "caption_extract_finish",
+                    attempts=attempted,
+                    elapsedMs=round((time.monotonic() - started) * 1000),
+                    outcome="cancelled",
+                    reason="client_disconnect",
+                )
+                raise
             elapsed_ms = round((time.monotonic() - attempt_started) * 1000)
             if timed_out:
                 saw_timeout = True
@@ -1368,8 +1414,42 @@ def _terminate_process_group(proc) -> None:
         proc.wait(timeout=5)
 
 
-def _run_yt_dlp(cmd: list, cwd: str, env: dict, timeout: int):
+def _yt_dlp_phase(stderr: str | None, *, returncode: int | None = None) -> str:
+    """Classify an extraction stage using allow-listed markers only."""
+    text = stderr.lower() if isinstance(stderr, str) else ""
+    if any(marker in text for marker in ("player", "signature", "nsig", "javascript challenge")):
+        return "player"
+    if any(marker in text for marker in ("subtitle", "subtitles", "vtt", "caption")):
+        return "subtitle_acquisition"
+    if any(marker in text for marker in ("webpage", "metadata", "extracting url")):
+        return "metadata"
+    return "extraction"
+
+
+def _phase_markers_from_file(path: str | None) -> set[str]:
+    """Read only exact static yt-dlp lifecycle markers from an attempt file."""
+    if not path:
+        return set()
+    try:
+        with open(path, "r", encoding="utf-8", errors="ignore") as marker_file:
+            values = {line.strip() for line in marker_file}
+    except OSError:
+        return set()
+    return values & {"metadata_player_ready"}
+
+
+def _run_yt_dlp(
+    cmd: list,
+    cwd: str,
+    env: dict,
+    timeout: int,
+    *,
+    cancel_event: threading.Event | None = None,
+    phase_file: str | None = None,
+):
     """Run yt-dlp in a killable process group and return output plus timeout state."""
+    if cancel_event and cancel_event.is_set():
+        raise CaptionRequestCancelled()
     creationflags = getattr(subprocess, "CREATE_NEW_PROCESS_GROUP", 0) if os.name == "nt" else 0
     proc = subprocess.Popen(
         cmd,
@@ -1381,12 +1461,45 @@ def _run_yt_dlp(cmd: list, cwd: str, env: dict, timeout: int):
         start_new_session=os.name != "nt",
         creationflags=creationflags,
     )
-    try:
-        stdout, stderr = proc.communicate(timeout=timeout)
-    except subprocess.TimeoutExpired:
-        _terminate_process_group(proc)
-        return None, None, None, True
-    return proc.returncode, stdout, stderr, False
+    trace_caption_process = phase_file is not None or cancel_event is not None
+    if trace_caption_process:
+        _trace_event("caption_ytdlp_process_start", phase="process_start")
+    deadline = time.monotonic() + timeout
+    emitted_markers = set()
+    while True:
+        for phase in _phase_markers_from_file(phase_file) - emitted_markers:
+            emitted_markers.add(phase)
+            _trace_event("caption_ytdlp_phase", phase=phase)
+        if cancel_event and cancel_event.is_set():
+            _terminate_process_group(proc)
+            if trace_caption_process:
+                _trace_event(
+                    "caption_ytdlp_process_finish",
+                    phase="extraction",
+                    outcome="cancelled",
+                    reason="client_disconnect",
+                )
+            raise CaptionRequestCancelled()
+        remaining = deadline - time.monotonic()
+        if remaining <= 0:
+            _terminate_process_group(proc)
+            if trace_caption_process:
+                _trace_event("caption_ytdlp_process_finish", phase="extraction", outcome="timeout")
+            return None, None, None, True
+        try:
+            stdout, stderr = proc.communicate(timeout=min(0.1, remaining))
+        except subprocess.TimeoutExpired:
+            continue
+        for phase in _phase_markers_from_file(phase_file) - emitted_markers:
+            emitted_markers.add(phase)
+            _trace_event("caption_ytdlp_phase", phase=phase)
+        if trace_caption_process:
+            _trace_event(
+                "caption_ytdlp_process_finish",
+                phase=_yt_dlp_phase(stderr, returncode=proc.returncode),
+                outcome="success" if proc.returncode == 0 else "failure",
+            )
+        return proc.returncode, stdout, stderr, False
 
 
 def _yt_dlp_failure_evidence(
@@ -2015,12 +2128,13 @@ def _groq_transcribe(path: str) -> dict:
 
 # ── Routes ───────────────────────────────────────────────────────
 
-@app.get("/api/transcript")
-def transcript(
+def _transcript_response(
     video_id: Optional[str] = Query(default=None, alias="videoId"),
     url: Optional[str] = Query(default=None),
     lang: str = Query("en"),
     request: Request = None,
+    *,
+    cancel_event: threading.Event | None = None,
 ):
     # FastAPI resolves Query metadata before HTTP calls, but a direct Python
     # call with an omitted optional argument receives the Query object itself.
@@ -2059,7 +2173,15 @@ def transcript(
         return JSONResponse(cached)
 
     try:
-        result = _run_ytdlp(clean_target, lang, is_url=is_url, part=part)
+        result = _run_ytdlp(
+            clean_target,
+            lang,
+            is_url=is_url,
+            part=part,
+            cancel_event=cancel_event,
+        )
+    except CaptionRequestCancelled:
+        raise
     except TranscriptProviderTimeout:
         return JSONResponse(
             {
@@ -2107,6 +2229,54 @@ def transcript(
         payload["bvid"] = bvid
     _cache_put(target, lang, payload)
     return JSONResponse(payload)
+
+
+async def _wait_for_client_disconnect(request: Request) -> None:
+    """Poll the ASGI disconnect signal without consuming request payloads."""
+    while not await request.is_disconnected():
+        await asyncio.sleep(0.05)
+
+
+@app.get("/api/transcript")
+async def transcript(
+    video_id: Optional[str] = Query(default=None, alias="videoId"),
+    url: Optional[str] = Query(default=None),
+    lang: str = Query("en"),
+    request: Request = None,
+):
+    """Fetch captions, stopping the yt-dlp process group if the client leaves."""
+    cancel_event = threading.Event()
+    work = asyncio.create_task(
+        asyncio.to_thread(
+            _transcript_response,
+            video_id,
+            url,
+            lang,
+            request,
+            cancel_event=cancel_event,
+        )
+    )
+    if request is None:
+        return await work
+
+    disconnect = asyncio.create_task(_wait_for_client_disconnect(request))
+    try:
+        done, _pending = await asyncio.wait({work, disconnect}, return_when=asyncio.FIRST_COMPLETED)
+        if work in done:
+            return await work
+
+        cancel_event.set()
+        try:
+            await work
+        except CaptionRequestCancelled:
+            pass
+        _trace_event("caption_request_cancelled", reason="client_disconnect")
+        return JSONResponse({"error": "client_disconnected"}, status_code=499)
+    finally:
+        if not disconnect.done():
+            disconnect.cancel()
+            with contextlib.suppress(asyncio.CancelledError):
+                await disconnect
 
 
 @app.get("/api/info")

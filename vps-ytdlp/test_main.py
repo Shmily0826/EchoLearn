@@ -3,9 +3,11 @@
 These tests mock Groq and never contact external services.
 """
 
+import asyncio
 import io
 import json
 import tempfile
+import threading
 import unittest
 from contextlib import redirect_stdout
 from unittest.mock import patch
@@ -60,6 +62,47 @@ class _FakeYtdlpProcess:
     def wait(self, timeout=None):
         self.waited = True
         return self.returncode
+
+
+class _BlockingYtdlpProcess:
+    instances = []
+
+    def __init__(self, *_args, **_kwargs):
+        self.pid = 12346
+        self.returncode = -15
+        self.started = threading.Event()
+        self.terminated = threading.Event()
+        self.waited = False
+        self.__class__.instances.append(self)
+
+    def communicate(self, timeout=None):
+        self.started.set()
+        if not self.terminated.wait(timeout=timeout):
+            raise main.subprocess.TimeoutExpired("yt-dlp", timeout)
+        return "", ""
+
+    def poll(self):
+        return None if not self.terminated.is_set() else self.returncode
+
+    def terminate(self):
+        self.terminated.set()
+
+    def kill(self):
+        self.terminated.set()
+
+    def wait(self, timeout=None):
+        self.waited = True
+        return self.returncode
+
+
+class _DisconnectingRequest:
+    headers = {}
+
+    def __init__(self, disconnected: threading.Event):
+        self.disconnected = disconnected
+
+    async def is_disconnected(self):
+        return self.disconnected.is_set()
 
 
 class GroqTracingTests(unittest.TestCase):
@@ -318,7 +361,7 @@ class AudioAcquisitionTests(unittest.TestCase):
         with patch.object(main, "_cache_get", return_value=None), patch.object(
             main, "_run_ytdlp", return_value=result
         ) as run:
-            response = main.transcript(video_id="dQw4w9WgXcQ", lang="en")
+            response = main._transcript_response(video_id="dQw4w9WgXcQ", lang="en")
 
         self.assertEqual(response.status_code, 200)
         self.assertEqual(json.loads(response.body)["lines"][0]["text"], "hello")
@@ -334,7 +377,8 @@ class AudioAcquisitionTests(unittest.TestCase):
         ) as popen, patch.object(main, "_audio_duration", return_value=2.0), patch.object(
             main, "_groq_transcribe", return_value={"lines": [{"text": "hello"}]}
         ) as groq:
-            result = main._download_audio("https://www.youtube.com/watch?v=test", directory)
+            with patch.object(main, "YTDLP_TIMEOUT", 0.01):
+                result = main._download_audio("https://www.youtube.com/watch?v=test", directory)
             groq(result)
 
         self.assertTrue(result.endswith("audio.mp3"))
@@ -409,7 +453,8 @@ class AudioAcquisitionTests(unittest.TestCase):
         with patch.object(main.subprocess, "Popen", side_effect=process) as popen, patch.object(
             main, "_terminate_process_group"
         ) as terminate, tempfile.TemporaryDirectory() as directory:
-            result = main._download_audio("https://www.youtube.com/watch?v=test", directory)
+            with patch.object(main, "YTDLP_TIMEOUT", 0.01):
+                result = main._download_audio("https://www.youtube.com/watch?v=test", directory)
 
         self.assertIsNone(result)
         self.assertEqual(popen.call_count, 1)
@@ -422,7 +467,7 @@ class AudioAcquisitionTests(unittest.TestCase):
         ]
         with tempfile.TemporaryDirectory() as directory, patch.object(
             main.subprocess, "Popen", side_effect=_FakeYtdlpProcess
-        ):
+        ), patch.object(main, "YTDLP_TIMEOUT", 0.01):
             with self.assertRaises(main.YouTubeAcquisitionBlocked):
                 main._download_audio("https://www.youtube.com/watch?v=test", directory)
 
@@ -467,6 +512,171 @@ class AudioAcquisitionTests(unittest.TestCase):
         popen.assert_not_called()
 
 
+class CaptionCancellationTests(unittest.TestCase):
+    def setUp(self):
+        _BlockingYtdlpProcess.instances = []
+
+    def test_cancelled_subprocess_group_is_terminated_and_reaped(self):
+        cancel_event = threading.Event()
+        errors = []
+
+        def run():
+            try:
+                main._run_yt_dlp(
+                    ["yt-dlp"], cwd=".", env={}, timeout=30, cancel_event=cancel_event
+                )
+            except Exception as exc:  # captured for an assertion in the parent thread
+                errors.append(exc)
+
+        with patch.object(main.subprocess, "Popen", side_effect=_BlockingYtdlpProcess):
+            worker = threading.Thread(target=run)
+            worker.start()
+            while not _BlockingYtdlpProcess.instances:
+                pass
+            proc = _BlockingYtdlpProcess.instances[0]
+            self.assertTrue(proc.started.wait(timeout=1))
+            cancel_event.set()
+            worker.join(timeout=2)
+
+        self.assertFalse(worker.is_alive())
+        self.assertEqual(len(errors), 1)
+        self.assertIsInstance(errors[0], main.CaptionRequestCancelled)
+        self.assertTrue(proc.terminated.is_set())
+        self.assertTrue(proc.waited)
+
+    def test_connected_process_does_not_create_a_cancellation_watcher(self):
+        before = set(threading.enumerate())
+        with patch.object(main.subprocess, "Popen", side_effect=_FakeYtdlpProcess):
+            _FakeYtdlpProcess.next_results = [(0, "", False)]
+            returncode, _stdout, _stderr, timed_out = main._run_yt_dlp(
+                ["yt-dlp"], cwd=".", env={}, timeout=30, cancel_event=threading.Event()
+            )
+
+        self.assertEqual(returncode, 0)
+        self.assertFalse(timed_out)
+        self.assertEqual(set(threading.enumerate()), before)
+
+    def test_static_phase_marker_is_emitted_without_marker_file_contents(self):
+        _FakeYtdlpProcess.next_results = [(0, "", False)]
+        token = main._TRACE_CONTEXT.set("phase-test-trace")
+        try:
+            with tempfile.TemporaryDirectory() as directory, patch.object(
+                main.subprocess, "Popen", side_effect=_FakeYtdlpProcess
+            ), redirect_stdout(io.StringIO()) as output:
+                phase_path = f"{directory}/phase"
+                with open(phase_path, "w", encoding="utf-8") as phase_file:
+                    phase_file.write("metadata_player_ready\nUNSAFE_TOKEN\nhttps://private.example/\n")
+                main._run_yt_dlp(
+                    ["yt-dlp"], cwd=".", env={}, timeout=30, phase_file=phase_path
+                )
+        finally:
+            main._TRACE_CONTEXT.reset(token)
+
+        events = _trace_lines(output)
+        phase = next(event for event in events if event["event"] == "caption_ytdlp_phase")
+        self.assertEqual(phase["phase"], "metadata_player_ready")
+        self.assertNotIn("UNSAFE_TOKEN", output.getvalue())
+        self.assertNotIn("private.example", output.getvalue())
+
+    def test_caption_command_keeps_subtitle_writes_with_static_phase_marker(self):
+        captured = []
+        with patch.object(main, "_run_yt_dlp", side_effect=lambda command, **kwargs: captured.append(command) or (0, "", "", False)), patch.object(
+            main, "_read_subtitle_file", return_value=None
+        ):
+            self.assertIsNone(main._run_ytdlp("dQw4w9WgXcQ", "en"))
+
+        command = captured[0]
+        self.assertIn("--write-subs", command)
+        self.assertIn("--write-auto-subs", command)
+        self.assertIn("--print-to-file", command)
+        self.assertIn("after_filter:metadata_player_ready", command)
+        self.assertNotIn("--simulate", command)
+
+    def test_installed_ytdlp_does_not_simulate_static_print_to_file_subtitle_command(self):
+        from yt_dlp import parse_options
+
+        parsed = parse_options([
+            "--skip-download",
+            "--write-subs",
+            "--write-auto-subs",
+            "--print-to-file",
+            "after_filter:metadata_player_ready",
+            "phase-file",
+            "https://www.youtube.com/watch?v=dQw4w9WgXcQ",
+        ])
+        self.assertIsNot(parsed.ydl_opts["simulate"], True)
+        self.assertTrue(parsed.ydl_opts["skip_download"])
+
+    def test_disconnected_route_signals_child_and_emits_sanitized_cancellation(self):
+        started = threading.Event()
+        disconnected = threading.Event()
+        secret = "https://user:UNSAFE_PASSWORD@example.test/?token=UNSAFE_TOKEN"
+
+        def blocked_child(*_args, cancel_event=None, **_kwargs):
+            started.set()
+            self.assertTrue(cancel_event.wait(timeout=1))
+            raise main.CaptionRequestCancelled(secret)
+
+        async def run_request():
+            request = _DisconnectingRequest(disconnected)
+
+            async def disconnect_after_child_starts():
+                while not started.is_set():
+                    await asyncio.sleep(0.001)
+                disconnected.set()
+
+            trigger = asyncio.create_task(disconnect_after_child_starts())
+            try:
+                with patch.object(main, "_cache_get", return_value=None), patch.object(
+                    main, "_run_ytdlp", side_effect=blocked_child
+                ):
+                    return await main.transcript(video_id="dQw4w9WgXcQ", lang="en", request=request)
+            finally:
+                await trigger
+
+        token = main._TRACE_CONTEXT.set("cancel-test-trace")
+        try:
+            with redirect_stdout(io.StringIO()) as output:
+                response = asyncio.run(run_request())
+        finally:
+            main._TRACE_CONTEXT.reset(token)
+
+        self.assertEqual(response.status_code, 499)
+        events = _trace_lines(output)
+        cancellation = next(event for event in events if event["event"] == "caption_request_cancelled")
+        self.assertEqual(cancellation["reason"], "client_disconnect")
+        self.assertNotIn(secret, output.getvalue())
+        self.assertNotIn("UNSAFE_PASSWORD", output.getvalue())
+        self.assertNotIn("UNSAFE_TOKEN", output.getvalue())
+
+    def test_connected_route_keeps_normal_caption_response(self):
+        result = ([{"id": "yt_1", "start": 0, "end": 1, "text": "hello"}], "en", False, None)
+        cancel_events = []
+
+        def successful_child(*_args, cancel_event=None, **_kwargs):
+            cancel_events.append(cancel_event)
+            return result
+
+        response = asyncio.run(
+            self._connected_request(successful_child)
+        )
+
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(json.loads(response.body)["lines"][0]["text"], "hello")
+        self.assertEqual(len(cancel_events), 1)
+        self.assertFalse(cancel_events[0].is_set())
+
+    async def _connected_request(self, successful_child):
+        with patch.object(main, "_cache_get", return_value=None), patch.object(
+            main, "_run_ytdlp", side_effect=successful_child
+        ):
+            return await main.transcript(
+                video_id="dQw4w9WgXcQ",
+                lang="en",
+                request=_DisconnectingRequest(threading.Event()),
+            )
+
+
 class TranscriptRouteTests(unittest.TestCase):
     def setUp(self):
         self.proxy = main.YTDLP_PROXY
@@ -482,7 +692,7 @@ class TranscriptRouteTests(unittest.TestCase):
         with patch.object(main, "_cache_get", return_value=None), patch.object(
             main, "_run_yt_dlp", return_value=(None, None, None, True)
         ) as run:
-            response = main.transcript(video_id="dQw4w9WgXcQ", lang="en")
+            response = main._transcript_response(video_id="dQw4w9WgXcQ", lang="en")
 
         self.assertEqual(response.status_code, 504)
         self.assertEqual(
@@ -499,7 +709,7 @@ class TranscriptRouteTests(unittest.TestCase):
         with patch.object(main, "_cache_get", return_value=None), patch.object(
             main, "_run_yt_dlp", return_value=(0, "", "", False)
         ):
-            response = main.transcript(video_id="dQw4w9WgXcQ", lang="en")
+            response = main._transcript_response(video_id="dQw4w9WgXcQ", lang="en")
 
         self.assertEqual(response.status_code, 404)
         self.assertEqual(
@@ -517,7 +727,7 @@ class TranscriptRouteTests(unittest.TestCase):
             "_run_yt_dlp",
             return_value=(1, "", "ERROR: provider failure", False),
         ):
-            response = main.transcript(video_id="dQw4w9WgXcQ", lang="en")
+            response = main._transcript_response(video_id="dQw4w9WgXcQ", lang="en")
 
         self.assertEqual(response.status_code, 502)
         self.assertEqual(
