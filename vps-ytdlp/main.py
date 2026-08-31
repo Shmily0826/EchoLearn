@@ -2231,10 +2231,19 @@ def _transcript_response(
     return JSONResponse(payload)
 
 
-async def _wait_for_client_disconnect(request: Request) -> None:
-    """Poll the ASGI disconnect signal without consuming request payloads."""
-    while not await request.is_disconnected():
-        await asyncio.sleep(0.05)
+async def _wait_for_client_disconnect(receive) -> None:
+    """Wait on the one ASGI receive consumer owned by this GET route.
+
+    Starlette's ``Request.is_disconnected()`` uses an immediately-cancelled
+    receive probe.  That probe can consume the initial ``http.request`` and
+    cannot reliably wait for the later Uvicorn ``http.disconnect`` event while
+    the endpoint is doing work elsewhere.  This route has no request body, so
+    it can safely own the receive stream and block until the connection closes.
+    """
+    while True:
+        message = await receive()
+        if message.get("type") == "http.disconnect":
+            return
 
 
 @app.get("/api/transcript")
@@ -2259,7 +2268,7 @@ async def transcript(
     if request is None:
         return await work
 
-    disconnect = asyncio.create_task(_wait_for_client_disconnect(request))
+    disconnect = asyncio.create_task(_wait_for_client_disconnect(request.receive))
     try:
         done, _pending = await asyncio.wait({work, disconnect}, return_when=asyncio.FIRST_COMPLETED)
         if work in done:

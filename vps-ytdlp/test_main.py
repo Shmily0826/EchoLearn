@@ -95,14 +95,16 @@ class _BlockingYtdlpProcess:
         return self.returncode
 
 
-class _DisconnectingRequest:
+class _ASGIRequest:
     headers = {}
 
-    def __init__(self, disconnected: threading.Event):
-        self.disconnected = disconnected
+    def __init__(self, *messages):
+        self.messages = asyncio.Queue()
+        for message in messages:
+            self.messages.put_nowait(message)
 
-    async def is_disconnected(self):
-        return self.disconnected.is_set()
+    async def receive(self):
+        return await self.messages.get()
 
 
 class GroqTracingTests(unittest.TestCase):
@@ -609,7 +611,6 @@ class CaptionCancellationTests(unittest.TestCase):
 
     def test_disconnected_route_signals_child_and_emits_sanitized_cancellation(self):
         started = threading.Event()
-        disconnected = threading.Event()
         secret = "https://user:UNSAFE_PASSWORD@example.test/?token=UNSAFE_TOKEN"
 
         def blocked_child(*_args, cancel_event=None, **_kwargs):
@@ -618,12 +619,14 @@ class CaptionCancellationTests(unittest.TestCase):
             raise main.CaptionRequestCancelled(secret)
 
         async def run_request():
-            request = _DisconnectingRequest(disconnected)
+            request = _ASGIRequest(
+                {"type": "http.request", "body": b"", "more_body": False}
+            )
 
             async def disconnect_after_child_starts():
                 while not started.is_set():
                     await asyncio.sleep(0.001)
-                disconnected.set()
+                await request.messages.put({"type": "http.disconnect"})
 
             trigger = asyncio.create_task(disconnect_after_child_starts())
             try:
@@ -649,6 +652,20 @@ class CaptionCancellationTests(unittest.TestCase):
         self.assertNotIn("UNSAFE_PASSWORD", output.getvalue())
         self.assertNotIn("UNSAFE_TOKEN", output.getvalue())
 
+    def test_disconnect_watcher_consumes_request_messages_until_disconnect(self):
+        async def run_watcher():
+            request = _ASGIRequest(
+                {"type": "http.request", "body": b"part-1", "more_body": True},
+                {"type": "http.request", "body": b"part-2", "more_body": False},
+            )
+            watcher = asyncio.create_task(main._wait_for_client_disconnect(request.receive))
+            await asyncio.sleep(0)
+            self.assertFalse(watcher.done())
+            await request.messages.put({"type": "http.disconnect"})
+            await asyncio.wait_for(watcher, timeout=1)
+
+        asyncio.run(run_watcher())
+
     def test_connected_route_keeps_normal_caption_response(self):
         result = ([{"id": "yt_1", "start": 0, "end": 1, "text": "hello"}], "en", False, None)
         cancel_events = []
@@ -670,10 +687,13 @@ class CaptionCancellationTests(unittest.TestCase):
         with patch.object(main, "_cache_get", return_value=None), patch.object(
             main, "_run_ytdlp", side_effect=successful_child
         ):
+            request = _ASGIRequest(
+                {"type": "http.request", "body": b"", "more_body": False}
+            )
             return await main.transcript(
                 video_id="dQw4w9WgXcQ",
                 lang="en",
-                request=_DisconnectingRequest(threading.Event()),
+                request=request,
             )
 
 
