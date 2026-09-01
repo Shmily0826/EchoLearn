@@ -12,7 +12,7 @@ Recruiter-safe YouTube subtitle stabilization and reliable real Video → Transc
 
 - Branch: `main`; release-record commit `6176800e59ce4bdd8bb67b60ac78e92fada9e954` is synchronized to `origin/main`.
 - The accepted production Worker is version `9fcbd50b-d197-4691-951b-d9a8c4039197` (active deployment `974ee470-4498-4c79-b74a-b6109cc2feaf`); the Worker source is the only production candidate in this release record.
-- The push-triggered Vercel production deployment is `dpl_GAAtbhbfZmjgevm1Pfz1vGeU5n5X` and is `READY`; it contains unchanged runtime frontend/API source because the Vercel/frontend candidate files were excluded. The local Vercel/frontend fallback candidate is not deployed.
+- The source-record push produced verified `READY` Vercel deployment `dpl_GAAtbhbfZmjgevm1Pfz1vGeU5n5X` for commit `6176800e59ce4bdd8bb67b60ac78e92fada9e954`; subsequent docs-only pushes may produce equivalent-source Vercel rebuilds, so deployment IDs are operational metadata rather than this source-of-truth status. Runtime frontend/API source is unchanged because the Vercel/frontend candidate files were excluded.
 - Production is a separate validation layer from local work and GitHub state; its acceptance evidence is recorded below and in `TEST_REPORT.md`.
 
 ## Acceptance gate
