@@ -182,6 +182,21 @@ describe('api/bilibili handler — configuration and upstream failures', () => {
     expect(res.body).toContain('timed out');
   });
 
+  it('returns a typed provider timeout for transcript upstream aborts', async () => {
+    const abortErr = new Error('aborted');
+    abortErr.name = 'AbortError';
+    fetchMock.mockRejectedValueOnce(abortErr);
+
+    const res = makeRes();
+    await handler(makeReq({ query: { bvid: 'BV1xx411c7mD' } }), res);
+
+    expect(res.statusCode).toBe(504);
+    expect(JSON.parse(res.body)).toMatchObject({
+      error: 'provider_timeout',
+      code: 'provider_timeout',
+    });
+  });
+
   it('returns 502 when the upstream is unreachable', async () => {
     fetchMock.mockRejectedValueOnce(new Error('connection refused'));
 
@@ -212,14 +227,18 @@ describe('api/bilibili handler — upstream forwarding', () => {
     expect(res.body).not.toContain('test-vps-key');
   });
 
-  it('propagates the upstream status code and body verbatim', async () => {
+  it('normalizes an upstream no-caption response to the typed contract', async () => {
     fetchMock.mockResolvedValueOnce(upstreamResponse('{"error":"no subtitles"}', { status: 404 }));
 
     const res = makeRes();
     await handler(makeReq({ query: { bvid: 'BV1xx411c7mD' } }), res);
 
     expect(res.statusCode).toBe(404);
-    expect(res.body).toContain('no subtitles');
+    expect(JSON.parse(res.body)).toMatchObject({
+      error: 'captions_not_found',
+      code: 'captions_not_found',
+    });
+    expect(res.body).not.toContain('no subtitles');
   });
 
   it('forwards transcript requests through the VPS caption route with a canonical URL and part', async () => {
@@ -234,7 +253,41 @@ describe('api/bilibili handler — upstream forwarding', () => {
     expect(called).not.toContain('/api/bilibili');
     expect(decodeURIComponent(called)).toContain('https://www.bilibili.com/video/BV1xx411c7mD?p=2');
     expect(called).toContain('lang=en');
-    expect(res.statusCode).toBe(200);
+    expect(res.statusCode).toBe(502);
+    expect(JSON.parse(res.body)).toMatchObject({
+      error: 'provider_failure',
+      code: 'provider_failure',
+    });
+  });
+
+  it('maps provider timeout and rate-limit statuses without exposing the upstream body', async () => {
+    fetchMock
+      .mockResolvedValueOnce(upstreamResponse('provider internals', { status: 504 }));
+
+    const timeoutRes = makeRes();
+    await handler(makeReq({ query: { bvid: 'BV1xx411c7mD' } }), timeoutRes);
+    expect(timeoutRes.statusCode).toBe(504);
+    expect(JSON.parse(timeoutRes.body)).toMatchObject({
+      error: 'provider_timeout',
+      code: 'provider_timeout',
+    });
+    expect(timeoutRes.body).not.toContain('provider internals');
+
+    fetchMock.mockResolvedValueOnce(upstreamResponse('rate details', { status: 429 }));
+    const rateRes = makeRes();
+    await handler(makeReq({ query: { bvid: 'BV1xx411c7mD' } }), rateRes);
+    expect(rateRes.statusCode).toBe(429);
+    expect(JSON.parse(rateRes.body)).toMatchObject({ error: 'rate_limit', code: 'rate_limit' });
+    expect(rateRes.body).not.toContain('rate details');
+  });
+
+  it('does not let the Vercel caption-only fallback accept an ASR request', async () => {
+    const res = makeRes();
+    await handler(makeReq({ query: { bvid: 'BV1xx411c7mD', allowAsr: '1' } }), res);
+
+    expect(res.statusCode).toBe(409);
+    expect(JSON.parse(res.body)).toMatchObject({ error: 'asr_required', code: 'asr_required' });
+    expect(fetchMock).not.toHaveBeenCalled();
   });
 
   it('forwards the Range header for audio and passes media headers back', async () => {

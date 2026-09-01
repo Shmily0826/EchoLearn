@@ -24,7 +24,79 @@ function resolveOrigin(origin: string | undefined): string | null {
 }
 
 function isBilibiliHost(hostname: string): boolean {
-  return ['b23.tv', 'www.bilibili.com', 'm.bilibili.com', 'bilibili.com'].includes(hostname);
+  return ['b23.tv', 'www.bilibili.com', 'm.bilibili.com', 'bilibili.com'].includes(hostname.toLowerCase());
+}
+
+const BILIBILI_BVID_RE = /^BV[a-zA-Z0-9]{10}$/i;
+const BILIBILI_PART_RE = /^\d{1,4}$/;
+const BILIBILI_ERROR_CODES = new Set([
+  'captions_not_found',
+  'asr_required',
+  'provider_timeout',
+  'provider_failure',
+  'rate_limit',
+]);
+
+function typedTranscriptError(
+  code: string,
+  status: number,
+): { code: string; status: number; payload: { error: string; code: string; message: string } } {
+  const normalized = BILIBILI_ERROR_CODES.has(code) ? code : 'provider_failure';
+  const messages: Record<string, string> = {
+    captions_not_found: 'No captions/subtitles available for this Bilibili video',
+    asr_required: 'Bilibili captions are unavailable; explicit ASR recovery is required',
+    provider_timeout: 'Bilibili caption provider timed out',
+    provider_failure: 'Bilibili caption provider failed',
+    rate_limit: 'Bilibili caption provider rate limited the request',
+  };
+  const typedStatus = normalized === 'rate_limit'
+    ? 429
+    : normalized === 'provider_timeout'
+      ? 504
+      : normalized === 'captions_not_found'
+        ? 404
+        : normalized === 'asr_required'
+          ? 409
+          : status >= 400 && status < 500 ? status : 502;
+  return {
+    code: normalized,
+    status: typedStatus,
+    payload: { error: normalized, code: normalized, message: messages[normalized] },
+  };
+}
+
+async function sendTranscriptUpstream(
+  res: { status(code: number): { json(payload: unknown): unknown } },
+  upstream: Response,
+): Promise<void> {
+  const body = await upstream.text().catch(() => '');
+  let data: { error?: unknown; code?: unknown; detail?: { error?: unknown; code?: unknown }; lines?: unknown } | null = null;
+  try {
+    const parsed = JSON.parse(body);
+    if (parsed && typeof parsed === 'object') data = parsed;
+  } catch {
+    // Malformed provider output is a provider failure, never a no-caption result.
+  }
+
+  const upstreamCode = data?.code ?? data?.detail?.code ?? data?.error ?? data?.detail?.error;
+  if (!upstream.ok || upstreamCode || !Array.isArray(data?.lines) || data.lines.length === 0) {
+    const fallbackCode = upstream.status === 429
+      ? 'rate_limit'
+      : upstream.status === 408 || upstream.status === 504
+        ? 'provider_timeout'
+        : upstream.status === 404
+          ? 'captions_not_found'
+          : undefined;
+    const rawCode = typeof upstreamCode === 'string' ? upstreamCode : '';
+    const code = BILIBILI_ERROR_CODES.has(rawCode)
+      ? rawCode
+      : fallbackCode || 'provider_failure';
+    const typed = typedTranscriptError(code, upstream.status);
+    res.status(typed.status).json(typed.payload);
+    return;
+  }
+
+  res.status(200).json(data);
 }
 
 function getQueryString(value: unknown): string | null {
@@ -50,6 +122,7 @@ export default async function handler(req: any, res: any): Promise<void> {
 
   const info = req.query?.info === '1';
   const audio = req.query?.audio === '1';
+  const allowAsr = req.query?.allowAsr === '1';
   const bvid = getQueryString(req.query?.bvid);
   const lang = getQueryString(req.query?.lang) || 'zh-CN';
   const part = getQueryString(req.query?.p);
@@ -86,12 +159,18 @@ export default async function handler(req: any, res: any): Promise<void> {
     }
     upstreamPath = `/api/audio?url=${encodeURIComponent(sourceUrl)}`;
   } else {
-    if (!bvid || !/^BV[a-zA-Z0-9]{10}$/i.test(bvid)) {
+    if (!bvid || !BILIBILI_BVID_RE.test(bvid)) {
       res.status(400).json({ error: 'Missing or invalid Bilibili video ID' });
       return;
     }
-    if (part && !/^\d{1,4}$/.test(part)) {
+    if (part && (!BILIBILI_PART_RE.test(part) || Number(part) < 1)) {
       res.status(400).json({ error: 'Invalid Bilibili part number' });
+      return;
+    }
+    if (allowAsr) {
+      // Vercel is deliberately caption-only. Explicit ASR recovery belongs to
+      // the Worker, so a fallback cannot silently change the cost/policy path.
+      res.status(409).json(typedTranscriptError('asr_required', 409).payload);
       return;
     }
     // The VPS exposes Bilibili caption retrieval through its generic
@@ -118,6 +197,11 @@ export default async function handler(req: any, res: any): Promise<void> {
       signal: controller.signal,
     });
 
+    if (!info && !audio) {
+      await sendTranscriptUpstream(res, upstream);
+      return;
+    }
+
     res.status(upstream.status);
     const contentType = upstream.headers.get('content-type');
     const contentLength = upstream.headers.get('content-length');
@@ -134,6 +218,14 @@ export default async function handler(req: any, res: any): Promise<void> {
       res.send(await upstream.text());
     }
   } catch (err) {
+    if (!info && !audio) {
+      const typed = typedTranscriptError(
+        err instanceof Error && err.name === 'AbortError' ? 'provider_timeout' : 'provider_failure',
+        502,
+      );
+      res.status(typed.status).json(typed.payload);
+      return;
+    }
     const message = err instanceof Error && err.name === 'AbortError'
       ? 'Bilibili VPS request timed out'
       : 'Bilibili VPS fallback unavailable';

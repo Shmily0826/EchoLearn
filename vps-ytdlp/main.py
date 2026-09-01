@@ -388,7 +388,11 @@ def _is_youtube(target_url: str) -> bool:
 
 
 def _is_bilibili(target_url: str) -> bool:
-    return "bilibili.com" in target_url or "b23.tv" in target_url
+    try:
+        host = (urllib.parse.urlparse(target_url).hostname or "").lower()
+    except ValueError:
+        return False
+    return host in {"b23.tv", "bilibili.com", "www.bilibili.com", "m.bilibili.com"}
 
 
 def _is_english(language: Optional[str]) -> bool:
@@ -414,7 +418,7 @@ def _extract_bvid(target_url: str):
     prefix case-insensitively, but preserve every character in the payload;
     uppercasing the whole id turns e.g. ``BV1emBiYcEAV`` into a different id.
     """
-    m = re.search(r"(BV[0-9A-Za-z]+)", target_url, re.IGNORECASE)
+    m = re.search(r"(?<![0-9A-Za-z])(BV[0-9A-Za-z]{10})(?![0-9A-Za-z])", target_url, re.IGNORECASE)
     return ("BV" + m.group(1)[2:]) if m else None
 
 
@@ -428,7 +432,7 @@ def _clean_bvid(raw_id: str | None):
     """
     if not raw_id:
         return None, None
-    m = re.match(r"^(BV[0-9A-Za-z]+)_p(\d+)$", raw_id)
+    m = re.match(r"^(BV[0-9A-Za-z]{10})_p(\d+)$", raw_id)
     if m:
         return m.group(1), int(m.group(2))
     return raw_id, None
@@ -623,15 +627,16 @@ def _bilibili_playurl(bvid: str, cid: int):
 
 
 def _bilibili_cid_for_part(view, part: Optional[int]):
-    """Return the cid for the requested part (1-indexed), defaulting to part 1."""
+    """Return the cid for a part, defaulting only when no part was requested."""
     pages = (view or {}).get("pages") or []
     if not pages:
         return None
-    if part and part > 1:
-        for p in pages:
-            if p.get("index") == part:
-                return p.get("cid")
-    return pages[0].get("cid")
+    if part is None:
+        return pages[0].get("cid")
+    for p in pages:
+        if p.get("index") == part:
+            return p.get("cid")
+    return None
 
 
 def _download_bilibili_audio(base_url: str, out_path: str, ar: int = 16000, ab: int = 32) -> bool:
@@ -684,7 +689,7 @@ def _bilibili_asr(url: str, part: Optional[int] = None) -> dict:
         raise HTTPException(status_code=404, detail="Bilibili view API failed")
     cid = _bilibili_cid_for_part(view, part)
     if not cid:
-        raise HTTPException(status_code=404, detail="Bilibili part not found")
+        raise HTTPException(status_code=400, detail="Invalid Bilibili part number")
     base_url = _bilibili_playurl(bvid, cid)
     if not base_url:
         raise HTTPException(status_code=404, detail="Bilibili playurl API failed")
@@ -706,6 +711,8 @@ def _bilibili_audio(url: str, part: Optional[int], out_path: str) -> bool:
         return False
     cid = _bilibili_cid_for_part(view, part)
     if not cid:
+        if part is not None:
+            raise HTTPException(status_code=400, detail="Invalid Bilibili part number")
         return False
     base_url = _bilibili_playurl(bvid, cid)
     if not base_url:
@@ -718,7 +725,9 @@ def _host_allowed(target_url: str) -> bool:
     open yt-dlp relay for arbitrary sites."""
     if not target_url.startswith(("http://", "https://")):
         return False
-    return any(h in target_url for h in _ALLOWED_HOSTS)
+    if _is_bilibili(target_url):
+        return True
+    return any(h in target_url for h in ("youtube.com", "youtu.be"))
 
 
 def _site_args(target_url: str) -> list:
@@ -1056,13 +1065,21 @@ def _extract_part(raw_url: str):
     Tracking params are also stripped so share URLs with different UTM-like
     parameters hit the same cache entry.
     """
+    bili_url = _is_bilibili(raw_url)
     raw_url = _normalize_bilibili_url(raw_url)
     parsed = urllib.parse.urlparse(raw_url)
-    qs = urllib.parse.parse_qs(parsed.query)
+    qs = urllib.parse.parse_qs(parsed.query, keep_blank_values=bili_url)
     part = None
     if "p" in qs:
+        values = qs["p"]
+        if bili_url and (
+            len(values) != 1
+            or not re.fullmatch(r"\d{1,4}", values[0] or "")
+            or int(values[0]) < 1
+        ):
+            raise HTTPException(status_code=400, detail="Invalid Bilibili part number")
         try:
-            part = int(qs["p"][0])
+            part = int(values[0])
         except (ValueError, IndexError):
             part = None
         kept = {k: v for k, v in qs.items() if k != "p"}
@@ -1270,7 +1287,13 @@ def _fetch_meta(target_url: str, part: Optional[int] = None, *, attempts: int = 
 
     # Bilibili: skip yt-dlp (watch-page 412) and use the view API directly.
     if _is_bilibili(target_url):
-        resolved = _resolve_bilibili_url(target_url)
+        # `/api/info` receives the original URL, so preserve an embedded `p=N`
+        # selector while resolving b23 links. The explicit part must be checked
+        # against the view API below; otherwise metadata could silently describe
+        # part 1 for an out-of-range selector.
+        bili_target, embedded_part = _extract_part(target_url)
+        selected_part = part if part is not None else embedded_part
+        resolved = _resolve_bilibili_url(bili_target)
         bvid = _extract_bvid(resolved)
         view = _bilibili_view(bvid) if bvid else None
         if not view:
@@ -1279,12 +1302,16 @@ def _fetch_meta(target_url: str, part: Optional[int] = None, *, attempts: int = 
         # the ASR/audio limit check and the player we want the selected part's
         # duration, which lives on the per-page record. Default to part 1 when no
         # explicit ?p= selector is present.
-        sel = part if part else 1
+        sel = selected_part if selected_part else 1
         part_dur = None
         for p in view.get("pages") or []:
             if p.get("index") == sel and p.get("duration"):
                 part_dur = p["duration"]
                 break
+        if selected_part is not None and not any(
+            p.get("index") == selected_part for p in view.get("pages") or []
+        ):
+            raise HTTPException(status_code=400, detail="Invalid Bilibili part number")
         if not part_dur:
             part_dur = view["duration"]
         payload = {
@@ -2158,6 +2185,10 @@ def _transcript_response(
         if not _host_allowed(url):
             raise HTTPException(status_code=400, detail="Unsupported url host")
         clean_target, part = _extract_part(url)
+        if _is_bilibili(clean_target):
+            host = (urllib.parse.urlparse(clean_target).hostname or "").lower()
+            if host != "b23.tv" and not _extract_bvid(clean_target):
+                raise HTTPException(status_code=400, detail="Invalid Bilibili video ID")
     elif not _VIDEO_ID_RE.match(video_id or ""):
         raise HTTPException(status_code=400, detail="Invalid videoId")
 

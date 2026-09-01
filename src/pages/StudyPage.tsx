@@ -9,7 +9,7 @@ import AIAnalysisPanel from '../components/AIAnalysisPanel';
 import MobileTranscriptPanel from '../components/study/MobileTranscriptPanel';
 import SavedItemsPanel from '../components/study/SavedItemsPanel';
 import { parseYouTubeId, parseStartTime } from '../utils/youtube';
-import { detectPlatform, parseBilibiliId, parseBilibiliStartTime, parseBilibiliPage } from '../utils/bilibili';
+import { detectPlatform, parseBilibiliId, parseBilibiliStartTime, parseBilibiliPage, hasInvalidBilibiliPage } from '../utils/bilibili';
 import { normalizeTranscriptToSentences } from '../utils/transcriptNormalizer';
 import { attachTranscriptToSession, createFreshStudySession, normalizeStudyUrl } from '../utils/studySession';
 import { lemmatize } from '../utils/lemmatizer';
@@ -642,6 +642,10 @@ const StudyPage: React.FC = () => {
       // the full URL ("https://b23.tv/xxx") that the backend resolves to a BV id.
       const isShortLink = !!parsed && parsed.startsWith('http');
       const st = parseBilibiliStartTime(urlInput);
+      if (hasInvalidBilibiliPage(urlInput)) {
+        failCaptionRequest(t('study.biliInvalidPart'));
+        return;
+      }
       const pg = parseBilibiliPage(urlInput);
 
       // Persist the genuinely-old session (a real studied video) before
@@ -778,7 +782,7 @@ const StudyPage: React.FC = () => {
         },
       });
     }
-  }, [urlInput, rawBlocks, sentenceLines, sessionTitle, session, videoId, persistSession]);
+  }, [urlInput, rawBlocks, sentenceLines, sessionTitle, session, videoId, persistSession, failCaptionRequest, t]);
 
   // ── Import transcript (from TranscriptImporter) ─────────────
   const handleImportTranscript = useCallback(
@@ -845,10 +849,12 @@ const StudyPage: React.FC = () => {
   // latest-request-wins machinery as captions, so a video switch invalidates
   // a late ASR response and the disabled button prevents duplicate clicks.
   const handleGenerateTranscript = useCallback(() => {
-    if (!videoId || platform !== 'youtube' || fetchingCaption) return;
+    if (!videoId || fetchingCaption) return;
     setAsrRecoveryRequested(true);
     runCaptionRequest(
-      () => fetchYouTubeTranscript(videoId, 'en', { allowAsr: true }),
+      () => platform === 'bilibili'
+        ? fetchBilibiliTranscript(videoId, undefined, biliPage, { allowAsr: true })
+        : fetchYouTubeTranscript(videoId, 'en', { allowAsr: true }),
       {
         onSuccess: (res) => {
           if (res.lines.length === 0) {
@@ -867,11 +873,11 @@ const StudyPage: React.FC = () => {
             setSession(updated);
           }
           setAsrRecoveryRequested(false);
-          return { count: res.lines.length, source: transcriptSourceLabel(t, 'youtube', res) };
+          return { count: res.lines.length, source: transcriptSourceLabel(t, platform, res) };
         },
       },
     );
-  }, [videoId, platform, fetchingCaption, session, t, runCaptionRequest]);
+  }, [videoId, platform, biliPage, fetchingCaption, session, t, runCaptionRequest]);
 
   // ── Switch Bilibili part (分p) ────────────────────────────
   const handleBiliPartChange = useCallback(

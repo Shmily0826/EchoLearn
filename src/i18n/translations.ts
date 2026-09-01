@@ -207,7 +207,7 @@ const translations: Record<string, Record<Lang, string>> = {
   'study.fetchingFull':  { en: 'Fetching captions from YouTube...', zh: '正在从 YouTube 获取字幕...' },
   'study.fetchingFullBili': { en: 'Fetching captions from Bilibili...', zh: '正在从 B 站获取字幕...' },
   'study.mayTake':       { en: 'First fetch usually takes 1–3 min', zh: '首次获取通常需 1–3 分钟' },
-  'study.mayTakeBili':   { en: 'No EN captions → AI speech-to-text (Whisper), ~1–2 min', zh: 'B 站无英文字幕时会用 AI 语音转写（Whisper），约需 1–2 分钟' },
+  'study.mayTakeBili':   { en: 'Caption-only first. Explicit AI recovery is optional and may take ~1–2 min.', zh: '先仅获取字幕。需要时可手动选择 AI 转写，可能需约 1–2 分钟。' },
   'study.fetchingShortBili': { en: 'Fetching Bilibili…', zh: '正在获取 B 站字幕…' },
   'study.fetchFailed':   { en: 'Caption auto-fetch failed', zh: '字幕自动获取失败' },
   'study.pasteManual':   { en: 'You can paste or upload the transcript manually below.', zh: '您可以在下方手动粘贴或上传字幕。' },
@@ -274,6 +274,7 @@ const translations: Record<string, Record<Lang, string>> = {
   'study.biliControlsHint': { en: 'Sync mode uses the extracted audio clock. Native mode is video-only; Bilibili does not expose pause/time events to keep captions synced.', zh: '同步模式使用已提取音频的时钟。原生模式仅控制视频；B 站不会向网页提供暂停和时间事件，因此无法同步字幕。' },
   'study.biliNativeOnlyHint': { en: 'Native Bilibili controls only. This player does not drive captions or the EchoLearn progress bar; enable Audio Mode for reliable caption sync.', zh: '这里只使用 B 站原生控制。它不会驱动字幕或网页进度；请开启「音频模式」以获得可靠的字幕同步。' },
   'study.biliInvalidId':  { en: 'Bilibili video ID is invalid or still resolving.', zh: 'B 站视频 ID 无效或正在解析中…' },
+  'study.biliInvalidPart': { en: 'The Bilibili part number is invalid. Use a positive part number up to 9999.', zh: 'B 站分P编号无效，请使用 1 到 9999 之间的正整数。' },
   'study.biliResolving':  { en: 'Resolving Bilibili link…', zh: '正在解析 B 站链接…' },
 
   // ── Vocabulary ───────────────────────────────────────────

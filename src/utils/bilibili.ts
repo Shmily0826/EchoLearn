@@ -1,6 +1,22 @@
 import type { VideoPlatform } from '../types';
 import { extractUrl } from './urlExtract';
 
+const BILIBILI_BVID_RE = /^BV[a-zA-Z0-9]{10}$/i;
+const BILIBILI_PAGE_RE = /^\d{1,4}$/;
+
+/** Exact public hosts accepted by the Bilibili API routes. */
+export function isBilibiliHost(hostname: string): boolean {
+  const host = hostname.toLowerCase();
+  return host === 'b23.tv'
+    || host === 'bilibili.com'
+    || host === 'www.bilibili.com'
+    || host === 'm.bilibili.com';
+}
+
+export function isValidBilibiliBvid(value: string): boolean {
+  return BILIBILI_BVID_RE.test(value);
+}
+
 /**
  * Detect which platform a URL / ID belongs to.
  */
@@ -9,11 +25,7 @@ export function detectPlatform(input: string): VideoPlatform | null {
   const trimmed = input.trim();
 
   // Bilibili URL patterns
-  if (/bilibili\.com/i.test(trimmed)) return 'bilibili';
-  if (/b23\.tv/i.test(trimmed)) return 'bilibili';
-
-  // Bilibili BV ID (plain)
-  if (/^BV[a-zA-Z0-9]{10}$/i.test(trimmed)) return 'bilibili';
+  if (parseBilibiliId(trimmed)) return 'bilibili';
 
   // YouTube patterns
   if (/youtube\.com/i.test(trimmed)) return 'youtube';
@@ -45,15 +57,18 @@ export function parseBilibiliId(input: string): string | null {
   const trimmed = (extracted ?? input).trim();
 
   // Plain BV ID
-  if (/^BV[a-zA-Z0-9]{10}$/i.test(trimmed)) {
+  if (isValidBilibiliBvid(trimmed)) {
     return trimmed;
   }
 
   try {
     const url = new URL(trimmed);
 
-    // bilibili.com/video/BVxxx or m.bilibili.com/video/BVxxx
-    const pathMatch = url.pathname.match(/\/video\/(BV[a-zA-Z0-9]{10})/i);
+    if (!isBilibiliHost(url.hostname)) return null;
+
+    // bilibili.com/video/BVxxx or m.bilibili.com/video/BVxxx. Anchor the
+    // segment so a malformed overlong ID cannot be silently truncated.
+    const pathMatch = url.pathname.match(/^\/video\/(BV[a-zA-Z0-9]{10})(?:\/)?$/i);
     if (pathMatch) {
       return pathMatch[1];
     }
@@ -62,12 +77,12 @@ export function parseBilibiliId(input: string): string | null {
     // Otherwise it's a short code (e.g. b23.tv/nbSyQzx) that redirects to the
     // real video — the backend resolves it to a BV id, so return the full URL
     // and let the caller resolve it there.
-    if (url.hostname === 'b23.tv') {
+    if (url.hostname.toLowerCase() === 'b23.tv') {
       const shortPath = url.pathname.slice(1);
-      if (/^BV[a-zA-Z0-9]{10}$/i.test(shortPath)) {
+      if (isValidBilibiliBvid(shortPath)) {
         return shortPath;
       }
-      return trimmed;
+      return shortPath && !shortPath.includes('/') ? trimmed : null;
     }
   } catch {
     // Not a valid URL
@@ -98,8 +113,9 @@ export function parseBilibiliStartTime(input: string): number | undefined {
 export function parseBilibiliPage(input: string): number | undefined {
   try {
     const url = new URL(input.trim());
-    const p = url.searchParams.get('p');
-    if (p && /^\d+$/.test(p)) {
+    const values = url.searchParams.getAll('p');
+    const p = values.length === 1 ? values[0] : undefined;
+    if (p && BILIBILI_PAGE_RE.test(p)) {
       const n = parseInt(p, 10);
       return n > 0 ? n : undefined;
     }
@@ -107,6 +123,18 @@ export function parseBilibiliPage(input: string): number | undefined {
     // ignore
   }
   return undefined;
+}
+
+/** Return true when a Bilibili URL explicitly contains an invalid `p` value. */
+export function hasInvalidBilibiliPage(input: string): boolean {
+  try {
+    const url = new URL(input.trim());
+    const values = url.searchParams.getAll('p');
+    if (values.length === 0) return false;
+    return values.length !== 1 || !BILIBILI_PAGE_RE.test(values[0]) || Number(values[0]) < 1;
+  } catch {
+    return false;
+  }
 }
 
 /**

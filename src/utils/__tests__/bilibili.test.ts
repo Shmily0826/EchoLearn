@@ -4,6 +4,9 @@ import {
   parseBilibiliId,
   parseBilibiliStartTime,
   parseBilibiliPage,
+  hasInvalidBilibiliPage,
+  isBilibiliHost,
+  isValidBilibiliBvid,
   buildBilibiliUrl,
 } from '../bilibili';
 
@@ -83,10 +86,8 @@ describe('parseBilibiliId', () => {
   });
 
   it('leniently truncates over-long BV strings inside URLs — documented behavior', () => {
-    // The path regex is not end-anchored, so an 11-char "BV" string in a URL
-    // yields its first 10 chars instead of null. Pinned so a future
-    // tightening of the regex updates this intentionally.
-    expect(parseBilibiliId('https://www.bilibili.com/video/BV1xx411c7mDX')).toBe('BV1xx411c7mD');
+    // A malformed ID must not be silently truncated to a different video.
+    expect(parseBilibiliId('https://www.bilibili.com/video/BV1xx411c7mDX')).toBeNull();
   });
 });
 
@@ -134,6 +135,27 @@ describe('parseBilibiliPage', () => {
 
   it('returns undefined for non-URL input', () => {
     expect(parseBilibiliPage('not a url')).toBeUndefined();
+  });
+
+  it('flags malformed or duplicate page selectors before a request starts', () => {
+    expect(hasInvalidBilibiliPage('https://www.bilibili.com/video/BV1xx411c7mD?p=0')).toBe(true);
+    expect(hasInvalidBilibiliPage('https://www.bilibili.com/video/BV1xx411c7mD?p=abc')).toBe(true);
+    expect(hasInvalidBilibiliPage('https://www.bilibili.com/video/BV1xx411c7mD?p=2&p=3')).toBe(true);
+    expect(hasInvalidBilibiliPage('https://www.bilibili.com/video/BV1xx411c7mD?p=2')).toBe(false);
+  });
+});
+
+describe('Bilibili input boundaries', () => {
+  it('rejects lookalike hosts and accepts the supported public hosts', () => {
+    expect(isBilibiliHost('www.bilibili.com')).toBe(true);
+    expect(isBilibiliHost('b23.tv')).toBe(true);
+    expect(isBilibiliHost('evil-bilibili.com')).toBe(false);
+  });
+
+  it('requires exactly ten characters after BV', () => {
+    expect(isValidBilibiliBvid('BV1xx411c7mD')).toBe(true);
+    expect(isValidBilibiliBvid('BV1xx411c7mDX')).toBe(false);
+    expect(parseBilibiliId('https://www.bilibili.com/video/BV1xx411c7mDX')).toBeNull();
   });
 });
 

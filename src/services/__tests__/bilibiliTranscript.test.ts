@@ -1,6 +1,7 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import {
   fetchBilibiliTranscript,
+  BILIBILI_ERROR_CODES,
   getBilibiliMetaByUrl,
   getBilibiliVideoTitle,
 } from '../bilibiliTranscript';
@@ -60,7 +61,9 @@ describe('fetchBilibiliTranscript', () => {
     const result = await fetchBilibiliTranscript('BV1xx411c7mD');
 
     expect(fetchMock).toHaveBeenCalledTimes(1);
-    expect(fetchMock.mock.calls[0][0]).toContain(`${CF_WORKER_URL}/api/bilibili?`);
+    const called = String(fetchMock.mock.calls[0][0]);
+    expect(called).toContain(`${CF_WORKER_URL}/api/bilibili?`);
+    expect(called).not.toContain('allowAsr=1');
     expect(result.lines).toHaveLength(1);
     expect(result.language).toBe('zh-CN');
     // Worker responses must NOT be re-labelled as the VPS fallback source.
@@ -105,21 +108,25 @@ describe('fetchBilibiliTranscript', () => {
     expect(fetchMock).toHaveBeenCalledTimes(2);
   });
 
-  it('throws an error mentioning the last status when BOTH endpoints return non-2xx', async () => {
+  it('returns a typed provider failure when BOTH endpoints return non-2xx', async () => {
     fetchMock
       .mockResolvedValueOnce(mockResponse('worker err', { status: 500, url: `${CF_WORKER_URL}/x` }))
       .mockResolvedValueOnce(mockResponse('vercel err', { status: 503, url: '/api/bilibili' }));
 
-    await expect(fetchBilibiliTranscript('BV1xx411c7mD')).rejects.toThrow(/503/);
+    await expect(fetchBilibiliTranscript('BV1xx411c7mD')).rejects.toMatchObject({
+      code: BILIBILI_ERROR_CODES.PROVIDER_FAILURE,
+    });
     expect(fetchMock).toHaveBeenCalledTimes(2);
   });
 
-  it('throws when both endpoints fail at the network level', async () => {
+  it('returns a typed provider failure when both endpoints fail at the network level', async () => {
     fetchMock
       .mockRejectedValueOnce(new Error('worker unreachable'))
       .mockRejectedValueOnce(new Error('vercel unreachable'));
 
-    await expect(fetchBilibiliTranscript('BV1xx411c7mD')).rejects.toThrow(/vercel unreachable/);
+    await expect(fetchBilibiliTranscript('BV1xx411c7mD')).rejects.toMatchObject({
+      code: BILIBILI_ERROR_CODES.PROVIDER_FAILURE,
+    });
   });
 
   // ── response body validation ──────────────────────────────────
@@ -148,12 +155,70 @@ describe('fetchBilibiliTranscript', () => {
     expect(fetchMock).toHaveBeenCalledTimes(2);
   });
 
-  it('returns a clean final error when both endpoints return unusable payloads', async () => {
+  it('returns a typed provider failure when both endpoints return unusable payloads', async () => {
     fetchMock
       .mockResolvedValueOnce(mockResponse('<html>not json</html>'))
       .mockResolvedValueOnce(mockResponse(JSON.stringify({ lines: [] })));
 
-    await expect(fetchBilibiliTranscript('BV1xx411c7mD')).rejects.toThrow(/no usable lines/);
+    await expect(fetchBilibiliTranscript('BV1xx411c7mD')).rejects.toMatchObject({
+      code: BILIBILI_ERROR_CODES.PROVIDER_FAILURE,
+    });
+  });
+
+  it('keeps the default request caption-only and surfaces explicit ASR recovery', async () => {
+    fetchMock
+      .mockResolvedValueOnce(mockResponse(JSON.stringify({
+        error: 'asr_required',
+        code: 'asr_required',
+        recovery: { canAsr: true, requiresExplicitOptIn: true },
+      }), { status: 409, url: `${CF_WORKER_URL}/api/bilibili` }))
+      .mockResolvedValueOnce(mockResponse(JSON.stringify({
+        error: 'captions_not_found',
+        code: 'captions_not_found',
+      }), { status: 404, url: '/api/bilibili' }));
+
+    await expect(fetchBilibiliTranscript('BV1xx411c7mD')).rejects.toMatchObject({
+      code: BILIBILI_ERROR_CODES.ASR_REQUIRED,
+      recovery: { canAsr: true, requiresExplicitOptIn: true },
+    });
+    expect(String(fetchMock.mock.calls[0][0])).not.toContain('allowAsr=1');
+    expect(String(fetchMock.mock.calls[1][0])).not.toContain('allowAsr=1');
+  });
+
+  it('sends allowAsr=1 only for an explicit recovery request and does not fall back to Vercel', async () => {
+    fetchMock.mockResolvedValueOnce(
+      mockResponse(transcriptPayload({ source: 'asr' }), { url: `${CF_WORKER_URL}/api/bilibili` }),
+    );
+
+    const result = await fetchBilibiliTranscript('BV1xx411c7mD', 'en', 2, { allowAsr: true });
+
+    expect(result.source).toBe('asr');
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+    const called = String(fetchMock.mock.calls[0][0]);
+    expect(called).toContain('allowAsr=1');
+    expect(called).toContain('p=2');
+    expect(called).toContain('lang=en');
+  });
+
+  it.each([
+    [504, BILIBILI_ERROR_CODES.PROVIDER_TIMEOUT],
+    [429, BILIBILI_ERROR_CODES.RATE_LIMIT],
+    [502, BILIBILI_ERROR_CODES.PROVIDER_FAILURE],
+  ])('maps HTTP %s to the typed %s outcome', async (status, code) => {
+    fetchMock.mockResolvedValueOnce(mockResponse('', { status }));
+
+    await expect(fetchBilibiliTranscript('BV1xx411c7mD', 'en', undefined, { allowAsr: true }))
+      .rejects.toMatchObject({ code });
+  });
+
+  it('rejects invalid video and part inputs before any network request', async () => {
+    await expect(fetchBilibiliTranscript('not-a-bvid')).rejects.toMatchObject({
+      code: BILIBILI_ERROR_CODES.INVALID_REQUEST,
+    });
+    await expect(fetchBilibiliTranscript('BV1xx411c7mD', 'en', 0)).rejects.toMatchObject({
+      code: BILIBILI_ERROR_CODES.INVALID_REQUEST,
+    });
+    expect(fetchMock).not.toHaveBeenCalled();
   });
 });
 

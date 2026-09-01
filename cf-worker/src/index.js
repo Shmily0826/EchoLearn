@@ -35,8 +35,19 @@ const CAPTION_BUDGET_HEADER = 'X-EchoLearn-Caption-Budget-Ms';
 const CAPTION_FAST_PATH_HEADER = 'X-EchoLearn-Caption-Fast';
 const CAPTION_DEADLINE_MS = 11000;
 const VPS_CAPTION_BUDGET_MS = 5000;
+const BILIBILI_CAPTION_BUDGET_MS = 9000;
 const TRANSCRIPT_CACHE_VERSION = '1';
 const TRANSCRIPT_CACHE_TTL_SECONDS = 3600;
+const BILIBILI_BVID_RE = /^BV[a-zA-Z0-9]{10}$/i;
+const BILIBILI_PART_RE = /^\d{1,4}$/;
+
+function isBilibiliHost(hostname) {
+  const host = hostname.toLowerCase();
+  return host === 'b23.tv'
+    || host === 'bilibili.com'
+    || host === 'www.bilibili.com'
+    || host === 'm.bilibili.com';
+}
 
 function createTraceId() {
   return typeof crypto?.randomUUID === 'function'
@@ -81,6 +92,7 @@ function createCaptionContext(timeoutMs = CAPTION_DEADLINE_MS) {
     observations: {
       providerFailure: false,
       providerTimeout: false,
+      rateLimit: false,
       noCaptionsEvidence: false,
     },
     stageOutcome: null,
@@ -146,6 +158,7 @@ function noteCaptionProviderOutcome(context, outcome) {
   context.stageOutcome = outcome;
   if (outcome === 'timeout') context.observations.providerTimeout = true;
   if (outcome === 'failure') context.observations.providerFailure = true;
+  if (outcome === 'rate_limit') context.observations.rateLimit = true;
 }
 
 function noteCaptionNoCaptions(context) {
@@ -612,14 +625,39 @@ async function handleTranscript(url, env, traceId) {
 
 // ── /api/bilibili — Fetch Bilibili transcript / metadata ──────────
 
+function bilibiliErrorResponse(code, status, env, options = {}) {
+  const messages = {
+    captions_not_found: 'No captions/subtitles available for this Bilibili video.',
+    asr_required: 'Bilibili captions are unavailable; explicit ASR opt-in is required.',
+    provider_timeout: 'Bilibili caption providers timed out.',
+    provider_failure: 'Bilibili caption provider failed.',
+    rate_limit: 'Bilibili caption provider rate limited the request.',
+  };
+  return transcriptErrorResponse(
+    { error: code, code, message: messages[code] || messages.provider_failure },
+    status,
+    env,
+    { includeRecovery: options.includeRecovery === true },
+  );
+}
+
+function bilibiliPartError() {
+  return jsonResponse({ error: 'invalid_request', code: 'invalid_request', message: 'Invalid Bilibili part number.' }, 400);
+}
+
 async function handleBilibili(url, env) {
   const bvid = url.searchParams.get('bvid');
   const lang = url.searchParams.get('lang') || 'zh-CN';
   const info = url.searchParams.get('info') === '1';
   const part = url.searchParams.get('p');
+  const allowAsr = url.searchParams.get('allowAsr') === '1';
 
-  if (!bvid) {
-    return jsonResponse({ error: 'Missing bvid parameter' }, 400);
+  if (!bvid) return jsonResponse({ error: 'Missing bvid parameter' }, 400);
+  if (!BILIBILI_BVID_RE.test(bvid)) {
+    return jsonResponse({ error: 'invalid_request', code: 'invalid_request', message: 'Invalid Bilibili video ID.' }, 400);
+  }
+  if (part !== null && (!BILIBILI_PART_RE.test(part) || Number(part) < 1)) {
+    return bilibiliPartError();
   }
 
   let bilibiliUrl = `https://www.bilibili.com/video/${encodeURIComponent(bvid)}`;
@@ -641,7 +679,7 @@ async function handleBilibili(url, env) {
           { headers },
           30000
         );
-        if (resp.ok) return jsonResponse(await resp.json());
+      if (resp.ok) return jsonResponse(await resp.json());
       } catch (_) {
         /* fall through to the direct call below */
       }
@@ -670,38 +708,88 @@ async function handleBilibili(url, env) {
         title: data.data?.title || '',
         ownerName: data.data?.owner?.name || '',
         partCount: data.data?.videos || pages.length || 0,
+        bvid,
         parts: pages.map((p) => ({ index: p.page, title: p.part || '' })),
       });
     } catch (err) {
-      return jsonResponse({ error: err.message }, 502);
+      return bilibiliErrorResponse('provider_failure', 502, env);
     }
   }
 
   if (!env.YTDLP_API_URL) {
-    return jsonResponse({ error: 'Bilibili transcript proxy not configured' }, 503);
+    return bilibiliErrorResponse('provider_failure', 503, env);
   }
 
-  // Bilibili's watch page returns HTTP 412 from VPS/datacenter IPs, while the
-  // public view/playurl APIs and their CDN audio work normally.  Go straight
-  // to the VPS API-direct ASR path first; it resolves cid -> playurl -> CDN
-  // audio and never asks yt-dlp to open www.bilibili.com/video/....
+  // Normal Bilibili acquisition is caption-only. ASR is an explicit recovery
+  // action and is never reached by a regular import or by the Vercel fallback.
+  if (!allowAsr) {
+    const traceId = createTraceId();
+    const captionContext = createCaptionContext();
+    let result = null;
+    try {
+      result = await runBoundedCaptionStage(
+        'bilibili-caption',
+        traceId,
+        captionContext,
+        BILIBILI_CAPTION_BUDGET_MS,
+        (context) => fetchViaYtDlp(
+          null,
+          lang,
+          env,
+          console.log,
+          bilibiliUrl,
+          traceId,
+          context,
+        ),
+      );
+    } catch (err) {
+      if (err instanceof CaptionDeadlineError || err instanceof CaptionProviderTimeoutError) {
+        return bilibiliErrorResponse('provider_timeout', 504, env, { includeRecovery: true });
+      }
+      return bilibiliErrorResponse('provider_failure', 502, env, { includeRecovery: true });
+    } finally {
+      captionContext.dispose();
+    }
+
+    if (result) return jsonResponse(result);
+    if (captionContext.observations.rateLimit) {
+      return bilibiliErrorResponse('rate_limit', 429, env);
+    }
+    if (captionContext.observations.providerTimeout || captionContext.expired()) {
+      return bilibiliErrorResponse('provider_timeout', 504, env, { includeRecovery: true });
+    }
+    if (captionContext.observations.providerFailure) {
+      return bilibiliErrorResponse('provider_failure', 502, env, { includeRecovery: true });
+    }
+    return bilibiliErrorResponse('asr_required', 409, env, { includeRecovery: true });
+  }
+
   const asrDiag = {};
-  const asr = await fetchViaVpsAsr(bilibiliUrl, env, console.log, asrDiag);
-  if (asr) return jsonResponse(asr);
-
-  // Keep native subtitle extraction as a fallback for videos where ASR is
-  // unavailable (for example a temporary Groq quota or duration failure).
-  const result = await fetchViaYtDlp(null, lang, env, console.log, bilibiliUrl);
-  if (result) return jsonResponse(result);
-
-  return jsonResponse(
-    {
-      error: 'No transcript available for this Bilibili video',
-      hint: 'Subtitle tracks are login-gated and Whisper transcription did not succeed.',
-      asrError: asrDiag.message || 'No diagnostic returned by VPS',
-    },
-    404
-  );
+  const asrController = new AbortController();
+  const asrTimer = setTimeout(() => {
+    asrDiag.code = 'provider_timeout';
+    asrController.abort();
+  }, 75000);
+  try {
+    const asr = await fetchViaVpsAsr(
+      bilibiliUrl,
+      env,
+      console.log,
+      asrDiag,
+      createTraceId(),
+      asrController.signal,
+    );
+    if (asr) return jsonResponse(asr);
+  } finally {
+    clearTimeout(asrTimer);
+  }
+  if (asrDiag.code === 'provider_timeout') {
+    return bilibiliErrorResponse('provider_timeout', 504, env);
+  }
+  if (asrDiag.code === 'rate_limit') {
+    return bilibiliErrorResponse('rate_limit', 429, env);
+  }
+  return bilibiliErrorResponse('provider_failure', 502, env);
 }
 
 /**
@@ -716,6 +804,14 @@ async function handleInfo(url, env) {
   const target = url.searchParams.get('url');
   if (!target) {
     return jsonResponse({ error: 'Missing url parameter' }, 400);
+  }
+  try {
+    const targetUrl = new URL(target);
+    if (!isBilibiliHost(targetUrl.hostname)) {
+      return jsonResponse({ error: 'Unsupported Bilibili host' }, 400);
+    }
+  } catch {
+    return jsonResponse({ error: 'Invalid Bilibili URL' }, 400);
   }
   if (!env.YTDLP_API_URL) {
     return jsonResponse({ error: 'VPS not configured' }, 503);
@@ -746,7 +842,14 @@ async function handleInfo(url, env) {
  * Preferred over the Worker-side Whisper strategy because the VPS pulls audio
  * with yt-dlp directly instead of relying on public Piped/Invidious instances.
  */
-async function fetchViaVpsAsr(targetUrl, env, log = console.log, diagnostics = null, traceId = null) {
+async function fetchViaVpsAsr(
+  targetUrl,
+  env,
+  log = console.log,
+  diagnostics = null,
+  traceId = null,
+  signal = null,
+) {
   if (!env.YTDLP_API_URL) return null;
 
   const base = env.YTDLP_API_URL.replace(/\/+$/, '');
@@ -754,12 +857,16 @@ async function fetchViaVpsAsr(targetUrl, env, log = console.log, diagnostics = n
   const headers = {};
   if (env.YTDLP_API_KEY) headers['X-Api-Key'] = env.YTDLP_API_KEY;
   if (traceId) headers[TRACE_HEADER] = traceId;
-  traceId && traceLog('vps_asr_start', { traceId, target: 'youtube', provider: 'vps-asr' });
+  traceId && traceLog('vps_asr_start', {
+    traceId,
+    target: isBilibiliHost(new URL(targetUrl).hostname) ? 'bilibili' : 'youtube',
+    provider: 'vps-asr',
+  });
 
   try {
     // Download + transcode + transcribe runs synchronously on the VPS; a
     // 30 min video takes well under a minute but the ceiling is generous.
-    const resp = await fetchWithTimeout(endpoint, { headers }, 240000);
+    const resp = await fetchWithTimeout(endpoint, { headers, ...(signal ? { signal } : {}) }, 240000);
     if (!resp.ok) {
       const detail = await resp.text();
       let payload = null;
@@ -771,7 +878,20 @@ async function fetchViaVpsAsr(targetUrl, env, log = console.log, diagnostics = n
         log('VPS ASR reported a bounded YouTube acquisition limitation');
         return null;
       }
+      if (code === 'rate_limit' || resp.status === 429) {
+        diagnostics && (diagnostics.code = 'rate_limit');
+        traceId && traceLog('vps_asr_result', { traceId, status: resp.status, usable: false, error: 'rate_limit' });
+        log('VPS ASR rate limited');
+        return null;
+      }
+      if (code === 'provider_timeout' || resp.status === 408 || resp.status === 504) {
+        diagnostics && (diagnostics.code = 'provider_timeout');
+        traceId && traceLog('vps_asr_result', { traceId, status: resp.status, usable: false, error: 'provider_timeout' });
+        log('VPS ASR timed out');
+        return null;
+      }
       const message = `VPS ASR HTTP ${resp.status}`;
+      diagnostics && (diagnostics.code = 'provider_failure');
       diagnostics && (diagnostics.message = message);
       traceId && traceLog('vps_asr_result', { traceId, status: resp.status, usable: false });
       log(message);
@@ -787,6 +907,8 @@ async function fetchViaVpsAsr(targetUrl, env, log = console.log, diagnostics = n
     log(`VPS ASR: got ${data.lines.length} segments (${data.language})`);
     return data;
   } catch (err) {
+    if (err?.name === 'AbortError') diagnostics && (diagnostics.code = 'provider_timeout');
+    else diagnostics && (diagnostics.code = 'provider_failure');
     const message = `VPS ASR request failed: ${err.message}`;
     diagnostics && (diagnostics.message = message);
     traceId && traceLog('vps_asr_error', { traceId, error: err?.name === 'AbortError' ? 'timeout' : 'network_or_parse' });
@@ -937,13 +1059,20 @@ async function fetchWithTimeout(url, init = {}, timeoutMs = 8000, context = null
   const effectiveTimeout = providerTimeout(timeoutMs, context);
   const controller = new AbortController();
   const onAbort = () => controller.abort();
+  const callerSignal = init.signal;
+  const onCallerAbort = () => controller.abort();
   context?.signal.addEventListener('abort', onAbort, { once: true });
+  if (callerSignal) {
+    if (callerSignal.aborted) controller.abort();
+    else callerSignal.addEventListener('abort', onCallerAbort, { once: true });
+  }
   const timer = setTimeout(() => controller.abort(), effectiveTimeout);
   try {
     return await fetch(url, { ...init, signal: controller.signal });
   } finally {
     clearTimeout(timer);
     context?.signal.removeEventListener('abort', onAbort);
+    callerSignal?.removeEventListener('abort', onCallerAbort);
   }
 }
 
@@ -2232,11 +2361,13 @@ async function fetchViaYtDlp(videoId, lang, env, log, targetUrl = null, traceId 
     const resp = await fetchWithTimeout(url, { headers }, targetUrl ? 90000 : 15000, context);
     if (resp.status === 404) {
       log('yt-dlp: 404 No transcript available');
+      noteCaptionNoCaptions(context);
       traceId && traceLog('vps_transcript_result', { traceId, videoId, status: resp.status, usable: false });
       return null;
     }
     if (resp.status === 401) {
       log('yt-dlp: 401 unauthorized (check YTDLP_API_KEY)');
+      noteCaptionProviderOutcome(context, 'failure');
       traceId && traceLog('vps_transcript_result', { traceId, videoId, status: resp.status, usable: false });
       return null;
     }
@@ -2252,11 +2383,19 @@ async function fetchViaYtDlp(videoId, lang, env, log, targetUrl = null, traceId 
         throw new CaptionProviderTimeoutError();
       }
       log('yt-dlp: HTTP 504');
+      noteCaptionProviderOutcome(context, 'timeout');
+      traceId && traceLog('vps_transcript_result', { traceId, videoId, status: resp.status, usable: false });
+      throw new CaptionProviderTimeoutError();
+    }
+    if (resp.status === 429) {
+      log('yt-dlp: rate limited');
+      noteCaptionProviderOutcome(context, 'rate_limit');
       traceId && traceLog('vps_transcript_result', { traceId, videoId, status: resp.status, usable: false });
       return null;
     }
     if (!resp.ok) {
       log(`yt-dlp: HTTP ${resp.status}`);
+      noteCaptionProviderOutcome(context, 'failure');
       traceId && traceLog('vps_transcript_result', { traceId, videoId, status: resp.status, usable: false });
       return null;
     }
@@ -2267,11 +2406,14 @@ async function fetchViaYtDlp(videoId, lang, env, log, targetUrl = null, traceId 
         lines: data.lines,
         language: data.language || lang,
         isAutoGenerated: !!data.isAutoGenerated,
+        ...(targetUrl && isBilibiliHost(new URL(targetUrl).hostname) ? { source: 'bilibili' } : {}),
       };
     }
+    noteCaptionProviderOutcome(context, 'failure');
     return null;
   } catch (err) {
     if (err instanceof CaptionDeadlineError || err instanceof CaptionProviderTimeoutError) throw err;
+    noteCaptionProviderOutcome(context, err?.name === 'AbortError' ? 'timeout' : 'failure');
     log(`yt-dlp fetch error: ${err.message}`);
     return null;
   }
@@ -2291,8 +2433,10 @@ export {
   createCaptionContext,
   createProviderContext,
   handleTranscript,
+  handleBilibili,
   readResponseBody,
   runCaptionStage,
   fetchViaYtDlp,
+  fetchViaVpsAsr,
   proxiedFetch,
 };
