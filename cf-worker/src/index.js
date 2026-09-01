@@ -31,7 +31,12 @@ const INNERTUBE_API_URL =
 
 const CORS_METHODS = 'GET, POST, OPTIONS';
 const TRACE_HEADER = 'X-EchoLearn-Trace-Id';
+const CAPTION_BUDGET_HEADER = 'X-EchoLearn-Caption-Budget-Ms';
+const CAPTION_FAST_PATH_HEADER = 'X-EchoLearn-Caption-Fast';
 const CAPTION_DEADLINE_MS = 11000;
+const VPS_CAPTION_BUDGET_MS = 5000;
+const TRANSCRIPT_CACHE_VERSION = '1';
+const TRANSCRIPT_CACHE_TTL_SECONDS = 3600;
 
 function createTraceId() {
   return typeof crypto?.randomUUID === 'function'
@@ -46,7 +51,7 @@ function traceLog(event, fields) {
 /** Resolve a provider within a bounded window without leaving a live timer. */
 function boundedProviderCall(providerPromise, timeoutMs, onTimeout) {
   let timer;
-  return new Promise((resolve) => {
+  return new Promise((resolve, reject) => {
     timer = setTimeout(() => {
       onTimeout();
       resolve(null);
@@ -54,9 +59,13 @@ function boundedProviderCall(providerPromise, timeoutMs, onTimeout) {
     providerPromise.then((value) => {
       clearTimeout(timer);
       resolve(value);
-    }, () => {
+    }, (err) => {
       clearTimeout(timer);
-      resolve(null);
+      if (err instanceof CaptionDeadlineError || err instanceof CaptionProviderTimeoutError) {
+        reject(err);
+      } else {
+        resolve(null);
+      }
     });
   });
 }
@@ -69,6 +78,12 @@ function createCaptionContext(timeoutMs = CAPTION_DEADLINE_MS) {
     controller,
     signal: controller.signal,
     deadlineAt,
+    observations: {
+      providerFailure: false,
+      providerTimeout: false,
+      noCaptionsEvidence: false,
+    },
+    stageOutcome: null,
     remainingBudget() { return Math.max(0, deadlineAt - Date.now()); },
     expired() { return Date.now() >= deadlineAt || controller.signal.aborted; },
     dispose() { clearTimeout(timer); },
@@ -86,6 +101,9 @@ function createProviderContext(parent, timeoutMs) {
     controller,
     signal: controller.signal,
     deadlineAt,
+    providerScoped: true,
+    observations: parent.observations,
+    stageOutcome: null,
     remainingBudget() { return Math.max(0, deadlineAt - Date.now()); },
     expired() { return Date.now() >= deadlineAt || controller.signal.aborted; },
     dispose() {
@@ -103,14 +121,82 @@ class CaptionDeadlineError extends Error {
   }
 }
 
+class CaptionProviderTimeoutError extends Error {
+  constructor() {
+    super('Caption provider timed out');
+    this.name = 'CaptionProviderTimeoutError';
+    this.code = 'provider_timeout';
+  }
+}
+
 function requireCaptionBudget(context) {
-  if (context?.expired()) throw new CaptionDeadlineError();
+  if (context?.expired()) {
+    throw context.providerScoped ? new CaptionProviderTimeoutError() : new CaptionDeadlineError();
+  }
   return context;
 }
 
 function providerTimeout(timeoutMs, context) {
   requireCaptionBudget(context);
   return Math.max(1, Math.min(timeoutMs, context?.remainingBudget?.() ?? timeoutMs));
+}
+
+function noteCaptionProviderOutcome(context, outcome) {
+  if (!context) return;
+  context.stageOutcome = outcome;
+  if (outcome === 'timeout') context.observations.providerTimeout = true;
+  if (outcome === 'failure') context.observations.providerFailure = true;
+}
+
+function noteCaptionNoCaptions(context) {
+  if (!context || context.stageOutcome === 'failure' || context.stageOutcome === 'timeout') return;
+  context.stageOutcome = 'no_captions';
+  context.observations.noCaptionsEvidence = true;
+}
+
+function resetCaptionStage(context) {
+  if (context) context.stageOutcome = null;
+}
+
+async function runCaptionStageWithContext(stage, traceId, context, work) {
+  resetCaptionStage(context);
+  return runCaptionStage(
+    stage,
+    traceId,
+    () => work(context),
+    (result) => result ? 'success' : (context?.stageOutcome || 'unusable'),
+  );
+}
+
+async function runBoundedCaptionStage(stage, traceId, parent, timeoutMs, work) {
+  const providerContext = createProviderContext(parent, timeoutMs);
+  let timedOut = false;
+  try {
+    return await runCaptionStage(
+      stage,
+      traceId,
+      () => boundedProviderCall(
+        Promise.resolve().then(() => work(providerContext)),
+        providerTimeout(timeoutMs, parent),
+        () => {
+          timedOut = true;
+          noteCaptionProviderOutcome(providerContext, 'timeout');
+          providerContext.controller.abort();
+        },
+      ),
+      (result) => timedOut ? 'timeout' : (result ? 'success' : (providerContext.stageOutcome || 'unusable')),
+    );
+  } catch (err) {
+    // A provider-local budget is a bounded fallback miss, not exhaustion of
+    // the shared caption deadline. The latter remains CaptionDeadlineError.
+    if (err instanceof CaptionProviderTimeoutError) {
+      noteCaptionProviderOutcome(providerContext, 'timeout');
+      return null;
+    }
+    throw err;
+  } finally {
+    providerContext.dispose();
+  }
 }
 
 /**
@@ -132,7 +218,7 @@ async function runCaptionStage(stage, traceId, work, outcomeOf = null) {
     traceLog('caption_stage', {
       traceId,
       stage,
-      outcome: err instanceof CaptionDeadlineError ? 'timeout' : 'failure',
+      outcome: err instanceof CaptionDeadlineError || err instanceof CaptionProviderTimeoutError ? 'timeout' : 'failure',
       elapsedMs: Date.now() - startedAt,
     });
     throw err;
@@ -366,6 +452,14 @@ async function handleTranscript(url, env, traceId) {
   }
   traceLog('request_start', { traceId, videoId, lang });
 
+  // Caption data is stable and already uses the same Cloudflare Cache API as
+  // the audio route. Only caption-only, non-debug requests may read this
+  // cache; ASR and diagnostic responses must always take their own paths.
+  if (!allowAsr && !debug) {
+    const cached = await readTranscriptCache(videoId, lang, traceId);
+    if (cached) return cached;
+  }
+
   const debugLog = [];
   const log = debug ? (msg) => debugLog.push(msg) : (msg) => console.log(msg);
 
@@ -421,78 +515,53 @@ async function handleTranscript(url, env, traceId) {
 
   const captionContext = createCaptionContext();
 
-  // Strategy 0: yt-dlp service on a VPS (client-signature rotation bypasses
-  // YouTube's datacenter-IP bot check). Most robust server-side path; only
-  // active when YTDLP_API_URL is configured. Requires no residential proxy for
-  // the caption path, so other users get transcripts without the developer's
-  // PC being online.
-  let captionProviderTimedOut = false;
+  // InnerTube is the observed fast-path winner for the production caption
+  // matrix, so give it the first synchronous attempt within a bounded slice
+  // of the shared deadline. A separate slice keeps the residential fallback
+  // reachable when a direct client is transiently blocked.
   try {
-  if (env && env.YTDLP_API_URL) {
-    const vpsContext = createProviderContext(captionContext, 5000);
-    let vpsTimedOut = false;
-    let ytdlpResult;
-    try {
-      ytdlpResult = await runCaptionStage(
-        'vps_caption',
-        traceId,
-        () => boundedProviderCall(
-          fetchViaYtDlp(videoId, lang, env, log, null, traceId, vpsContext),
-          providerTimeout(5000, captionContext),
-          () => {
-            vpsTimedOut = true;
-            captionProviderTimedOut = true;
-            vpsContext.controller.abort();
-          },
-        ),
-        (result) => vpsTimedOut ? 'timeout' : (result ? 'success' : 'unusable'),
-      );
-    } finally {
-      vpsContext.dispose();
+    const innerTubeResult = await runBoundedCaptionStage(
+      'innertube', traceId, captionContext, 4000,
+      (context) => fetchViaInnerTube(videoId, lang, env, log, context),
+    );
+    if (innerTubeResult) {
+      if (!debug) await writeTranscriptCache(videoId, lang, innerTubeResult, traceId);
+      if (debug) innerTubeResult._debug = debugLog;
+      traceLog('request_finish', { traceId, videoId, provider: 'innertube', status: 200 });
+      return jsonResponse(innerTubeResult, 200, { [TRACE_HEADER]: traceId });
     }
-    if (ytdlpResult) {
-      if (debug) ytdlpResult._debug = debugLog;
-      traceLog('request_finish', { traceId, videoId, provider: 'vps-transcript', status: 200, lineCount: ytdlpResult.lines?.length || 0 });
-      return jsonResponse(ytdlpResult, 200, { [TRACE_HEADER]: traceId });
-    }
-    log('yt-dlp service returned no transcript — falling through to other strategies');
-  }
 
-  // Strategy 1: InnerTube player API (multi-client)
-  const innerTubeResult = await runCaptionStage(
-    'innertube', traceId, () => fetchViaInnerTube(videoId, lang, env, log, captionContext),
-  );
-  if (innerTubeResult) {
-    if (debug) innerTubeResult._debug = debugLog;
-    traceLog('request_finish', { traceId, videoId, provider: 'innertube', status: 200 });
-    return jsonResponse(innerTubeResult, 200, { [TRACE_HEADER]: traceId });
-  }
-
-  // Strategy 2: Web page scraping
-  const webResult = await runCaptionStage(
-    'webpage', traceId, () => fetchViaWebPage(videoId, lang, env, log, captionContext),
+  // Strategy 1: Web page scraping
+  const webResult = await runCaptionStageWithContext(
+    'webpage', traceId, captionContext,
+    (context) => fetchViaWebPage(videoId, lang, env, log, context),
   );
   if (webResult) {
+    if (!debug) await writeTranscriptCache(videoId, lang, webResult, traceId);
     if (debug) webResult._debug = debugLog;
     traceLog('request_finish', { traceId, videoId, provider: 'web', status: 200 });
     return jsonResponse(webResult, 200, { [TRACE_HEADER]: traceId });
   }
 
-  // Strategy 3: Invidious API (third-party YouTube frontends)
-  const invidiousResult = await runCaptionStage(
-    'invidious', traceId, () => fetchViaInvidious(videoId, lang, log, captionContext),
+  // Strategy 2: Invidious API (third-party YouTube frontends)
+  const invidiousResult = await runCaptionStageWithContext(
+    'invidious', traceId, captionContext,
+    (context) => fetchViaInvidious(videoId, lang, log, context),
   );
   if (invidiousResult) {
+    if (!debug) await writeTranscriptCache(videoId, lang, invidiousResult, traceId);
     if (debug) invidiousResult._debug = debugLog;
     traceLog('request_finish', { traceId, videoId, provider: 'invidious', status: 200 });
     return jsonResponse(invidiousResult, 200, { [TRACE_HEADER]: traceId });
   }
 
-  // Strategy 4: Piped API
-  const pipedResult = await runCaptionStage(
-    'piped', traceId, () => fetchViaPiped(videoId, lang, log, captionContext),
+  // Strategy 3: Piped API
+  const pipedResult = await runCaptionStageWithContext(
+    'piped', traceId, captionContext,
+    (context) => fetchViaPiped(videoId, lang, log, context),
   );
   if (pipedResult) {
+    if (!debug) await writeTranscriptCache(videoId, lang, pipedResult, traceId);
     if (debug) pipedResult._debug = debugLog;
     traceLog('request_finish', { traceId, videoId, provider: 'piped', status: 200 });
     return jsonResponse(pipedResult, 200, { [TRACE_HEADER]: traceId });
@@ -515,13 +584,23 @@ async function handleTranscript(url, env, traceId) {
     return transcriptErrorResponse({ error: 'provider_timeout', message: 'Caption providers timed out.' }, 504, env, { includeRecovery: true, headers: { [TRACE_HEADER]: traceId } });
   }
 
+  if (captionContext.observations.providerTimeout) {
+    traceLog('caption_stage', { traceId, stage: 'provider', outcome: 'timeout' });
+    traceLog('request_finish', { traceId, videoId, provider: 'caption-cascade', status: 504, error: 'provider_timeout' });
+    return transcriptErrorResponse({ error: 'provider_timeout', message: 'A caption provider timed out.' }, 504, env, { includeRecovery: true, headers: { [TRACE_HEADER]: traceId } });
+  }
+
+  const asrAvailable = !!(env && (env.YTDLP_API_URL || env.GROQ_API_KEY));
+  if (captionContext.observations.providerFailure && !asrAvailable) {
+    traceLog('caption_stage', { traceId, stage: 'provider', outcome: 'failure' });
+    traceLog('request_finish', { traceId, videoId, provider: 'caption-cascade', status: 502, error: 'provider_failure' });
+    return transcriptErrorResponse({ error: 'provider_failure', message: 'Caption providers were unavailable.' }, 502, env, { headers: { [TRACE_HEADER]: traceId } });
+  }
+
   // VPS ASR availability is represented by YTDLP_API_URL, while Worker
   // Whisper availability is represented by GROQ_API_KEY. Explicit allowAsr=1
   // is still required before either generation path can run.
-  const asrAvailable = !!(env && (env.YTDLP_API_URL || env.GROQ_API_KEY));
-  const error = captionProviderTimedOut
-    ? { error: 'provider_timeout', message: 'Caption providers timed out.' }
-    : asrAvailable
+  const error = asrAvailable
       ? { error: 'asr_required', message: 'Caption providers could not provide a transcript; explicit ASR opt-in is required.' }
       : { error: 'captions_not_found', message: 'No caption transcript is available for this video.' };
   const response = error;
@@ -904,17 +983,22 @@ async function proxiedFetch(url, init = {}, timeoutMs = 15000, env = {}, log = c
           gw.searchParams.set('premium_proxy', 'true');
           gw.searchParams.set('proxy_country', 'us');
           log(`[scrape:zenrows→${host}]`);
-          return doScrapeFetch(gw.toString(), timeoutMs, log, context);
+          return doScrapeFetch(gw.toString(), {}, timeoutMs, log, context);
         } else {
           const gw = new URL('https://app.scrapingbee.com/api/v1');
-          gw.searchParams.set('api_key', key);
           gw.searchParams.set('url', url);
           gw.searchParams.set('render_js', 'true');
           gw.searchParams.set('premium_proxy', 'true');
           gw.searchParams.set('country_code', 'us');
           gw.searchParams.set('timeout', String(Math.min(timeoutMs, 60000)));
           log(`[scrape:scrapingbee→${host}]`);
-          return doScrapeFetch(gw.toString(), timeoutMs, log, context);
+          return doScrapeFetch(
+            gw.toString(),
+            { headers: { Authorization: `Bearer ${key}` } },
+            timeoutMs,
+            log,
+            context,
+          );
         }
       }
     }
@@ -923,23 +1007,26 @@ async function proxiedFetch(url, init = {}, timeoutMs = 15000, env = {}, log = c
 }
 
 /**
- * Perform a scraping-API gateway fetch and log the outcome (status + a short
- * body snippet) so debug traces show whether the gateway itself succeeded.
+ * Perform a scraping-API gateway fetch and log the outcome without exposing
+ * provider response bodies or credentials in Worker logs.
  */
-async function doScrapeFetch(gwUrl, timeoutMs, log = console.log, context = null) {
+async function doScrapeFetch(gwUrl, init = {}, timeoutMs = 15000, log = console.log, context = null) {
   try {
-    const resp = await fetchWithTimeout(gwUrl, {}, timeoutMs, context);
-    let snippet = '';
+    const resp = await fetchWithTimeout(gwUrl, init, timeoutMs, context);
+    let bodyLength = 0;
     try {
       const buf = await readResponseBody(resp.clone(), 'text', context);
-      snippet = buf.slice(0, 200).replace(/\s+/g, ' ');
+      bodyLength = buf.length;
     } catch (_) {
       /* ignore */
     }
-    log(`[scrape] HTTP ${resp.status} (${snippet ? snippet + '…' : 'no body'})`);
+    log(`[scrape] HTTP ${resp.status} body=${bodyLength > 0 ? 'nonempty' : 'empty'}`);
+    if (!resp.ok) noteCaptionProviderOutcome(context, 'failure');
     return resp;
   } catch (err) {
-    log(`[scrape] fetch error: ${err.message}`);
+    if (err instanceof CaptionDeadlineError) throw err;
+    noteCaptionProviderOutcome(context, err instanceof CaptionProviderTimeoutError || err.name === 'AbortError' ? 'timeout' : 'failure');
+    log(`[scrape] fetch error: ${err instanceof CaptionProviderTimeoutError || err.name === 'AbortError' ? 'provider_timeout' : 'provider_failure'}`);
     throw err;
   }
 }
@@ -1012,6 +1099,7 @@ async function fetchViaInnerTube(videoId, lang, env, log = console.log, context 
       }, 8000, context);
 
       if (!resp.ok) {
+        noteCaptionProviderOutcome(context, 'failure');
         log(`InnerTube ${client.name}: HTTP ${resp.status}`);
         continue;
       }
@@ -1020,11 +1108,13 @@ async function fetchViaInnerTube(videoId, lang, env, log = console.log, context 
       const status = data?.playabilityStatus?.status;
 
       if (status === 'LOGIN_REQUIRED') {
+        noteCaptionProviderOutcome(context, 'failure');
         log(`InnerTube ${client.name}: LOGIN_REQUIRED — ${data?.playabilityStatus?.reason}`);
         continue;
       }
 
       if (status !== 'OK') {
+        noteCaptionProviderOutcome(context, 'failure');
         log(`InnerTube ${client.name}: ${status} — ${data?.playabilityStatus?.reason}`);
         continue;
       }
@@ -1032,6 +1122,7 @@ async function fetchViaInnerTube(videoId, lang, env, log = console.log, context 
       const tracks =
         data?.captions?.playerCaptionsTracklistRenderer?.captionTracks;
       if (!Array.isArray(tracks) || tracks.length === 0) {
+        noteCaptionNoCaptions(context);
         log(`InnerTube ${client.name}: OK but no caption tracks`);
         continue;
       }
@@ -1041,6 +1132,7 @@ async function fetchViaInnerTube(videoId, lang, env, log = console.log, context 
       if (result) return result;
     } catch (err) {
       if (err instanceof CaptionDeadlineError) throw err;
+      noteCaptionProviderOutcome(context, err instanceof CaptionProviderTimeoutError || err.name === 'AbortError' ? 'timeout' : 'failure');
       log(`InnerTube ${client.name} error: ${err.message}`);
     }
   }
@@ -1075,17 +1167,20 @@ async function fetchViaInnerTubeGet(videoId, lang, env, log = console.log, conte
       context,
     );
     if (!resp.ok) {
+      noteCaptionProviderOutcome(context, 'failure');
       log(`InnerTube-GET: HTTP ${resp.status}`);
       return null;
     }
     const data = await readResponseBody(resp, 'json', context);
     const status = data?.playabilityStatus?.status;
     if (status !== 'OK') {
+      noteCaptionProviderOutcome(context, 'failure');
       log(`InnerTube-GET: ${status} — ${data?.playabilityStatus?.reason}`);
       return null;
     }
     const tracks = data?.captions?.playerCaptionsTracklistRenderer?.captionTracks;
     if (!Array.isArray(tracks) || tracks.length === 0) {
+      noteCaptionNoCaptions(context);
       log('InnerTube-GET: OK but no caption tracks');
       return null;
     }
@@ -1093,6 +1188,7 @@ async function fetchViaInnerTubeGet(videoId, lang, env, log = console.log, conte
     return fetchFromTracks(tracks, lang, env, log, context);
   } catch (err) {
     if (err instanceof CaptionDeadlineError) throw err;
+    noteCaptionProviderOutcome(context, err instanceof CaptionProviderTimeoutError || err.name === 'AbortError' ? 'timeout' : 'failure');
     log(`InnerTube-GET error: ${err.message}`);
     return null;
   }
@@ -1114,6 +1210,7 @@ async function fetchViaWebPage(videoId, lang, env, log = console.log, context = 
     }, providerTimeout(45000, context), env, log, context);
 
     if (!resp.ok) {
+      noteCaptionProviderOutcome(context, 'failure');
       log(`Web page: HTTP ${resp.status}`);
       return null;
     }
@@ -1130,6 +1227,7 @@ async function fetchViaWebPage(videoId, lang, env, log = console.log, context = 
       (html.includes('unusual traffic') && html.length < 100000);
 
     if (isCaptchaPage) {
+      noteCaptionProviderOutcome(context, 'failure');
       log('Web page: CAPTCHA/bot challenge page detected');
       return null;
     }
@@ -1180,6 +1278,7 @@ async function fetchViaWebPage(videoId, lang, env, log = console.log, context = 
         const tracks =
           playerResponse?.captions?.playerCaptionsTracklistRenderer?.captionTracks;
         if (!Array.isArray(tracks) || tracks.length === 0) {
+          noteCaptionNoCaptions(context);
           log('Web page: player response has no caption tracks');
           // Check if captions field exists at all
           const hasCaptions = !!playerResponse?.captions;
@@ -1196,9 +1295,11 @@ async function fetchViaWebPage(videoId, lang, env, log = console.log, context = 
     }
 
     log('Web page: could not extract player response');
+    noteCaptionProviderOutcome(context, 'failure');
     return null;
   } catch (err) {
     if (err instanceof CaptionDeadlineError) throw err;
+    noteCaptionProviderOutcome(context, err instanceof CaptionProviderTimeoutError || err.name === 'AbortError' ? 'timeout' : 'failure');
     log(`Web page error: ${err.message}`);
     return null;
   }
@@ -1266,8 +1367,6 @@ async function fetchFromTracks(tracks, lang, env, log = console.log, context = n
         captionUrl += (captionUrl.includes('?') ? '&' : '?') + `fmt=${fmt}`;
       }
 
-      // Try a direct fetch first (timedtext is usually far less protected than
-      // the watch page); fall back to the scraping gateway only if that fails.
       const capHeaders = {
         'User-Agent': BROWSER_UA,
         'Accept-Language': lang,
@@ -1275,23 +1374,29 @@ async function fetchFromTracks(tracks, lang, env, log = console.log, context = n
         'Referer': 'https://www.youtube.com/',
         'Origin': 'https://www.youtube.com',
       };
+      // Timedtext is usually less protected than the watch page; use the
+      // direct path first for the existing non-residential strategies.
       let resp = await fetchWithTimeout(captionUrl, { headers: capHeaders }, 20000, context);
-      let directBodyLen = 0;
-      try {
-        const probe = await readResponseBody(resp.clone(), 'text', context);
-        directBodyLen = probe.length;
-      } catch (_) {
-        /* ignore */
+      let text = '';
+      if (resp.ok) {
+        // Read the successful body once. Probing through resp.clone() first
+        // added a second bounded stream read and could consume the remaining
+        // caption budget on slow timedtext responses.
+        text = await readResponseBody(resp, 'text', context);
       }
-      if (!resp.ok || directBodyLen < 20) {
+      if (!resp.ok || text.length < 20) {
         log(
-          `Caption direct fetch ${resp.status} len=${directBodyLen}, trying scrape gateway`,
+          `Caption direct fetch ${resp.status} len=${text.length}, trying scrape gateway`,
         );
         resp = await proxiedFetch(captionUrl, { headers: capHeaders }, 30000, env, log, context);
+        text = '';
       }
 
-      if (!resp.ok) continue;
-      const text = await readResponseBody(resp, 'text', context);
+      if (!resp.ok) {
+        noteCaptionProviderOutcome(context, 'failure');
+        continue;
+      }
+      if (!text) text = await readResponseBody(resp, 'text', context);
 
       const lines = parseCaptionData(text);
       if (lines.length > 0) {
@@ -1304,11 +1409,13 @@ async function fetchFromTracks(tracks, lang, env, log = console.log, context = n
       }
     } catch (err) {
       if (err instanceof CaptionDeadlineError) throw err;
+      noteCaptionProviderOutcome(context, err instanceof CaptionProviderTimeoutError || err.name === 'AbortError' ? 'timeout' : 'failure');
       console.warn(`Caption fetch (${fmt || 'default'}) failed:`, err.message);
       continue;
     }
   }
 
+  noteCaptionProviderOutcome(context, 'failure');
   return null;
 }
 
@@ -2026,6 +2133,75 @@ function jsonResponse(data, status = 200, extraHeaders = {}) {
   });
 }
 
+function transcriptCacheKey(videoId, lang) {
+  const cacheUrl = new URL('https://echolearn-cache.invalid/api/transcript');
+  cacheUrl.searchParams.set('videoId', videoId);
+  cacheUrl.searchParams.set('lang', lang);
+  cacheUrl.searchParams.set('v', TRANSCRIPT_CACHE_VERSION);
+  return new Request(cacheUrl.toString());
+}
+
+function isUsableTranscript(payload) {
+  return !!payload && Array.isArray(payload.lines) && payload.lines.length > 0;
+}
+
+async function readTranscriptCache(videoId, lang, traceId) {
+  const cache = globalThis.caches?.default;
+  if (!cache) return null;
+
+  try {
+    const cached = await cache.match(transcriptCacheKey(videoId, lang));
+    if (!cached || cached.status !== 200) return null;
+    const payload = await cached.json();
+    if (!isUsableTranscript(payload)) return null;
+    traceLog('transcript_cache', {
+      traceId,
+      videoId,
+      outcome: 'hit',
+      lineCount: payload.lines.length,
+    });
+    return jsonResponse(payload, 200, {
+      [TRACE_HEADER]: traceId,
+      'X-EchoLearn-Transcript-Cache': 'HIT',
+    });
+  } catch (_) {
+    // A cache read is an optimization; an unavailable or malformed entry must
+    // never turn into a caption error or prevent the provider cascade.
+    return null;
+  }
+}
+
+async function writeTranscriptCache(videoId, lang, payload, traceId) {
+  const cache = globalThis.caches?.default;
+  if (!cache || !isUsableTranscript(payload)) return;
+
+  const cachePayload = {
+    lines: payload.lines,
+    language: payload.language || lang,
+    isAutoGenerated: !!payload.isAutoGenerated,
+  };
+  try {
+    await cache.put(
+      transcriptCacheKey(videoId, lang),
+      new Response(JSON.stringify(cachePayload), {
+        status: 200,
+        headers: {
+          'Content-Type': 'application/json',
+          'Cache-Control': `public, max-age=${TRANSCRIPT_CACHE_TTL_SECONDS}, s-maxage=${TRANSCRIPT_CACHE_TTL_SECONDS}`,
+        },
+      }),
+    );
+    traceLog('transcript_cache', {
+      traceId,
+      videoId,
+      outcome: 'write',
+      lineCount: cachePayload.lines.length,
+    });
+  } catch (_) {
+    // Cache write failures must not affect an otherwise successful caption.
+  }
+}
+
 // ── yt-dlp VPS service strategy ─────────────────────────────────
 
 /**
@@ -2042,6 +2218,12 @@ async function fetchViaYtDlp(videoId, lang, env, log, targetUrl = null, traceId 
   const headers = {};
   if (env.YTDLP_API_KEY) headers['X-Api-Key'] = env.YTDLP_API_KEY;
   if (traceId) headers[TRACE_HEADER] = traceId;
+  if (context) {
+    const budgetMs = Math.floor(context.remainingBudget());
+    if (budgetMs <= 0) throw new CaptionDeadlineError();
+    headers[CAPTION_BUDGET_HEADER] = String(Math.min(CAPTION_DEADLINE_MS, budgetMs));
+    headers[CAPTION_FAST_PATH_HEADER] = '1';
+  }
   traceId && traceLog('vps_transcript_start', { traceId, videoId });
 
   try {
@@ -2055,6 +2237,21 @@ async function fetchViaYtDlp(videoId, lang, env, log, targetUrl = null, traceId 
     }
     if (resp.status === 401) {
       log('yt-dlp: 401 unauthorized (check YTDLP_API_KEY)');
+      traceId && traceLog('vps_transcript_result', { traceId, videoId, status: resp.status, usable: false });
+      return null;
+    }
+    if (resp.status === 504) {
+      let data = null;
+      try {
+        data = await readResponseBody(resp, 'json', context);
+      } catch (_) {
+        /* Treat an unparseable 504 as an ordinary provider failure. */
+      }
+      if (data?.error === 'provider_timeout' || data?.code === 'provider_timeout') {
+        traceId && traceLog('vps_transcript_result', { traceId, videoId, status: resp.status, usable: false });
+        throw new CaptionProviderTimeoutError();
+      }
+      log('yt-dlp: HTTP 504');
       traceId && traceLog('vps_transcript_result', { traceId, videoId, status: resp.status, usable: false });
       return null;
     }
@@ -2074,7 +2271,7 @@ async function fetchViaYtDlp(videoId, lang, env, log, targetUrl = null, traceId 
     }
     return null;
   } catch (err) {
-    if (err instanceof CaptionDeadlineError) throw err;
+    if (err instanceof CaptionDeadlineError || err instanceof CaptionProviderTimeoutError) throw err;
     log(`yt-dlp fetch error: ${err.message}`);
     return null;
   }
@@ -2084,7 +2281,11 @@ async function fetchViaYtDlp(videoId, lang, env, log, targetUrl = null, traceId 
 // allowing deterministic unit tests to exercise the deadline primitives and
 // request handler without a deployed Worker.
 export {
+  CAPTION_BUDGET_HEADER,
+  CAPTION_FAST_PATH_HEADER,
   CAPTION_DEADLINE_MS,
+  VPS_CAPTION_BUDGET_MS,
+  CaptionProviderTimeoutError,
   CaptionDeadlineError,
   asrRecovery,
   createCaptionContext,
@@ -2092,4 +2293,6 @@ export {
   handleTranscript,
   readResponseBody,
   runCaptionStage,
+  fetchViaYtDlp,
+  proxiedFetch,
 };
