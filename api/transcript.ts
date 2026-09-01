@@ -18,11 +18,12 @@ const CONSENT_COOKIE =
   'CONSENT=PENDING+987; SOCS=CAISNQgDEitib3FfaWRlbnRpdHlmcm9udGVuZHVpc2VydmVyXzIwMjMwODI5LjA3X3AxGgJlbiACGgYIgJnSmgY';
 
 const VPS_API_URL = 'https://yt-api.echo-learn.uk';
-// The client gives the Vercel fallback an 8-second budget. Keep the upstream
-// attempt shorter so this handler can still return a typed response instead of
-// being abandoned as a generic server error.
-const VPS_TIMEOUT_MS = 5_000;
-const NPM_FALLBACK_TIMEOUT_MS = 2_000;
+// The client gives the Vercel fallback an 8-second budget. The shared VPS
+// attempt is already covered by the Worker path and has repeatedly consumed
+// its full window, so keep it short and reserve the remaining budget for the
+// independent direct YouTube caption route.
+const VPS_TIMEOUT_MS = 1_000;
+const NPM_FALLBACK_TIMEOUT_MS = 6_500;
 const TRACE_HEADER = 'X-EchoLearn-Trace-Id';
 
 function createTraceId(): string {

@@ -187,12 +187,28 @@ describe('fetchYouTubeTranscript provider order and failure classification', () 
     );
   });
 
-  it('does not retry Vercel after a Worker provider timeout', async () => {
-    fetchMock.mockResolvedValueOnce(response({ error: 'provider_timeout' }, 504));
+  it('falls through to Vercel after a caption-only Worker provider timeout', async () => {
+    fetchMock
+      .mockResolvedValueOnce(response({
+        error: 'provider_timeout',
+        code: 'provider_timeout',
+        recovery: { canAsr: true, requiresExplicitOptIn: true },
+      }, 504))
+      .mockResolvedValueOnce(response({
+        lines: [{ text: 'vercel recovery' }],
+        language: 'en',
+        source: 'youtube-transcript',
+      }));
 
-    await expect(fetchYouTubeServerTranscript('video-id', 'en'))
-      .rejects.toMatchObject({ code: 'provider_timeout' });
-    expect(fetchMock).toHaveBeenCalledTimes(1);
+    const result = await fetchYouTubeTranscript('video-id', 'en');
+
+    expect(result).toBeTruthy();
+    expect(result?.lines).toEqual([{ text: 'vercel recovery' }]);
+    expect(result?.lines.length).toBeGreaterThan(0);
+    expect(result?.language).toBe('en');
+    expect(fetchMock).toHaveBeenCalledTimes(2);
+    expect(String(fetchMock.mock.calls[1][0])).toBe('/api/transcript?videoId=video-id&lang=en');
+    expect(fetchMock.mock.calls.map(([url]) => String(url)).join('\n')).not.toContain('allowAsr');
   });
 
   it('preserves structured ASR recovery metadata from a Worker timeout', async () => {
@@ -230,11 +246,29 @@ describe('fetchYouTubeTranscript provider order and failure classification', () 
     expect(fetchMock).toHaveBeenCalledTimes(2);
   });
 
+  it('keeps a Vercel provider timeout typed after a Worker timeout', async () => {
+    fetchMock
+      .mockResolvedValueOnce(response({ error: 'provider_timeout' }, 504))
+      .mockResolvedValueOnce(response({ error: 'provider_timeout' }, 504));
+
+    await expect(fetchYouTubeServerTranscript('video-id', 'en'))
+      .rejects.toMatchObject({ code: 'provider_timeout' });
+    expect(fetchMock).toHaveBeenCalledTimes(2);
+  });
+
   it('does not retry Vercel after a Worker captions-not-found outcome', async () => {
     fetchMock.mockResolvedValueOnce(response({ error: 'captions_not_found', code: 'captions_not_found' }, 404));
 
     await expect(fetchYouTubeServerTranscript('video-id', 'en'))
       .rejects.toMatchObject({ code: 'captions_not_found' });
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+  });
+
+  it('does not retry Vercel after a Worker transcript-disabled outcome', async () => {
+    fetchMock.mockResolvedValueOnce(response({ error: 'transcript_disabled', code: 'transcript_disabled' }, 404));
+
+    await expect(fetchYouTubeServerTranscript('video-id', 'en'))
+      .rejects.toMatchObject({ code: 'transcript_disabled' });
     expect(fetchMock).toHaveBeenCalledTimes(1);
   });
 

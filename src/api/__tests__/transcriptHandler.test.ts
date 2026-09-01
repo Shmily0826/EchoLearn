@@ -191,7 +191,7 @@ describe('api/transcript server fallback', () => {
     try {
       const res = makeRes();
       const pending = handler(makeReq(), res);
-      await vi.advanceTimersByTimeAsync(2_000);
+      await vi.advanceTimersByTimeAsync(6_500);
       await pending;
 
       expect(res.statusCode).toBe(504);
@@ -201,6 +201,66 @@ describe('api/transcript server fallback', () => {
         code: 'provider_timeout',
         message: 'Transcript provider timed out.',
       });
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it('keeps a delayed but usable npm caption fallback within the Vercel budget', async () => {
+    vi.useFakeTimers();
+    fetchMock.mockResolvedValueOnce(response({ error: 'upstream unavailable' }, 502));
+    vi.mocked(YoutubeTranscript.fetchTranscript).mockImplementationOnce(
+      () => new Promise((resolve) => {
+        setTimeout(() => resolve([
+          { text: 'delayed caption', offset: 0, duration: 1, lang: 'en' },
+        ]), 3_500);
+      }),
+    );
+
+    try {
+      const res = makeRes();
+      const pending = handler(makeReq(), res);
+      await vi.advanceTimersByTimeAsync(3_500);
+      await pending;
+
+      expect(res.statusCode).toBe(200);
+      expect(JSON.parse(res.body).lines[0].text).toBe('delayed caption');
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it('abandons the duplicate VPS attempt after 1s and preserves the longer npm budget', async () => {
+    vi.useFakeTimers();
+    let vpsSignal: AbortSignal | undefined;
+    fetchMock.mockImplementationOnce((_url, init) => {
+      vpsSignal = init?.signal as AbortSignal;
+      return new Promise<Response>((_, reject) => {
+        vpsSignal?.addEventListener('abort', () => reject(new DOMException('aborted', 'AbortError')));
+      });
+    });
+    vi.mocked(YoutubeTranscript.fetchTranscript).mockImplementationOnce(
+      () => new Promise((resolve) => {
+        setTimeout(() => resolve([
+          { text: 'independent fallback', offset: 0, duration: 1, lang: 'en' },
+        ]), 3_500);
+      }),
+    );
+
+    try {
+      const res = makeRes();
+      const pending = handler(makeReq(), res);
+      await vi.advanceTimersByTimeAsync(999);
+      expect(vpsSignal?.aborted).toBe(false);
+      expect(YoutubeTranscript.fetchTranscript).not.toHaveBeenCalled();
+
+      await vi.advanceTimersByTimeAsync(1);
+      expect(vpsSignal?.aborted).toBe(true);
+      await vi.advanceTimersByTimeAsync(3_500);
+      await pending;
+
+      expect(res.statusCode).toBe(200);
+      expect(JSON.parse(res.body).lines[0].text).toBe('independent fallback');
     } finally {
       vi.useRealTimers();
     }

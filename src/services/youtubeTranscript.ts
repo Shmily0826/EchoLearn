@@ -749,9 +749,9 @@ export async function fetchYouTubeServerTranscript(
   // Vercel's endpoint is a caption fallback; allowAsr is a Worker-only
   // generation opt-in and carries no meaning on this route.
   const vercelUrl = `/api/transcript?videoId=${encodeURIComponent(videoId)}&lang=${encodeURIComponent(lang)}`;
-  // Caption acquisition is a fast path. A server response that says the
-  // provider timed out/was blocked/not-found is authoritative for this flow;
-  // only transport and generic 5xx failures justify trying the other server.
+  // Caption acquisition is a fast path. Definitive semantic/authorization
+  // outcomes are authoritative; a Worker provider timeout is transient and
+  // may still be recovered by the independent Vercel caption source.
   // Caption-only requests stay fast. Explicit ASR includes the Worker VPS
   // budget (75s) plus a small transport buffer, but remains bounded.
   const WORKER_TIMEOUT_MS = options.allowAsr ? 90000 : 12000;
@@ -764,6 +764,7 @@ export async function fetchYouTubeServerTranscript(
       timeoutMs: VERCEL_TIMEOUT_MS,
     },
   ].slice(0, options.allowAsr ? 1 : 2);
+  let deferredWorkerTimeout: YouTubeTranscriptError | undefined;
 
   for (let index = 0; index < endpoints.length; index++) {
     const endpoint = endpoints[index];
@@ -808,14 +809,38 @@ export async function fetchYouTubeServerTranscript(
       }
     } catch (err) {
       if (err instanceof YouTubeAcquisitionBlockedError) throw err;
-      if (err instanceof YouTubeTranscriptError) throw err;
+      if (err instanceof YouTubeTranscriptError) {
+        // A caption-only Worker deadline is an infrastructure failure, not a
+        // definitive statement about the video's captions. Vercel is an
+        // independent caption source, so give it one bounded chance. Keep
+        // semantic/authorization outcomes authoritative, and never do this
+        // for the explicit ASR route.
+        if (
+          index === 0
+          && !options.allowAsr
+          && err.code === TRANSCRIPT_ERROR_CODES.PROVIDER_TIMEOUT
+        ) {
+          deferredWorkerTimeout = err;
+          onFailure?.(`${endpoint.label} ${err.message}`);
+          continue;
+        }
+        throw err;
+      }
       const detail = `${endpoint.label} request failed: ${err instanceof Error ? err.message : 'unknown error'}`;
       console.warn(`[EchoLearn] ${detail}`);
       onFailure?.(detail);
-      // A client timeout is a provider timeout, not evidence that the Vercel
-      // endpoint can help; calling it would repeat the same VPS bottleneck.
+      // A client timeout on the caption-only Worker is also transient: the
+      // independent Vercel caption endpoint may still recover from it.
       if (index === 0 && err instanceof Error && err.name === 'AbortError') {
-        throw new YouTubeTranscriptError(TRANSCRIPT_ERROR_CODES.PROVIDER_TIMEOUT, 'Transcript provider timed out');
+        const timeoutError = new YouTubeTranscriptError(
+          TRANSCRIPT_ERROR_CODES.PROVIDER_TIMEOUT,
+          'Transcript provider timed out',
+        );
+        if (!options.allowAsr) {
+          deferredWorkerTimeout = timeoutError;
+          continue;
+        }
+        throw timeoutError;
       }
       if (options.allowAsr && index === 0) {
         throw err;
@@ -823,6 +848,7 @@ export async function fetchYouTubeServerTranscript(
     }
   }
 
+  if (deferredWorkerTimeout) throw deferredWorkerTimeout;
   return null;
 }
 
