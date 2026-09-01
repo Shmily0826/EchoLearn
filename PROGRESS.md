@@ -10,9 +10,9 @@ Recruiter-safe YouTube subtitle stabilization and reliable real Video → Transc
 
 ## Current separation
 
-- Branch: `main`; the release-record commit is being synchronized from the local candidate to `origin/main`.
+- Branch: `main`; release-record commit `6176800e59ce4bdd8bb67b60ac78e92fada9e954` is synchronized to `origin/main`.
 - The accepted production Worker is version `9fcbd50b-d197-4691-951b-d9a8c4039197` (active deployment `974ee470-4498-4c79-b74a-b6109cc2feaf`); the Worker source is the only production candidate in this release record.
-- Vercel production remains deployment `dpl_2NdAcrpPchWBjM4nLvRL27E4ngNg`, built from `04cd7ab`; the local Vercel/frontend fallback candidate is not deployed.
+- The push-triggered Vercel production deployment is `dpl_GAAtbhbfZmjgevm1Pfz1vGeU5n5X` and is `READY`; it contains unchanged runtime frontend/API source because the Vercel/frontend candidate files were excluded. The local Vercel/frontend fallback candidate is not deployed.
 - Production is a separate validation layer from local work and GitHub state; its acceptance evidence is recorded below and in `TEST_REPORT.md`.
 
 ## Acceptance gate
@@ -25,4 +25,4 @@ The Worker-only production acceptance is complete under `ECHO-20260901-0139`. Th
 
 ## Next
 
-Reconcile Git with the already deployed Worker source using a minimal source-record commit. Keep the Vercel/frontend and VPS candidates separate until a future coordinated release is explicitly justified and validated.
+Keep the Vercel/frontend and VPS candidates separate until a future coordinated release is explicitly justified and validated; the accepted Worker source is now synchronized to GitHub.
