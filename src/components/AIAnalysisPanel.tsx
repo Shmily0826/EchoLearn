@@ -189,19 +189,15 @@ const AIAnalysisPanel: React.FC<AIAnalysisPanelProps> = ({
           </div>
         )}
 
-        {/* Error banner — shown when the live DeepSeek call failed and we fell
-            back to local analysis. Surfaces the REAL error instead of a generic
-            "AI API unavailable" message so the failure is diagnosable. */}
+        {/* Error banner — shown when the live AI call failed and we fell back
+            to local analysis. Keep provider diagnostics out of the learner UI. */}
         {analysis.error && (
           <div className="flex items-start gap-2 bg-red-50 dark:bg-red-950/30 border border-red-200 dark:border-red-800 rounded-lg px-4 py-3">
             <svg className="w-4 h-4 text-red-500 shrink-0 mt-0.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
               <path strokeLinecap="round" strokeLinejoin="round" d="M12 9v3.75m9-.75a9 9 0 11-18 0 9 9 0 0118 0zm-9 3.75h.008v.008H12v-.008z" />
             </svg>
             <div className="min-w-0">
-              <p className="text-sm text-red-700 dark:text-red-400 font-medium">
-                {lang === 'zh' ? 'AI 分析失败（已回退到本地分析）：' : 'AI analysis failed (fell back to local):'}
-              </p>
-              <p className="text-xs text-red-600 dark:text-red-400 mt-1 font-mono break-words leading-relaxed">{analysis.error}</p>
+              <p className="text-sm text-red-700 dark:text-red-400 leading-relaxed">{t('ai.localFallback')}</p>
             </div>
           </div>
         )}

@@ -98,7 +98,7 @@ const translations: Record<string, Record<Lang, string>> = {
   'login.pwMedium':      { en: 'Medium', zh: '中' },
   'login.pwStrong':      { en: 'Strong', zh: '强' },
   'login.guest':         { en: 'Try without login', zh: '先体验一下' },
-  'login.guestHint':     { en: 'Browse videos & subtitles freely. Sign in to save words and use AI.', zh: '可自由浏览视频和字幕，登录后保存词汇和使用 AI 分析。' },
+  'login.guestHint':     { en: 'Browse videos & subtitles freely. Save words and sentences on this device. Sign in to use AI and sync across devices.', zh: '可自由浏览视频和字幕，词汇和句子会保存在本设备。登录后可使用 AI 分析并跨设备同步。' },
 
   // ── Dashboard ────────────────────────────────────────────
   'dash.welcome':        { en: 'Welcome back', zh: '欢迎回来' },
@@ -393,7 +393,7 @@ const translations: Record<string, Record<Lang, string>> = {
   'settings.title':      { en: 'Settings', zh: '设置' },
   'settings.subtitle':   { en: 'Manage your account, data sync and export preferences.', zh: '管理账户、数据同步和导出设置。' },
   'settings.guestTitle': { en: 'Guest Mode', zh: '游客模式' },
-  'settings.guestHint':  { en: 'Sign in to save vocabulary, sentences and sync across devices.', zh: '登录后可保存词汇、句子，并跨设备同步数据。' },
+  'settings.guestHint':  { en: 'Save vocabulary and sentences on this device. Sign in to sync across devices.', zh: '词汇和句子会保存在本设备。登录后可跨设备同步数据。' },
   'settings.guestSignIn':{ en: 'Sign In / Sign Up', zh: '登录 / 注册' },
   'settings.account':    { en: 'Account', zh: '账户' },
   'settings.signOut':    { en: 'Sign Out', zh: '退出登录' },
@@ -472,6 +472,8 @@ const translations: Record<string, Record<Lang, string>> = {
   'ai.add':              { en: '+ Add', zh: '+ 添加' },
   'ai.clickWordDict':    { en: 'Click to look up in dictionary', zh: '点击查词' },
   'ai.localSummary':     { en: 'This transcript contains approximately {wordCount} words across {sentenceCount} sentences. (AI API unavailable — showing local analysis.)', zh: '本字幕约 {wordCount} 词，共 {sentenceCount} 句。（AI 服务不可用，显示本地分析结果。）' },
+  'ai.localFallback':    { en: 'AI service unavailable — showing local transcript-based analysis. Try again later for AI-generated translations.', zh: 'AI 服务暂时不可用，当前显示基于字幕的本地分析。稍后重试可获取 AI 翻译。' },
+  'ai.analysisFailed':   { en: 'AI analysis could not be completed. Please try again later.', zh: 'AI 分析未完成，请稍后重试。' },
   'ai.localNoTranslation': { en: '(Local analysis — no translation)', zh: '(本地分析 — 无翻译)' },
   'ai.localReasonVocab': { en: '{level}-level vocabulary.', zh: '{level} 级别词汇。' },
   'ai.localReasonClause': { en: 'Contains useful clause structure.', zh: '包含有用的从句结构。' },
@@ -529,7 +531,7 @@ const translations: Record<string, Record<Lang, string>> = {
 
   // ── Playback Resume ─────────────────────────────────────
   'study.resumedAt':     { en: 'Resumed at {time}', zh: '已从 {time} 继续播放' },
-  'study.loginRequired': { en: 'Sign in to save words, sentences and use AI analysis.', zh: '登录后可保存词汇、句子和使用 AI 分析。' },
+  'study.loginRequired': { en: 'Sign in to use AI analysis.', zh: '登录后可使用 AI 分析。' },
   'study.transcriptHint': { en: 'Tip: click a word for its definition. Click a sentence to jump to that moment; use the bookmark to save it.', zh: '提示：点击单词查看释义，点击句子跳转到对应位置，使用书签保存句子。' },
   'study.playerStillLoading': { en: 'The transcript is ready below. The video player loads separately, so you can start studying now.', zh: '下面的字幕已经准备好。视频播放器独立加载，你现在就可以开始学习。' },
   'study.wordSaved': { en: 'Saved to Vocabulary', zh: '已保存到词汇' },

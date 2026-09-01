@@ -597,10 +597,8 @@ export async function analyzeTranscript(
     const msg = err instanceof Error ? err.message : String(err);
     console.warn('[aiAnalysis] DeepSeek API failed, falling back to local analysis:', err);
     const fallback = localFallback(transcriptText, minLevel, maxLevel, vocabCount, sentenceCount, lang);
-    // Surface the real error so the user can see WHY it failed (not just a
-    // generic banner). The production build strips console.*, so the UI must
-    // carry the message explicitly. Include the model name so we can tell
-    // whether a stale cached bundle is still sending the old model.
+    // Retain a short diagnostic for internal troubleshooting while the UI
+    // presents a safe, localized fallback message to the learner.
     return { ...fallback, error: `[${DEEPSEEK_MODEL}] ${msg.slice(0, 460)}` };
   }
 }

@@ -14,6 +14,7 @@ import { normalizeTranscriptToSentences } from '../utils/transcriptNormalizer';
 import { attachTranscriptToSession, createFreshStudySession, normalizeStudyUrl } from '../utils/studySession';
 import { lemmatize } from '../utils/lemmatizer';
 import { analyzeTranscript } from '../services/aiAnalysis';
+import { safeAiErrorMessage } from '../utils/aiError';
 import { trackEvent } from '../services/analytics';
 import {
   fetchYouTubeTranscript,
@@ -980,7 +981,7 @@ const StudyPage: React.FC = () => {
       persistAnalysis(result);
       trackEvent('ai_analysis_used');
     } catch (err) {
-      setAnalysisError(err instanceof Error ? err.message : 'Analysis failed');
+      setAnalysisError(safeAiErrorMessage(err, lang));
     } finally {
       setAnalyzing(false);
       setStreamChars(0);
