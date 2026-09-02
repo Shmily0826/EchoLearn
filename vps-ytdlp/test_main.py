@@ -759,6 +759,24 @@ class TranscriptRouteTests(unittest.TestCase):
             },
         )
 
+    def test_expired_worker_caption_budget_returns_timeout_without_starting_ytdlp(self):
+        request = _ASGIRequest()
+        request.headers = {
+            main.CAPTION_BUDGET_HEADER: "0",
+            main.CAPTION_FAST_PATH_HEADER: "1",
+        }
+
+        with patch.object(main, "_cache_get", return_value=None), patch.object(
+            main.subprocess, "Popen"
+        ) as popen:
+            response = main._transcript_response(
+                video_id="YweN5PUyGgc", lang="en", request=request
+            )
+
+        self.assertEqual(response.status_code, 504)
+        self.assertEqual(json.loads(response.body)["code"], "provider_timeout")
+        popen.assert_not_called()
+
 
 class CaptionExtractionTracingTests(unittest.TestCase):
     def setUp(self):
@@ -813,6 +831,29 @@ class CaptionExtractionTracingTests(unittest.TestCase):
             [(event["attempt"], event["mode"], event["outcome"]) for event in attempts],
             [(1, "direct", "failure"), (2, "proxy", "success")],
         )
+
+    def test_caption_budget_caps_each_ytdlp_attempt_timeout(self):
+        main.YTDLP_PROXY = ""
+        captured = []
+
+        def completed(*_args, **kwargs):
+            captured.append(kwargs["timeout"])
+            return 0, "", "", False
+
+        with patch.object(main, "_run_yt_dlp", side_effect=completed), patch.object(
+            main, "_read_subtitle_file", return_value=None
+        ):
+            result = main._run_ytdlp(
+                "YweN5PUyGgc",
+                "en",
+                deadline=main.time.monotonic() + 0.05,
+                allow_proxy=False,
+            )
+
+        self.assertIsNone(result)
+        self.assertEqual(len(captured), 1)
+        self.assertGreater(captured[0], 0)
+        self.assertLessEqual(captured[0], 0.05)
 
     def test_nonzero_failure_uses_bounded_category_without_stderr_or_url(self):
         secret = "https://user:UNSAFE_PASSWORD@proxy.example:8080/path?token=UNSAFE_TOKEN"

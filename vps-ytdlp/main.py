@@ -97,6 +97,9 @@ app.add_middleware(
 )
 
 TRACE_HEADER = "X-EchoLearn-Trace-Id"
+CAPTION_BUDGET_HEADER = "X-EchoLearn-Caption-Budget-Ms"
+CAPTION_FAST_PATH_HEADER = "X-EchoLearn-Caption-Fast"
+MAX_CAPTION_BUDGET_MS = 11000
 _TRACE_CONTEXT: ContextVar[str | None] = ContextVar("echolearn_trace_id", default=None)
 
 _YTDLP_FAILURE_CATEGORIES = frozenset({
@@ -175,6 +178,26 @@ def _trace_id(request: Request) -> str:
     if re.fullmatch(r"[A-Za-z0-9_-]{1,80}", value):
         return value
     return f"vps-{uuid.uuid4().hex}"
+
+
+def _caption_request_budget(request: Request = None) -> tuple[float | None, bool]:
+    """Validate the optional Worker caption budget without trusting open-ended input."""
+    if request is None:
+        return None, False
+
+    raw_budget = request.headers.get(CAPTION_BUDGET_HEADER)
+    raw_fast_path = request.headers.get(CAPTION_FAST_PATH_HEADER)
+    if raw_budget is None and raw_fast_path is None:
+        return None, False
+    if raw_fast_path not in (None, "1"):
+        raise HTTPException(status_code=400, detail="Invalid caption fast-path marker")
+    if raw_budget is None or not re.fullmatch(r"\d{1,5}", raw_budget):
+        raise HTTPException(status_code=400, detail="Invalid caption budget")
+
+    budget_ms = int(raw_budget)
+    if budget_ms > MAX_CAPTION_BUDGET_MS:
+        raise HTTPException(status_code=400, detail="Caption budget exceeds the allowed maximum")
+    return time.monotonic() + budget_ms / 1000.0, raw_fast_path == "1"
 
 
 @app.middleware("http")
@@ -1103,6 +1126,8 @@ def _run_ytdlp(
     is_url: bool = False,
     part: Optional[int] = None,
     cancel_event: threading.Event | None = None,
+    deadline: float | None = None,
+    allow_proxy: bool = True,
 ):
     target_url = video_id_or_url if is_url else f"https://www.youtube.com/watch?v={video_id_or_url}"
     sub_langs = "en,ai-en,zh-CN,ai-zh,en.*,zh.*,ai.*"  # ECHOLEARN_BILI_SUB_LANGS
@@ -1137,7 +1162,7 @@ def _run_ytdlp(
         cmds = [(base_cmd + _site_args(target_url), _no_proxy_env(), "direct")]
     else:
         cmds = [(base_cmd + _site_args(target_url), _no_proxy_env(), "direct")]
-        if YTDLP_PROXY:
+        if YTDLP_PROXY and allow_proxy:
             cmds.append((base_cmd + _site_args(target_url), _proxy_env(target_url), "proxy"))
     saw_timeout = False
     saw_completed_attempt = False
@@ -1148,6 +1173,16 @@ def _run_ytdlp(
     attempted = 0
     _trace_event("caption_extract_start", candidateCount=len(cmds))
     for attempt, (cmd, env, mode) in enumerate(cmds, start=1):
+        if deadline is not None and deadline <= time.monotonic():
+            _trace_event(
+                "caption_extract_finish",
+                attempts=attempted,
+                elapsedMs=round((time.monotonic() - started) * 1000),
+                outcome="timeout",
+                category="timeout",
+                signature="timeout",
+            )
+            raise TranscriptProviderTimeout()
         with tempfile.TemporaryDirectory() as td:
             full = cmd + ["-o", os.path.join(td, "%(id)s")]
             # yt-dlp evaluates this static template after URL/player metadata
@@ -1159,11 +1194,17 @@ def _run_ytdlp(
             attempt_started = time.monotonic()
             _trace_event("caption_extract_attempt_start", attempt=attempt, mode=mode)
             try:
+                attempt_timeout = YTDLP_TIMEOUT
+                if deadline is not None:
+                    attempt_timeout = min(
+                        YTDLP_TIMEOUT,
+                        max(0.001, deadline - time.monotonic()),
+                    )
                 returncode, _stdout, _stderr, timed_out = _run_yt_dlp(
                     full,
                     cwd=td,
                     env=env,
-                    timeout=YTDLP_TIMEOUT,
+                    timeout=attempt_timeout,
                     cancel_event=cancel_event,
                     phase_file=phase_file,
                 )
@@ -1186,6 +1227,25 @@ def _run_ytdlp(
                 )
                 raise
             elapsed_ms = round((time.monotonic() - attempt_started) * 1000)
+            if deadline is not None and deadline <= time.monotonic():
+                _trace_event(
+                    "caption_extract_attempt_finish",
+                    attempt=attempt,
+                    mode=mode,
+                    elapsedMs=elapsed_ms,
+                    outcome="timeout",
+                    category="timeout",
+                    signature="timeout",
+                )
+                _trace_event(
+                    "caption_extract_finish",
+                    attempts=attempted,
+                    elapsedMs=round((time.monotonic() - started) * 1000),
+                    outcome="timeout",
+                    category="timeout",
+                    signature="timeout",
+                )
+                raise TranscriptProviderTimeout()
             if timed_out:
                 saw_timeout = True
                 last_failure_category, last_failure_signature = _yt_dlp_failure_evidence(
@@ -1218,6 +1278,25 @@ def _run_ytdlp(
                 )
                 continue
             result = _read_subtitle_file(td)
+            if deadline is not None and deadline <= time.monotonic():
+                _trace_event(
+                    "caption_extract_attempt_finish",
+                    attempt=attempt,
+                    mode=mode,
+                    elapsedMs=elapsed_ms,
+                    outcome="timeout",
+                    category="timeout",
+                    signature="timeout",
+                )
+                _trace_event(
+                    "caption_extract_finish",
+                    attempts=attempted,
+                    elapsedMs=round((time.monotonic() - started) * 1000),
+                    outcome="timeout",
+                    category="timeout",
+                    signature="timeout",
+                )
+                raise TranscriptProviderTimeout()
             if result:
                 _trace_event(
                     "caption_extract_attempt_finish",
@@ -2174,6 +2253,8 @@ def _transcript_response(
     if not isinstance(lang, str):
         lang = "en"
 
+    caption_deadline, caption_fast_path = _caption_request_budget(request)
+
     target = url or video_id
     if not target:
         raise HTTPException(status_code=400, detail="Missing videoId or url")
@@ -2210,6 +2291,8 @@ def _transcript_response(
             is_url=is_url,
             part=part,
             cancel_event=cancel_event,
+            deadline=caption_deadline,
+            allow_proxy=not caption_fast_path,
         )
     except CaptionRequestCancelled:
         raise
