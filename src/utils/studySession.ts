@@ -1,4 +1,9 @@
-import type { TranscriptLine, VideoPlatform, VideoStudySession } from '../types';
+import type {
+  CaptionDiagnostics,
+  TranscriptLine,
+  VideoPlatform,
+  VideoStudySession,
+} from '../types';
 import { extractUrl } from './urlExtract';
 
 export interface FreshStudySessionInput {
@@ -8,6 +13,11 @@ export interface FreshStudySessionInput {
   url: string;
   platform: VideoPlatform;
   biliPage?: number;
+}
+
+export interface TranscriptProvenance {
+  source?: string;
+  diagnostics?: CaptionDiagnostics;
 }
 
 /** Normalize pasted share text without touching persistence or browser state. */
@@ -46,6 +56,7 @@ export function attachTranscriptToSession(
   rawBlocks: TranscriptLine[],
   sentenceLines: TranscriptLine[],
   updatedAt: number,
+  provenance?: TranscriptProvenance,
 ): VideoStudySession {
   return {
     ...session,
@@ -54,6 +65,8 @@ export function attachTranscriptToSession(
       rawBlocks: [...rawBlocks],
       sentenceLines: [...sentenceLines],
     },
+    captionSource: provenance?.source,
+    captionDiagnostics: provenance?.diagnostics,
     updatedAt,
   };
 }

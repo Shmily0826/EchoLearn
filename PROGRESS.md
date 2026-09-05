@@ -467,3 +467,17 @@ Browser-native fallback and managed alternate-provider/egress options have highe
 - The user reports that Vercel Dashboard Production-only `SUPADATA_API_KEY` has now been manually added. This is dashboard state reported by the user, not independently verified by Codex; no secret value was read or stored.
 - ECHO-20260905-1818 remains historical truth for the earlier CLI `EACCES` blocker. No redeploy has occurred, so production runtime behavior and the deployed secret binding must not be claimed active.
 - Local source/config release-prep remains green per ECHO-20260905-2120. Commit, push, and deploy remain separately unauthorized. `.playwright-cli/` and `.tmp-playwright-daemon/` are browser-control investigation artifacts and must be excluded from staging.
+
+## 2026-09-05 ECHO-20260905-2228 - Production Supadata fallback validation
+
+- User-confirmed Vercel revision `61fe54d` is **Ready** and **Production** on `main`.
+- Exactly one production caption-only request was made through `https://echo-learn.uk/api/transcript` for video `ZbZSe6N_BXs`: HTTP `200`, `4512 ms`, response source `supadata`, language `en`, `75` non-empty cues, valid timestamps, and monotonic ordering. No failure code was returned.
+- The request used no retry or polling, no direct Supadata call, no ASR, Generate, or auto mode, and no secret access. No transcript text was printed or retained.
+- This conclusively validates the deployed Supadata native fallback at the server boundary. Browser Study-page E2E remains optional/non-blocking: it could add UI confidence but would not materially change the release decision. No source/config/test edits or additional deployment action occurred.
+
+## 2026-09-05 ECHO-20260905-2245 - Caption Diagnostics V1
+
+- Added optional end-to-end caption provenance and privacy-safe Supadata attempt outcomes. Successful paths retain raw provider IDs (`supadata`, `vps`, `npm`, and existing native/Worker values); the Study renderer translates the source once, fixing the previous double-label risk. Dashboard navigation, reload, manual loads, ASR-result persistence, Bilibili part loads, and saved sessions preserve optional provenance without a schema migration.
+- Added a browser-local aggregate for Supadata attempts, successes, unavailable/206 outcomes, timeouts, failures, and estimated credits. Study shows the compact estimate only when Supadata was attempted and labels it as this-browser/device estimate and likely usage; it is not billing or global telemetry. Storage failures remain non-fatal.
+- No provider order, timeout, latest-request-wins, caption/ASR boundary, or new infrastructure changed. Diagnostics contain no key, URL/video ID, transcript text, upstream payload, cookie, or token.
+- Focused Vitest validation: **84/84 PASS** across transcript handler, client fallback, diagnostics aggregate, request lifecycle, session persistence, and source-label tests. `npx tsc -b --pretty false`: PASS. Targeted ESLint: PASS with 0 errors and 8 existing StudyPage hook/dependency warnings. `npm run build`: PASS. No provider or production request was made; no E2E rerun was needed for this bounded correction. Commit/push/deploy: NO.

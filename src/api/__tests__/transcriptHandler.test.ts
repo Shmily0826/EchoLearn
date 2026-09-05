@@ -92,6 +92,7 @@ describe('api/transcript server fallback', () => {
     await handler(makeReq(undefined, true), res);
     expect(res.statusCode).toBe(200);
     expect(JSON.parse(res.body).lines[0].text).toBe('from npm');
+    expect(JSON.parse(res.body).source).toBe('npm');
     expect(YoutubeTranscript.fetchTranscript).toHaveBeenCalledTimes(1);
   });
 
@@ -155,6 +156,7 @@ describe('api/transcript server fallback', () => {
       expect(JSON.parse(res.body)).toMatchObject({
         source: 'supadata',
         language: 'en',
+        diagnostics: { supadata: { attempted: true, outcome: 'success' } },
         lines: [
           { id: 'supadata_1', start: 0, end: 1.5, text: 'first cue' },
           { id: 'supadata_2', start: 2, end: 3, text: 'second cue' },
@@ -212,6 +214,10 @@ describe('api/transcript server fallback', () => {
 
     expect(res.statusCode).toBe(200);
     expect(JSON.parse(res.body).lines[0].text).toBe('npm recovery');
+    expect(JSON.parse(res.body)).toMatchObject({
+      source: 'npm',
+      diagnostics: { supadata: { attempted: true, outcome: 'failure' } },
+    });
     expect(fetchMock).toHaveBeenCalledTimes(1);
     expect(YoutubeTranscript.fetchTranscript).toHaveBeenCalledTimes(1);
   });
@@ -229,6 +235,27 @@ describe('api/transcript server fallback', () => {
     expect(JSON.parse(res.body).code).toBe('captions_not_found');
     expect(fetchMock).toHaveBeenCalledTimes(1);
     expect(YoutubeTranscript.fetchTranscript).toHaveBeenCalledTimes(1);
+    expect(JSON.parse(res.body).diagnostics).toEqual({
+      supadata: { attempted: true, outcome: 'unavailable' },
+    });
+  });
+
+  it('preserves a Supadata 206 attempt when npm later supplies captions', async () => {
+    vi.stubEnv('YTDLP_API_KEY', '');
+    vi.stubEnv('SUPADATA_API_KEY', 'test-supadata-key');
+    fetchMock.mockResolvedValueOnce(response({ error: 'native transcript unavailable' }, 206));
+    vi.mocked(YoutubeTranscript.fetchTranscript).mockResolvedValueOnce([
+      { text: 'npm after native unavailable', offset: 0, duration: 1, lang: 'en' },
+    ]);
+
+    const res = makeRes();
+    await handler(makeReq(), res);
+
+    expect(res.statusCode).toBe(200);
+    expect(JSON.parse(res.body)).toMatchObject({
+      source: 'npm',
+      diagnostics: { supadata: { attempted: true, outcome: 'unavailable' } },
+    });
   });
 
   it.each([
@@ -384,6 +411,7 @@ describe('api/transcript server fallback', () => {
       error: 'provider_timeout',
       code: 'provider_timeout',
       message: 'Transcript provider timed out.',
+      diagnostics: { supadata: { attempted: false, outcome: 'not_attempted' } },
     });
   });
 
@@ -399,6 +427,7 @@ describe('api/transcript server fallback', () => {
       error: 'provider_failure',
       code: 'provider_failure',
       message: 'Transcript provider failed.',
+      diagnostics: { supadata: { attempted: false, outcome: 'not_attempted' } },
     });
   });
 
@@ -428,6 +457,7 @@ describe('api/transcript server fallback', () => {
         error: 'provider_timeout',
         code: 'provider_timeout',
         message: 'Transcript provider timed out.',
+        diagnostics: { supadata: { attempted: false, outcome: 'not_attempted' } },
       });
     } finally {
       vi.useRealTimers();
@@ -507,6 +537,7 @@ describe('api/transcript server fallback', () => {
       error: 'youtube_acquisition_blocked',
       code: 'youtube_acquisition_blocked',
       message: 'YouTube media acquisition is currently unavailable.',
+      diagnostics: { supadata: { attempted: false, outcome: 'not_attempted' } },
     });
 
     fetchMock.mockResolvedValueOnce(response({
@@ -522,6 +553,7 @@ describe('api/transcript server fallback', () => {
       error: 'asr_required',
       code: 'asr_required',
       message: 'Explicit ASR opt-in is required for transcript recovery.',
+      diagnostics: { supadata: { attempted: false, outcome: 'not_attempted' } },
     });
   });
 });

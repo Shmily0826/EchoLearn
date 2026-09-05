@@ -21,6 +21,21 @@ export interface TranscriptData {
   sentenceLines: TranscriptLine[];
 }
 
+/** Privacy-safe diagnostics for a caption acquisition request. */
+export type SupadataAttemptOutcome =
+  | 'not_attempted'
+  | 'success'
+  | 'unavailable'
+  | 'timeout'
+  | 'failure';
+
+export interface CaptionDiagnostics {
+  supadata?: {
+    attempted: boolean;
+    outcome: SupadataAttemptOutcome;
+  };
+}
+
 /** Result from a dictionary API lookup */
 export interface DictionaryEntry {
   word: string;
@@ -100,6 +115,9 @@ export interface VideoStudySession {
   title: string;                     // user-editable title (defaults to URL)
   transcriptLines: TranscriptLine[]; // the parsed transcript for this video (legacy)
   transcriptData?: TranscriptData;   // normalized data (rawBlocks + sentenceLines)
+  /** Optional provenance metadata; absent on legacy sessions. */
+  captionSource?: string;
+  captionDiagnostics?: CaptionDiagnostics;
   aiAnalysis?: AIAnalysisResult;     // AI-generated analysis (mock or real)
   createdAt: number;                 // unix ms when session was created
   updatedAt: number;                 // unix ms when session was last modified

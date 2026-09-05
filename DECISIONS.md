@@ -156,3 +156,13 @@ Once the active goal, root cause, and acceptance criteria are sufficiently speci
 - Rationale: Avoid overreacting to one hard-video or transient window and avoid infrastructure churn while preserving a measurable escalation path. See the ECHO-20260904-2235 and ECHO-20260904-2325 entries in `PROGRESS.md` and `TEST_REPORT.md` for the bounded matrices and evidence boundaries.
 - Supersedes: None recorded.
 - Superseded by: None recorded.
+
+## D-013 - Caption Diagnostics V1 stays privacy-safe and browser-local
+
+- Date: 2026-09-05
+- Status: ACTIVE
+- Decision: Caption successes carry optional raw provider provenance and privacy-safe Supadata attempt outcome through the existing response/session paths. Study translates the raw source exactly once. The UI may show a compact this-browser estimate of Supadata attempts and likely credits, backed by optional localStorage aggregate fields; it must not present the estimate as billing truth or global usage.
+- Rationale: Source provenance distinguishes `supadata`, `vps`, `npm`, and existing native/Worker paths, while an attempt outcome remains visible when Supadata fails and a later provider succeeds. Optional session fields preserve old saved sessions without migration. The local aggregate adds useful owner visibility without new cloud infrastructure or content telemetry.
+- Guardrails: exclude API keys, URLs/video IDs, transcript text, raw upstream payloads, cookies, tokens, and account data. Preserve provider order, deadlines, latest-request-wins behavior, and the explicit ASR boundary; Caption Diagnostics never invokes ASR or Generate.
+- Supersedes: None recorded.
+- Superseded by: None recorded.

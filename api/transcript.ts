@@ -168,6 +168,27 @@ interface SupadataCue {
   duration?: unknown;
 }
 
+type SupadataAttemptOutcome =
+  | 'not_attempted'
+  | 'success'
+  | 'unavailable'
+  | 'timeout'
+  | 'failure';
+
+interface TranscriptDiagnostics {
+  supadata: {
+    attempted: boolean;
+    outcome: SupadataAttemptOutcome;
+  };
+}
+
+function supadataDiagnostics(
+  attempted: boolean,
+  outcome: SupadataAttemptOutcome,
+): TranscriptDiagnostics {
+  return { supadata: { attempted, outcome } };
+}
+
 function normalizeSupadataTranscript(payload: unknown, requestedLang?: string): Record<string, unknown> | null {
   if (!payload || typeof payload !== 'object') return null;
   const candidate = payload as { content?: unknown; lang?: unknown };
@@ -226,7 +247,11 @@ async function fetchSupadataTranscript(
   apiKey: string,
   traceId: string,
   deadlineAt: number,
-): Promise<{ data: Record<string, unknown> | null; failure?: TranscriptFailure }> {
+): Promise<{
+  data: Record<string, unknown> | null;
+  failure?: TranscriptFailure;
+  diagnostics: TranscriptDiagnostics;
+}> {
   const startedAt = Date.now();
   const remainingMs = remainingTranscriptBudget(deadlineAt);
   const timeoutMs = Math.min(SUPADATA_TIMEOUT_MS, remainingMs);
@@ -239,7 +264,7 @@ async function fetchSupadataTranscript(
       latencyMs: Date.now() - startedAt,
       reason: 'deadline_exhausted',
     });
-    return { data: null, failure };
+    return { data: null, failure, diagnostics: supadataDiagnostics(false, 'not_attempted') };
   }
 
   const controller = new AbortController();
@@ -278,7 +303,7 @@ async function fetchSupadataTranscript(
         latencyMs: Date.now() - startedAt,
         status: upstream.status,
       });
-      return { data: null, failure };
+      return { data: null, failure, diagnostics: supadataDiagnostics(true, 'unavailable') };
     }
 
     if (!upstream.ok) {
@@ -290,7 +315,11 @@ async function fetchSupadataTranscript(
         latencyMs: Date.now() - startedAt,
         status: upstream.status,
       });
-      return { data: null, failure };
+      return {
+        data: null,
+        failure,
+        diagnostics: supadataDiagnostics(true, failure.code === TRANSCRIPT_FAILURE_CODES.PROVIDER_TIMEOUT ? 'timeout' : 'failure'),
+      };
     }
 
     let payload: unknown;
@@ -306,7 +335,7 @@ async function fetchSupadataTranscript(
         status: upstream.status,
         reason: 'malformed_json',
       });
-      return { data: null, failure };
+      return { data: null, failure, diagnostics: supadataDiagnostics(true, 'failure') };
     }
 
     const data = normalizeSupadataTranscript(payload, requestedLang);
@@ -320,7 +349,7 @@ async function fetchSupadataTranscript(
         status: upstream.status,
         reason: 'empty_or_malformed',
       });
-      return { data: null, failure };
+      return { data: null, failure, diagnostics: supadataDiagnostics(true, 'failure') };
     }
 
     logTranscriptEvent('provider_result', {
@@ -331,7 +360,7 @@ async function fetchSupadataTranscript(
       status: upstream.status,
       lineCount: (data.lines as unknown[]).length,
     });
-    return { data };
+    return { data, diagnostics: supadataDiagnostics(true, 'success') };
   } catch (err) {
     const failure = timedOut || (err instanceof Error && err.name === 'AbortError')
       ? failureForCode(TRANSCRIPT_FAILURE_CODES.PROVIDER_TIMEOUT)
@@ -343,7 +372,11 @@ async function fetchSupadataTranscript(
       latencyMs: Date.now() - startedAt,
       reason: failure.code === TRANSCRIPT_FAILURE_CODES.PROVIDER_TIMEOUT ? 'timeout' : 'network_error',
     });
-    return { data: null, failure };
+    return {
+      data: null,
+      failure,
+      diagnostics: supadataDiagnostics(true, failure.code === TRANSCRIPT_FAILURE_CODES.PROVIDER_TIMEOUT ? 'timeout' : 'failure'),
+    };
   } finally {
     if (timer) clearTimeout(timer);
   }
@@ -518,6 +551,7 @@ export default async function handler(req: any, res: any): Promise<void> {
   let supadataFailure: TranscriptFailure | undefined;
   let npmFailure: TranscriptFailure | undefined;
   let npmReturnedEmpty = false;
+  let supadataDiagnosticsState = supadataDiagnostics(false, 'not_attempted');
   try {
     const vpsKey = process.env.YTDLP_API_KEY;
     // This is the useful recovery path after Worker transport/generic 5xx
@@ -528,7 +562,7 @@ export default async function handler(req: any, res: any): Promise<void> {
       vpsFailure = vpsOutcome.failure;
       if (vpsOutcome.data) {
         logTranscriptEvent('request_finish', { traceId, videoId, provider: 'vps', status: 200 });
-        res.status(200).json(vpsOutcome.data);
+        res.status(200).json({ ...vpsOutcome.data, diagnostics: supadataDiagnosticsState });
         return;
       }
     }
@@ -543,6 +577,7 @@ export default async function handler(req: any, res: any): Promise<void> {
         deadlineAt,
       );
       supadataFailure = supadataOutcome.failure;
+      supadataDiagnosticsState = supadataOutcome.diagnostics;
       if (supadataOutcome.data) {
         logTranscriptEvent('request_finish', {
           traceId,
@@ -550,7 +585,7 @@ export default async function handler(req: any, res: any): Promise<void> {
           status: 200,
           lineCount: (supadataOutcome.data.lines as unknown[]).length,
         });
-        res.status(200).json(supadataOutcome.data);
+        res.status(200).json({ ...supadataOutcome.data, diagnostics: supadataDiagnosticsState });
         return;
       }
     }
@@ -601,6 +636,8 @@ export default async function handler(req: any, res: any): Promise<void> {
           lines,
           language: result[0]?.lang ?? lang,
           isAutoGenerated: true,
+          source: 'npm',
+          diagnostics: supadataDiagnosticsState,
         });
         return;
       }
@@ -612,5 +649,10 @@ export default async function handler(req: any, res: any): Promise<void> {
 
   const failure = chooseFinalFailure(vpsFailure, supadataFailure, npmFailure, npmReturnedEmpty);
   logTranscriptEvent('request_error', { traceId, videoId, status: failure.status, error: failure.code });
-  res.status(failure.status).json({ error: failure.code, code: failure.code, message: failure.message });
+  res.status(failure.status).json({
+    error: failure.code,
+    code: failure.code,
+    message: failure.message,
+    diagnostics: supadataDiagnosticsState,
+  });
 }

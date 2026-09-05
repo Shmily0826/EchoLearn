@@ -79,6 +79,24 @@ describe('fetchYouTubeServerTranscript', () => {
     }
   });
 
+  it('preserves npm provenance and Supadata attempt diagnostics from Vercel', async () => {
+    fetchMock
+      .mockResolvedValueOnce(response({ error: 'Worker timeout' }, 504))
+      .mockResolvedValueOnce(response({
+        lines: [{ text: 'npm fallback' }],
+        language: 'en',
+        source: 'npm',
+        diagnostics: { supadata: { attempted: true, outcome: 'unavailable' } },
+      }));
+
+    const result = await fetchYouTubeTranscript('diagnostic-video', 'en');
+
+    expect(result.source).toBe('npm');
+    expect(result.diagnostics).toEqual({
+      supadata: { attempted: true, outcome: 'unavailable' },
+    });
+  });
+
   it('falls through when both server endpoints fail', async () => {
     fetchMock
       .mockResolvedValueOnce(response({ error: 'worker' }, 502))

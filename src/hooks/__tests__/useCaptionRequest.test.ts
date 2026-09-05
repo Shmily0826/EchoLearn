@@ -3,6 +3,7 @@ import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { renderHook, act } from '@testing-library/react';
 import { useCaptionRequest } from '../useCaptionRequest';
 import { YouTubeTranscriptError } from '../../services/youtubeTranscript';
+import { recordCaptionDiagnostics } from '../../services/captionDiagnostics';
 
 /** A controllable promise so tests decide exactly when a "request" settles. */
 function deferred<T>() {
@@ -33,7 +34,11 @@ afterEach(() => {
 describe('useCaptionRequest — happy path', () => {
   it('exposes fetching=true while running and applies the latest result', async () => {
     const hook = setup();
-    const onSuccess = vi.fn(() => ({ count: 12, source: 'Worker' }) as const);
+    const onSuccess = vi.fn(() => ({
+      count: 12,
+      source: 'supadata',
+      diagnostics: { supadata: { attempted: true, outcome: 'success' as const } },
+    }));
     const d = deferred<{ lines: string[] }>();
 
     act(() => {
@@ -42,6 +47,10 @@ describe('useCaptionRequest — happy path', () => {
     expect(hook.result.current.fetching).toBe(true);
 
     await act(async () => {
+      recordCaptionDiagnostics(
+        { supadata: { attempted: true, outcome: 'success' } },
+        1_700_000_000_000,
+      );
       d.resolve({ lines: ['a'] });
       await vi.advanceTimersByTimeAsync(0);
     });
@@ -49,7 +58,22 @@ describe('useCaptionRequest — happy path', () => {
     expect(onSuccess).toHaveBeenCalledOnce();
     expect(hook.result.current.fetching).toBe(false);
     expect(hook.result.current.error).toBeNull();
-    expect(hook.result.current.fetchToast).toEqual({ count: 12, seconds: 0, source: 'Worker' });
+    expect(hook.result.current.fetchToast).toEqual({
+      count: 12,
+      seconds: 0,
+      source: 'supadata',
+      diagnostics: { supadata: { attempted: true, outcome: 'success' } },
+      diagnosticsAggregate: {
+        version: 1,
+        supadataAttempts: 1,
+        supadataSuccesses: 1,
+        supadataUnavailable: 0,
+        supadataTimeouts: 0,
+        supadataFailures: 0,
+        estimatedCredits: 1,
+        updatedAt: expect.any(Number),
+      },
+    });
   });
 
   it('fires no toast when onSuccess reports nothing (empty transcript)', async () => {

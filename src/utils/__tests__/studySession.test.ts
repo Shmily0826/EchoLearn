@@ -50,10 +50,23 @@ describe('study session helpers', () => {
     const sentenceLines: TranscriptLine[] = [{ start: 0, end: 1, text: 'Sentence' }];
     const original = JSON.parse(JSON.stringify(session)) as VideoStudySession;
 
-    const updated = attachTranscriptToSession(session, rawBlocks, sentenceLines, 1_700_000_001_000);
+    const updated = attachTranscriptToSession(
+      session,
+      rawBlocks,
+      sentenceLines,
+      1_700_000_001_000,
+      {
+        source: 'supadata',
+        diagnostics: { supadata: { attempted: true, outcome: 'success' } },
+      },
+    );
 
     expect(updated.transcriptLines).toEqual(rawBlocks);
     expect(updated.transcriptData).toEqual({ rawBlocks, sentenceLines });
+    expect(updated.captionSource).toBe('supadata');
+    expect(updated.captionDiagnostics).toEqual({
+      supadata: { attempted: true, outcome: 'success' },
+    });
     expect(updated.updatedAt).toBe(1_700_000_001_000);
     expect(session).toEqual(original);
     expect(updated).not.toBe(session);

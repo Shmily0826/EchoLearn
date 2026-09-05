@@ -1,5 +1,10 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import type { TranscriptRecovery } from '../services/youtubeTranscript';
+import type { CaptionDiagnostics } from '../types';
+import {
+  loadCaptionDiagnostics,
+  type CaptionDiagnosticsAggregate,
+} from '../services/captionDiagnostics';
 
 /**
  * Caption request lifecycle for the Study page.
@@ -30,6 +35,7 @@ export interface CaptionHandle {
 export interface CaptionSuccessReport {
   count: number;
   source?: string | null;
+  diagnostics?: CaptionDiagnostics;
 }
 
 export interface FetchToast {
@@ -37,6 +43,8 @@ export interface FetchToast {
   /** Elapsed wait in whole seconds (formatted by the caller for i18n). */
   seconds: number;
   source: string | null;
+  diagnostics?: CaptionDiagnostics;
+  diagnosticsAggregate?: CaptionDiagnosticsAggregate;
 }
 
 export interface CaptionRunOptions<T> {
@@ -79,6 +87,9 @@ export function useCaptionRequest() {
   const [errorCode, setErrorCode] = useState<string | null>(null);
   const [recovery, setRecovery] = useState<TranscriptRecovery | null>(null);
   const [fetchToast, setFetchToast] = useState<FetchToast | null>(null);
+  const [captionDiagnosticsAggregate, setCaptionDiagnosticsAggregate] = useState<CaptionDiagnosticsAggregate>(
+    () => loadCaptionDiagnostics(),
+  );
   // Live "elapsed wait" seconds shown during the (often multi-minute) fetch.
   const [elapsed, setElapsed] = useState(0);
 
@@ -86,14 +97,29 @@ export function useCaptionRequest() {
   const startRef = useRef(0);
   const resultRef = useRef<number | null>(null);
   const sourceRef = useRef<string | null>(null);
+  const diagnosticsRef = useRef<CaptionDiagnostics | undefined>(undefined);
+  const diagnosticsAggregateRef = useRef(captionDiagnosticsAggregate);
   const tickRef = useRef<number | null>(null);
 
-  const notifyFetchSuccess = useCallback((count: number, source: string | null = null) => {
+  const notifyFetchSuccess = useCallback((
+    count: number,
+    source: string | null = null,
+    diagnostics?: CaptionDiagnostics,
+  ) => {
     const totalSec = Math.max(0, Math.round((Date.now() - startRef.current) / 1000));
     // Persistent toast: user closes it via the ✕ button (no auto-dismiss).
     // We store the elapsed seconds as a number and let the component localize
     // the duration string, so the English UI never shows "分/秒".
-    setFetchToast({ count, seconds: totalSec, source });
+    const diagnosticsAggregate = diagnostics?.supadata?.attempted
+      ? diagnosticsAggregateRef.current
+      : undefined;
+    setFetchToast({
+      count,
+      seconds: totalSec,
+      source,
+      diagnostics,
+      ...(diagnosticsAggregate ? { diagnosticsAggregate } : {}),
+    });
   }, []);
 
   // Live "elapsed wait" ticker: start when a fetch begins, stop + reset when
@@ -125,6 +151,7 @@ export function useCaptionRequest() {
     startRef.current = Date.now();
     resultRef.current = null;
     sourceRef.current = null;
+    diagnosticsRef.current = undefined;
     // Clear any lingering success banner from a previous (different) video so a
     // stale "Subtitles loaded" toast can never sit alongside a new fetch's
     // spinner / loading button. This is the directly-observed inconsistency:
@@ -148,9 +175,10 @@ export function useCaptionRequest() {
       if (handle && handle.id !== idRef.current) return;
       setFetching(false);
       if (resultRef.current != null) {
-        notifyFetchSuccess(resultRef.current, sourceRef.current);
+        notifyFetchSuccess(resultRef.current, sourceRef.current, diagnosticsRef.current);
         resultRef.current = null;
         sourceRef.current = null;
+        diagnosticsRef.current = undefined;
       }
     },
     [notifyFetchSuccess],
@@ -171,6 +199,12 @@ export function useCaptionRequest() {
           if (reported) {
             resultRef.current = reported.count;
             sourceRef.current = reported.source ?? null;
+            diagnosticsRef.current = reported.diagnostics;
+            if (reported.diagnostics?.supadata?.attempted) {
+              const aggregate = loadCaptionDiagnostics();
+              diagnosticsAggregateRef.current = aggregate;
+              setCaptionDiagnosticsAggregate(aggregate);
+            }
           }
         })
         .catch((err: unknown) => {
@@ -227,6 +261,7 @@ export function useCaptionRequest() {
     clearError,
     elapsed,
     fetchToast,
+    captionDiagnosticsAggregate,
     clearFetchToast,
     begin,
     run,

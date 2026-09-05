@@ -2425,3 +2425,27 @@ Direct code evidence: `fetchYouTubeServerTranscript` uses an 8,000 ms Vercel tim
 - User-reported dashboard state: Production-only `SUPADATA_API_KEY` was manually added in Vercel Dashboard. This was not independently verified, and no secret value was read, stored, printed, or logged.
 - The ECHO-20260905-1818 CLI blocker remains historical and is not rewritten. No redeploy has occurred, so production behavior and runtime secret activation remain unproven and unchanged.
 - Local source/config validation remains release-prep green from ECHO-20260905-2120. Commit, push, and deploy still require explicit authorization. Browser-control artifacts `.playwright-cli/` and `.tmp-playwright-daemon/` must not be staged.
+
+## ECHO-20260905-2228 - Production Supadata fallback validation
+
+- Deployment evidence: user confirmed Vercel revision `61fe54d` is **Ready** and **Production** on `main`.
+- One and only one production caption-only request was sent to `https://echo-learn.uk/api/transcript` for `ZbZSe6N_BXs`. Sanitized result: HTTP `200`; latency `4512 ms`; `source=supadata`; language `en`; `75` cues; non-empty; timestamps valid and monotonic; no failure code.
+- No retry, polling, direct Supadata request, ASR, Generate, auto mode, secret access, or deploy occurred. Transcript text was not printed or retained.
+- Acceptance result: the deployed Supadata native-only fallback is conclusively validated server-side. Browser Study-page E2E is optional and non-blocking because it would add UI confidence without materially changing this release decision.
+
+## ECHO-20260905-2245 - Caption Diagnostics V1
+
+### Focused implementation checks
+
+- Provenance is carried as raw optional `source` data and translated only at the Study display boundary. A dedicated source-label regression test verifies `supadata` renders as one label rather than being translated twice.
+- Supadata attempt diagnostics survive fallback-success cases, including Supadata unavailable/failure followed by npm/native success. The browser-local aggregate records one observed attempt, classifies success/unavailable/timeout/failure, and estimates one likely credit per attempt without claiming actual billing.
+- Optional session provenance fields remain backward compatible with legacy saved sessions. The stale dashboard-navigation comment claiming source was not recorded was removed.
+- The Study signal is compact and reactive after an attempted request: provider, elapsed time, cue count, likely Supadata use, and this-browser attempts/likely credits. No secret, URL/video ID, transcript text, upstream payload, cookie, or token is included.
+
+### Validation actually run
+
+- Focused Vitest: **84/84 PASS** across `transcriptHandler`, `youtubeTranscript`, `captionDiagnostics`, `useCaptionRequest`, `studySession`, and `captionSource` tests.
+- `npx tsc -b --pretty false`: PASS.
+- Targeted ESLint over changed Caption Diagnostics source/tests: PASS with 0 errors; 8 StudyPage hook/dependency warnings remain from the existing callback/effect structure.
+- `npm run build`: PASS; only normal bundle-size/plugin timing warnings.
+- No provider, YouTube, production, browser, commit, push, or deploy action was performed in this correction cycle.
