@@ -2449,3 +2449,22 @@ Direct code evidence: `fetchYouTubeServerTranscript` uses an 8,000 ms Vercel tim
 - Targeted ESLint over changed Caption Diagnostics source/tests: PASS with 0 errors; 8 StudyPage hook/dependency warnings remain from the existing callback/effect structure.
 - `npm run build`: PASS; only normal bundle-size/plugin timing warnings.
 - No provider, YouTube, production, browser, commit, push, or deploy action was performed in this correction cycle.
+
+## ECHO-20260905-2310 - Release review, push, deployment, and bounded Production validation
+
+### Release review and Git evidence
+
+- Reconfirmed root `D:/CODE/project/EchoLearn`, branch `main`, pre-release HEAD `61fe54d`, and remote `origin` `git@github.com:Shmily0826/EchoLearn.git`. The release index contained only 19 reviewed Caption Diagnostics/Supadata provenance paths. The unrelated `StudyPage.tsx` no-caption helper hunk was deliberately left unstaged; all other unrelated tracked and untracked work remained outside the commit.
+- Staged diff review found no `.env*`, browser artifacts, keys, tokens, raw transcript text, or accidental debug files. The review confirmed npm provenance, Supadata-attempt preservation through fallback success, optional session fields, local aggregate storage, server-only key handling, and no ASR/provider-order changes.
+- Commit: `98607b4` (`feat: add caption diagnostics provenance`). Push: **PASS**, `61fe54d..98607b4 main -> main`; `origin/main` now equals `98607b4`.
+
+### Deployment evidence
+
+- No Vercel CLI was available and no package was installed. The established GitHub-to-Vercel path was used. Public GitHub status metadata for commit `98607b4` reported context `Vercel`, state `success`, description `Deployment has completed`, deployment target `EAJ4vXhaxkZ63G9YMsrzCnwTkKRT`.
+- `https://echo-learn.uk/` returned HTTP 200 from Vercel. The deployed public StudyPage chunk contained `caption-supadata-estimate`, `caption-diagnostics-saved`, and `captionSource` markers. No `/api/transcript`, Worker, Supadata, ASR, or secret request was made.
+
+### Production validation boundary
+
+- A fresh disposable browser context used synthetic non-Supadata session data and blocked `/api/` plus Worker routes. The public app loaded its authentication gate; the guest action did not reach Study within the bounded attempt. Therefore interactive authenticated Study rendering and session reopen were not independently proven in Production.
+- This is a validation-layer/account-access limitation, not a failed Caption Diagnostics assertion: the deployed static artifact contains the new UI, local deterministic validation is green, and no paid provider request was made. No production fix or additional retry was justified.
+- Release result: **RELEASED/ACCEPTED with interactive Production validation limitation**. Remaining risk is authenticated/guest Study-path confidence, not deployment, GitHub, secret exposure, or Supadata provider correctness.

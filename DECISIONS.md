@@ -166,3 +166,13 @@ Once the active goal, root cause, and acceptance criteria are sufficiently speci
 - Guardrails: exclude API keys, URLs/video IDs, transcript text, raw upstream payloads, cookies, tokens, and account data. Preserve provider order, deadlines, latest-request-wins behavior, and the explicit ASR boundary; Caption Diagnostics never invokes ASR or Generate.
 - Supersedes: None recorded.
 - Superseded by: None recorded.
+
+## D-014 - Caption Diagnostics V1 release boundary
+
+- Date: 2026-09-05
+- Status: ACTIVE
+- Decision: Accept Caption Diagnostics V1 with the existing Supadata native provenance release. Production deployment is driven by the existing GitHub-to-Vercel path; no direct Supadata validation is required for this UI/provenance release when it would consume a credit. Production static artifacts must contain the diagnostics markers, while interactive Study validation remains separately attributable to account/guest access state.
+- Rationale: Commit `98607b4` passed the existing focused/local validation and its Vercel deployment check completed successfully. The public StudyPage artifact contains the new diagnostics markers. A disposable production browser context reached the authentication gate; its API/provider routes were blocked and therefore could not establish an authenticated Study/session flow without introducing account access or provider traffic.
+- Guardrails: Do not treat static bundle presence as proof of a live Supadata request or billing decrement. Do not read secrets, use direct Supadata requests, or bypass authentication. Preserve the local validation-layer limitation in release records.
+- Supersedes: None recorded.
+- Superseded by: None recorded.
