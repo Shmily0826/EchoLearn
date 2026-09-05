@@ -28,10 +28,10 @@ function makeRes(): MockRes {
   return res;
 }
 
-function makeReq(videoId = 'dQw4w9WgXcQ', allowAsr = false) {
+function makeReq(videoId = 'dQw4w9WgXcQ', allowAsr = false, lang: string | null = 'en') {
   return {
     method: 'GET',
-    query: { videoId, lang: 'en', ...(allowAsr ? { allowAsr: '1' } : {}) },
+    query: { videoId, ...(lang ? { lang } : {}), ...(allowAsr ? { allowAsr: '1' } : {}) },
     headers: { origin: 'https://echo-learn.uk', 'x-forwarded-for': Math.random().toString() },
   };
 }
@@ -46,6 +46,7 @@ beforeEach(() => {
   fetchMock.mockReset();
   vi.stubGlobal('fetch', fetchMock as unknown as typeof fetch);
   vi.stubEnv('YTDLP_API_KEY', 'test-vps-key');
+  vi.stubEnv('SUPADATA_API_KEY', '');
   vi.mocked(YoutubeTranscript.fetchTranscript).mockReset();
 });
 
@@ -116,6 +117,233 @@ describe('api/transcript server fallback', () => {
     await handler(makeReq(), res);
     expect(fetchMock).not.toHaveBeenCalled();
     expect(res.statusCode).toBe(200);
+  });
+
+  it('keeps the existing npm chain when Supadata has no server key', async () => {
+    vi.stubEnv('YTDLP_API_KEY', '');
+    vi.mocked(YoutubeTranscript.fetchTranscript).mockResolvedValueOnce([
+      { text: 'npm only', offset: 0, duration: 1, lang: 'en' },
+    ]);
+
+    const res = makeRes();
+    await handler(makeReq(), res);
+
+    expect(res.statusCode).toBe(200);
+    expect(fetchMock).not.toHaveBeenCalled();
+    expect(YoutubeTranscript.fetchTranscript).toHaveBeenCalledTimes(1);
+  });
+
+  it('calls Supadata once before npm with native-only parameters and normalized cues', async () => {
+    const supadataKey = 'test-supadata-key';
+    vi.stubEnv('YTDLP_API_KEY', '');
+    vi.stubEnv('SUPADATA_API_KEY', supadataKey);
+    fetchMock.mockResolvedValueOnce(response({
+      content: [
+        { text: 'second cue', offset: 2_000, duration: 1_000, lang: 'en' },
+        { text: ' first cue ', offset: 0, duration: 1_500, lang: 'en' },
+      ],
+      lang: 'en',
+      availableLangs: ['en'],
+    }));
+    const logSpy = vi.spyOn(console, 'info').mockImplementation(() => {});
+
+    try {
+      const res = makeRes();
+      await handler(makeReq('video-id', true), res);
+
+      expect(res.statusCode).toBe(200);
+      expect(JSON.parse(res.body)).toMatchObject({
+        source: 'supadata',
+        language: 'en',
+        lines: [
+          { id: 'supadata_1', start: 0, end: 1.5, text: 'first cue' },
+          { id: 'supadata_2', start: 2, end: 3, text: 'second cue' },
+        ],
+      });
+      expect(fetchMock).toHaveBeenCalledTimes(1);
+      const [url, init] = fetchMock.mock.calls[0];
+      const parsedUrl = new URL(String(url));
+      expect(parsedUrl.origin + parsedUrl.pathname).toBe('https://api.supadata.ai/v1/transcript');
+      expect(parsedUrl.searchParams.get('url')).toBe('https://www.youtube.com/watch?v=video-id');
+      expect(parsedUrl.searchParams.get('mode')).toBe('native');
+      expect(parsedUrl.searchParams.get('text')).toBe('false');
+      expect(parsedUrl.searchParams.get('lang')).toBe('en');
+      expect(parsedUrl.searchParams.has('generate')).toBe(false);
+      expect(String(url)).not.toContain('allowAsr');
+      expect(String(url)).not.toContain('/api/asr');
+      expect((init?.headers as Record<string, string>)['x-api-key']).toBe(supadataKey);
+      expect(res.body).not.toContain(supadataKey);
+      expect(logSpy.mock.calls.flat().join('\n')).not.toContain(supadataKey);
+      expect(YoutubeTranscript.fetchTranscript).not.toHaveBeenCalled();
+    } finally {
+      logSpy.mockRestore();
+    }
+  });
+
+  it('omits Supadata lang when no requested language is known', async () => {
+    vi.stubEnv('YTDLP_API_KEY', '');
+    vi.stubEnv('SUPADATA_API_KEY', 'test-supadata-key');
+    fetchMock.mockResolvedValueOnce(response({
+      content: [{ text: 'caption', offset: 0, duration: 1_000 }],
+      lang: 'fr',
+    }));
+
+    const res = makeRes();
+    await handler(makeReq('video-id', false, null), res);
+
+    expect(res.statusCode).toBe(200);
+    expect(new URL(String(fetchMock.mock.calls[0][0])).searchParams.has('lang')).toBe(false);
+    expect(JSON.parse(res.body)).toMatchObject({ language: 'fr', source: 'supadata' });
+  });
+
+  it.each([
+    ['empty content', { content: [], lang: 'en' }],
+    ['malformed cue', { content: [{ text: 'caption', offset: '0', duration: 1_000 }], lang: 'en' }],
+  ])('rejects Supadata %s and continues to npm', async (_label, payload) => {
+    vi.stubEnv('YTDLP_API_KEY', '');
+    vi.stubEnv('SUPADATA_API_KEY', 'test-supadata-key');
+    fetchMock.mockResolvedValueOnce(response(payload));
+    vi.mocked(YoutubeTranscript.fetchTranscript).mockResolvedValueOnce([
+      { text: 'npm recovery', offset: 0, duration: 1, lang: 'en' },
+    ]);
+
+    const res = makeRes();
+    await handler(makeReq(), res);
+
+    expect(res.statusCode).toBe(200);
+    expect(JSON.parse(res.body).lines[0].text).toBe('npm recovery');
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+    expect(YoutubeTranscript.fetchTranscript).toHaveBeenCalledTimes(1);
+  });
+
+  it('continues after Supadata native-unavailable 206 and preserves no-caption semantics', async () => {
+    vi.stubEnv('YTDLP_API_KEY', '');
+    vi.stubEnv('SUPADATA_API_KEY', 'test-supadata-key');
+    fetchMock.mockResolvedValueOnce(response({ error: 'native transcript unavailable' }, 206));
+    vi.mocked(YoutubeTranscript.fetchTranscript).mockRejectedValueOnce(new Error('no transcripts available'));
+
+    const res = makeRes();
+    await handler(makeReq(), res);
+
+    expect(res.statusCode).toBe(404);
+    expect(JSON.parse(res.body).code).toBe('captions_not_found');
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+    expect(YoutubeTranscript.fetchTranscript).toHaveBeenCalledTimes(1);
+  });
+
+  it.each([
+    [401, 'provider_failure', 500],
+    [403, 'provider_failure', 500],
+    [429, 'provider_failure', 500],
+    [500, 'provider_failure', 500],
+    [503, 'provider_failure', 500],
+    [504, 'provider_timeout', 504],
+  ])('types Supadata HTTP %s as %s', async (status, expectedCode, expectedStatus) => {
+    vi.stubEnv('YTDLP_API_KEY', '');
+    vi.stubEnv('SUPADATA_API_KEY', 'test-supadata-key');
+    fetchMock.mockResolvedValueOnce(response({ error: 'provider unavailable' }, status));
+    vi.mocked(YoutubeTranscript.fetchTranscript).mockRejectedValueOnce(new Error('no transcripts available'));
+
+    const res = makeRes();
+    await handler(makeReq(), res);
+
+    expect(res.statusCode).toBe(expectedStatus);
+    expect(JSON.parse(res.body).code).toBe(expectedCode);
+  });
+
+  it('types Supadata network failure without relabeling it as no captions', async () => {
+    vi.stubEnv('YTDLP_API_KEY', '');
+    vi.stubEnv('SUPADATA_API_KEY', 'test-supadata-key');
+    fetchMock.mockRejectedValueOnce(new Error('network unavailable'));
+    vi.mocked(YoutubeTranscript.fetchTranscript).mockRejectedValueOnce(new Error('no transcripts available'));
+
+    const res = makeRes();
+    await handler(makeReq(), res);
+
+    expect(res.statusCode).toBe(500);
+    expect(JSON.parse(res.body).code).toBe('provider_failure');
+  });
+
+  it.each([
+    ['provider timeout', { detail: { code: 'provider_timeout' } }, 504, 'provider_timeout'],
+    ['acquisition blocked', { detail: { code: 'youtube_acquisition_blocked' } }, 424, 'youtube_acquisition_blocked'],
+  ])('does not let Supadata 206 overwrite an earlier %s', async (_label, vpsBody, vpsStatus, expectedCode) => {
+    vi.stubEnv('SUPADATA_API_KEY', 'test-supadata-key');
+    fetchMock
+      .mockResolvedValueOnce(response(vpsBody, vpsStatus))
+      .mockResolvedValueOnce(response({ error: 'native unavailable' }, 206));
+    vi.mocked(YoutubeTranscript.fetchTranscript).mockRejectedValueOnce(new Error('Transcript is disabled on this video'));
+
+    const res = makeRes();
+    await handler(makeReq(), res);
+
+    expect(JSON.parse(res.body).code).toBe(expectedCode);
+    expect(fetchMock).toHaveBeenCalledTimes(2);
+  });
+
+  it('admits the measured 14.352-second native positive within the bounded deadline', async () => {
+    vi.useFakeTimers();
+    vi.stubEnv('YTDLP_API_KEY', '');
+    vi.stubEnv('SUPADATA_API_KEY', 'test-supadata-key');
+    fetchMock.mockImplementationOnce(() => new Promise<Response>((resolve) => {
+      setTimeout(() => resolve(response({
+        content: [{ text: 'delayed native caption', offset: 0, duration: 1_000 }],
+        lang: 'en',
+      })), 14_500);
+    }));
+
+    try {
+      const res = makeRes();
+      const pending = handler(makeReq(), res);
+      await vi.advanceTimersByTimeAsync(14_500);
+      await pending;
+
+      expect(res.statusCode).toBe(200);
+      expect(JSON.parse(res.body).lines[0].text).toBe('delayed native caption');
+      expect(YoutubeTranscript.fetchTranscript).not.toHaveBeenCalled();
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it('bounds a later npm attempt to the time remaining after Supadata timeout', async () => {
+    vi.useFakeTimers();
+    vi.stubEnv('YTDLP_API_KEY', '');
+    vi.stubEnv('SUPADATA_API_KEY', 'test-supadata-key');
+    const signals: AbortSignal[] = [];
+    fetchMock.mockImplementationOnce((_url, init) => {
+      const signal = init?.signal as AbortSignal;
+      signals.push(signal);
+      return new Promise<Response>((_, reject) => {
+        signal.addEventListener('abort', () => reject(new DOMException('aborted', 'AbortError')));
+      });
+    });
+    vi.mocked(YoutubeTranscript.fetchTranscript).mockImplementationOnce((_videoId, options) =>
+      options.fetch('https://youtube.test/captions').then(() => []),
+    );
+    fetchMock.mockImplementationOnce((_url, init) => {
+      const signal = init?.signal as AbortSignal;
+      signals.push(signal);
+      return new Promise<Response>((_, reject) => {
+        signal.addEventListener('abort', () => reject(new DOMException('aborted', 'AbortError')));
+      });
+    });
+
+    try {
+      const res = makeRes();
+      const pending = handler(makeReq(), res);
+      await vi.advanceTimersByTimeAsync(18_000);
+      await vi.advanceTimersByTimeAsync(0);
+      expect(fetchMock).toHaveBeenCalledTimes(2);
+      await vi.advanceTimersByTimeAsync(3_000);
+      await pending;
+
+      expect(signals.every((signal) => signal.aborted)).toBe(true);
+      expect(res.statusCode).toBe(504);
+      expect(JSON.parse(res.body).code).toBe('provider_timeout');
+    } finally {
+      vi.useRealTimers();
+    }
   });
 
   it('keeps Vercel VPS caption fallback available without an ASR opt-in', async () => {

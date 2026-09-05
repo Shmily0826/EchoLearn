@@ -755,7 +755,10 @@ export async function fetchYouTubeServerTranscript(
   // Caption-only requests stay fast. Explicit ASR includes the Worker VPS
   // budget (75s) plus a small transport buffer, but remains bounded.
   const WORKER_TIMEOUT_MS = options.allowAsr ? 90000 : 12000;
-  const VERCEL_TIMEOUT_MS = 8000;
+  // Supadata native can take about 14.352s on a known-positive control. Keep
+  // the fast Worker path at 12s and give only the independent Vercel fallback
+  // enough time to admit that evidence plus transport margin.
+  const VERCEL_TIMEOUT_MS = 22000;
   const endpoints = [
     { url: workerUrl, label: 'CF Worker', timeoutMs: WORKER_TIMEOUT_MS },
     {

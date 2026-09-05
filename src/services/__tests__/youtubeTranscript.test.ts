@@ -54,6 +54,31 @@ describe('fetchYouTubeServerTranscript', () => {
     expect(fetchMock.mock.calls.map(([url]) => String(url)).join('\n')).not.toContain('yt-api.echo-learn.uk');
   });
 
+  it('keeps the Vercel fallback alive past the old 8s boundary for a bounded slow success', async () => {
+    vi.useFakeTimers();
+    fetchMock.mockResolvedValueOnce(response({ error: 'Worker timed out' }, 504));
+    let vercelSignal: AbortSignal | undefined;
+    fetchMock.mockImplementationOnce((_url, init) => {
+      vercelSignal = init?.signal as AbortSignal;
+      return new Promise<Response>((resolve) => {
+        setTimeout(() => resolve(response({ lines: [{ text: 'slow Vercel caption' }], language: 'en' })), 14_500);
+      });
+    });
+
+    try {
+      const pending = fetchYouTubeServerTranscript('video-id', 'en');
+      await vi.advanceTimersByTimeAsync(0);
+      await vi.advanceTimersByTimeAsync(8_001);
+      expect(fetchMock).toHaveBeenCalledTimes(2);
+      expect(vercelSignal?.aborted).toBe(false);
+
+      await vi.advanceTimersByTimeAsync(6_499);
+      await expect(pending).resolves.toMatchObject({ lines: [{ text: 'slow Vercel caption' }] });
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
   it('falls through when both server endpoints fail', async () => {
     fetchMock
       .mockResolvedValueOnce(response({ error: 'worker' }, 502))

@@ -121,8 +121,8 @@ async function routeTranscript(
 
 /** Reproduce the production Worker timeout and verify the independent Vercel
  * caption fallback at the browser boundary. */
-async function routeWorkerTimeoutToVercelFallback(page: Page) {
-  const calls = { worker: 0, vercel: 0 };
+async function routeWorkerTimeoutToVercelFallback(page: Page, responseDelayMs = 0) {
+  const calls = { worker: 0, vercel: 0, asrOptIn: 0 };
 
   await page.route('**/*', (route) => {
     const url = route.request().url();
@@ -135,10 +135,11 @@ async function routeWorkerTimeoutToVercelFallback(page: Page) {
   await page.route('**/yt-proxy/**', (route) => route.abort());
   await page.route('**://www.youtube.com/**', (route) => route.abort());
   await page.route('**://youtubei.googleapis.com/**', (route) => route.abort());
-  await page.route('**/api/transcript**', (route) => {
+  await page.route('**/api/transcript**', async (route) => {
     const url = new URL(route.request().url());
     if (url.hostname === 'yt-transcript-proxy.rng2018520.workers.dev') {
       calls.worker += 1;
+      if (url.searchParams.get('allowAsr') === '1') calls.asrOptIn += 1;
       return route.fulfill({
         status: 504,
         contentType: 'application/json',
@@ -152,6 +153,9 @@ async function routeWorkerTimeoutToVercelFallback(page: Page) {
     }
     if (url.hostname === 'localhost' || url.hostname === '127.0.0.1') {
       calls.vercel += 1;
+      if (responseDelayMs > 0) {
+        await new Promise((resolve) => setTimeout(resolve, responseDelayMs));
+      }
       return route.fulfill({
         status: 200,
         contentType: 'application/json',
@@ -270,6 +274,28 @@ test.describe('Batch 3 — Study failure recovery', () => {
     await expect(page.getByText(/unable to fetch captions|no subtitles|couldn't load/i).filter({ visible: true })).toHaveCount(0);
     expect(calls.worker).toBe(1);
     expect(calls.vercel).toBe(1);
+    expect(calls.asrOptIn).toBe(0);
+    await expect(page.getByRole('button', { name: /generate transcript/i }).filter({ visible: true })).toHaveCount(0);
+  });
+
+  test('Vercel captions arriving after the old 8s boundary still render within the new budget', async ({ page }) => {
+    await seedCleanVisitor(page);
+    const calls = await routeWorkerTimeoutToVercelFallback(page, 8_500);
+    await page.goto('/');
+    await enterGuestMode(page);
+
+    await page.getByRole('link', { name: 'Study' }).click();
+    await expect(page).toHaveURL(/\/study$/);
+    await loadYoutubeUrl(page);
+
+    await expect(page.getByText(/vercel recovered caption/i).filter({ visible: true }).first()).toBeVisible({
+      timeout: 30_000,
+    });
+    await expect(page.getByText(/unable to fetch captions|no subtitles|couldn't load/i).filter({ visible: true })).toHaveCount(0);
+    expect(calls.worker).toBe(1);
+    expect(calls.vercel).toBe(1);
+    expect(calls.asrOptIn).toBe(0);
+    await expect(page.getByRole('button', { name: /generate transcript/i }).filter({ visible: true })).toHaveCount(0);
   });
 
   test('Worker asr_required continues to independent Vercel captions without starting ASR', async ({ page }) => {

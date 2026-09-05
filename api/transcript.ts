@@ -18,12 +18,15 @@ const CONSENT_COOKIE =
   'CONSENT=PENDING+987; SOCS=CAISNQgDEitib3FfaWRlbnRpdHlmcm9udGVuZHVpc2VydmVyXzIwMjMwODI5LjA3X3AxGgJlbiACGgYIgJnSmgY';
 
 const VPS_API_URL = 'https://yt-api.echo-learn.uk';
-// The client gives the Vercel fallback an 8-second budget. The shared VPS
-// attempt is already covered by the Worker path and has repeatedly consumed
-// its full window, so keep it short and reserve the remaining budget for the
-// independent direct YouTube caption route.
+// Caption-only Vercel fallback budget. The client leaves a small transport
+// margin above this deadline; later providers receive only the time remaining.
+const TRANSCRIPT_DEADLINE_MS = 21_000;
 const VPS_TIMEOUT_MS = 1_000;
 const NPM_FALLBACK_TIMEOUT_MS = 6_500;
+// The observed positive Supadata matrix includes a 14.352s response. Keep a
+// bounded provider cap with margin while reserving time for a later fallback.
+const SUPADATA_TIMEOUT_MS = 18_000;
+const SUPADATA_API_URL = 'https://api.supadata.ai/v1/transcript';
 const TRACE_HEADER = 'X-EchoLearn-Trace-Id';
 
 function createTraceId(): string {
@@ -155,9 +158,231 @@ function classifyYoutubeFailure(message: string): TranscriptFailure {
   return failureForCode(TRANSCRIPT_FAILURE_CODES.PROVIDER_FAILURE);
 }
 
+function remainingTranscriptBudget(deadlineAt: number): number {
+  return Math.max(0, deadlineAt - Date.now());
+}
+
+interface SupadataCue {
+  text?: unknown;
+  offset?: unknown;
+  duration?: unknown;
+}
+
+function normalizeSupadataTranscript(payload: unknown, requestedLang?: string): Record<string, unknown> | null {
+  if (!payload || typeof payload !== 'object') return null;
+  const candidate = payload as { content?: unknown; lang?: unknown };
+  if (!Array.isArray(candidate.content) || candidate.content.length === 0) return null;
+  const language = typeof candidate.lang === 'string' && candidate.lang.trim()
+    ? candidate.lang.trim()
+    : requestedLang;
+  if (!language) return null;
+
+  const cues = candidate.content.map((item, index) => {
+    if (!item || typeof item !== 'object') return null;
+    const cue = item as SupadataCue;
+    const text = typeof cue.text === 'string' ? cue.text.trim() : '';
+    const offset = cue.offset;
+    const duration = cue.duration;
+    if (
+      !text
+      || typeof offset !== 'number'
+      || typeof duration !== 'number'
+      || !Number.isFinite(offset)
+      || !Number.isFinite(duration)
+      || offset < 0
+      || duration < 0
+      || !Number.isFinite(offset + duration)
+    ) {
+      return null;
+    }
+    return { index, offset, duration, text };
+  });
+
+  if (cues.some((cue) => cue === null)) return null;
+
+  const lines = cues
+    .filter((cue): cue is { index: number; offset: number; duration: number; text: string } => cue !== null)
+    .sort((a, b) => a.offset - b.offset || a.index - b.index)
+    .map((cue, index) => ({
+      id: `supadata_${index + 1}`,
+      start: cue.offset / 1000,
+      end: (cue.offset + cue.duration) / 1000,
+      text: cue.text,
+    }));
+
+  return { lines, language, source: 'supadata' };
+}
+
+function classifySupadataHttpFailure(status: number): TranscriptFailure {
+  if (status === 408 || status === 504) {
+    return failureForCode(TRANSCRIPT_FAILURE_CODES.PROVIDER_TIMEOUT);
+  }
+  return failureForCode(TRANSCRIPT_FAILURE_CODES.PROVIDER_FAILURE);
+}
+
+async function fetchSupadataTranscript(
+  videoId: string,
+  requestedLang: string | undefined,
+  apiKey: string,
+  traceId: string,
+  deadlineAt: number,
+): Promise<{ data: Record<string, unknown> | null; failure?: TranscriptFailure }> {
+  const startedAt = Date.now();
+  const remainingMs = remainingTranscriptBudget(deadlineAt);
+  const timeoutMs = Math.min(SUPADATA_TIMEOUT_MS, remainingMs);
+  if (timeoutMs <= 0) {
+    const failure = failureForCode(TRANSCRIPT_FAILURE_CODES.PROVIDER_TIMEOUT);
+    logTranscriptEvent('provider_result', {
+      traceId,
+      provider: 'supadata',
+      outcome: failure.code,
+      latencyMs: Date.now() - startedAt,
+      reason: 'deadline_exhausted',
+    });
+    return { data: null, failure };
+  }
+
+  const controller = new AbortController();
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  let timedOut = false;
+  const query = new URLSearchParams({
+    url: `https://www.youtube.com/watch?v=${videoId}`,
+    mode: 'native',
+    text: 'false',
+  });
+  if (requestedLang) query.set('lang', requestedLang);
+
+  try {
+    const upstream = await Promise.race([
+      fetch(`${SUPADATA_API_URL}?${query.toString()}`, {
+        headers: { 'x-api-key': apiKey, [TRACE_HEADER]: traceId },
+        signal: controller.signal,
+      }),
+      new Promise<never>((_, reject) => {
+        timer = setTimeout(() => {
+          timedOut = true;
+          controller.abort();
+          reject(new Error('supadata provider timed out'));
+        }, timeoutMs);
+      }),
+    ]);
+
+    // Supadata uses 206 for native-caption unavailability. It is a normal
+    // fallback outcome, not a timeout or generic provider failure.
+    if (upstream.status === 206) {
+      const failure = failureForCode(TRANSCRIPT_FAILURE_CODES.CAPTIONS_NOT_FOUND);
+      logTranscriptEvent('provider_result', {
+        traceId,
+        provider: 'supadata',
+        outcome: failure.code,
+        latencyMs: Date.now() - startedAt,
+        status: upstream.status,
+      });
+      return { data: null, failure };
+    }
+
+    if (!upstream.ok) {
+      const failure = classifySupadataHttpFailure(upstream.status);
+      logTranscriptEvent('provider_result', {
+        traceId,
+        provider: 'supadata',
+        outcome: failure.code,
+        latencyMs: Date.now() - startedAt,
+        status: upstream.status,
+      });
+      return { data: null, failure };
+    }
+
+    let payload: unknown;
+    try {
+      payload = await upstream.json();
+    } catch {
+      const failure = failureForCode(TRANSCRIPT_FAILURE_CODES.PROVIDER_FAILURE);
+      logTranscriptEvent('provider_result', {
+        traceId,
+        provider: 'supadata',
+        outcome: failure.code,
+        latencyMs: Date.now() - startedAt,
+        status: upstream.status,
+        reason: 'malformed_json',
+      });
+      return { data: null, failure };
+    }
+
+    const data = normalizeSupadataTranscript(payload, requestedLang);
+    if (!data) {
+      const failure = failureForCode(TRANSCRIPT_FAILURE_CODES.PROVIDER_FAILURE);
+      logTranscriptEvent('provider_result', {
+        traceId,
+        provider: 'supadata',
+        outcome: failure.code,
+        latencyMs: Date.now() - startedAt,
+        status: upstream.status,
+        reason: 'empty_or_malformed',
+      });
+      return { data: null, failure };
+    }
+
+    logTranscriptEvent('provider_result', {
+      traceId,
+      provider: 'supadata',
+      outcome: 'success',
+      latencyMs: Date.now() - startedAt,
+      status: upstream.status,
+      lineCount: (data.lines as unknown[]).length,
+    });
+    return { data };
+  } catch (err) {
+    const failure = timedOut || (err instanceof Error && err.name === 'AbortError')
+      ? failureForCode(TRANSCRIPT_FAILURE_CODES.PROVIDER_TIMEOUT)
+      : failureForCode(TRANSCRIPT_FAILURE_CODES.PROVIDER_FAILURE);
+    logTranscriptEvent('provider_result', {
+      traceId,
+      provider: 'supadata',
+      outcome: failure.code,
+      latencyMs: Date.now() - startedAt,
+      reason: failure.code === TRANSCRIPT_FAILURE_CODES.PROVIDER_TIMEOUT ? 'timeout' : 'network_error',
+    });
+    return { data: null, failure };
+  } finally {
+    if (timer) clearTimeout(timer);
+  }
+}
+
+function chooseFinalFailure(
+  vpsFailure: TranscriptFailure | undefined,
+  supadataFailure: TranscriptFailure | undefined,
+  npmFailure: TranscriptFailure | undefined,
+  npmReturnedEmpty: boolean,
+): TranscriptFailure {
+  const existingFailure = npmFailure
+    ? (npmFailure.code === TRANSCRIPT_FAILURE_CODES.PROVIDER_TIMEOUT
+      ? npmFailure
+      : (vpsFailure || npmFailure))
+    : (vpsFailure || (npmReturnedEmpty ? failureForCode(TRANSCRIPT_FAILURE_CODES.CAPTIONS_NOT_FOUND) : undefined));
+  const fallbackFailure = existingFailure || failureForCode(TRANSCRIPT_FAILURE_CODES.CAPTIONS_NOT_FOUND);
+
+  // Preserve an earlier typed provider/acquisition failure and never let a
+  // Supadata 206/native-unavailable result relabel it as no captions.
+  if (
+    supadataFailure
+    && supadataFailure.code !== TRANSCRIPT_FAILURE_CODES.CAPTIONS_NOT_FOUND
+    && fallbackFailure.code === TRANSCRIPT_FAILURE_CODES.CAPTIONS_NOT_FOUND
+  ) {
+    return supadataFailure;
+  }
+  return fallbackFailure;
+}
+
 async function fetchYoutubeTranscriptWithTimeout<T>(
   work: (signal: AbortSignal) => Promise<T>,
+  timeoutMs: number,
 ): Promise<T> {
+  if (timeoutMs <= 0) {
+    const error = new Error('youtube-transcript provider timed out');
+    error.name = 'AbortError';
+    throw error;
+  }
   const controller = new AbortController();
   let timer: ReturnType<typeof setTimeout> | undefined;
   let timedOut = false;
@@ -170,7 +395,7 @@ async function fetchYoutubeTranscriptWithTimeout<T>(
             timedOut = true;
             controller.abort();
             reject(new Error('youtube-transcript provider timed out'));
-          }, NPM_FALLBACK_TIMEOUT_MS);
+          }, timeoutMs);
         }),
       ]);
     } catch (err) {
@@ -194,9 +419,14 @@ async function fetchVpsTranscript(
   lang: string,
   apiKey: string,
   traceId: string,
+  deadlineAt: number,
 ): Promise<{ data: Record<string, unknown> | null; failure?: TranscriptFailure }> {
   const controller = new AbortController();
-  const timer = setTimeout(() => controller.abort(), VPS_TIMEOUT_MS);
+  const timeoutMs = Math.min(VPS_TIMEOUT_MS, remainingTranscriptBudget(deadlineAt));
+  if (timeoutMs <= 0) {
+    return { data: null, failure: failureForCode(TRANSCRIPT_FAILURE_CODES.PROVIDER_TIMEOUT) };
+  }
+  const timer = setTimeout(() => controller.abort(), timeoutMs);
   try {
     const upstream = await fetch(
       `${VPS_API_URL}/api/transcript?videoId=${encodeURIComponent(videoId)}&lang=${encodeURIComponent(lang)}`,
@@ -273,21 +503,28 @@ export default async function handler(req: any, res: any): Promise<void> {
   }
 
   const videoId = req.query?.videoId;
-  const lang = (req.query?.lang as string) || 'en';
+  const requestedLang = typeof req.query?.lang === 'string' && req.query.lang.trim()
+    ? req.query.lang.trim()
+    : undefined;
+  const lang = requestedLang || 'en';
 
   if (!videoId || typeof videoId !== 'string') {
     res.status(400).json({ error: 'Missing videoId parameter' });
     return;
   }
 
+  const deadlineAt = Date.now() + TRANSCRIPT_DEADLINE_MS;
   let vpsFailure: TranscriptFailure | undefined;
+  let supadataFailure: TranscriptFailure | undefined;
+  let npmFailure: TranscriptFailure | undefined;
+  let npmReturnedEmpty = false;
   try {
     const vpsKey = process.env.YTDLP_API_KEY;
     // This is the useful recovery path after Worker transport/generic 5xx
     // failures. It calls the VPS caption transcript route, not /api/asr;
     // frontend structured Worker outcomes stop before reaching this endpoint.
     if (vpsKey) {
-      const vpsOutcome = await fetchVpsTranscript(videoId, lang, vpsKey, traceId);
+      const vpsOutcome = await fetchVpsTranscript(videoId, lang, vpsKey, traceId, deadlineAt);
       vpsFailure = vpsOutcome.failure;
       if (vpsOutcome.data) {
         logTranscriptEvent('request_finish', { traceId, videoId, provider: 'vps', status: 200 });
@@ -296,60 +533,84 @@ export default async function handler(req: any, res: any): Promise<void> {
       }
     }
 
-    const { YoutubeTranscript } = await import('youtube-transcript');
-
-    const result = await fetchYoutubeTranscriptWithTimeout(
-      (signal) => {
-        // Custom fetch adds the consent cookie while retaining an abort signal
-        // for this short Vercel fallback budget.
-        const customFetch = (url: string | URL | Request, init?: RequestInit) => {
-          const headers = new Headers(init?.headers);
-          headers.set('Cookie', CONSENT_COOKIE);
-          if (!headers.has('User-Agent')) {
-            headers.set(
-              'User-Agent',
-              'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/125.0.0.0 Safari/537.36',
-            );
-          }
-          return fetch(url, { ...init, headers, signal });
-        };
-        return YoutubeTranscript.fetchTranscript(videoId, { lang, fetch: customFetch });
-      },
-    );
-
-    if (!result || result.length === 0) {
-      const failure = vpsFailure || failureForCode(TRANSCRIPT_FAILURE_CODES.CAPTIONS_NOT_FOUND);
-      res.status(failure.status).json({ error: failure.code, code: failure.code, message: failure.message });
-      return;
+    const supadataKey = process.env.SUPADATA_API_KEY;
+    if (supadataKey) {
+      const supadataOutcome = await fetchSupadataTranscript(
+        videoId,
+        requestedLang,
+        supadataKey,
+        traceId,
+        deadlineAt,
+      );
+      supadataFailure = supadataOutcome.failure;
+      if (supadataOutcome.data) {
+        logTranscriptEvent('request_finish', {
+          traceId,
+          provider: 'supadata',
+          status: 200,
+          lineCount: (supadataOutcome.data.lines as unknown[]).length,
+        });
+        res.status(200).json(supadataOutcome.data);
+        return;
+      }
     }
 
-    // Transform to our TranscriptLine format
-    const lines = result.map(
-      (item: { text: string; offset: number; duration: number }, i: number) => ({
-        id: `yt_${i + 1}`,
-        start: item.offset > 1000 ? item.offset / 1000 : item.offset,
-        end:
-          (item.offset > 1000 ? item.offset / 1000 : item.offset) +
-          (item.duration > 1000 ? item.duration / 1000 : item.duration),
-        text: item.text,
-      }),
-    );
+    const npmTimeoutMs = Math.min(NPM_FALLBACK_TIMEOUT_MS, remainingTranscriptBudget(deadlineAt));
+    if (npmTimeoutMs <= 0) {
+      npmFailure = failureForCode(TRANSCRIPT_FAILURE_CODES.PROVIDER_TIMEOUT);
+    } else {
+      const { YoutubeTranscript } = await import('youtube-transcript');
 
-    logTranscriptEvent('request_finish', { traceId, videoId, provider: 'youtube-transcript', status: 200, lineCount: lines.length });
-    res.status(200).json({
-      lines,
-      language: result[0]?.lang ?? lang,
-      isAutoGenerated: true,
-    });
+      const result = await fetchYoutubeTranscriptWithTimeout(
+        (signal) => {
+          // Custom fetch adds the consent cookie while retaining the remaining
+          // overall caption deadline for this Vercel fallback.
+          const customFetch = (url: string | URL | Request, init?: RequestInit) => {
+            const headers = new Headers(init?.headers);
+            headers.set('Cookie', CONSENT_COOKIE);
+            if (!headers.has('User-Agent')) {
+              headers.set(
+                'User-Agent',
+                'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/125.0.0.0 Safari/537.36',
+              );
+            }
+            return fetch(url, { ...init, headers, signal });
+          };
+          return YoutubeTranscript.fetchTranscript(videoId, { lang, fetch: customFetch });
+        },
+        npmTimeoutMs,
+      );
+
+      if (!result || result.length === 0) {
+        npmReturnedEmpty = true;
+      } else {
+        // Transform to our TranscriptLine format
+        const lines = result.map(
+          (item: { text: string; offset: number; duration: number }, i: number) => ({
+            id: `yt_${i + 1}`,
+            start: item.offset > 1000 ? item.offset / 1000 : item.offset,
+            end:
+              (item.offset > 1000 ? item.offset / 1000 : item.offset) +
+              (item.duration > 1000 ? item.duration / 1000 : item.duration),
+            text: item.text,
+          }),
+        );
+
+        logTranscriptEvent('request_finish', { traceId, videoId, provider: 'youtube-transcript', status: 200, lineCount: lines.length });
+        res.status(200).json({
+          lines,
+          language: result[0]?.lang ?? lang,
+          isAutoGenerated: true,
+        });
+        return;
+      }
+    }
   } catch (err) {
     const message = err instanceof Error ? err.message : 'Unknown error';
-    const fallbackFailure = classifyYoutubeFailure(message);
-    // A generic VPS failure should not hide a definite timeout from the final
-    // fallback. Preserve existing VPS classification for all other outcomes.
-    const failure = fallbackFailure.code === TRANSCRIPT_FAILURE_CODES.PROVIDER_TIMEOUT
-      ? fallbackFailure
-      : (vpsFailure || fallbackFailure);
-    logTranscriptEvent('request_error', { traceId, videoId, status: failure.status, error: failure.code });
-    res.status(failure.status).json({ error: failure.code, code: failure.code, message: failure.message });
+    npmFailure = classifyYoutubeFailure(message);
   }
+
+  const failure = chooseFinalFailure(vpsFailure, supadataFailure, npmFailure, npmReturnedEmpty);
+  logTranscriptEvent('request_error', { traceId, videoId, status: failure.status, error: failure.code });
+  res.status(failure.status).json({ error: failure.code, code: failure.code, message: failure.message });
 }

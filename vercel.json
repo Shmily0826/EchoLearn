@@ -1,4 +1,10 @@
 {
+  "$schema": "https://openapi.vercel.sh/vercel.json",
+  "functions": {
+    "api/transcript.ts": {
+      "maxDuration": 30
+    }
+  },
   "rewrites": [
     { "source": "/api/yt", "destination": "/api/yt" },
     { "source": "/api/youtube", "destination": "/api/youtube" },
