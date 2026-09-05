@@ -765,6 +765,7 @@ export async function fetchYouTubeServerTranscript(
     },
   ].slice(0, options.allowAsr ? 1 : 2);
   let deferredWorkerTimeout: YouTubeTranscriptError | undefined;
+  let deferredWorkerAsrRequired: YouTubeTranscriptError | undefined;
 
   for (let index = 0; index < endpoints.length; index++) {
     const endpoint = endpoints[index];
@@ -801,7 +802,35 @@ export async function fetchYouTubeServerTranscript(
             && (recovery as { requiresExplicitOptIn?: unknown }).requiresExplicitOptIn === true
             ? { canAsr: true, requiresExplicitOptIn: true }
             : undefined;
-          throw new YouTubeTranscriptError(code as TranscriptErrorCode, String(payload?.message ?? code), structuredRecovery);
+          const typedError = new YouTubeTranscriptError(
+            code as TranscriptErrorCode,
+            String(payload?.message ?? code),
+            structuredRecovery,
+          );
+          if (index === 0 && !options.allowAsr && code === TRANSCRIPT_ERROR_CODES.ASR_REQUIRED) {
+            // Worker ASR_REQUIRED means its own caption providers were exhausted
+            // while an explicit ASR capability is configured. It does not prove
+            // that the independent Vercel caption route was exhausted.
+            deferredWorkerAsrRequired = typedError;
+            onFailure?.(`${endpoint.label} ${typedError.message}`);
+            continue;
+          }
+          if (deferredWorkerAsrRequired && index > 0 && code !== YOUTUBE_ACQUISITION_BLOCKED) {
+            // Do not let a failed Vercel caption attempt hide the deferred
+            // recovery signal or prevent later non-ASR client caption routes.
+            if (
+              code === TRANSCRIPT_ERROR_CODES.CAPTIONS_NOT_FOUND
+              || code === TRANSCRIPT_ERROR_CODES.TRANSCRIPT_DISABLED
+            ) {
+              // A definitive semantic result from the independent caption
+              // route must remain truthful and must not be relabeled as ASR.
+              throw typedError;
+            }
+            if (code === TRANSCRIPT_ERROR_CODES.PROVIDER_TIMEOUT) throw typedError;
+            onFailure?.(`${endpoint.label} ${typedError.message}`);
+            continue;
+          }
+          throw typedError;
         }
         const detail = `${endpoint.label} HTTP ${res.status}${body ? `: ${body.substring(0, 200)}` : ''}`;
         console.warn(`[EchoLearn] ${endpoint.label} error:`, detail);
@@ -849,6 +878,7 @@ export async function fetchYouTubeServerTranscript(
   }
 
   if (deferredWorkerTimeout) throw deferredWorkerTimeout;
+  if (deferredWorkerAsrRequired) throw deferredWorkerAsrRequired;
   return null;
 }
 
@@ -917,6 +947,7 @@ async function _fetchYouTubeTranscriptImpl(
   options: { allowAsr?: boolean } = {},
 ): Promise<TranscriptFetchResult> {
   const errors: string[] = [];
+  let deferredServerError: YouTubeTranscriptError | undefined;
 
   // Strategy 0: Explicit local proxy (opt-in; no production default probe).
   if (getLocalProxyUrl()) {
@@ -949,11 +980,25 @@ async function _fetchYouTubeTranscriptImpl(
     );
   } catch (err) {
     if (err instanceof YouTubeAcquisitionBlockedError) throw err;
-    if (err instanceof YouTubeTranscriptError) throw err;
-    if (options.allowAsr) throw err;
-    errors.push(
-      `Server API: ${err instanceof Error ? err.message : 'failed'}`,
-    );
+    if (
+      err instanceof YouTubeTranscriptError
+      && !options.allowAsr
+      && (
+        err.code === TRANSCRIPT_ERROR_CODES.ASR_REQUIRED
+        || err.code === TRANSCRIPT_ERROR_CODES.PROVIDER_TIMEOUT
+      )
+    ) {
+      // These outcomes do not prove that the independent client caption routes
+      // were exhausted. Keep the request caption-only while they get a chance.
+      deferredServerError = err;
+    } else if (err instanceof YouTubeTranscriptError) {
+      throw err;
+    } else {
+      if (options.allowAsr) throw err;
+      errors.push(
+        `Server API: ${err instanceof Error ? err.message : 'failed'}`,
+      );
+    }
   }
 
   // Strategy 2: InnerTube API via Edge Function proxy.
@@ -992,6 +1037,8 @@ async function _fetchYouTubeTranscriptImpl(
   } catch {
     errors.push('NPM package fallback failed');
   }
+
+  if (deferredServerError) throw deferredServerError;
 
   // All strategies failed
   throw new Error(

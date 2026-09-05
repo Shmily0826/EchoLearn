@@ -167,6 +167,56 @@ async function routeWorkerTimeoutToVercelFallback(page: Page) {
   return calls;
 }
 
+/** Reproduce the Worker ASR-required signal and verify that the independent
+ * caption fallback still runs without adding the explicit ASR opt-in. */
+async function routeWorkerAsrRequiredToVercelFallback(page: Page) {
+  const calls = { worker: 0, vercel: 0, asrOptIn: 0 };
+
+  await page.route('**/*', (route) => {
+    const url = route.request().url();
+    if (url.startsWith('http://localhost:5173/') || url.startsWith('http://127.0.0.1:5173/')) {
+      return route.continue();
+    }
+    return route.abort();
+  });
+  await page.route('**/proxy.echo-learn.uk/**', (route) => route.abort());
+  await page.route('**/yt-proxy/**', (route) => route.abort());
+  await page.route('**://www.youtube.com/**', (route) => route.abort());
+  await page.route('**://youtubei.googleapis.com/**', (route) => route.abort());
+  await page.route('**/api/transcript**', (route) => {
+    const url = new URL(route.request().url());
+    if (url.hostname === 'yt-transcript-proxy.rng2018520.workers.dev') {
+      calls.worker += 1;
+      if (url.searchParams.get('allowAsr') === '1') calls.asrOptIn += 1;
+      return route.fulfill({
+        status: 409,
+        contentType: 'application/json',
+        headers: { 'Access-Control-Allow-Origin': '*' },
+        body: JSON.stringify({
+          error: 'asr_required',
+          code: 'asr_required',
+          message: 'Native caption providers were exhausted; explicit ASR is available.',
+          recovery: { canAsr: true, requiresExplicitOptIn: true },
+        }),
+      });
+    }
+    if (url.hostname === 'localhost' || url.hostname === '127.0.0.1') {
+      calls.vercel += 1;
+      return route.fulfill({
+        status: 200,
+        contentType: 'application/json',
+        body: transcriptPayload([
+          { start: 0, end: 2, text: 'Independent caption fallback recovered' },
+          { start: 2, end: 4, text: 'ASR remained opt in' },
+        ]),
+      });
+    }
+    return route.abort();
+  });
+
+  return calls;
+}
+
 /** Mock the dictionary endpoint used by the word-save flow. */
 async function routeDictionary(page: Page) {
   await page.route('**/api/dictionary**', (route) =>
@@ -220,6 +270,26 @@ test.describe('Batch 3 — Study failure recovery', () => {
     await expect(page.getByText(/unable to fetch captions|no subtitles|couldn't load/i).filter({ visible: true })).toHaveCount(0);
     expect(calls.worker).toBe(1);
     expect(calls.vercel).toBe(1);
+  });
+
+  test('Worker asr_required continues to independent Vercel captions without starting ASR', async ({ page }) => {
+    await seedCleanVisitor(page);
+    const calls = await routeWorkerAsrRequiredToVercelFallback(page);
+    await page.goto('/');
+    await enterGuestMode(page);
+
+    await page.getByRole('link', { name: 'Study' }).click();
+    await expect(page).toHaveURL(/\/study$/);
+    await loadYoutubeUrl(page);
+
+    await expect(page.getByText(/independent caption fallback recovered/i).filter({ visible: true }).first()).toBeVisible({
+      timeout: 20_000,
+    });
+    await expect(page.getByText(/unable to fetch captions|no subtitles|couldn't load/i).filter({ visible: true })).toHaveCount(0);
+    expect(calls.worker).toBe(1);
+    expect(calls.vercel).toBe(1);
+    expect(calls.asrOptIn).toBe(0);
+    await expect(page.getByRole('button', { name: /generate transcript/i }).filter({ visible: true })).toHaveCount(0);
   });
 
   test('Slow first fetch stays coherent until success without refresh', async ({ page }) => {

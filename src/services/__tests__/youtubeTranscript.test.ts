@@ -211,6 +211,81 @@ describe('fetchYouTubeTranscript provider order and failure classification', () 
     expect(fetchMock.mock.calls.map(([url]) => String(url)).join('\n')).not.toContain('allowAsr');
   });
 
+  it('continues to an independent client caption route after server timeouts', async () => {
+    const playerResponse = {
+      playabilityStatus: { status: 'OK' },
+      captions: {
+        playerCaptionsTracklistRenderer: {
+          captionTracks: [{
+            baseUrl: 'https://www.youtube.com/api/timedtext?v=video-id',
+            languageCode: 'en',
+          }],
+        },
+      },
+    };
+    fetchMock
+      .mockResolvedValueOnce(response({ error: 'provider_timeout', code: 'provider_timeout' }, 504))
+      .mockResolvedValueOnce(response({ error: 'provider_timeout', code: 'provider_timeout' }, 504))
+      .mockResolvedValueOnce(response(playerResponse))
+      .mockResolvedValueOnce(response('<transcript><text start="0" dur="1">caption</text></transcript>'));
+
+    const result = await fetchYouTubeTranscript('video-id', 'en');
+
+    expect(result.lines).toHaveLength(1);
+    expect(String(fetchMock.mock.calls[0][0])).toContain(CF_WORKER_URL);
+    expect(String(fetchMock.mock.calls[1][0])).toBe('/api/transcript?videoId=video-id&lang=en');
+    expect(fetchMock.mock.calls.some(([url]) => String(url).includes('youtubei/v1/player'))).toBe(true);
+    expect(fetchMock.mock.calls.every(([url]) => !String(url).includes('allowAsr'))).toBe(true);
+  });
+
+  it('continues through client caption routes after Worker asr_required and keeps ASR opt-in', async () => {
+    const playerResponse = {
+      playabilityStatus: { status: 'OK' },
+      captions: {
+        playerCaptionsTracklistRenderer: {
+          captionTracks: [{
+            baseUrl: 'https://www.youtube.com/api/timedtext?v=video-id',
+            languageCode: 'en',
+          }],
+        },
+      },
+    };
+    fetchMock
+      .mockResolvedValueOnce(response({
+        error: 'asr_required',
+        code: 'asr_required',
+        recovery: { canAsr: true, requiresExplicitOptIn: true },
+      }, 409))
+      .mockResolvedValueOnce(response({ error: 'provider_failure', code: 'provider_failure' }, 500))
+      .mockResolvedValueOnce(response(playerResponse))
+      .mockResolvedValueOnce(response('<transcript><text start="0" dur="1">caption</text></transcript>'));
+
+    const result = await fetchYouTubeTranscript('video-id', 'en');
+
+    expect(result.lines).toHaveLength(1);
+    expect(fetchMock.mock.calls.every(([url]) => !String(url).includes('allowAsr'))).toBe(true);
+  });
+
+  it('surfaces deferred asr_required only after non-ASR client routes are exhausted', async () => {
+    const emptyPlayerResponse = {
+      playabilityStatus: { status: 'OK' },
+      captions: { playerCaptionsTracklistRenderer: { captionTracks: [] } },
+    };
+    fetchMock
+      .mockResolvedValueOnce(response({ error: 'asr_required', code: 'asr_required' }, 409))
+      .mockResolvedValueOnce(response({ error: 'provider_failure', code: 'provider_failure' }, 500))
+      .mockResolvedValueOnce(response(emptyPlayerResponse))
+      .mockResolvedValueOnce(response(emptyPlayerResponse))
+      .mockResolvedValueOnce(response(''));
+    vi.mocked(YoutubeTranscript.fetchTranscript).mockRejectedValueOnce(new Error('caption route unavailable'));
+
+    await expect(fetchYouTubeTranscript('video-id', 'en'))
+      .rejects.toMatchObject({ code: 'asr_required' });
+    expect(fetchMock.mock.calls).toHaveLength(5);
+    expect(fetchMock.mock.calls.every(([url]) => !String(url).includes('allowAsr'))).toBe(true);
+    expect(YoutubeTranscript.fetchTranscript).toHaveBeenCalled();
+  });
+
   it('preserves structured ASR recovery metadata from a Worker timeout', async () => {
     fetchMock.mockResolvedValueOnce(response({
       error: 'provider_timeout',
@@ -272,20 +347,53 @@ describe('fetchYouTubeTranscript provider order and failure classification', () 
     expect(fetchMock).toHaveBeenCalledTimes(1);
   });
 
-  it('keeps ASR opt-in off by default and propagates asr_required', async () => {
-    fetchMock.mockResolvedValueOnce(response({
-      error: 'asr_required',
-      code: 'asr_required',
-      recovery: { canAsr: true, requiresExplicitOptIn: true },
-    }, 409));
+  it('tries the independent caption fallback before surfacing Worker asr_required', async () => {
+    fetchMock
+      .mockResolvedValueOnce(response({
+        error: 'asr_required',
+        code: 'asr_required',
+        recovery: { canAsr: true, requiresExplicitOptIn: true },
+      }, 409))
+      .mockResolvedValueOnce(response({ lines: [{ text: 'vercel captions' }], language: 'en' }));
+
+    await expect(fetchYouTubeServerTranscript('video-id', 'en'))
+      .resolves.toMatchObject({ lines: [{ text: 'vercel captions' }] });
+    expect(String(fetchMock.mock.calls[0][0])).not.toContain('allowAsr');
+    expect(String(fetchMock.mock.calls[1][0])).toBe('/api/transcript?videoId=video-id&lang=en');
+    expect(fetchMock).toHaveBeenCalledTimes(2);
+  });
+
+  it('keeps asr_required terminal after both non-ASR server caption routes are exhausted', async () => {
+    fetchMock
+      .mockResolvedValueOnce(response({
+        error: 'asr_required',
+        code: 'asr_required',
+        recovery: { canAsr: true, requiresExplicitOptIn: true },
+      }, 409))
+      .mockResolvedValueOnce(response({ error: 'provider_failure', code: 'provider_failure' }, 500));
 
     await expect(fetchYouTubeServerTranscript('video-id', 'en'))
       .rejects.toMatchObject({
         code: 'asr_required',
         recovery: { canAsr: true, requiresExplicitOptIn: true },
       });
-    expect(String(fetchMock.mock.calls[0][0])).not.toContain('allowAsr');
-    expect(fetchMock).toHaveBeenCalledTimes(1);
+    expect(fetchMock).toHaveBeenCalledTimes(2);
+  });
+
+  it('preserves Vercel captions_not_found after Worker asr_required', async () => {
+    fetchMock
+      .mockResolvedValueOnce(response({
+        error: 'asr_required',
+        code: 'asr_required',
+      }, 409))
+      .mockResolvedValueOnce(response({
+        error: 'captions_not_found',
+        code: 'captions_not_found',
+      }, 404));
+
+    await expect(fetchYouTubeServerTranscript('video-id', 'en'))
+      .rejects.toMatchObject({ code: 'captions_not_found' });
+    expect(fetchMock).toHaveBeenCalledTimes(2);
   });
 
   it('adds the ASR opt-in only for an explicit server request', async () => {
