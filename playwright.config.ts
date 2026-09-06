@@ -14,6 +14,9 @@ export default defineConfig({
   use: {
     baseURL: 'http://localhost:5173',
     viewport: { width: 1280, height: 720 },
+    // Local validation fallback when the Playwright browser bundle is absent.
+    // CI/default behavior remains unchanged unless explicitly requested.
+    channel: process.env.ECHOLEARN_E2E_BROWSER_CHANNEL || undefined,
   },
   projects: [
     {

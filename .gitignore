@@ -57,3 +57,7 @@ __pycache__/
 # Playwright
 /playwright-report/
 /test-results/
+
+# Local browser-control investigation artifacts (never commit)
+/.playwright-cli/
+/.tmp-playwright-daemon/
