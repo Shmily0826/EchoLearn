@@ -544,3 +544,11 @@ Browser-native fallback and managed alternate-provider/egress options have highe
 - Push authorized and executed: `af7086a..d835369` to `origin/main` (5 commits: worker-attribution tooling + classifier extension, budget A/B tooling, the 5 s caption-only candidate, outcome docs). Vercel GitHub integration will deploy the frontend + API automatically; the 5 s caption-only Worker budget becomes production behavior on deploy completion. Worker itself unchanged (still `ALLOW_DEBUG=1`).
 - Still protected/uncommitted (external work, not this session): `cf-worker/src/index.js` + `cfWorkerTranscript.test.ts` deadline-path `_debug` attachment.
 - Next: Phase 4 production dogfood (3–5 real videos through the Study UI), Worker fate decision after that.
+
+## 2026-09-06 - Phase 5 prep: external fix restored, dead code removed, decision material, dogfood retest
+
+- External deadline-`_debug` worker change vanished from the working tree before commit (not on any branch or stash; likely discarded by its originating session). Recreated verbatim from the reviewed diff: `417e466` attaches `response._debug` (debug-gated) to the caption deadline 504 and adds the fake-timer regression test (focused 24/24 PASS).
+- Dead-code cleanup `60166a3`: removed never-called `fetchViaInnerTubeGet`, unused `VPS_CAPTION_BUDGET_MS` export, and the TVHTML5 InnerTube client (YouTube-confirmed unsupported). Full Vitest 465/465, `tsc -b`, `node --check` PASS; ANDROID/IOS/WEB clients, provider order, cache and error semantics untouched.
+- Phase 5 decision material written (`docs/WORKER_FATE_DECISION.md`): evidence summary, options A–D, recommendation (A + standing reliability window + sub-decisions incl. SCRAPE_API_KEY removal and later Worker deadline trim). Supervisor decision fields pending; no implementation authorized.
+- Dogfood retest: `Ks-_Mh1QhMc` first load succeeded this time (9.4 s, Supadata provenance shown) — the earlier first-load empty result did not reproduce; transient-flakiness hypothesis favored over deterministic bug. Keep observing in future windows.
+- Boundary: no push (5 local commits ahead), no deploy, ALLOW_DEBUG remains deleted.
