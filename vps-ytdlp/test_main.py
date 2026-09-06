@@ -8,6 +8,7 @@ import io
 import json
 import tempfile
 import threading
+import time
 import unittest
 from contextlib import redirect_stdout
 from unittest.mock import patch
@@ -105,6 +106,34 @@ class _ASGIRequest:
 
     async def receive(self):
         return await self.messages.get()
+
+
+class HostValidationTests(unittest.TestCase):
+    def test_youtube_validation_uses_exact_hosts_and_subdomains(self):
+        allowed = [
+            "https://youtube.com/watch?v=video",
+            "https://www.youtube.com/watch?v=video",
+            "https://m.youtube.com/watch?v=video",
+            "https://youtu.be/video",
+        ]
+        rejected = [
+            "https://notyoutube.com/watch?v=video",
+            "https://youtube.com.evil.example/watch?v=video",
+            "https://evil-youtube.com/watch?v=video",
+            "https://evil.example/youtube.com/watch?v=video",
+            "https://youtube.com@evil.example/watch?v=video",
+            "https://example.test/watch?next=https://youtube.com/watch?v=video",
+        ]
+
+        for url in allowed:
+            with self.subTest(url=url):
+                self.assertTrue(main._is_youtube(url))
+                self.assertTrue(main._host_allowed(url))
+
+        for url in rejected:
+            with self.subTest(url=url):
+                self.assertFalse(main._is_youtube(url))
+                self.assertFalse(main._host_allowed(url))
 
 
 class GroqTracingTests(unittest.TestCase):
@@ -546,6 +575,19 @@ class CaptionCancellationTests(unittest.TestCase):
         self.assertTrue(proc.terminated.is_set())
         self.assertTrue(proc.waited)
 
+    def test_caption_deadline_terminates_and_reaps_process_group(self):
+        _BlockingYtdlpProcess.instances = []
+        with patch.object(main.subprocess, "Popen", side_effect=_BlockingYtdlpProcess):
+            result = main._run_yt_dlp(
+                ["yt-dlp"], cwd=".", env={}, timeout=0.01
+            )
+
+        self.assertEqual(result, (None, None, None, True))
+        self.assertEqual(len(_BlockingYtdlpProcess.instances), 1)
+        process = _BlockingYtdlpProcess.instances[0]
+        self.assertTrue(process.terminated.is_set())
+        self.assertTrue(process.waited)
+
     def test_connected_process_does_not_create_a_cancellation_watcher(self):
         before = set(threading.enumerate())
         with patch.object(main.subprocess, "Popen", side_effect=_FakeYtdlpProcess):
@@ -759,6 +801,48 @@ class TranscriptRouteTests(unittest.TestCase):
             },
         )
 
+    def test_worker_caption_budget_is_validated_and_fast_path_skips_proxy(self):
+        main.YTDLP_PROXY = "configured-proxy"
+        request = _ASGIRequest()
+        request.headers = {
+            main.CAPTION_BUDGET_HEADER: "1000",
+            main.CAPTION_FAST_PATH_HEADER: "1",
+        }
+        captured = {}
+        result = ([{"id": "yt_1", "start": 0, "end": 1, "text": "hello"}], "en", False, None)
+
+        def successful_caption(*_args, **kwargs):
+            captured.update(kwargs)
+            return result
+
+        with patch.object(main, "_cache_get", return_value=None), patch.object(
+            main, "_run_ytdlp", side_effect=successful_caption
+        ) as run:
+            response = main._transcript_response(
+                video_id="dQw4w9WgXcQ", lang="en", request=request
+            )
+
+        self.assertEqual(response.status_code, 200)
+        self.assertFalse(captured["allow_proxy"])
+        self.assertGreater(captured["deadline"], main.time.monotonic())
+        run.assert_called_once()
+
+    def test_invalid_worker_caption_budget_is_rejected_before_extraction(self):
+        request = _ASGIRequest()
+        request.headers = {
+            main.CAPTION_BUDGET_HEADER: "11001",
+            main.CAPTION_FAST_PATH_HEADER: "1",
+        }
+
+        with patch.object(main, "_run_ytdlp") as run:
+            with self.assertRaises(main.HTTPException) as raised:
+                main._transcript_response(
+                    video_id="dQw4w9WgXcQ", lang="en", request=request
+                )
+
+        self.assertEqual(raised.exception.status_code, 400)
+        run.assert_not_called()
+
     def test_expired_worker_caption_budget_returns_timeout_without_starting_ytdlp(self):
         request = _ASGIRequest()
         request.headers = {
@@ -831,6 +915,31 @@ class CaptionExtractionTracingTests(unittest.TestCase):
             [(event["attempt"], event["mode"], event["outcome"]) for event in attempts],
             [(1, "direct", "failure"), (2, "proxy", "success")],
         )
+
+    def test_expired_caption_budget_stops_before_proxy_retry(self):
+        main.YTDLP_PROXY = "configured-proxy"
+        calls = []
+
+        def direct_failure(*_args, **_kwargs):
+            calls.append(True)
+            time.sleep(0.02)
+            return 1, "", "ERROR: provider failure", False
+
+        with patch.object(main, "_run_yt_dlp", side_effect=direct_failure), redirect_stdout(
+            io.StringIO()
+        ) as output:
+            with self.assertRaises(main.TranscriptProviderTimeout):
+                main._run_ytdlp(
+                    "dQw4w9WgXcQ",
+                    "en",
+                    deadline=main.time.monotonic() + 0.005,
+                )
+
+        self.assertEqual(len(calls), 1)
+        events = _trace_lines(output)
+        attempts = [event for event in events if event["event"] == "caption_extract_attempt_start"]
+        self.assertEqual([(event["attempt"], event["mode"]) for event in attempts], [(1, "direct")])
+        self.assertEqual(events[-1]["outcome"], "timeout")
 
     def test_caption_budget_caps_each_ytdlp_attempt_timeout(self):
         main.YTDLP_PROXY = ""

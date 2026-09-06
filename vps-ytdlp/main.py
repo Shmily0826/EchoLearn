@@ -407,7 +407,11 @@ os.makedirs(AUDIO_CACHE_DIR, exist_ok=True)
 
 
 def _is_youtube(target_url: str) -> bool:
-    return "youtube.com" in target_url or "youtu.be" in target_url
+    try:
+        host = (urllib.parse.urlparse(target_url).hostname or "").lower()
+    except ValueError:
+        return False
+    return host == "youtu.be" or host == "youtube.com" or host.endswith(".youtube.com")
 
 
 def _is_bilibili(target_url: str) -> bool:
@@ -748,9 +752,12 @@ def _host_allowed(target_url: str) -> bool:
     open yt-dlp relay for arbitrary sites."""
     if not target_url.startswith(("http://", "https://")):
         return False
-    if _is_bilibili(target_url):
-        return True
-    return any(h in target_url for h in ("youtube.com", "youtu.be"))
+    try:
+        host = (urllib.parse.urlparse(target_url).hostname or "").lower()
+    except ValueError:
+        return False
+    return host == "youtu.be" or host == "youtube.com" or host.endswith(".youtube.com") \
+        or host in {"b23.tv", "bilibili.com", "www.bilibili.com", "m.bilibili.com"}
 
 
 def _site_args(target_url: str) -> list:
@@ -1091,7 +1098,7 @@ def _extract_part(raw_url: str):
     bili_url = _is_bilibili(raw_url)
     raw_url = _normalize_bilibili_url(raw_url)
     parsed = urllib.parse.urlparse(raw_url)
-    qs = urllib.parse.parse_qs(parsed.query, keep_blank_values=bili_url)
+    qs = urllib.parse.parse_qs(parsed.query, keep_blank_values=True)
     part = None
     if "p" in qs:
         values = qs["p"]
