@@ -35,7 +35,6 @@ const TRANSCRIPT_CACHE_HEADER = 'X-EchoLearn-Transcript-Cache';
 const CAPTION_BUDGET_HEADER = 'X-EchoLearn-Caption-Budget-Ms';
 const CAPTION_FAST_PATH_HEADER = 'X-EchoLearn-Caption-Fast';
 const CAPTION_DEADLINE_MS = 11000;
-const VPS_CAPTION_BUDGET_MS = 5000;
 const BILIBILI_CAPTION_BUDGET_MS = 9000;
 const TRANSCRIPT_CACHE_VERSION = '1';
 const TRANSCRIPT_CACHE_TTL_SECONDS = 3600;
@@ -1194,11 +1193,6 @@ async function fetchViaInnerTube(videoId, lang, env, log = console.log, context 
       clientVersion: '2.20241201.00.00',
       userAgent: BROWSER_UA,
     },
-    {
-      name: 'TVHTML5_SIMPLY_EMBEDDED_PLAYER',
-      clientVersion: '2.0',
-      userAgent: 'Mozilla/5.0 (SMART-TV; LINUX; Tizen 6.5) AppleWebKit/537.36 (KHTML, like Gecko) 94.0.4606.31/6.5 TV Safari/537.36',
-    },
   ];
 
   for (const client of clients) {
@@ -1282,59 +1276,6 @@ async function fetchViaInnerTube(videoId, lang, env, log = console.log, context 
   return null;
 }
 
-// ── InnerTube player API via GET (routed through scraping gateway) ──
-// When a scraping-API key is configured, route a plain GET to the InnerTube
-// player endpoint through the residential gateway. This returns the FULL
-// caption track list (more reliable than scraping the JS-rendered watch
-// page) from a residential IP, bypassing YouTube's datacenter-IP bot check.
-
-async function fetchViaInnerTubeGet(videoId, lang, env, log = console.log, context = null) {
-  if (!(env && env.SCRAPE_API_KEY)) return null;
-  requireCaptionBudget(context);
-  const key = 'AIzaSyA8eiZmM1FaDVjRy-df2KTyQ_vz_yYM39w';
-  const url = `https://www.youtube.com/youtubei/v1/player?videoId=${videoId}&key=${key}&prettyPrint=false`;
-  try {
-    const resp = await proxiedFetch(
-      url,
-      {
-        headers: {
-          'User-Agent': BROWSER_UA,
-          'Content-Type': 'application/json',
-          'X-Goog-Api-Key': key,
-        },
-      },
-      providerTimeout(30000, context),
-      env,
-      log,
-      context,
-    );
-    if (!resp.ok) {
-      noteCaptionProviderOutcome(context, 'failure');
-      log(`InnerTube-GET: HTTP ${resp.status}`);
-      return null;
-    }
-    const data = await readResponseBody(resp, 'json', context);
-    const status = data?.playabilityStatus?.status;
-    if (status !== 'OK') {
-      noteCaptionProviderOutcome(context, 'failure');
-      log(`InnerTube-GET: ${status} — ${data?.playabilityStatus?.reason}`);
-      return null;
-    }
-    const tracks = data?.captions?.playerCaptionsTracklistRenderer?.captionTracks;
-    if (!Array.isArray(tracks) || tracks.length === 0) {
-      noteCaptionNoCaptions(context);
-      log('InnerTube-GET: OK but no caption tracks');
-      return null;
-    }
-    log(`InnerTube-GET: found ${tracks.length} caption track(s)`);
-    return fetchFromTracks(tracks, lang, env, log, context);
-  } catch (err) {
-    if (err instanceof CaptionDeadlineError) throw err;
-    noteCaptionProviderOutcome(context, err instanceof CaptionProviderTimeoutError || err.name === 'AbortError' ? 'timeout' : 'failure');
-    log(`InnerTube-GET error: ${err.message}`);
-    return null;
-  }
-}
 
 // ── Web page scraping strategy ────────────────────────────────
 
@@ -2440,7 +2381,6 @@ export {
   CAPTION_BUDGET_HEADER,
   CAPTION_FAST_PATH_HEADER,
   CAPTION_DEADLINE_MS,
-  VPS_CAPTION_BUDGET_MS,
   CaptionProviderTimeoutError,
   CaptionDeadlineError,
   asrRecovery,
