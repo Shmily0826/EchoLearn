@@ -35,6 +35,7 @@ import { usePlaybackPosition } from '../hooks/usePlaybackPosition';
 import { useTranscriptSeek } from '../hooks/useTranscriptSeek';
 import { getVideoTitle } from '../services/youtubeApi';
 import { shouldOfferAsrRecovery } from './studyAsrRecovery';
+import { isNoCaptionsError } from './studyCaptionError';
 import sampleTranscript from '../data/sample-transcript.json';
 import {
   loadVocabulary,
@@ -184,12 +185,10 @@ const StudyPage: React.FC = () => {
     fail: failCaptionRequest,
     invalidate: invalidateCaptionRequests,
   } = useCaptionRequest();
-  // Distinguish a genuine "this video has no captions" from a network/blocked
-  // failure — the backend throws the same error shape for both, so we sniff the
-  // message to give the user a precise reason instead of a generic error.
-  const isNoCaptions =
-    !!captionError &&
-    /^No captions\/subtitles available/i.test(captionError.trim());
+  // Typed failure codes are authoritative. Keep the message fallback only for
+  // untyped legacy paths; provider/network failures must not become no-caption
+  // results just because their message happens to change.
+  const isNoCaptions = isNoCaptionsError(captionErrorCode, captionError);
   const isYoutubeAcquisitionBlocked = captionError === YOUTUBE_ACQUISITION_BLOCKED;
   const isAsrRequired = captionErrorCode === TRANSCRIPT_ERROR_CODES.ASR_REQUIRED;
   const [asrRecoveryRequested, setAsrRecoveryRequested] = useState(false);
