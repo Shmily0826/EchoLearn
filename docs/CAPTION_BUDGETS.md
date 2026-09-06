@@ -21,7 +21,7 @@ Platform ceiling: Vercel `maxDuration: 30` (`vercel.json:5`).
 |---|---|---|
 | 4000 ms | local-proxy fetch timeout (`:639`) | Local proxy is fast or assumed down |
 | 5 min | `LOCAL_PROXY_SKIP_MS` (`:689`) | Skip marker after local-proxy failure |
-| 12000 ms | `WORKER_TIMEOUT_MS` (`:775`) | Worker caption budget (11 s deadline + margin) |
+| 5000 ms | `WORKER_TIMEOUT_MS` caption-only (`:775`; 2026-09-06 A/B, commit `469bb40`) | Worker caption budget — 0/36 observed successes made the 12 s wait pure latency; 5 s preserved 12/12 final success (P90 9.2 s vs 14.7 s) |
 | 90000 ms | `WORKER_TIMEOUT_MS` with `allowAsr` (`:775`) | ASR: VPS race 75 s + Whisper 120 s overlap → generous ceiling |
 | 22000 ms | `VERCEL_TIMEOUT_MS` (`:779`) | Vercel handler 21 s deadline + margin |
 | 1500 ms ×2 | `CAPTION_RETRY_COUNT` / `CAPTION_RETRY_DELAY_MS` (`:83-84`) | Caption-content fetch retries (json3→default→srv3) |
