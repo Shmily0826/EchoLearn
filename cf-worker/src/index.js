@@ -1088,90 +1088,6 @@ async function fetchWithTimeout(url, init = {}, timeoutMs = 8000, context = null
   }
 }
 
-/**
- * Fetch through a SaaS scraping-API gateway (ScrapingBee / ZenRows) when one is
- * configured via env.SCRAPE_API_KEY. This lets the Worker reach YouTube/Google
- * from a *residential* IP without running a separate relay server — Cloudflare
- * Workers cannot use raw HTTP CONNECT proxies, but these gateways are plain
- * HTTPS endpoints the Worker can call directly.
- *
- * Only GET requests to YouTube/Google hosts are routed (POST bodies like
- * InnerTube can't be forwarded through GET-based gateways, and large binary
- * downloads like googlevideo audio are expensive — those fall through to a
- * normal fetch). When no key is set, this is a transparent pass-through.
- */
-async function proxiedFetch(url, init = {}, timeoutMs = 15000, env = {}, log = console.log, context = null) {
-  const key = env && env.SCRAPE_API_KEY;
-  if (key) {
-    const method = (init.method || 'GET').toUpperCase();
-    if (method === 'GET') {
-      const u = new URL(url);
-      const host = u.hostname;
-      const isYoutubeish =
-        host.endsWith('youtube.com') ||
-        host.endsWith('youtu.be') ||
-        host.endsWith('google.com') ||
-        host.endsWith('googleapis.com') ||
-        host.endsWith('ggpht.com') ||
-        host.endsWith('ytimg.com');
-      if (isYoutubeish) {
-        const provider = (env.SCRAPE_API_PROVIDER || 'scrapingbee').toLowerCase();
-        if (provider === 'zenrows') {
-          const gw = new URL('https://api.zenrows.com/v1/');
-          gw.searchParams.set('apikey', key);
-          gw.searchParams.set('url', url);
-          gw.searchParams.set('js_render', 'true');
-          gw.searchParams.set('premium_proxy', 'true');
-          gw.searchParams.set('proxy_country', 'us');
-          log(`[scrape:zenrows→${host}]`);
-          return doScrapeFetch(gw.toString(), {}, timeoutMs, log, context);
-        } else {
-          const gw = new URL('https://app.scrapingbee.com/api/v1');
-          gw.searchParams.set('url', url);
-          gw.searchParams.set('render_js', 'true');
-          gw.searchParams.set('premium_proxy', 'true');
-          gw.searchParams.set('country_code', 'us');
-          gw.searchParams.set('timeout', String(Math.min(timeoutMs, 60000)));
-          log(`[scrape:scrapingbee→${host}]`);
-          return doScrapeFetch(
-            gw.toString(),
-            { headers: { Authorization: `Bearer ${key}` } },
-            timeoutMs,
-            log,
-            context,
-          );
-        }
-      }
-    }
-  }
-  return fetchWithTimeout(url, init, timeoutMs, context);
-}
-
-/**
- * Perform a scraping-API gateway fetch and log the outcome without exposing
- * provider response bodies or credentials in Worker logs.
- */
-async function doScrapeFetch(gwUrl, init = {}, timeoutMs = 15000, log = console.log, context = null) {
-  try {
-    const resp = await fetchWithTimeout(gwUrl, init, timeoutMs, context);
-    let bodyLength = 0;
-    try {
-      const buf = await readResponseBody(resp.clone(), 'text', context);
-      bodyLength = buf.length;
-    } catch (_) {
-      /* ignore */
-    }
-    log(`[scrape] HTTP ${resp.status} body=${bodyLength > 0 ? 'nonempty' : 'empty'}`);
-    if (!resp.ok) noteCaptionProviderOutcome(context, 'failure');
-    return resp;
-  } catch (err) {
-    if (err instanceof CaptionDeadlineError) throw err;
-    noteCaptionProviderOutcome(context, err instanceof CaptionProviderTimeoutError || err.name === 'AbortError' ? 'timeout' : 'failure');
-    log(`[scrape] fetch error: ${err instanceof CaptionProviderTimeoutError || err.name === 'AbortError' ? 'provider_timeout' : 'provider_failure'}`);
-    throw err;
-  }
-}
-
 async function fetchViaInnerTube(videoId, lang, env, log = console.log, context = null) {
   requireCaptionBudget(context);
   // Try ANDROID first (most reliable for captions), then IOS, then WEB, then TV
@@ -1283,14 +1199,14 @@ async function fetchViaWebPage(videoId, lang, env, log = console.log, context = 
   try {
     requireCaptionBudget(context);
     const pageUrl = `https://www.youtube.com/watch?v=${videoId}&bpctr=9999&has_verified=1`;
-    const resp = await proxiedFetch(pageUrl, {
+    const resp = await fetchWithTimeout(pageUrl, {
       headers: {
         'User-Agent': BROWSER_UA,
         'Accept-Language': 'en-US,en;q=0.9',
         'Accept': 'text/html,application/xhtml+xml',
         'Cookie': CONSENT_COOKIE,
       },
-    }, providerTimeout(45000, context), env, log, context);
+    }, providerTimeout(45000, context), context);
 
     if (!resp.ok) {
       noteCaptionProviderOutcome(context, 'failure');
@@ -1468,18 +1384,10 @@ async function fetchFromTracks(tracks, lang, env, log = console.log, context = n
         text = await readResponseBody(resp, 'text', context);
       }
       if (!resp.ok || text.length < 20) {
-        log(
-          `Caption direct fetch ${resp.status} len=${text.length}, trying scrape gateway`,
-        );
-        resp = await proxiedFetch(captionUrl, { headers: capHeaders }, 30000, env, log, context);
-        text = '';
-      }
-
-      if (!resp.ok) {
         noteCaptionProviderOutcome(context, 'failure');
+        log(`Caption direct fetch ${resp.status} len=${text.length}`);
         continue;
       }
-      if (!text) text = await readResponseBody(resp, 'text', context);
 
       const lines = parseCaptionData(text);
       if (lines.length > 0) {
@@ -2392,6 +2300,5 @@ export {
   runCaptionStage,
   fetchViaYtDlp,
   fetchViaVpsAsr,
-  proxiedFetch,
   withCors,
 };

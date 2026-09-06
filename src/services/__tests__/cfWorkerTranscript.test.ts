@@ -7,7 +7,6 @@ import worker, {
   createCaptionContext,
   createProviderContext,
   handleTranscript,
-  proxiedFetch,
   readResponseBody,
   runCaptionStage,
   TRANSCRIPT_CACHE_HEADER,
@@ -39,62 +38,6 @@ describe('CF Worker transcript routing contract', () => {
     } finally {
       globalThis.fetch = originalFetch;
       vi.useRealTimers();
-    }
-  });
-
-  it('uses ScrapingBee Bearer auth without putting the key in the gateway URL', async () => {
-    const originalFetch = globalThis.fetch;
-    let requestUrl = '';
-    let requestInit: RequestInit | undefined;
-    globalThis.fetch = vi.fn((input, init) => {
-      requestUrl = String(input);
-      requestInit = init;
-      return Promise.resolve(new Response('<html>caption source</html>', { status: 200 }));
-    }) as typeof fetch;
-
-    try {
-      const response = await proxiedFetch(
-        'https://www.youtube.com/watch?v=video-id',
-        {},
-        1000,
-        { SCRAPE_API_KEY: 'test-scrape-key' },
-        () => undefined,
-      );
-
-      expect(response.status).toBe(200);
-      expect(new URL(requestUrl).searchParams.has('api_key')).toBe(false);
-      expect(new Headers(requestInit?.headers).get('Authorization')).toBe('Bearer test-scrape-key');
-    } finally {
-      globalThis.fetch = originalFetch;
-    }
-  });
-
-  it('preserves ZenRows query authentication and helper invocation', async () => {
-    const originalFetch = globalThis.fetch;
-    let requestUrl = '';
-    let requestInit: RequestInit | undefined;
-    globalThis.fetch = vi.fn((input, init) => {
-      requestUrl = String(input);
-      requestInit = init;
-      return Promise.resolve(new Response('<html>caption source</html>', { status: 200 }));
-    }) as typeof fetch;
-
-    try {
-      const response = await proxiedFetch(
-        'https://www.youtube.com/watch?v=video-id',
-        {},
-        1000,
-        { SCRAPE_API_KEY: 'test-zenrows-key', SCRAPE_API_PROVIDER: 'zenrows' },
-        () => undefined,
-      );
-
-      const gatewayUrl = new URL(requestUrl);
-      expect(response.status).toBe(200);
-      expect(gatewayUrl.hostname).toBe('api.zenrows.com');
-      expect(gatewayUrl.searchParams.get('apikey')).toBe('test-zenrows-key');
-      expect(new Headers(requestInit?.headers).get('Authorization')).toBeNull();
-    } finally {
-      globalThis.fetch = originalFetch;
     }
   });
 

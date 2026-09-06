@@ -22,7 +22,7 @@ Response shape (matches the EchoLearn web/Worker contract):
   }
 
 Environment
-  YTDLP_TIMEOUT   subprocess hard timeout in seconds (default 90)
+  YTDLP_TIMEOUT   subprocess hard timeout in seconds (default 180)
   YTDLP_PROXY     optional upstream proxy passed to yt-dlp (e.g. a residential
                   proxy endpoint). Now used ONLY as a fallback for YouTube when a
                   direct (no-proxy) extraction fails — the TVHTML5 client normally
