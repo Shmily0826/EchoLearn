@@ -518,3 +518,13 @@ Browser-native fallback and managed alternate-provider/egress options have highe
 - Result: **L2 Vercel 12/12 usable, all `source=supadata`**, latency bucket 2-8 s every video. **L1 CF Worker 0/12**: 4 `provider_timeout` (8s_15s or 2s_8s buckets) + 8 `asr_required` against confirmed positives = 8 acquisition/classification discrepancies. Cache-verify pass: 0 HIT (failures are not cache-eligible). Dominant failure layer: L1-worker.
 - Attribution conclusion: the Worker InnerTube/web/Invidious/Piped cascade is uniformly blocked by cloud egress for this matrix; the deployed Supadata fallback is carrying 100% of production caption acquisition. Worker L1 currently adds latency without contribution on this path.
 - Decision input (no action taken): Phase 4 candidates now have evidence — Worker cascade value vs Supadata dependency (single-provider risk), and whether the client should still spend the L1 12 s budget before L2.
+
+## 2026-09-06 - Reliability roadmap Phase 1: Worker-only attribution windows (no Task ID supplied)
+
+- Roadmap agreed with user: Worker-only attribution -> 3/5/12s budget A/B -> minimal timeout change -> production dogfood -> architecture decision. No provider reorder, no parallel race (Supadata cost guard).
+- Pushed `0de4e56..af7086a` (baseline result docs) to keep origin in sync before starting.
+- Added `scripts/reliability-baseline/worker-attribution.mjs` + tests (node:test 6/6 PASS): per-stage classifier for the Worker's sanitized debug channel (`_debug` messages -> innertube/webpage/invidious/piped outcomes), double-gated like the main runner, no `allowAsr` ever sent.
+- Production Worker debug channel is OFF: `debug=1` returned no `_debug` field, so `ALLOW_DEBUG` is not set in the deployed Worker. Per-stage attribution is therefore BLOCKED on a user-authorized Worker env change; typed-code + latency windows ran instead.
+- Three L1-only windows executed ~5 min apart (09:54 / 09:59 / 10:05 UTC, 12 videos each, one-shot, no L2/Supadata/ASR traffic): **0/36 successes**. Codes: 18 `provider_timeout` + 18 `asr_required`. Every video failed in all 3 windows; individual videos flip between the two codes across windows (fast `asr_required` <2-8 s vs deadline `provider_timeout` 8-15 s), i.e. both codes express the same underlying blocked state racing the 11 s deadline.
+- Acceptance (stability half): 0/12 is NOT a transient glitch — 3 distinct windows agree. Acceptance (per-stage half): BLOCKED on `ALLOW_DEBUG=1` in the deployed Worker (`wrangler secret put ALLOW_DEBUG` or dashboard var); the attribution tooling is ready and mocked-tested for when it is enabled.
+- Sanitized evidence: `D:/CODE/API/echolearn/evidence/ECHO-20260906-worker-attribution/` (w1/w2/w3 manifests, SHA-256 recorded locally).
