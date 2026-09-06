@@ -538,3 +538,9 @@ Browser-native fallback and managed alternate-provider/egress options have highe
 - Phase 4 (architecture decision) recorded but NOT implemented: keep Worker as 5 s first probe now; its long-term fate (background/diagnostic vs new egress) decided after production dogfood; no L1/L2 parallel race (Supadata credit guard).
 - UNEXPECTED EXTERNAL WORK protected, not committed: `cf-worker/src/index.js` + `cfWorkerTranscript.test.ts` appeared dirty mid-task (not by this session) with a deadline-path `_debug` attachment + test — a real fix for the observed 504-without-debug gap. Left uncommitted; flagged to supervisor.
 - Boundary status: no push, no deploy, no reset/clean; `origin/main` remains `af7086a`; Vercel production unchanged; Worker code unchanged (only the ALLOW_DEBUG secret value now `1`, courtesy-fix of the user's dashboard attempt). Evidence: `ECHO-20260906-worker-attribution/` (4 manifests) + `D:/tmp/budget-ab-results.json` copied to the same evidence dir.
+
+## 2026-09-06 - Budget candidate released (push authorized)
+
+- Push authorized and executed: `af7086a..d835369` to `origin/main` (5 commits: worker-attribution tooling + classifier extension, budget A/B tooling, the 5 s caption-only candidate, outcome docs). Vercel GitHub integration will deploy the frontend + API automatically; the 5 s caption-only Worker budget becomes production behavior on deploy completion. Worker itself unchanged (still `ALLOW_DEBUG=1`).
+- Still protected/uncommitted (external work, not this session): `cf-worker/src/index.js` + `cfWorkerTranscript.test.ts` deadline-path `_debug` attachment.
+- Next: Phase 4 production dogfood (3–5 real videos through the Study UI), Worker fate decision after that.
