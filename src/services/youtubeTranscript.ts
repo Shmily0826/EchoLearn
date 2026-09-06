@@ -770,11 +770,15 @@ export async function fetchYouTubeServerTranscript(
   // Caption acquisition is a fast path. Definitive semantic/authorization
   // outcomes are authoritative; a Worker provider timeout is transient and
   // may still be recovered by the independent Vercel caption source.
-  // Caption-only requests stay fast. Explicit ASR includes the Worker VPS
-  // budget (75s) plus a small transport buffer, but remains bounded.
-  const WORKER_TIMEOUT_MS = options.allowAsr ? 90000 : 12000;
+  // Caption-only requests stay fast: the 2026-09-06 A/B on the frozen
+  // 12-video matrix measured 0/36 Worker successes across three windows and
+  // showed a 5 s budget preserves 12/12 final success (P90 9.2 s vs 14.7 s
+  // at 12 s) while keeping more fast-path recovery headroom than 3 s.
+  // Explicit ASR includes the Worker VPS budget (75s) plus a small
+  // transport buffer, but remains bounded.
+  const WORKER_TIMEOUT_MS = options.allowAsr ? 90000 : 5000;
   // Supadata native can take about 14.352s on a known-positive control. Keep
-  // the fast Worker path at 12s and give only the independent Vercel fallback
+  // the fast Worker path short and give only the independent Vercel fallback
   // enough time to admit that evidence plus transport margin.
   const VERCEL_TIMEOUT_MS = 22000;
   const endpoints = [

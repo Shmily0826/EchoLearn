@@ -382,6 +382,36 @@ describe('fetchYouTubeTranscript provider order and failure classification', () 
     expect(fetchMock).toHaveBeenCalledTimes(1);
   });
 
+  it('cuts the caption-only Worker budget to 5s and still recovers via Vercel', async () => {
+    vi.useFakeTimers();
+    let workerSignal: AbortSignal | undefined;
+    fetchMock.mockImplementation((input, init) => {
+      if (String(input).startsWith(CF_WORKER_URL)) {
+        workerSignal = init?.signal as AbortSignal;
+        return new Promise((_resolve, reject) => {
+          workerSignal?.addEventListener('abort', () =>
+            reject(Object.assign(new Error('aborted'), { name: 'AbortError' })));
+        });
+      }
+      return Promise.resolve(response({
+        lines: [{ text: 'vercel recovery' }],
+        language: 'en',
+        source: 'youtube-transcript',
+      }));
+    });
+
+    const request = fetchYouTubeTranscript('budget-ab-video', 'en');
+    request.catch(() => {});
+    await vi.advanceTimersByTimeAsync(4_999);
+    expect(workerSignal?.aborted).toBe(false);
+    await vi.advanceTimersByTimeAsync(1);
+    const result = await request;
+    expect(result?.lines.length).toBeGreaterThan(0);
+    expect(fetchMock).toHaveBeenCalledTimes(2);
+    expect(String(fetchMock.mock.calls[1][0])).toBe('/api/transcript?videoId=budget-ab-video&lang=en');
+    vi.useRealTimers();
+  });
+
   it('does not retry Vercel after a Worker transcript-disabled outcome', async () => {
     fetchMock.mockResolvedValueOnce(response({ error: 'transcript_disabled', code: 'transcript_disabled' }, 404));
 
