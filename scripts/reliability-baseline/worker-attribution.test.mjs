@@ -24,6 +24,10 @@ test('classifyStageMessage coverage via shapeAttributionRow', () => {
       'Invidious: all instances in cooldown, skipping',
       'Piped (piped.example): HTTP 502',
       'Piped (piped2.example): no subtitles',
+      'InnerTube TVHTML5_SIMPLY_EMBEDDED_PLAYER: ERROR — YouTube is no longer supported in this application or device.',
+      '[scrape:scrapingbee→www.youtube.com]',
+      '[scrape] HTTP 401 body=nonempty',
+      'Web page: HTTP 401',
       'something unanticipated',
     ],
   });
@@ -37,6 +41,10 @@ test('classifyStageMessage coverage via shapeAttributionRow', () => {
     'invidious:cooldown_skipped',
     'piped:http_error',
     'piped:no_tracks',
+    'innertube:client_unsupported',
+    'scrape_gateway:attempted',
+    'scrape_gateway:http_error',
+    'webpage:http_error',
     'unknown:other',
   ]);
   assert.equal(row.stages[0].instance, 'ANDROID');

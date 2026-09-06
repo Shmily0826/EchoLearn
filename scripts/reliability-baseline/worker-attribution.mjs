@@ -38,8 +38,20 @@ function classifyStageMessage(message) {
   if ((match = message.match(/^InnerTube ([A-Z_0-9]+) error: /))) {
     return { stage: 'innertube', instance: match[1], outcome: 'error' };
   }
+  if ((match = message.match(/^InnerTube ([A-Z_0-9]+): ERROR — /))) {
+    return { stage: 'innertube', instance: match[1], outcome: 'client_unsupported' };
+  }
+  if ((match = message.match(/^\[scrape:([a-z]+)→([^\]]+)\]/))) {
+    return { stage: 'scrape_gateway', instance: match[1], outcome: 'attempted' };
+  }
+  if ((match = message.match(/^\[scrape\] HTTP (\d+)/))) {
+    return { stage: 'scrape_gateway', outcome: 'http_error', status: Number(match[1]) };
+  }
   if (/^Web page: CAPTCHA/.test(message)) {
     return { stage: 'webpage', outcome: 'captcha' };
+  }
+  if ((match = message.match(/^Web page: HTTP (\d+)/))) {
+    return { stage: 'webpage', outcome: 'http_error', status: Number(match[1]) };
   }
   if (/^Web page: player response has no caption tracks/.test(message)) {
     return { stage: 'webpage', outcome: 'no_tracks' };
