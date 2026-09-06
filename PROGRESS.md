@@ -510,3 +510,11 @@ Browser-native fallback and managed alternate-provider/egress options have highe
 - Slice E (this commit): `docs/ARCHITECTURE.md` + `docs/CAPTION_BUDGETS.md` updated to record archived status instead of "unwired"; `PROGRESS.md` this record. `.workbuddy/memory/2026-09-06.md` kept local-only, not committed.
 - Final gate: full Vitest + `tsc -b` + targeted ESLint + `npm run build` + `git diff --check` + secret/privacy scan + final status — results recorded in TEST_REPORT.md follow-up.
 - Boundaries: no push, no deploy, no provider/Supadata/Worker/VPS production traffic, no new fallback work. main is locally clean of "unknown" dirty files.
+
+## 2026-09-06 - Reliability Baseline V1 window 1 (Mode A, production; no Task ID supplied)
+
+- Push authorized and executed: `f51c1bc..0de4e56` to `origin/main` (8 commits: consolidation slices, docs, baseline tooling). Vercel auto-deploy triggered; no manual Worker deploy (L1 rows therefore record `cacheState: absent`).
+- Window 1 executed with the double-gated runner (`BASELINE_ALLOW_LIVE=1 --execute`), Mode A, 12-video frozen matrix, sequential one-shot, 2026-09-06. Sanitized evidence: `D:/CODE/API/echolearn/evidence/ECHO-20260906-baseline-v1/manifest.json` (rows + verdict only; no transcript text/payloads).
+- Result: **L2 Vercel 12/12 usable, all `source=supadata`**, latency bucket 2-8 s every video. **L1 CF Worker 0/12**: 4 `provider_timeout` (8s_15s or 2s_8s buckets) + 8 `asr_required` against confirmed positives = 8 acquisition/classification discrepancies. Cache-verify pass: 0 HIT (failures are not cache-eligible). Dominant failure layer: L1-worker.
+- Attribution conclusion: the Worker InnerTube/web/Invidious/Piped cascade is uniformly blocked by cloud egress for this matrix; the deployed Supadata fallback is carrying 100% of production caption acquisition. Worker L1 currently adds latency without contribution on this path.
+- Decision input (no action taken): Phase 4 candidates now have evidence — Worker cascade value vs Supadata dependency (single-provider risk), and whether the client should still spend the L1 12 s budget before L2.
