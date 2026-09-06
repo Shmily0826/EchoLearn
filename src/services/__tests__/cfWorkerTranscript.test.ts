@@ -16,6 +16,32 @@ import worker, {
 } from '../../../cf-worker/src/index.js';
 
 describe('CF Worker transcript routing contract', () => {
+  it('includes debug attribution on a debug-enabled caption deadline timeout', async () => {
+    vi.useFakeTimers();
+    const originalFetch = globalThis.fetch;
+    globalThis.fetch = vi.fn((_input, init) => new Promise<Response>((_, reject) => {
+      init?.signal?.addEventListener('abort', () => reject(new DOMException('aborted', 'AbortError')), { once: true });
+    })) as typeof fetch;
+
+    try {
+      const resultPromise = handleTranscript(
+        new URL('https://worker.test/api/transcript?videoId=video-id&lang=en&debug=1'),
+        { ALLOW_DEBUG: '1' },
+        'debug-deadline-trace',
+      );
+      await vi.advanceTimersByTimeAsync(CAPTION_DEADLINE_MS);
+      const result = await resultPromise;
+      expect(result.status).toBe(504);
+      expect(await result.json()).toMatchObject({
+        error: 'provider_timeout',
+        _debug: expect.any(Array),
+      });
+    } finally {
+      globalThis.fetch = originalFetch;
+      vi.useRealTimers();
+    }
+  });
+
   it('uses ScrapingBee Bearer auth without putting the key in the gateway URL', async () => {
     const originalFetch = globalThis.fetch;
     let requestUrl = '';

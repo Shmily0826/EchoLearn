@@ -594,7 +594,9 @@ async function handleTranscript(url, env, traceId) {
     if (err instanceof CaptionDeadlineError) {
       traceLog('caption_stage', { traceId, stage: 'deadline', outcome: 'timeout', elapsedMs: CAPTION_DEADLINE_MS });
       traceLog('request_finish', { traceId, videoId, provider: 'caption-cascade', status: 504, error: 'provider_timeout', deadlineAt: captionContext.deadlineAt });
-      return transcriptErrorResponse({ error: 'provider_timeout', message: 'Caption providers timed out.' }, 504, env, { includeRecovery: true, headers: captionHeaders });
+      const response = { error: 'provider_timeout', message: 'Caption providers timed out.' };
+      if (debug) response._debug = debugLog;
+      return transcriptErrorResponse(response, 504, env, { includeRecovery: true, headers: captionHeaders });
     }
     throw err;
   } finally {
