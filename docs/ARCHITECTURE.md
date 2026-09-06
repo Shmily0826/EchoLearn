@@ -18,8 +18,10 @@ _fetchYouTubeTranscriptImpl()  :1001 — sequential cascade:
   │
   ├─ S0  Local proxy (opt-in)             :1010-1021  → local-proxy/server.js
   ├─ S1  Server APIs                      :758-930
-  │     ├─ CF Worker /api/transcript      :766-769    → cf-worker/src/index.js
-  │     └─ Vercel /api/transcript         (same-origin)
+  │     └─ Vercel /api/transcript         (same-origin; VPS → Supadata → npm)
+  │        (Option B, 2026-09-07: the CF Worker is no longer probed for
+  │         non-ASR captions — it serves only explicit ASR, Bilibili, and
+  │         diagnostics; see docs/WORKER_FATE_DECISION.md)
   ├─ S2  Client InnerTube ANDROID→WEB     :490-540    (via proxyUrl)
   ├─ S3  Watch-page HTML scraping         :544-614
   └─ S4  Client npm youtube-transcript    :934-965

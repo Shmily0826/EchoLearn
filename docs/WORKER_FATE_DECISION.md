@@ -1,69 +1,146 @@
 # Worker Long-Term Fate — Decision Material
 
-> Prepared 2026-09-06 for the Phase 5 architecture decision. Evidence-backed options
-> only; no implementation in this document. Decision owner: project supervisor.
+> Supervisor recommendation material, prepared 2026-09-06. This is not a
+> user-approved final architecture decision. The evidence is finite-window
+> production evidence and does not establish a permanent property of all
+> videos, providers, or future Cloudflare egress.
 
-## 1. What we know (all directly measured unless marked)
+## 1. Evidence
 
-### The Worker caption cascade is fully blocked from cloud egress
+### Directly measured
 
-One debug-enabled attribution window plus four typed-code windows (0/36 + 0/12 baseline):
+The current measured result is that the Worker YouTube caption path is
+persistently non-functional for the frozen matrix under the measured
+Production Cloudflare egress:
 
-| Stage | Direct evidence |
-|---|---|
-| InnerTube ANDROID / IOS / WEB | `LOGIN_REQUIRED` — "Sign in to confirm you're not a bot" (YouTube bot wall on datacenter IPs) |
-| InnerTube TVHTML5 | `ERROR — no longer supported` (client deprecated by YouTube; removed in `60166a3`) |
-| Webpage scraping | Runs only through the ScrapingBee gateway → `HTTP 401` (credits overdrawn since 2026-09-04) |
-| Invidious (10 instances) / Piped (6 instances) | Entire pools in cooldown — dead third-party frontends |
-| Slow-timeout rows (504) | *Inference:* same blocked state racing the 11 s deadline (per-video code flapping across 5 windows); now directly attributable too once the deadline `_debug` fix (`417e466`) deploys with ALLOW_DEBUG on |
+- The frozen baseline produced Worker `0/12` usable results.
+- Three additional Worker-only windows produced `0/36` successes.
+- The budget A/B produced Worker `0/12` in each 12-second, 5-second, and
+  3-second arm, while final usable results were `12/12` in every arm.
+- On fast-fail rows with debug attribution, InnerTube ANDROID, IOS, and WEB
+  returned `LOGIN_REQUIRED` with the YouTube bot-wall message, `Sign in to
+  confirm you're not a bot`.
+- TVHTML5 returned `ERROR — no longer supported`; that client has since been
+  removed (`60166a3`).
+- The webpage path reached the ScrapingBee gateway and returned HTTP 401 at
+  measurement time.
+- Invidious and Piped pools were unavailable or in cooldown at measurement
+  time.
+- The VPS fast path directly won 2–3 budget-A/B or dogfood rows as
+  `source=vps`, approximately within 0.8–1.2 seconds. The earlier baseline
+  window was `12/12` Supadata-backed at the Vercel layer. Across the measured
+  windows, Supadata carried the majority of Worker-unreachable captions not
+  won by VPS or npm; this is not a claim that Supadata carries every caption.
+- The measured 5-second client budget preserved final `12/12` usability and
+  reduced P90 from roughly 14.7 seconds to 9.2 seconds in that A/B. This is an
+  A/B result, not a universal production guarantee.
+- Study dogfood was `4/4` ultimately usable and `3/4` first-load successful.
+  One first-load miss later did not reproduce; transient flakiness is the
+  current hypothesis, not a confirmed deterministic bug.
 
-### What the client actually experiences (post 5 s budget, deployed 2026-09-06)
+### Inference and limits
 
-- Budget A/B (12 s / 5 s / 3 s): final success 12/12 in every arm; 5 s cut P90 14.7 s → 9.2 s with no Supadata cost increase. 5 s shipped.
-- Dogfood (Study UI, real guest path): 4/4 ultimately usable, 3/4 first-load; perceived 6.2–14.4 s including metadata/render.
-- **New input — VPS fast path is alive**: `yt-api.echo-learn.uk` served 3 A/B rows as `source=vps` within its 1 s probe budget (~0.8–1.2 s), and the dogfood UI correctly showed VPS provenance with no Supadata cost. The production VPS is a real, occasionally-winning provider.
-- Supadata currently carries 100% of Worker-unreachable videos; single-provider dependency is real but bounded by the VPS fallback and npm last resort.
+- The timeout rows are inferred to represent the same blocked state racing the
+  caption deadline, supported by per-video code flapping across the repeated
+  windows. They remain an inference unless direct debug evidence exists for
+  those exact timeout responses.
+- The results establish a repeated failure pattern for this frozen matrix and
+  measured egress, not a permanent universal failure of every possible video,
+  provider, or future Worker egress configuration.
+- The 5-second budget removes much of the observed latency tail, but the A/B
+  does not by itself prove the same distribution for all production traffic.
 
 ## 2. Options
 
-### A. Keep Worker as 5 s first probe (status quo)
+### A. Keep a synchronous 5-second Worker first probe
 
-- Cost: every caption request spends up to 5 s on a path that has not succeeded once in 5 windows (48 calls).
-- Benefit: zero migration work; automatic recovery if YouTube's bot wall ever stops hitting Cloudflare IPs (detected by the standing reliability window); the Worker also serves Bilibili and ASR routes, which are NOT affected by this decision.
-- Risk: ~5 s median-side latency tax on every first caption view.
+- Lowest migration cost and preserves a possible future Worker fast path.
+- Every caption request continues to pay up to 5 seconds for a path with zero
+  measured contribution across the repeated frozen-matrix windows and all
+  three budget arms.
+- The standing reliability window remains the recovery detector.
 
-### B. Demote Worker to background/diagnostic path
+### B. Demote only YouTube caption acquisition to a diagnostic path
 
-- Client goes straight to Vercel (Supadata first in handler); Worker is probed async (or only by the reliability runner) to keep egress telemetry.
-- Benefit: removes the 5 s tax immediately; keeps the egress watch.
-- Cost: client cascade change + regression suite; loses the (currently theoretical) Worker fast path; two request patterns to explain.
+- The user path calls the existing Vercel caption handler directly rather than
+  synchronously probing the Worker first.
+- The Worker remains available for Bilibili, ASR, diagnostics, and future
+  egress experiments.
+- A bounded Worker-only standing reliability window preserves recovery
+  telemetry without making users pay the synchronous probe tax.
+- This is a client ordering change, not a parallel race or provider rewrite.
 
-### C. Give the Worker real egress (residential/ISP proxy or equivalent)
+### C. Give the Worker real egress later
 
-- Only option that could restore the Worker's original value (multi-provider cascade).
-- Cost: vendor spend, policy/ToS review (2026-09-04 research: Bright Data excluded, IPRoyal candidate needs written confirmation), ops complexity. Supersedes nothing — Supadata stays.
-- Verdict from earlier rounds: parked; revisit only if the project needs cloud-side multi-provider resilience.
+- Residential/ISP proxy or equivalent could restore the Worker's original
+  multi-provider value.
+- Parked for now because of vendor spend, policy/ToS review, and operational
+  complexity. Supadata and the existing Vercel path remain in place.
 
-### D. Supadata-first (drop Worker from the hot path entirely, no replacement probe)
+### D. Drop the Worker entirely from the YouTube caption path
 
-- Simplest client path (single endpoint), but maximizes single-provider dependency and loses all Worker egress telemetry.
+- Simplest hot path, but not recommended.
+- It discards Worker diagnostics and overstates single-provider reliance. The
+  existing Vercel path includes VPS, then Supadata/npm as implemented; it is
+  not accurately described as Supadata-only.
 
-## 3. Recommendation
+## 3. Supervisor recommendation
 
-**Adopt A now, with a scheduled re-evaluation trigger** — with two amendments:
+**Recommend Option B: demote only the YouTube caption Worker from the
+synchronous hot path to a diagnostic/standing reliability probe.**
 
-1. **Standing reliability window (weekly or per-release)**: if the Worker posts any successes on the frozen matrix, immediately re-open B/C (it would mean egress recovered and the 5 s probe is live value again). The runner and attribution tooling already exist.
-2. **Bundle the sub-decisions**:
-   - `SCRAPE_API_KEY`: remove from the Worker now (every caption request pays a doomed 401 gateway call; ScrapingBee remains NO-GO). Re-add only under option C.
-   - TVHTML5: done (`60166a3`).
-   - Invidious/Piped: keep as-is for now (they cost nothing while in cooldown and auto-recover if instances revive); prune the instance lists in a later hygiene pass.
-   - Worker-side `CAPTION_DEADLINE_MS` (11 s): can drop to ~6 s in a later pass to stop edge compute burning 6 s past the client's 5 s budget. Not urgent (no user-facing effect); batch with the next Worker deploy.
+Rationale:
 
-Rationale: A keeps every option open at zero migration cost while the 5 s budget has already removed the user-facing pain that motivated this review. B's win over A is real but small (median-side seconds) and it spends cascade complexity now; if the reliability window stays 0% for another few weeks, B becomes the right default and this document should be re-run with fresh numbers.
+1. Measured Worker success on the frozen YouTube caption matrix is zero across
+   repeated windows and across the 12-second, 5-second, and 3-second budget
+   arms.
+2. Keeping the Worker as a synchronous 5-second first probe makes every real
+   user pay latency for a path with zero measured current contribution.
+3. The standing reliability runner can detect recovery without imposing that
+   probe tax on users.
+4. Bilibili, ASR, diagnostics, and future egress experiments remain available;
+   the Worker can return to the hot path if the standing window shows
+   meaningful repeated recovery.
+5. This does not remove the Worker or redesign the provider architecture now.
 
-## 4. Decision record (to be filled by supervisor)
+## 4. Sub-decisions
 
-- Chosen option: ________
-- SCRAPE_API_KEY removal approved: Y/N
-- Weekly reliability window approved: Y/N
-- Worker deadline 11 s → 6 s approved (next deploy): Y/N
+- **`SCRAPE_API_KEY` removal: recommend YES, approval pending.** Remove the
+  doomed ScrapingBee call/path from the Worker production path because the
+  measured path returned HTTP 401 and ScrapingBee remains NO-GO. This refers to
+  removing the call/path safely, not exposing or printing the secret value.
+- **TVHTML5: already removed** (`60166a3`).
+- **Invidious/Piped: keep temporarily.** They were unavailable or in cooldown
+  during the measured window, not proven permanently dead. Prune their lists
+  in a later hygiene pass if the standing evidence remains unchanged.
+- **Worker `CAPTION_DEADLINE_MS` 11s → approximately 6s: defer / low priority.**
+  Option B removes the Worker from the user hot path, so this is not urgent.
+  Revisit for compute hygiene if the Worker returns to a synchronous role or
+  if a later bounded Worker deployment warrants it.
+- **Standing reliability window: recommend YES, approval pending.** Run weekly
+  or per release, Worker-only, against the frozen matrix, with no Supadata or
+  ASR traffic. Stop after enough evidence for the window’s acceptance rule;
+  trigger re-evaluation on meaningful repeated Worker success, not one
+  anomalous success.
+
+## 5. Implementation guardrails for Option B
+
+- Change YouTube caption acquisition only. Leave Bilibili and ASR untouched.
+- The client should skip the synchronous Worker probe and call the existing
+  Vercel caption path.
+- Do not introduce an L1/L2 `Promise.race` or duplicate paid upstream requests.
+- Preserve typed errors, diagnostics/provenance, cache semantics, and
+  guest/auth behavior.
+- Before release, validate the frozen 12-video behavior and 3–5 Study UI
+  dogfood cases. Final usability must not fall below the current baseline;
+  Supadata invocation must not increase unexpectedly; VPS must still be able
+  to win; and time-to-caption should improve.
+- Rollback must be simple: restore the 5-second Worker-first ordering.
+
+## 6. Decision record
+
+- Supervisor recommendation: **B**
+- User/project-owner approval: **granted 2026-09-07 (conversation) — implement per §5 guardrails**
+- `SCRAPE_API_KEY` removal: **recommended Y; approval pending** (not included in the Option B change)
+- Standing reliability window: **recommended Y; approval pending** (a one-word approval activates a weekly schedule)
+- Worker deadline 11s → ~6s: **defer**

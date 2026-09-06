@@ -96,7 +96,10 @@ export async function runWindow({ matrix = BASELINE_MATRIX, fetchImpl = fetch, c
 
 const isLive = process.argv.includes('--execute') && process.env.BASELINE_ALLOW_LIVE === '1';
 
-if (import.meta.url === `file://${process.argv[1].replace(/\\/g, '/')}` || process.argv[1]?.endsWith('runner.mjs')) {
+const invokedAsScript = process.argv[1]?.endsWith('runner.mjs')
+  && import.meta.url === `file://${process.argv[1].replace(/\\/g, '/')}`;
+
+if (invokedAsScript) {
   const plan = buildCallPlan();
   console.log(`baseline plan: ${plan.length} calls across ${BASELINE_MATRIX.length} videos`);
   console.log(`mode: ${isLive ? 'LIVE (double gate open)' : 'DRY RUN (no traffic)'}`);

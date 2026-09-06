@@ -767,28 +767,20 @@ export async function fetchYouTubeServerTranscript(
   // Vercel's endpoint is a caption fallback; allowAsr is a Worker-only
   // generation opt-in and carries no meaning on this route.
   const vercelUrl = `/api/transcript?videoId=${encodeURIComponent(videoId)}&lang=${encodeURIComponent(lang)}`;
-  // Caption acquisition is a fast path. Definitive semantic/authorization
-  // outcomes are authoritative; a Worker provider timeout is transient and
-  // may still be recovered by the independent Vercel caption source.
-  // Caption-only requests stay fast: the 2026-09-06 A/B on the frozen
-  // 12-video matrix measured 0/36 Worker successes across three windows and
-  // showed a 5 s budget preserves 12/12 final success (P90 9.2 s vs 14.7 s
-  // at 12 s) while keeping more fast-path recovery headroom than 3 s.
-  // Explicit ASR includes the Worker VPS budget (75s) plus a small
-  // transport buffer, but remains bounded.
-  const WORKER_TIMEOUT_MS = options.allowAsr ? 90000 : 5000;
-  // Supadata native can take about 14.352s on a known-positive control. Keep
-  // the fast Worker path short and give only the independent Vercel fallback
-  // enough time to admit that evidence plus transport margin.
+  // Option B (docs/WORKER_FATE_DECISION.md, approved 2026-09-07): the Worker's
+  // YouTube caption path measured 0 successes across five frozen-matrix
+  // windows and all three budget arms, so non-ASR requests skip the
+  // synchronous Worker probe and call the Vercel caption path directly
+  // (VPS → Supadata → npm). The Worker stays on the hot path only for
+  // explicit ASR (allowAsr=1), which no other route serves. Rollback is
+  // restoring the Worker-first endpoints ordering.
+  const WORKER_TIMEOUT_MS = 90000;
+  // Supadata native can take about 14.352s on a known-positive control; the
+  // Vercel caller budget must admit that evidence plus transport margin.
   const VERCEL_TIMEOUT_MS = 22000;
-  const endpoints = [
-    { url: workerUrl, label: 'CF Worker', timeoutMs: WORKER_TIMEOUT_MS },
-    {
-      url: vercelUrl,
-      label: 'Vercel server API',
-      timeoutMs: VERCEL_TIMEOUT_MS,
-    },
-  ].slice(0, options.allowAsr ? 1 : 2);
+  const endpoints = options.allowAsr
+    ? [{ url: workerUrl, label: 'CF Worker', timeoutMs: WORKER_TIMEOUT_MS }]
+    : [{ url: vercelUrl, label: 'Vercel server API', timeoutMs: VERCEL_TIMEOUT_MS }];
   let deferredWorkerTimeout: YouTubeTranscriptError | undefined;
   let deferredWorkerAsrRequired: YouTubeTranscriptError | undefined;
 

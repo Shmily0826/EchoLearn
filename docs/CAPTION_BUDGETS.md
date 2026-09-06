@@ -21,9 +21,8 @@ Platform ceiling: Vercel `maxDuration: 30` (`vercel.json:5`).
 |---|---|---|
 | 4000 ms | local-proxy fetch timeout (`:639`) | Local proxy is fast or assumed down |
 | 5 min | `LOCAL_PROXY_SKIP_MS` (`:689`) | Skip marker after local-proxy failure |
-| 5000 ms | `WORKER_TIMEOUT_MS` caption-only (`:775`; 2026-09-06 A/B, commit `469bb40`) | Worker caption budget — 0/36 observed successes made the 12 s wait pure latency; 5 s preserved 12/12 final success (P90 9.2 s vs 14.7 s) |
-| 90000 ms | `WORKER_TIMEOUT_MS` with `allowAsr` (`:775`) | ASR: VPS race 75 s + Whisper 120 s overlap → generous ceiling |
-| 22000 ms | `VERCEL_TIMEOUT_MS` (`:779`) | Vercel handler 21 s deadline + margin |
+| 90000 ms | `WORKER_TIMEOUT_MS` (ASR only, `:779`) | Since Option B (2026-09-07) the Worker is not probed for non-ASR captions; ASR (allowAsr=1) is Worker-only: VPS race 75 s + Whisper 120 s overlap → generous ceiling |
+| 22000 ms | `VERCEL_TIMEOUT_MS` (`:780`) | The only synchronous server call for non-ASR captions under Option B; sized for the 21 s handler deadline + margin |
 | 1500 ms ×2 | `CAPTION_RETRY_COUNT` / `CAPTION_RETRY_DELAY_MS` (`:83-84`) | Caption-content fetch retries (json3→default→srv3) |
 | 15000 ms | `resilientFetch.ts:20` default | Generic client fetch default |
 
