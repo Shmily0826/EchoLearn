@@ -70,6 +70,7 @@ export function shapeLayerRow(input) {
     typedCode: code,
     source: typeof source === 'string' && source.length > 0 ? source : null,
     cacheState: CACHE_STATES.includes(cacheState) ? cacheState : 'UNKNOWN',
+    latencyMs: Number.isFinite(latencyMs) ? Math.round(latencyMs) : null,
     latencyBucket: bucketLatency(latencyMs),
     lineBucket: bucketLines(lineCount),
   };
