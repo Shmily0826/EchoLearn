@@ -31,6 +31,7 @@ const INNERTUBE_API_URL =
 
 const CORS_METHODS = 'GET, POST, OPTIONS';
 const TRACE_HEADER = 'X-EchoLearn-Trace-Id';
+const TRANSCRIPT_CACHE_HEADER = 'X-EchoLearn-Transcript-Cache';
 const CAPTION_BUDGET_HEADER = 'X-EchoLearn-Caption-Budget-Ms';
 const CAPTION_FAST_PATH_HEADER = 'X-EchoLearn-Caption-Fast';
 const CAPTION_DEADLINE_MS = 11000;
@@ -308,7 +309,7 @@ function corsHeaders(origin) {
     'Access-Control-Allow-Methods': CORS_METHODS,
     'Access-Control-Allow-Headers': 'Content-Type',
     'Access-Control-Max-Age': '86400',
-    'Access-Control-Expose-Headers': TRACE_HEADER,
+    'Access-Control-Expose-Headers': `${TRACE_HEADER}, ${TRANSCRIPT_CACHE_HEADER}`,
   };
   const allowed = resolveOrigin(origin);
   if (allowed) headers['Access-Control-Allow-Origin'] = allowed;
@@ -473,6 +474,16 @@ async function handleTranscript(url, env, traceId) {
     if (cached) return cached;
   }
 
+  // Make a fresh caption attempt observable at the response boundary. A cache
+  // HIT returns from readTranscriptCache above; every normal caption request
+  // that reaches acquisition is a MISS, while ASR and diagnostics BYPASS the
+  // caption cache. This does not change provider ordering or the ASR contract.
+  const transcriptCacheStatus = allowAsr || debug ? 'BYPASS' : 'MISS';
+  const captionHeaders = {
+    [TRACE_HEADER]: traceId,
+    [TRANSCRIPT_CACHE_HEADER]: transcriptCacheStatus,
+  };
+
   const debugLog = [];
   const log = debug ? (msg) => debugLog.push(msg) : (msg) => console.log(msg);
 
@@ -498,17 +509,17 @@ async function handleTranscript(url, env, traceId) {
       if (vpsAsr) {
         if (debug) vpsAsr._debug = debugLog;
         traceLog('request_finish', { traceId, videoId, provider: 'vps-asr', status: 200, lineCount: vpsAsr.lines?.length || 0 });
-        return jsonResponse(vpsAsr, 200, { [TRACE_HEADER]: traceId });
+        return jsonResponse(vpsAsr, 200, captionHeaders);
       }
       if (asrDiagnostics.code === 'provider_timeout') {
         traceLog('request_finish', { traceId, videoId, provider: 'vps-asr', status: 504, error: 'provider_timeout' });
-        return transcriptErrorResponse({ error: 'provider_timeout', message: 'Transcript provider timed out.' }, 504, env, { includeRecovery: true, headers: { [TRACE_HEADER]: traceId } });
+        return transcriptErrorResponse({ error: 'provider_timeout', message: 'Transcript provider timed out.' }, 504, env, { includeRecovery: true, headers: captionHeaders });
       }
       if (asrDiagnostics.code === 'youtube_acquisition_blocked') {
         const response = { error: 'youtube_acquisition_blocked', message: 'YouTube audio acquisition is currently blocked.' };
         if (debug) response._debug = debugLog;
         traceLog('request_finish', { traceId, videoId, provider: 'vps-asr', status: 403, error: response.error });
-        return transcriptErrorResponse(response, 403, env, { headers: { [TRACE_HEADER]: traceId } });
+        return transcriptErrorResponse(response, 403, env, { headers: captionHeaders });
       }
       log('VPS ASR fallback returned nothing');
     } else if (env && env.GROQ_API_KEY) {
@@ -516,14 +527,14 @@ async function handleTranscript(url, env, traceId) {
       if (whisperResult) {
         if (debug) whisperResult._debug = debugLog;
         traceLog('request_finish', { traceId, videoId, provider: 'worker-whisper', status: 200, lineCount: whisperResult.lines?.length || 0 });
-        return jsonResponse(whisperResult, 200, { [TRACE_HEADER]: traceId });
+        return jsonResponse(whisperResult, 200, captionHeaders);
       }
       log('Whisper fallback failed');
     }
     const response = { error: 'captions_not_found', message: 'No transcript could be generated from audio.' };
     if (debug) response._debug = debugLog;
     traceLog('request_finish', { traceId, videoId, provider: 'asr', status: 404, error: response.error });
-    return transcriptErrorResponse(response, 404, env, { headers: { [TRACE_HEADER]: traceId } });
+    return transcriptErrorResponse(response, 404, env, { headers: captionHeaders });
   }
 
   const captionContext = createCaptionContext();
@@ -541,7 +552,7 @@ async function handleTranscript(url, env, traceId) {
       if (!debug) await writeTranscriptCache(videoId, lang, innerTubeResult, traceId);
       if (debug) innerTubeResult._debug = debugLog;
       traceLog('request_finish', { traceId, videoId, provider: 'innertube', status: 200 });
-      return jsonResponse(innerTubeResult, 200, { [TRACE_HEADER]: traceId });
+      return jsonResponse(innerTubeResult, 200, captionHeaders);
     }
 
   // Strategy 1: Web page scraping
@@ -553,7 +564,7 @@ async function handleTranscript(url, env, traceId) {
     if (!debug) await writeTranscriptCache(videoId, lang, webResult, traceId);
     if (debug) webResult._debug = debugLog;
     traceLog('request_finish', { traceId, videoId, provider: 'web', status: 200 });
-    return jsonResponse(webResult, 200, { [TRACE_HEADER]: traceId });
+    return jsonResponse(webResult, 200, captionHeaders);
   }
 
   // Strategy 2: Invidious API (third-party YouTube frontends)
@@ -565,7 +576,7 @@ async function handleTranscript(url, env, traceId) {
     if (!debug) await writeTranscriptCache(videoId, lang, invidiousResult, traceId);
     if (debug) invidiousResult._debug = debugLog;
     traceLog('request_finish', { traceId, videoId, provider: 'invidious', status: 200 });
-    return jsonResponse(invidiousResult, 200, { [TRACE_HEADER]: traceId });
+    return jsonResponse(invidiousResult, 200, captionHeaders);
   }
 
   // Strategy 3: Piped API
@@ -577,13 +588,13 @@ async function handleTranscript(url, env, traceId) {
     if (!debug) await writeTranscriptCache(videoId, lang, pipedResult, traceId);
     if (debug) pipedResult._debug = debugLog;
     traceLog('request_finish', { traceId, videoId, provider: 'piped', status: 200 });
-    return jsonResponse(pipedResult, 200, { [TRACE_HEADER]: traceId });
+    return jsonResponse(pipedResult, 200, captionHeaders);
   }
   } catch (err) {
     if (err instanceof CaptionDeadlineError) {
       traceLog('caption_stage', { traceId, stage: 'deadline', outcome: 'timeout', elapsedMs: CAPTION_DEADLINE_MS });
       traceLog('request_finish', { traceId, videoId, provider: 'caption-cascade', status: 504, error: 'provider_timeout', deadlineAt: captionContext.deadlineAt });
-      return transcriptErrorResponse({ error: 'provider_timeout', message: 'Caption providers timed out.' }, 504, env, { includeRecovery: true, headers: { [TRACE_HEADER]: traceId } });
+      return transcriptErrorResponse({ error: 'provider_timeout', message: 'Caption providers timed out.' }, 504, env, { includeRecovery: true, headers: captionHeaders });
     }
     throw err;
   } finally {
@@ -594,20 +605,20 @@ async function handleTranscript(url, env, traceId) {
   if (captionContext.expired()) {
     traceLog('caption_stage', { traceId, stage: 'deadline', outcome: 'timeout', elapsedMs: CAPTION_DEADLINE_MS });
     traceLog('request_finish', { traceId, videoId, provider: 'caption-cascade', status: 504, error: 'provider_timeout', deadlineAt: captionContext.deadlineAt });
-    return transcriptErrorResponse({ error: 'provider_timeout', message: 'Caption providers timed out.' }, 504, env, { includeRecovery: true, headers: { [TRACE_HEADER]: traceId } });
+    return transcriptErrorResponse({ error: 'provider_timeout', message: 'Caption providers timed out.' }, 504, env, { includeRecovery: true, headers: captionHeaders });
   }
 
   if (captionContext.observations.providerTimeout) {
     traceLog('caption_stage', { traceId, stage: 'provider', outcome: 'timeout' });
     traceLog('request_finish', { traceId, videoId, provider: 'caption-cascade', status: 504, error: 'provider_timeout' });
-    return transcriptErrorResponse({ error: 'provider_timeout', message: 'A caption provider timed out.' }, 504, env, { includeRecovery: true, headers: { [TRACE_HEADER]: traceId } });
+    return transcriptErrorResponse({ error: 'provider_timeout', message: 'A caption provider timed out.' }, 504, env, { includeRecovery: true, headers: captionHeaders });
   }
 
   const asrAvailable = !!(env && (env.YTDLP_API_URL || env.GROQ_API_KEY));
   if (captionContext.observations.providerFailure && !asrAvailable) {
     traceLog('caption_stage', { traceId, stage: 'provider', outcome: 'failure' });
     traceLog('request_finish', { traceId, videoId, provider: 'caption-cascade', status: 502, error: 'provider_failure' });
-    return transcriptErrorResponse({ error: 'provider_failure', message: 'Caption providers were unavailable.' }, 502, env, { headers: { [TRACE_HEADER]: traceId } });
+    return transcriptErrorResponse({ error: 'provider_failure', message: 'Caption providers were unavailable.' }, 502, env, { headers: captionHeaders });
   }
 
   // VPS ASR availability is represented by YTDLP_API_URL, while Worker
@@ -620,7 +631,7 @@ async function handleTranscript(url, env, traceId) {
   if (debug) response._debug = debugLog;
   const status = response.error === 'asr_required' ? 409 : response.error === 'provider_timeout' ? 504 : 404;
   traceLog('request_finish', { traceId, videoId, provider: 'none', status, error: response.error });
-  return transcriptErrorResponse(response, status, env, { includeRecovery: response.error === 'asr_required', headers: { [TRACE_HEADER]: traceId } });
+  return transcriptErrorResponse(response, status, env, { includeRecovery: response.error === 'asr_required', headers: captionHeaders });
 }
 
 // ── /api/bilibili — Fetch Bilibili transcript / metadata ──────────
@@ -2291,7 +2302,7 @@ async function readTranscriptCache(videoId, lang, traceId) {
     });
     return jsonResponse(payload, 200, {
       [TRACE_HEADER]: traceId,
-      'X-EchoLearn-Transcript-Cache': 'HIT',
+      [TRANSCRIPT_CACHE_HEADER]: 'HIT',
     });
   } catch (_) {
     // A cache read is an optimization; an unavailable or malformed entry must
@@ -2423,6 +2434,7 @@ async function fetchViaYtDlp(videoId, lang, env, log, targetUrl = null, traceId 
 // allowing deterministic unit tests to exercise the deadline primitives and
 // request handler without a deployed Worker.
 export {
+  TRANSCRIPT_CACHE_HEADER,
   CAPTION_BUDGET_HEADER,
   CAPTION_FAST_PATH_HEADER,
   CAPTION_DEADLINE_MS,
@@ -2439,4 +2451,5 @@ export {
   fetchViaYtDlp,
   fetchViaVpsAsr,
   proxiedFetch,
+  withCors,
 };

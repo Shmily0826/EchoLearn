@@ -16,13 +16,41 @@
  * workflow-failure email notifications.
  */
 
+import { fileURLToPath } from 'node:url';
+
 const APP_BASE = 'https://echo-learn.uk';
 const WORKER_BASE = 'https://yt-transcript-proxy.rng2018520.workers.dev';
+const TRANSCRIPT_CACHE_HEADER = 'X-EchoLearn-Transcript-Cache';
 
 // A stable Bilibili video with known BV id (used in the repo's own code
 // examples) and a stable YouTube video with English captions.
 const BILI_FULL_URL = 'https://www.bilibili.com/video/BV1xx411c7mD';
-const YT_VIDEO_ID = 'dQw4w9WgXcQ';
+const YOUTUBE_CAPTION_CONTROLS = [
+  {
+    name: 'Worker serves YouTube captions (control dQ)',
+    url: `${WORKER_BASE}/api/transcript?videoId=dQw4w9WgXcQ&lang=en`,
+    timeoutMs: 45000,
+    retries: 0,
+    transcript: true,
+    validate: validateCaptionResponse,
+  },
+  {
+    name: 'Worker serves YouTube captions (control iG9)',
+    url: `${WORKER_BASE}/api/transcript?videoId=iG9CE55wbtY&lang=en`,
+    timeoutMs: 45000,
+    retries: 0,
+    transcript: true,
+    validate: validateCaptionResponse,
+  },
+  {
+    name: 'Vercel YouTube caption fallback (control M7)',
+    url: `${APP_BASE}/api/transcript?videoId=M7lc1UVf-VE&lang=en`,
+    timeoutMs: 45000,
+    retries: 0,
+    transcript: true,
+    validate: validateCaptionResponse,
+  },
+];
 
 /**
  * @typedef {Object} Check
@@ -30,10 +58,28 @@ const YT_VIDEO_ID = 'dQw4w9WgXcQ';
  * @property {string} url
  * @property {number} [timeoutMs]   per-attempt timeout (default 30s)
  * @property {number} [retries]     extra attempts after a failure (default 1)
+ * @property {boolean} [transcript] whether to report cache/acquisition evidence
  * @property {(bodyText: string) => string | null} [validate]
  *          returns null when OK, or a reason string when the response body
  *          is not what the app depends on.
  */
+
+/**
+ * Classify only the bounded cache marker. A missing or invalid marker stays
+ * UNKNOWN, so a healthy response is never presented as fresh-acquisition
+ * evidence by assumption.
+ */
+export function classifyTranscriptAcquisition(cacheHeader) {
+  const value = typeof cacheHeader === 'string' ? cacheHeader.trim().toUpperCase() : '';
+  const cacheState = ['HIT', 'MISS', 'BYPASS'].includes(value) ? value : 'UNKNOWN';
+  const acquisitionEvidence = {
+    HIT: 'cache_hit',
+    MISS: 'cache_miss_before_acquisition',
+    BYPASS: 'cache_bypassed',
+    UNKNOWN: 'not_observable',
+  }[cacheState];
+  return { cacheState, acquisitionEvidence };
+}
 
 /** @type {Check[]} */
 const CHECKS = [
@@ -56,9 +102,9 @@ const CHECKS = [
         const data = JSON.parse(body);
         return typeof data.bvid === 'string' && data.bvid.startsWith('BV')
           ? null
-          : `response has no bvid: ${body.slice(0, 120)}`;
+          : 'response has no bvid';
       } catch {
-        return `not JSON: ${body.slice(0, 120)}`;
+        return 'not JSON';
       }
     },
   },
@@ -74,45 +120,29 @@ const CHECKS = [
         const data = JSON.parse(body);
         return typeof data.bvid === 'string' && data.bvid.startsWith('BV')
           ? null
-          : `response has no bvid: ${body.slice(0, 120)}`;
+          : 'response has no bvid';
       } catch {
-        return `not JSON: ${body.slice(0, 120)}`;
+        return 'not JSON';
       }
     },
   },
-  {
-    name: 'Worker serves YouTube transcripts',
-    url: `${WORKER_BASE}/api/transcript?videoId=${YT_VIDEO_ID}&lang=en`,
-    timeoutMs: 45000,
-    validate: (body) => {
-      try {
-        JSON.parse(body);
-        return null;
-      } catch {
-        return `not JSON: ${body.slice(0, 120)}`;
-      }
-    },
-  },
-  {
-    name: 'Vercel YouTube transcript fallback works',
-    url: `${APP_BASE}/api/transcript?videoId=${YT_VIDEO_ID}&lang=en`,
-    timeoutMs: 45000,
-    validate: (body) => {
-      try {
-        const data = JSON.parse(body);
-        // The endpoint returns lines directly or wrapped in a container.
-        const lines = Array.isArray(data) ? data : data?.lines;
-        return Array.isArray(lines) && lines.length > 0
-          ? null
-          : `no transcript lines: ${body.slice(0, 120)}`;
-      } catch {
-        return `not JSON: ${body.slice(0, 120)}`;
-      }
-    },
-  },
+  ...YOUTUBE_CAPTION_CONTROLS,
 ];
 
-async function runCheck(check) {
+export function validateCaptionResponse(body) {
+  try {
+    const data = JSON.parse(body);
+    // The endpoint returns lines directly or wrapped in a container.
+    const lines = Array.isArray(data) ? data : data?.lines;
+    return Array.isArray(lines) && lines.length > 0
+      ? null
+      : 'response has no transcript lines';
+  } catch {
+    return 'not JSON';
+  }
+}
+
+export async function runCheck(check) {
   const attempts = 1 + (check.retries ?? 1);
   let lastReason = 'unknown failure';
   for (let attempt = 1; attempt <= attempts; attempt++) {
@@ -121,8 +151,8 @@ async function runCheck(check) {
       const res = await fetch(check.url, { signal: AbortSignal.timeout(check.timeoutMs ?? 30000) });
       const body = await res.text();
       const elapsed = Date.now() - startedAt;
-      if (!res.ok) {
-        lastReason = `HTTP ${res.status} — ${body.slice(0, 120)}`;
+      if (res.status !== 200) {
+        lastReason = `HTTP ${res.status}`;
         continue;
       }
       if (check.validate) {
@@ -132,7 +162,15 @@ async function runCheck(check) {
           continue;
         }
       }
-      return { ok: true, ms: elapsed, attempt };
+      const evidence = check.transcript
+        ? classifyTranscriptAcquisition(res.headers.get(TRANSCRIPT_CACHE_HEADER))
+        : undefined;
+      return {
+        ok: true,
+        ms: elapsed,
+        attempt,
+        ...(evidence ?? {}),
+      };
     } catch (err) {
       lastReason = err instanceof Error ? `${err.name}: ${err.message}` : String(err);
     }
@@ -140,14 +178,15 @@ async function runCheck(check) {
   return { ok: false, reason: lastReason };
 }
 
-console.log(`EchoLearn caption-pipeline health check — ${new Date().toISOString()}`);
-console.log('='.repeat(72));
-
+export async function main() {
 let failures = 0;
 for (const check of CHECKS) {
   const result = await runCheck(check);
   if (result.ok) {
-    console.log(`PASS  ${check.name} (${result.ms}ms)`);
+    const evidence = result.acquisitionEvidence
+      ? ` [cache=${result.cacheState}; acquisition=${result.acquisitionEvidence}]`
+      : '';
+    console.log(`PASS  ${check.name} (${result.ms}ms)${evidence}`);
   } else {
     failures += 1;
     console.log(`FAIL  ${check.name}`);
@@ -158,6 +197,12 @@ for (const check of CHECKS) {
 console.log('='.repeat(72));
 if (failures > 0) {
   console.log(`${failures}/${CHECKS.length} checks FAILED`);
-  process.exit(1);
+  return 1;
 }
 console.log(`All ${CHECKS.length} checks passed`);
+return 0;
+}
+
+if (process.argv[1] && fileURLToPath(import.meta.url) === process.argv[1]) {
+  process.exitCode = await main();
+}
