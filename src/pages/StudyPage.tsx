@@ -354,10 +354,11 @@ const StudyPage: React.FC = () => {
       );
 
       // Migrate: use transcriptData if available, else treat legacy transcriptLines as rawBlocks
-      const hasTranscriptData = hasUsableTranscriptData(saved.transcriptData);
-      if (hasTranscriptData) {
-        setRawBlocks(saved.transcriptData.rawBlocks);
-        setSentenceLines(saved.transcriptData.sentenceLines);
+      const transcriptData = saved.transcriptData;
+      const hasTranscriptData = hasUsableTranscriptData(transcriptData);
+      if (transcriptData && hasTranscriptData) {
+        setRawBlocks(transcriptData.rawBlocks);
+        setSentenceLines(transcriptData.sentenceLines);
       } else if ((saved.transcriptLines?.length ?? 0) > 0) {
         const blocks = saved.transcriptLines;
         const sLines = normalizeTranscriptToSentences(blocks);
@@ -471,10 +472,11 @@ const StudyPage: React.FC = () => {
         : getVideoTitle,
     );
 
-    const hasTranscriptData = hasUsableTranscriptData(saved.transcriptData);
-    if (hasTranscriptData) {
-      setRawBlocks(saved.transcriptData.rawBlocks);
-      setSentenceLines(saved.transcriptData.sentenceLines);
+    const transcriptData = saved.transcriptData;
+    const hasTranscriptData = hasUsableTranscriptData(transcriptData);
+    if (transcriptData && hasTranscriptData) {
+      setRawBlocks(transcriptData.rawBlocks);
+      setSentenceLines(transcriptData.sentenceLines);
     } else if ((saved.transcriptLines?.length ?? 0) > 0) {
       const blocks = saved.transcriptLines;
       const sLines = normalizeTranscriptToSentences(blocks);
