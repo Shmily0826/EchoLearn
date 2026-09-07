@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest';
 import {
   attachTranscriptToSession,
   createFreshStudySession,
+  hasUsableTranscriptData,
   normalizeStudyUrl,
 } from '../studySession';
 import type { TranscriptLine, VideoStudySession } from '../../types';
@@ -29,6 +30,18 @@ describe('study session helpers', () => {
     });
     expect(session.transcriptLines).toEqual([]);
     expect(session.transcriptData).toEqual({ rawBlocks: [], sentenceLines: [] });
+  });
+
+  it('only treats non-empty transcript data as restorable', () => {
+    const session = createFreshStudySession(baseInput);
+    const lines: TranscriptLine[] = [{ start: 0, end: 1, text: 'usable' }];
+
+    expect(hasUsableTranscriptData(session.transcriptData)).toBe(false);
+    expect(hasUsableTranscriptData({ rawBlocks: lines, sentenceLines: lines })).toBe(true);
+    expect(hasUsableTranscriptData({ rawBlocks: [], sentenceLines: [] })).toBe(false);
+    expect(
+      hasUsableTranscriptData({ rawBlocks: 'invalid', sentenceLines: [] } as unknown as VideoStudySession['transcriptData']),
+    ).toBe(false);
   });
 
   it('creates a Bilibili session while preserving the selected page', () => {

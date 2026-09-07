@@ -25,6 +25,18 @@ export function normalizeStudyUrl(url: string): string {
   return extractUrl(url) ?? url;
 }
 
+/** Only persisted transcript data with usable line content counts as restored. */
+export function hasUsableTranscriptData(
+  transcriptData: VideoStudySession['transcriptData'],
+): boolean {
+  return Boolean(
+    transcriptData &&
+      Array.isArray(transcriptData.rawBlocks) &&
+      Array.isArray(transcriptData.sentenceLines) &&
+      (transcriptData.rawBlocks.length > 0 || transcriptData.sentenceLines.length > 0),
+  );
+}
+
 /** Build a new empty session from already-parsed video identity data. */
 export function createFreshStudySession({
   id,

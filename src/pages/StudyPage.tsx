@@ -12,7 +12,12 @@ import { parseYouTubeId, parseStartTime } from '../utils/youtube';
 import { detectPlatform, parseBilibiliId, parseBilibiliStartTime, parseBilibiliPage, hasInvalidBilibiliPage } from '../utils/bilibili';
 import { normalizeTranscriptToSentences } from '../utils/transcriptNormalizer';
 import { transcriptSourceLabel } from '../utils/captionSource';
-import { attachTranscriptToSession, createFreshStudySession, normalizeStudyUrl } from '../utils/studySession';
+import {
+  attachTranscriptToSession,
+  createFreshStudySession,
+  hasUsableTranscriptData,
+  normalizeStudyUrl,
+} from '../utils/studySession';
 import { lemmatize } from '../utils/lemmatizer';
 import { analyzeTranscript } from '../services/aiAnalysis';
 import { safeAiErrorMessage } from '../utils/aiError';
@@ -349,7 +354,8 @@ const StudyPage: React.FC = () => {
       );
 
       // Migrate: use transcriptData if available, else treat legacy transcriptLines as rawBlocks
-      if (saved.transcriptData) {
+      const hasTranscriptData = hasUsableTranscriptData(saved.transcriptData);
+      if (hasTranscriptData) {
         setRawBlocks(saved.transcriptData.rawBlocks);
         setSentenceLines(saved.transcriptData.sentenceLines);
       } else if ((saved.transcriptLines?.length ?? 0) > 0) {
@@ -366,7 +372,7 @@ const StudyPage: React.FC = () => {
 
       // Auto-fetch captions if no transcript exists for this video
       const hasTranscript =
-        !!saved.transcriptData || (saved.transcriptLines?.length ?? 0) > 0;
+        hasTranscriptData || (saved.transcriptLines?.length ?? 0) > 0;
       if (saved.youtubeId && !hasTranscript) {
         runCaptionRequest(
           () =>
@@ -465,7 +471,8 @@ const StudyPage: React.FC = () => {
         : getVideoTitle,
     );
 
-    if (saved.transcriptData) {
+    const hasTranscriptData = hasUsableTranscriptData(saved.transcriptData);
+    if (hasTranscriptData) {
       setRawBlocks(saved.transcriptData.rawBlocks);
       setSentenceLines(saved.transcriptData.sentenceLines);
     } else if ((saved.transcriptLines?.length ?? 0) > 0) {
@@ -485,7 +492,7 @@ const StudyPage: React.FC = () => {
 
     // Auto-fetch captions if no transcript exists
     const hasTranscript =
-      !!saved.transcriptData || (saved.transcriptLines?.length ?? 0) > 0;
+      hasTranscriptData || (saved.transcriptLines?.length ?? 0) > 0;
     if (saved.youtubeId && !hasTranscript) {
       runCaptionRequest(
         () =>
