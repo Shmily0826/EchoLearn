@@ -62,6 +62,8 @@ describe('api/transcript server fallback', () => {
     await handler(makeReq(undefined, true), res);
     expect(res.statusCode).toBe(200);
     expect(JSON.parse(res.body).source).toBe('vps');
+    expect(res.headers['vercel-cdn-cache-control']).toBeUndefined();
+    expect(res.headers['cache-control']).toBe('no-store');
     expect(fetchMock).toHaveBeenCalledTimes(1);
     const [url, init] = fetchMock.mock.calls[0];
     expect(String(url)).toContain('https://yt-api.echo-learn.uk/api/transcript?');
@@ -70,6 +72,41 @@ describe('api/transcript server fallback', () => {
     expect(res.headers['x-echolearn-trace-id']).toMatch(/^trace-|^[0-9a-f-]{36}$/i);
     expect(res.body).not.toContain('test-vps-key');
     expect(YoutubeTranscript.fetchTranscript).not.toHaveBeenCalled();
+  });
+
+  it('adds shared CDN caching to an ordinary VPS success', async () => {
+    fetchMock.mockResolvedValueOnce(response({ lines: [{ text: 'from VPS' }], language: 'en' }));
+    const res = makeRes();
+
+    await handler(makeReq(), res);
+
+    expect(res.statusCode).toBe(200);
+    expect(res.headers['cache-control']).toBe('public, max-age=0, must-revalidate');
+    expect(res.headers['vercel-cdn-cache-control']).toBe(
+      'public, s-maxage=3600, stale-while-revalidate=86400',
+    );
+    expect(res.headers.vary).toBe('Origin');
+  });
+
+  it('does not share-cache a legacy-compatible non-GET success', async () => {
+    fetchMock.mockResolvedValueOnce(response({ lines: [{ text: 'from VPS' }], language: 'en' }));
+    const res = makeRes();
+
+    await handler({ ...makeReq(), method: 'POST' }, res);
+
+    expect(res.statusCode).toBe(200);
+    expect(res.headers['vercel-cdn-cache-control']).toBeUndefined();
+    expect(res.headers['cache-control']).toBe('no-store');
+  });
+
+  it('keeps OPTIONS uncacheable', async () => {
+    const res = makeRes();
+
+    await handler({ method: 'OPTIONS', headers: { origin: 'https://echo-learn.uk' } }, res);
+
+    expect(res.statusCode).toBe(204);
+    expect(res.headers['vercel-cdn-cache-control']).toBeUndefined();
+    expect(res.headers['cache-control']).toBe('no-store');
   });
 
   it('keeps the trace id available when VPS fails and the npm fallback succeeds', async () => {
@@ -130,6 +167,10 @@ describe('api/transcript server fallback', () => {
     await handler(makeReq(), res);
 
     expect(res.statusCode).toBe(200);
+    expect(res.headers['cache-control']).toBe('public, max-age=0, must-revalidate');
+    expect(res.headers['vercel-cdn-cache-control']).toBe(
+      'public, s-maxage=3600, stale-while-revalidate=86400',
+    );
     expect(fetchMock).not.toHaveBeenCalled();
     expect(YoutubeTranscript.fetchTranscript).toHaveBeenCalledTimes(1);
   });
@@ -150,9 +191,13 @@ describe('api/transcript server fallback', () => {
 
     try {
       const res = makeRes();
-      await handler(makeReq('video-id', true), res);
+      await handler(makeReq('video-id'), res);
 
       expect(res.statusCode).toBe(200);
+      expect(res.headers['cache-control']).toBe('public, max-age=0, must-revalidate');
+      expect(res.headers['vercel-cdn-cache-control']).toBe(
+        'public, s-maxage=3600, stale-while-revalidate=86400',
+      );
       expect(JSON.parse(res.body)).toMatchObject({
         source: 'supadata',
         language: 'en',
@@ -423,6 +468,8 @@ describe('api/transcript server fallback', () => {
     await handler(makeReq(), res);
 
     expect(res.statusCode).toBe(500);
+    expect(res.headers['vercel-cdn-cache-control']).toBeUndefined();
+    expect(res.headers['cache-control']).toBe('no-store');
     expect(JSON.parse(res.body)).toEqual({
       error: 'provider_failure',
       code: 'provider_failure',

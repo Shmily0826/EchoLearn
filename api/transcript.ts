@@ -28,6 +28,8 @@ const NPM_FALLBACK_TIMEOUT_MS = 6_500;
 const SUPADATA_TIMEOUT_MS = 18_000;
 const SUPADATA_API_URL = 'https://api.supadata.ai/v1/transcript';
 const TRACE_HEADER = 'X-EchoLearn-Trace-Id';
+const TRANSCRIPT_BROWSER_CACHE_CONTROL = 'public, max-age=0, must-revalidate';
+const TRANSCRIPT_CDN_CACHE_CONTROL = 'public, s-maxage=3600, stale-while-revalidate=86400';
 
 function createTraceId(): string {
   return typeof crypto?.randomUUID === 'function'
@@ -519,6 +521,9 @@ export default async function handler(req: any, res: any): Promise<void> {
   res.setHeader('Access-Control-Allow-Methods', 'GET, OPTIONS');
   res.setHeader('Access-Control-Allow-Headers', 'Content-Type');
   res.setHeader('Access-Control-Expose-Headers', TRACE_HEADER);
+  res.setHeader('Vary', 'Origin');
+  res.setHeader('Cache-Control', 'no-store');
+  const isSharedCacheableCaptionRequest = req.method === 'GET' && req.query?.allowAsr !== '1';
 
   if (req.method === 'OPTIONS') {
     res.status(204).end();
@@ -562,6 +567,10 @@ export default async function handler(req: any, res: any): Promise<void> {
       vpsFailure = vpsOutcome.failure;
       if (vpsOutcome.data) {
         logTranscriptEvent('request_finish', { traceId, videoId, provider: 'vps', status: 200 });
+        if (isSharedCacheableCaptionRequest) {
+          res.setHeader('Cache-Control', TRANSCRIPT_BROWSER_CACHE_CONTROL);
+          res.setHeader('Vercel-CDN-Cache-Control', TRANSCRIPT_CDN_CACHE_CONTROL);
+        }
         res.status(200).json({ ...vpsOutcome.data, diagnostics: supadataDiagnosticsState });
         return;
       }
@@ -585,6 +594,10 @@ export default async function handler(req: any, res: any): Promise<void> {
           status: 200,
           lineCount: (supadataOutcome.data.lines as unknown[]).length,
         });
+        if (isSharedCacheableCaptionRequest) {
+          res.setHeader('Cache-Control', TRANSCRIPT_BROWSER_CACHE_CONTROL);
+          res.setHeader('Vercel-CDN-Cache-Control', TRANSCRIPT_CDN_CACHE_CONTROL);
+        }
         res.status(200).json({ ...supadataOutcome.data, diagnostics: supadataDiagnosticsState });
         return;
       }
@@ -632,6 +645,10 @@ export default async function handler(req: any, res: any): Promise<void> {
         );
 
         logTranscriptEvent('request_finish', { traceId, videoId, provider: 'youtube-transcript', status: 200, lineCount: lines.length });
+        if (isSharedCacheableCaptionRequest) {
+          res.setHeader('Cache-Control', TRANSCRIPT_BROWSER_CACHE_CONTROL);
+          res.setHeader('Vercel-CDN-Cache-Control', TRANSCRIPT_CDN_CACHE_CONTROL);
+        }
         res.status(200).json({
           lines,
           language: result[0]?.lang ?? lang,
