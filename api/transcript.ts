@@ -576,7 +576,12 @@ export default async function handler(req: any, res: any): Promise<void> {
       }
     }
 
-    const supadataKey = process.env.SUPADATA_API_KEY;
+    const primarySupadataKey = process.env.SUPADATA_API_KEY;
+    const secondarySupadataKey = process.env.SUPADATA_API_KEY_SECONDARY;
+    const activeSupadataKey = process.env.SUPADATA_API_KEY_ACTIVE?.trim().toLowerCase();
+    const supadataKey = activeSupadataKey === 'secondary' && secondarySupadataKey?.trim()
+      ? secondarySupadataKey
+      : primarySupadataKey;
     if (supadataKey) {
       const supadataOutcome = await fetchSupadataTranscript(
         videoId,

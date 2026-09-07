@@ -47,6 +47,8 @@ beforeEach(() => {
   vi.stubGlobal('fetch', fetchMock as unknown as typeof fetch);
   vi.stubEnv('YTDLP_API_KEY', 'test-vps-key');
   vi.stubEnv('SUPADATA_API_KEY', '');
+  vi.stubEnv('SUPADATA_API_KEY_SECONDARY', '');
+  vi.stubEnv('SUPADATA_API_KEY_ACTIVE', '');
   vi.mocked(YoutubeTranscript.fetchTranscript).mockReset();
 });
 
@@ -225,6 +227,35 @@ describe('api/transcript server fallback', () => {
     } finally {
       logSpy.mockRestore();
     }
+  });
+
+  it.each([
+    ['no selector uses primary', undefined, '', 'test-primary-key'],
+    ['empty selector uses primary', '', '', 'test-primary-key'],
+    ['primary selector uses primary', 'primary', 'test-secondary-key', 'test-primary-key'],
+    ['secondary selector uses secondary', 'SECONDARY', 'test-secondary-key', 'test-secondary-key'],
+    ['missing secondary falls back to primary', 'secondary', '', 'test-primary-key'],
+    ['invalid selector uses primary', 'tertiary', 'test-secondary-key', 'test-primary-key'],
+  ])('%s without key rotation', async (_label, selector, secondaryKey, expectedKey) => {
+    vi.stubEnv('YTDLP_API_KEY', '');
+    vi.stubEnv('SUPADATA_API_KEY', 'test-primary-key');
+    vi.stubEnv('SUPADATA_API_KEY_SECONDARY', secondaryKey);
+    if (selector === undefined) {
+      delete process.env.SUPADATA_API_KEY_ACTIVE;
+    } else {
+      vi.stubEnv('SUPADATA_API_KEY_ACTIVE', selector);
+    }
+    fetchMock.mockResolvedValueOnce(response({
+      content: [{ text: 'selected caption', offset: 0, duration: 1_000 }],
+      lang: 'en',
+    }));
+
+    const res = makeRes();
+    await handler(makeReq(), res);
+
+    expect(res.statusCode).toBe(200);
+    expect((fetchMock.mock.calls[0][1]?.headers as Record<string, string>)['x-api-key']).toBe(expectedKey);
+    expect(fetchMock).toHaveBeenCalledTimes(1);
   });
 
   it('omits Supadata lang when no requested language is known', async () => {
