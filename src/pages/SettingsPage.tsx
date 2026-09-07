@@ -197,7 +197,17 @@ const SettingsPage: React.FC<{ onLoginRequest?: () => void }> = ({ onLoginReques
 
   // ── Handle sign out ───────────────────────────────────────
   const handleSignOut = useCallback(async () => {
-    await logOut();
+    try {
+      await logOut();
+    } catch (err) {
+      const text = err instanceof Error && err.message === 'auth/logout-sync-incomplete'
+        ? 'Local study data could not be safely synced. Reconnect and try again.'
+        : err instanceof Error ? err.message : 'Sign out failed. Please try again.';
+      setFbSyncMessage({
+        type: 'error',
+        text,
+      });
+    }
   }, [logOut]);
 
   // ── Check proxy status ────────────────────────────────────

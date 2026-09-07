@@ -8,6 +8,8 @@ const mocks = vi.hoisted(() => ({
   onAuthStateChanged: vi.fn(),
   signOut: vi.fn(),
   syncWithCloud: vi.fn(),
+  hasLocalSyncableData: vi.fn(() => true),
+  isSyncPending: vi.fn(() => false),
   clearSyncMetadata: vi.fn(),
 }));
 
@@ -27,6 +29,8 @@ vi.mock('../../lib/firebase', () => ({ auth: mocks.auth, googleProvider: {} }));
 vi.mock('../../services/firestoreSync', () => ({
   deleteUserData: vi.fn(),
   syncWithCloud: mocks.syncWithCloud,
+  hasLocalSyncableData: mocks.hasLocalSyncableData,
+  isSyncPending: mocks.isSyncPending,
   clearSyncMetadata: mocks.clearSyncMetadata,
 }));
 vi.mock('../../services/analytics', () => ({ trackEvent: vi.fn() }));
@@ -43,6 +47,8 @@ describe('AuthProvider account boundary', () => {
     vi.clearAllMocks();
     localStorage.clear();
     mocks.auth.currentUser = { uid: 'user-a', emailVerified: true, getIdToken: vi.fn().mockResolvedValue('fresh-token') };
+    mocks.hasLocalSyncableData.mockReturnValue(true);
+    mocks.isSyncPending.mockReturnValue(false);
     mocks.signOut.mockImplementation(async () => {
       mocks.auth.currentUser = null;
     });
@@ -80,6 +86,48 @@ describe('AuthProvider account boundary', () => {
     expect(localStorage.getItem('echolearn_vocabulary_tombstones')).toBeNull();
     expect(localStorage.getItem('echolearn_sentence_tombstones')).toBeNull();
     expect(localStorage.getItem('echolearn_session_tombstones')).toBeNull();
+  });
+
+  it.each([
+    { ok: false, error: 'offline' },
+    { ok: true, error: 'sessions: partial failure' },
+  ])('blocks logout when cloud sync is incomplete: $error', async (syncResult) => {
+    mocks.syncWithCloud.mockResolvedValue(syncResult);
+    localStorage.setItem('echolearn_vocabulary', JSON.stringify([{ id: 'a-only' }]));
+    const onError = vi.fn();
+    render(<AuthProvider><LogoutButton onError={onError} /></AuthProvider>);
+    screen.getByRole('button', { name: 'Log out' }).click();
+    await vi.waitFor(() => expect(onError).toHaveBeenCalledWith(expect.objectContaining({ message: 'auth/logout-sync-incomplete' })));
+    expect(mocks.signOut).not.toHaveBeenCalled();
+    expect(mocks.auth.currentUser?.uid).toBe('user-a');
+    expect(localStorage.getItem('echolearn_vocabulary')).not.toBeNull();
+  });
+
+  it('blocks logout when the existing sync-pending marker remains set', async () => {
+    mocks.isSyncPending.mockReturnValue(true);
+    localStorage.setItem('echolearn_vocabulary', JSON.stringify([{ id: 'a-only' }]));
+    const onError = vi.fn();
+    render(<AuthProvider><LogoutButton onError={onError} /></AuthProvider>);
+    screen.getByRole('button', { name: 'Log out' }).click();
+    await vi.waitFor(() => expect(onError).toHaveBeenCalledWith(expect.objectContaining({ message: 'auth/logout-sync-incomplete' })));
+    expect(mocks.signOut).not.toHaveBeenCalled();
+    expect(localStorage.getItem('echolearn_vocabulary')).not.toBeNull();
+  });
+
+  it('skips sync and completes logout when no cloud-syncable local data exists', async () => {
+    mocks.hasLocalSyncableData.mockReturnValue(false);
+    mocks.syncWithCloud.mockRejectedValue(new Error('offline'));
+    localStorage.setItem('echolearn_daily_plan', JSON.stringify([{ id: 'local-only' }]));
+    const onError = vi.fn();
+    render(<AuthProvider><LogoutButton onError={onError} /></AuthProvider>);
+    await vi.waitFor(() => expect(mocks.syncWithCloud).toHaveBeenCalledTimes(1));
+    mocks.syncWithCloud.mockClear();
+    screen.getByRole('button', { name: 'Log out' }).click();
+    await vi.waitFor(() => expect(mocks.signOut).toHaveBeenCalledTimes(1));
+    expect(mocks.syncWithCloud).not.toHaveBeenCalled();
+    expect(onError).not.toHaveBeenCalled();
+    expect(localStorage.getItem('echolearn_daily_plan')).toBeNull();
+    expect(mocks.clearSyncMetadata).toHaveBeenCalledTimes(1);
   });
 
   it('preserves local data and propagates a failed sign-out while auth remains active', async () => {

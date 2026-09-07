@@ -16,7 +16,7 @@ import type { User } from 'firebase/auth';
 import { FirebaseAuthentication } from '@capacitor-firebase/authentication';
 import { auth, googleProvider } from '../lib/firebase';
 import { isCapacitor } from '../utils/platform';
-import { clearSyncMetadata, deleteUserData, syncWithCloud } from '../services/firestoreSync';
+import { clearSyncMetadata, deleteUserData, hasLocalSyncableData, isSyncPending, syncWithCloud } from '../services/firestoreSync';
 import { clearAllLocalData } from '../utils/storage';
 import { trackEvent } from '../services/analytics';
 
@@ -181,6 +181,12 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   }, []);
 
   const logOut = useCallback(async () => {
+    if (hasLocalSyncableData() || isSyncPending()) {
+      const syncResult = await syncWithCloud(auth.currentUser?.uid ?? '');
+      if (!syncResult.ok || syncResult.error || isSyncPending()) {
+        throw new Error('auth/logout-sync-incomplete');
+      }
+    }
     if (isCapacitor()) {
       try { await FirebaseAuthentication.signOut(); } catch { /* ignore */ }
     }

@@ -222,6 +222,17 @@ function collectLocalData(): AllLocalData {
   };
 }
 
+/** True when local data can be protected by the existing cloud sync. */
+export function hasLocalSyncableData(): boolean {
+  const local = collectLocalData();
+  return local.vocabulary.length > 0
+    || local.sentences.length > 0
+    || local.sessions.length > 0
+    || Object.keys(local.vocabularyTombstones).length > 0
+    || Object.keys(local.sentenceTombstones).length > 0
+    || Object.keys(local.sessionTombstones).length > 0;
+}
+
 // ── Firestore-safe helpers ──────────────────────────────────────
 
 /**

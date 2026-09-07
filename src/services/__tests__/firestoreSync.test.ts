@@ -65,6 +65,7 @@ import {
   pushItemsToCloud,
   syncWithCloud,
   clearSyncMetadata,
+  hasLocalSyncableData,
 } from '../firestoreSync';
 
 const item = (id: string, addedAt: number, definitionEn = ''): VocabularyItem => ({
@@ -96,6 +97,9 @@ describe('Firestore lifecycle sync', () => {
     mocks.loadSentences.mockReturnValue([]);
     mocks.loadAllSessions.mockReturnValue([]);
     mocks.loadCurrentSession.mockReturnValue(null);
+    mocks.loadVocabularyTombstones.mockReturnValue({});
+    mocks.loadSentenceTombstones.mockReturnValue({});
+    mocks.loadSessionTombstones.mockReturnValue({});
   });
 
   it('clears account-scoped sync metadata without touching device preferences', () => {
@@ -106,6 +110,15 @@ describe('Firestore lifecycle sync', () => {
     expect(localStorage.getItem('echolearn_firebase_last_sync')).toBeNull();
     expect(localStorage.getItem('echolearn_firebase_sync_pending')).toBeNull();
     expect(localStorage.getItem('echolearn_lang')).toBe('en');
+  });
+
+  it('detects cloud-syncable records and deletion tombstones', () => {
+    expect(hasLocalSyncableData()).toBe(false);
+    mocks.loadVocabulary.mockReturnValue([item('local', 1)]);
+    expect(hasLocalSyncableData()).toBe(true);
+    mocks.loadVocabulary.mockReturnValue([]);
+    mocks.loadVocabularyTombstones.mockReturnValue({ deleted: 2 });
+    expect(hasLocalSyncableData()).toBe(true);
   });
 
   it('unions local/cloud records and dedupes by id with cloud winning timestamp ties', () => {
