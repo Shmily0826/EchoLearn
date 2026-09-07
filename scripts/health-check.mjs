@@ -17,6 +17,7 @@
  */
 
 import { fileURLToPath } from 'node:url';
+import { createPaidProviderGuard, invokePaidProvider, resolvePaidProviderPolicy } from './paid-provider-guard.mjs';
 
 const APP_BASE = 'https://echo-learn.uk';
 const WORKER_BASE = 'https://yt-transcript-proxy.rng2018520.workers.dev';
@@ -32,6 +33,7 @@ const YOUTUBE_CAPTION_CONTROLS = [
     timeoutMs: 45000,
     retries: 0,
     transcript: true,
+    paidProvider: true,
     validate: validateCaptionResponse,
   },
   {
@@ -142,13 +144,19 @@ export function validateCaptionResponse(body) {
   }
 }
 
-export async function runCheck(check) {
+export async function runCheck(check, { paidProviderGuard } = {}) {
+  if (check.paidProvider && !paidProviderGuard) {
+    return { ok: false, reason: 'paid provider blocked: explicit opt-in and max-invocations cap are required' };
+  }
   const attempts = 1 + (check.retries ?? 1);
   let lastReason = 'unknown failure';
   for (let attempt = 1; attempt <= attempts; attempt++) {
     const startedAt = Date.now();
     try {
-      const res = await fetch(check.url, { signal: AbortSignal.timeout(check.timeoutMs ?? 30000) });
+      const fetchImpl = check.paidProvider
+        ? (...args) => invokePaidProvider(paidProviderGuard, fetch, ...args)
+        : fetch;
+      const res = await fetchImpl(check.url, { signal: AbortSignal.timeout(check.timeoutMs ?? 30000) });
       const body = await res.text();
       const elapsed = Date.now() - startedAt;
       if (res.status !== 200) {
@@ -172,6 +180,7 @@ export async function runCheck(check) {
         ...(evidence ?? {}),
       };
     } catch (err) {
+      if (err?.name === 'PaidProviderGuardError') return { ok: false, reason: err.message };
       lastReason = err instanceof Error ? `${err.name}: ${err.message}` : String(err);
     }
   }
@@ -179,9 +188,21 @@ export async function runCheck(check) {
 }
 
 export async function main() {
+let policy;
+try {
+  policy = resolvePaidProviderPolicy();
+} catch (error) {
+  console.log(`CONFIG BLOCKED  ${error instanceof Error ? error.message : String(error)}`);
+  return 1;
+}
+const paidProviderGuard = createPaidProviderGuard(policy);
 let failures = 0;
 for (const check of CHECKS) {
-  const result = await runCheck(check);
+  if (check.paidProvider && !policy.enabled) {
+    console.log(`BLOCKED  ${check.name} (paid provider opt-in/cap not configured)`);
+    continue;
+  }
+  const result = await runCheck(check, { paidProviderGuard });
   if (result.ok) {
     const evidence = result.acquisitionEvidence
       ? ` [cache=${result.cacheState}; acquisition=${result.acquisitionEvidence}]`

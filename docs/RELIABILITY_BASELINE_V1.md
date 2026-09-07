@@ -97,6 +97,12 @@ Never recorded: transcript text, upstream payloads, cookies, tokens, IP, user id
 - No ASR (`allowAsr` never sent), no Generate, no media/audio acquisition.
 - No provider spend beyond what the app's normal caption path already spends
   (Supadata credits ≈ n per L2 success; estimated and reported per window).
+- Engineering runs are paid-provider **OFF by default**. The baseline runner,
+  budget A/B runner, and health monitor skip the Supadata-capable Vercel layer
+  unless `ECHOLEARN_ALLOW_PAID_PROVIDER=1` and an exact numeric
+  `ECHOLEARN_PAID_MAX_INVOCATIONS` cap are both supplied. The cap is enforced
+  before every paid-capable request; malformed or partial configuration fails
+  closed. Worker-only and other no-paid checks remain usable.
 - No fallback/source changes during the window; results feed the *next* decision.
 - The runner is local-only tooling (`scripts/reliability-baseline/`); tests for its
   attribution logic are vitest-mocked — no test touches live endpoints.

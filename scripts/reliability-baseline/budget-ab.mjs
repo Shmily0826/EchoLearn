@@ -18,6 +18,7 @@
 
 import { BASELINE_MATRIX } from './matrix.mjs';
 import { shapeLayerRow, windowVerdict } from './attribution.mjs';
+import { createPaidProviderGuard, resolvePaidProviderPolicy } from '../paid-provider-guard.mjs';
 
 const WORKER_BASE = process.env.BASELINE_WORKER_BASE ?? 'https://yt-transcript-proxy.rng2018520.workers.dev';
 const APP_BASE = process.env.BASELINE_APP_BASE ?? 'https://echo-learn.uk';
@@ -63,8 +64,9 @@ export function summarizeArm(rows) {
   };
 }
 
-export async function runArm(budgetMs, { matrix = BASELINE_MATRIX, fetchImpl = fetch, pauseMs = INTER_CALL_PAUSE_MS, sleepImpl = (ms) => new Promise((resolve) => setTimeout(resolve, ms)), workerBase = WORKER_BASE, appBase = APP_BASE } = {}) {
+export async function runArm(budgetMs, { matrix = BASELINE_MATRIX, fetchImpl = fetch, pauseMs = INTER_CALL_PAUSE_MS, sleepImpl = (ms) => new Promise((resolve) => setTimeout(resolve, ms)), workerBase = WORKER_BASE, appBase = APP_BASE, paidProviderPolicy = resolvePaidProviderPolicy() } = {}) {
   const rows = [];
+  const paidProvider = createPaidProviderGuard(paidProviderPolicy);
   const rawLatency = new Map();
   for (const { videoId } of matrix) {
     const startedAt = Date.now();
@@ -92,12 +94,13 @@ export async function runArm(budgetMs, { matrix = BASELINE_MATRIX, fetchImpl = f
       });
     }
     rows.push(l1);
+    if (!paidProvider.enabled) continue;
     await sleepImpl(pauseMs);
 
     const l2StartedAt = Date.now();
     let l2;
     try {
-      const response = await fetchImpl(`${appBase}/api/transcript?videoId=${encodeURIComponent(videoId)}&lang=en`, { signal: AbortSignal.timeout(L2_TIMEOUT_MS) });
+      const response = await paidProvider.invoke(fetchImpl, `${appBase}/api/transcript?videoId=${encodeURIComponent(videoId)}&lang=en`, { signal: AbortSignal.timeout(L2_TIMEOUT_MS) });
       const latencyMs = Date.now() - l2StartedAt;
       let payload = null;
       try { payload = await response.json(); } catch { payload = null; }
@@ -109,6 +112,7 @@ export async function runArm(budgetMs, { matrix = BASELINE_MATRIX, fetchImpl = f
         cacheState: 'absent', latencyMs, lineCount: response.ok ? lines.length : null,
       });
     } catch (error) {
+      if (error?.name === 'PaidProviderGuardError') throw error;
       l2 = shapeLayerRow({
         videoId, layer: 'L2-vercel',
         typedCode: error?.name === 'TimeoutError' ? 'provider_timeout' : 'network_error',

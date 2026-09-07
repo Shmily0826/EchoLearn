@@ -3,6 +3,8 @@ import assert from 'node:assert/strict';
 import { runArm, summarizeArm } from './budget-ab.mjs';
 import { BASELINE_MATRIX } from './matrix.mjs';
 
+const PAID_PROVIDER_TEST_POLICY = { enabled: true, maxInvocations: 100 };
+
 function workerFailure(payload, status = 504) {
   return {
     ok: false,
@@ -46,6 +48,7 @@ test('runArm is one-shot per layer and always falls back to L2 after L1 failure'
     sleepImpl: async () => {},
     workerBase: 'https://workerBase.test',
     appBase: 'https://appBase.test',
+    paidProviderPolicy: PAID_PROVIDER_TEST_POLICY,
   });
   assert.equal(calls.length, 4); // 2 videos x (L1 + L2), no retries
   assert.equal(rows.filter((row) => row.layer === 'L1-worker').length, 2);
@@ -70,6 +73,7 @@ test('runArm marks client-budget aborts as provider_timeout with real elapsed ti
     sleepImpl: async () => {},
     workerBase: 'https://workerBase.test',
     appBase: 'https://appBase.test',
+    paidProviderPolicy: PAID_PROVIDER_TEST_POLICY,
   });
   assert.equal(rows[0].typedCode, 'provider_timeout');
   assert.ok(rows[0].latencyMs < 3000); // mock aborts instantly; real elapsed recorded, not the budget
@@ -95,6 +99,7 @@ test('runArm records an L1 success without invoking L2 semantics break is not pr
     sleepImpl: async () => {},
     workerBase: 'https://workerBase.test',
     appBase: 'https://appBase.test',
+    paidProviderPolicy: PAID_PROVIDER_TEST_POLICY,
   });
   assert.equal(summary.l1Successes, 1);
   assert.equal(summary.supadataInvocations, 0);

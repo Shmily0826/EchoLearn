@@ -5,11 +5,13 @@
  * Sequential, one-shot per video per layer; ≥3 s inter-call pause; a failed
  * call stays failed for attribution. Live traffic is double-gated: this
  * script must be run with --execute AND BASELINE_ALLOW_LIVE=1, otherwise it
- * only prints the planned call plan (dry run).
+ * only prints the planned call plan (dry run). The paid-capable L2 layer also
+ * requires ECHOLEARN_ALLOW_PAID_PROVIDER=1 and a numeric invocation cap.
  */
 
 import { BASELINE_MATRIX } from './matrix.mjs';
 import { shapeLayerRow, windowVerdict } from './attribution.mjs';
+import { createPaidProviderGuard, resolvePaidProviderPolicy } from '../paid-provider-guard.mjs';
 
 const L1_TIMEOUT_MS = 12000;
 const L2_TIMEOUT_MS = 25000;
@@ -34,6 +36,7 @@ export async function probeEndpoint(baseUrl, videoId, { timeoutMs, layer, pass, 
   try {
     response = await fetchImpl(url, { signal: AbortSignal.timeout(timeoutMs) });
   } catch (error) {
+    if (error?.name === 'PaidProviderGuardError') throw error;
     const latencyMs = Date.now() - startedAt;
     const code = error?.name === 'TimeoutError' ? 'provider_timeout' : 'network_error';
     return shapeLayerRow({ videoId, layer, pass, typedCode: code, cacheState: 'absent', latencyMs, lineCount: null });
@@ -65,11 +68,14 @@ export async function probeEndpoint(baseUrl, videoId, { timeoutMs, layer, pass, 
   });
 }
 
-export function buildCallPlan({ matrix = BASELINE_MATRIX, workerBase = WORKER_BASE, appBase = APP_BASE, cacheVerify = true } = {}) {
+export function buildCallPlan({ matrix = BASELINE_MATRIX, workerBase = WORKER_BASE, appBase = APP_BASE, cacheVerify = true, paidProviderPolicy = resolvePaidProviderPolicy() } = {}) {
   const plan = [];
+  const paidProviderEnabled = paidProviderPolicy.enabled;
   for (const { videoId } of matrix) {
     plan.push({ videoId, layer: 'L1-worker', url: `${workerBase}/api/transcript?videoId=${videoId}&lang=en`, timeoutMs: L1_TIMEOUT_MS, pass: 1 });
-    plan.push({ videoId, layer: 'L2-vercel', url: `${appBase}/api/transcript?videoId=${videoId}&lang=en`, timeoutMs: L2_TIMEOUT_MS, pass: 1 });
+    if (paidProviderEnabled) {
+      plan.push({ videoId, layer: 'L2-vercel', url: `${appBase}/api/transcript?videoId=${videoId}&lang=en`, timeoutMs: L2_TIMEOUT_MS, pass: 1, paidProvider: true });
+    }
     if (cacheVerify) {
       plan.push({ videoId, layer: 'L1-worker', url: `${workerBase}/api/transcript?videoId=${videoId}&lang=en`, timeoutMs: L1_TIMEOUT_MS, pass: 2 });
     }
@@ -77,14 +83,22 @@ export function buildCallPlan({ matrix = BASELINE_MATRIX, workerBase = WORKER_BA
   return plan;
 }
 
-export async function runWindow({ matrix = BASELINE_MATRIX, fetchImpl = fetch, cacheVerify = true, pauseMs = INTER_CALL_PAUSE_MS, hitPauseMs = CACHE_VERIFY_PAUSE_MS, sleepImpl = sleep } = {}) {
+export async function runWindow({ matrix = BASELINE_MATRIX, fetchImpl = fetch, cacheVerify = true, pauseMs = INTER_CALL_PAUSE_MS, hitPauseMs = CACHE_VERIFY_PAUSE_MS, sleepImpl = sleep, paidProviderPolicy = resolvePaidProviderPolicy() } = {}) {
   const rows = [];
+  const paidProvider = createPaidProviderGuard(paidProviderPolicy);
   for (const { videoId } of matrix) {
     const l1 = await probeEndpoint(WORKER_BASE, videoId, { timeoutMs: L1_TIMEOUT_MS, layer: 'L1-worker', pass: 1, fetchImpl });
     rows.push(l1);
-    await sleepImpl(pauseMs);
-    const l2 = await probeEndpoint(APP_BASE, videoId, { timeoutMs: L2_TIMEOUT_MS, layer: 'L2-vercel', pass: 1, fetchImpl });
-    rows.push(l2);
+    if (paidProvider.enabled) {
+      await sleepImpl(pauseMs);
+      const l2 = await probeEndpoint(APP_BASE, videoId, {
+        timeoutMs: L2_TIMEOUT_MS,
+        layer: 'L2-vercel',
+        pass: 1,
+        fetchImpl: (...args) => paidProvider.invoke(fetchImpl, ...args),
+      });
+      rows.push(l2);
+    }
     if (cacheVerify) {
       await sleepImpl(hitPauseMs);
       rows.push(await probeEndpoint(WORKER_BASE, videoId, { timeoutMs: L1_TIMEOUT_MS, layer: 'L1-worker', pass: 2, fetchImpl }));
@@ -100,15 +114,22 @@ const invokedAsScript = process.argv[1]?.endsWith('runner.mjs')
   && import.meta.url === `file://${process.argv[1].replace(/\\/g, '/')}`;
 
 if (invokedAsScript) {
-  const plan = buildCallPlan();
-  console.log(`baseline plan: ${plan.length} calls across ${BASELINE_MATRIX.length} videos`);
-  console.log(`mode: ${isLive ? 'LIVE (double gate open)' : 'DRY RUN (no traffic)'}`);
-  for (const call of plan.slice(0, 4)) console.log(`  ${call.layer} pass=${call.pass} ${call.videoId}`);
-  console.log('  …');
-  if (!isLive) {
-    console.log('dry run: no requests made. To execute: BASELINE_ALLOW_LIVE=1 node runner.mjs --execute');
-  } else {
-    const { rows, verdict } = await runWindow();
-    console.log(JSON.stringify({ verdict, rows }, null, 2));
+  try {
+    const paidProviderPolicy = resolvePaidProviderPolicy();
+    const plan = buildCallPlan({ paidProviderPolicy });
+    console.log(`baseline plan: ${plan.length} calls across ${BASELINE_MATRIX.length} videos`);
+    console.log(`paid provider: ${paidProviderPolicy.enabled ? `ENABLED (cap ${paidProviderPolicy.maxInvocations})` : 'BLOCKED (default)'}`);
+    console.log(`mode: ${isLive ? 'LIVE (double gate open)' : 'DRY RUN (no traffic)'}`);
+    for (const call of plan.slice(0, 4)) console.log(`  ${call.layer} pass=${call.pass} ${call.videoId}`);
+    console.log('  …');
+    if (!isLive) {
+      console.log('dry run: no requests made. To execute Worker-only: BASELINE_ALLOW_LIVE=1 node runner.mjs --execute');
+    } else {
+      const { rows, verdict } = await runWindow({ paidProviderPolicy });
+      console.log(JSON.stringify({ verdict, rows }, null, 2));
+    }
+  } catch (error) {
+    console.error(`baseline blocked: ${error instanceof Error ? error.message : String(error)}`);
+    process.exitCode = 1;
   }
 }

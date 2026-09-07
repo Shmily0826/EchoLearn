@@ -70,7 +70,7 @@ test('windowVerdict counts asr_required against a confirmed positive as a discre
 });
 
 test('buildCallPlan orders L1, L2, cache-verify for every video', () => {
-  const plan = buildCallPlan();
+  const plan = buildCallPlan({ paidProviderPolicy: { enabled: true, maxInvocations: 100 } });
   assert.equal(plan.length, BASELINE_MATRIX.length * 3);
   assert.equal(plan[0].layer, 'L1-worker');
   assert.equal(plan[1].layer, 'L2-vercel');
@@ -121,6 +121,7 @@ test('runWindow is one-shot: a failing endpoint is probed exactly once per pass 
   const { rows, verdict } = await runWindow({
     matrix: BASELINE_MATRIX.slice(0, 2),
     fetchImpl,
+    paidProviderPolicy: { enabled: true, maxInvocations: 10 },
     cacheVerify: true,
     pauseMs: 0,
     hitPauseMs: 0,

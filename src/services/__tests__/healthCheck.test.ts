@@ -8,8 +8,48 @@ import {
   validateCaptionResponse,
 // @ts-expect-error The monitor is plain JavaScript; this import is test-only.
 } from '../../../scripts/health-check.mjs';
+// @ts-expect-error The guard is plain JavaScript; this import is test-only.
+import { createPaidProviderGuard, resolvePaidProviderPolicy } from '../../../scripts/paid-provider-guard.mjs';
 
 describe('caption pipeline health check', () => {
+  it('blocks the paid-capable Vercel check by default before fetch', async () => {
+    const fetchMock = vi.fn();
+    vi.stubGlobal('fetch', fetchMock);
+    try {
+      const result = await runCheck({
+        url: 'https://app.test/api/transcript?videoId=control',
+        paidProvider: true,
+        retries: 0,
+      });
+      expect(result).toEqual({ ok: false, reason: 'paid provider blocked: explicit opt-in and max-invocations cap are required' });
+      expect(fetchMock).not.toHaveBeenCalled();
+    } finally {
+      vi.unstubAllGlobals();
+    }
+  });
+
+  it('uses the explicit paid cap and stops before a second request', async () => {
+    const fetchMock = vi.fn(async () => new Response(JSON.stringify({ error: 'provider_timeout' }), { status: 500 }));
+    vi.stubGlobal('fetch', fetchMock);
+    try {
+      const guard = createPaidProviderGuard(resolvePaidProviderPolicy({
+        ECHOLEARN_ALLOW_PAID_PROVIDER: '1',
+        ECHOLEARN_PAID_MAX_INVOCATIONS: '1',
+      }));
+      const check = {
+        url: 'https://app.test/api/transcript?videoId=control',
+        paidProvider: true,
+        retries: 1,
+        validate: validateCaptionResponse,
+      };
+      const result = await runCheck(check, { paidProviderGuard: guard });
+      expect(result).toEqual({ ok: false, reason: 'paid provider invocation cap exceeded (1)' });
+      expect(fetchMock).toHaveBeenCalledTimes(1);
+    } finally {
+      vi.unstubAllGlobals();
+    }
+  });
+
   it('requires a non-empty transcript lines array', () => {
     expect(validateCaptionResponse(JSON.stringify({ error: 'provider_timeout' }))).toBe('response has no transcript lines');
     expect(validateCaptionResponse(JSON.stringify({ lines: [] }))).toBe('response has no transcript lines');
