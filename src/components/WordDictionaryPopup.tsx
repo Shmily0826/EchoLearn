@@ -60,11 +60,11 @@ function compactPartOfSpeech(pos: string): string {
 }
 
 function groupDefinitions(definitions: NonNullable<DictionaryEntry['definitionsEn']>) {
-  const groups = new Map<string, string[]>();
+  const groups = new Map<string, typeof definitions>();
   for (const item of definitions) {
     const pos = compactPartOfSpeech(item.pos);
     const current = groups.get(pos) ?? [];
-    current.push(item.definition);
+    current.push(item);
     groups.set(pos, current);
   }
   return [...groups.entries()].map(([pos, items]) => ({ pos, items }));
@@ -394,7 +394,12 @@ const WordDictionaryPopup: React.FC<WordDictionaryPopupProps> = ({
                       <ol className="list-decimal list-inside space-y-1.5">
                         {group.items.map((definition, i) => (
                           <li key={`${group.pos}-${i}`} className="text-sm text-gray-700 dark:text-gray-300 leading-relaxed">
-                            {definition}
+                            {definition.definition}
+                            {showChinese && definition.translationStatus === 'fallback-en' && (
+                              <span className="ml-1 text-[10px] text-amber-600 dark:text-amber-400">
+                                （英文原文，翻译失败）
+                              </span>
+                            )}
                           </li>
                         ))}
                       </ol>
@@ -419,6 +424,11 @@ const WordDictionaryPopup: React.FC<WordDictionaryPopupProps> = ({
               entry.definitionEn && (
                 <p className="text-sm text-gray-700 dark:text-gray-300 leading-relaxed">
                   {entry.definitionEn}
+                  {showChinese && entry.definitionTranslationStatus === 'fallback-en' && (
+                    <span className="ml-1 text-[10px] text-amber-600 dark:text-amber-400">
+                      （英文原文，翻译失败）
+                    </span>
+                  )}
                 </p>
               )
             )}

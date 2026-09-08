@@ -1,4 +1,4 @@
-import type { DictionaryEntry } from '../types';
+import type { DictionaryDefinitionTranslationStatus, DictionaryEntry } from '../types';
 import { lemmatize } from '../utils/lemmatizer';
 import { KNOWN_PROPER_NOUNS, isKnownProperNoun } from '../utils/properNouns';
 
@@ -69,7 +69,7 @@ function cleanWord(word: string): string {
 
 interface BackendDefinition {
   display_order: number;
-  definitions_json: { definition: string };
+  definitions_json: { definition: string; translation_status?: DictionaryDefinitionTranslationStatus };
 }
 interface BackendEntry {
   pos: string;
@@ -130,13 +130,21 @@ async function fetchFromBackend(
 
     // Flatten every (POS, definition) the backend returned so the popup can
     // show all common senses (the most common fix for "wrong sense" complaints).
-    const definitionsEn: Array<{ pos: string; definition: string }> = [];
+    const definitionsEn: Array<{
+      pos: string;
+      definition: string;
+      translationStatus?: DictionaryDefinitionTranslationStatus;
+    }> = [];
     for (const entry of raw.entries) {
       if (!entry?.definitions) continue;
       for (const d of entry.definitions) {
         const text = d?.definitions_json?.definition;
         if (typeof text !== 'string' || !text.trim()) continue;
-        definitionsEn.push({ pos: entry.pos || '', definition: text });
+        definitionsEn.push({
+          pos: entry.pos || '',
+          definition: text,
+          translationStatus: d.definitions_json.translation_status,
+        });
       }
     }
 
@@ -150,6 +158,7 @@ async function fetchFromBackend(
       audioUrl: raw.audio_url || '',
       partOfSpeech: firstEntry?.pos || '',
       definitionEn: firstDef,
+      definitionTranslationStatus: firstEntry?.definitions?.[0]?.definitions_json?.translation_status,
       definitionsEn: definitionsEn.length > 0 ? definitionsEn : undefined,
       example: '',
       synonyms: [],

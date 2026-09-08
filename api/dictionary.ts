@@ -28,7 +28,7 @@
 export const config = { runtime: 'edge' };
 
 import { lemmatize } from '../src/utils/lemmatizer';
-import { translateWithGoogle } from './_shared/translate';
+import { translateDictionaryDefinition, type DictionaryTranslationStatus } from './_shared/dictionaryTranslation';
 
 // ── Config ────────────────────────────────────────────────────
 
@@ -126,7 +126,10 @@ interface FreeEntry { word: string; phonetic?: string; phonetics?: FreePhonetic[
 
 interface BackendEntry {
   pos: string;
-  definitions: Array<{ display_order: number; definitions_json: { definition: string } }>;
+  definitions: Array<{
+    display_order: number;
+    definitions_json: { definition: string; translation_status?: DictionaryTranslationStatus };
+  }>;
 }
 interface BackendResponse {
   ipa_uk: string;
@@ -181,20 +184,16 @@ async function buildEntries(tasks: DefTask[], target: string): Promise<BackendEn
 
   const translated = await Promise.all(
     prepared.map(async (t) => {
-      if (!translateNeeded) return t.original;
-      try {
-        return await translateWithGoogle(t.original, 'en', target);
-      } catch {
-        return t.original; // keep English on failure
-      }
+      if (!translateNeeded) return { text: t.original };
+      return translateDictionaryDefinition(t.original, target);
     }),
   );
 
-  const grouped = new Map<string, string[]>();
+  const grouped = new Map<string, Array<{ text: string; status?: DictionaryTranslationStatus }>>();
   for (let i = 0; i < prepared.length; i++) {
     const arr = grouped.get(prepared[i].pos) || [];
     const note = prepared[i].preposition ? collocationNote(prepared[i].preposition!, target) : '';
-    arr.push(translated[i] + note);
+    arr.push({ text: translated[i].text + note, status: translated[i].status });
     grouped.set(prepared[i].pos, arr);
   }
 
@@ -205,7 +204,10 @@ async function buildEntries(tasks: DefTask[], target: string): Promise<BackendEn
       pos,
       definitions: defs.map((definition) => ({
         display_order: order++,
-        definitions_json: { definition },
+        definitions_json: {
+          definition: definition.text,
+          ...(definition.status ? { translation_status: definition.status } : {}),
+        },
       })),
     });
   }
@@ -648,12 +650,10 @@ async function fetchFromDatamuse(word: string, target: string): Promise<BackendR
 
     // Translate every sense in parallel — sequential calls were the main
     // reason the fallback felt sluggish.
-    let texts = prepared.map((t) => t.original);
+    let texts: Array<{ text: string; status?: DictionaryTranslationStatus }> = prepared.map((t) => ({ text: t.original }));
     if (target !== 'en' && target !== 'en-US') {
       texts = await Promise.all(
-        prepared.map((t) =>
-          translateWithGoogle(t.original, 'en', target).catch(() => t.original),
-        ),
+        prepared.map((t) => translateDictionaryDefinition(t.original, target)),
       );
     }
 
@@ -667,7 +667,10 @@ async function fetchFromDatamuse(word: string, target: string): Promise<BackendR
       const note = task.preposition ? collocationNote(task.preposition, target) : '';
       entry.definitions.push({
         display_order: entry.definitions.length,
-        definitions_json: { definition: texts[i] + note },
+        definitions_json: {
+          definition: texts[i].text + note,
+          ...(texts[i].status ? { translation_status: texts[i].status } : {}),
+        },
       });
     });
 

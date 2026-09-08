@@ -158,7 +158,7 @@ export default async function handler(request: Request): Promise<Response> {
     // Fast layer. Any failure → empty string so the client falls back to DeepSeek.
     let translation = '';
     try {
-      translation = await translateWithGoogle(text, source, target);
+      translation = await translateWithGoogle(text, source, target, { operation: 'translate' });
     } catch {
       translation = '';
     }

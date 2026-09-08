@@ -37,6 +37,8 @@ export interface CaptionDiagnostics {
 }
 
 /** Result from a dictionary API lookup */
+export type DictionaryDefinitionTranslationStatus = 'translated' | 'fallback-en';
+
 export interface DictionaryEntry {
   word: string;
   phonetic: string;
@@ -51,7 +53,13 @@ export interface DictionaryEntry {
    *  entry is duplicated as `definitionEn` + `partOfSpeech` for backward
    *  compatibility. When the backend returns a single entry, this array has
    *  length 1 and behaves like the old `definitionEn`. */
-  definitionsEn?: Array<{ pos: string; definition: string }>;
+  definitionsEn?: Array<{
+    pos: string;
+    definition: string;
+    translationStatus?: DictionaryDefinitionTranslationStatus;
+  }>;
+  /** Status of the backward-compatible first-definition field, when known. */
+  definitionTranslationStatus?: DictionaryDefinitionTranslationStatus;
   example: string;
   synonyms: string[];
   antonyms: string[];

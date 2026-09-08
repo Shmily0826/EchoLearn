@@ -454,7 +454,12 @@ const TranscriptViewer: React.FC<TranscriptViewerProps> = ({
                             {d.pos}
                           </span>
                         )}
-                        {d.definition}
+                         {d.definition}
+                         {showChinese && d.translationStatus === 'fallback-en' && (
+                           <span className="ml-1 text-[10px] text-amber-600 dark:text-amber-400">
+                             （英文原文，翻译失败）
+                           </span>
+                         )}
                       </li>
                     ))}
                   </ul>
@@ -462,6 +467,11 @@ const TranscriptViewer: React.FC<TranscriptViewerProps> = ({
                   dictEntry.definitionEn && (
                     <p className="text-sm text-gray-700 dark:text-gray-300 leading-relaxed">
                       {dictEntry.definitionEn}
+                      {showChinese && dictEntry.definitionTranslationStatus === 'fallback-en' && (
+                        <span className="ml-1 text-[10px] text-amber-600 dark:text-amber-400">
+                          （英文原文，翻译失败）
+                        </span>
+                      )}
                     </p>
                   )
                 )}

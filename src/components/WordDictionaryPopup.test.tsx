@@ -84,6 +84,31 @@ describe('WordDictionaryPopup dictionary failures', () => {
     expect(save.compareDocumentPosition(attribution) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
   });
 
+  it('labels English fallback definitions in Chinese mode', async () => {
+    localStorage.setItem('echolearn_lang', 'zh');
+    vi.mocked(lookupWord).mockResolvedValue({
+      word: 'light',
+      phonetic: '',
+      audioUrl: '',
+      partOfSpeech: 'adjective',
+      definitionEn: 'not heavy',
+      definitionTranslationStatus: 'fallback-en',
+      definitionsEn: [{ pos: 'adjective', definition: 'not heavy', translationStatus: 'fallback-en' }],
+      example: '',
+      synonyms: [],
+      antonyms: [],
+      provider: 'Free Dictionary',
+    });
+
+    render(
+      <I18nProvider>
+        <WordDictionaryPopup word="light" x={100} y={100} onClose={vi.fn()} />
+      </I18nProvider>,
+    );
+
+    expect(await screen.findByText('（英文原文，翻译失败）')).toBeTruthy();
+  });
+
   it('skips Chinese translation and AI enrichment in English mode', async () => {
     localStorage.setItem('echolearn_lang', 'en');
     vi.mocked(lookupWord).mockResolvedValue({
@@ -92,6 +117,7 @@ describe('WordDictionaryPopup dictionary failures', () => {
       audioUrl: '',
       partOfSpeech: 'adjective',
       definitionEn: 'not heavy',
+      definitionTranslationStatus: 'fallback-en',
       example: '',
       synonyms: [],
       antonyms: [],
@@ -105,6 +131,7 @@ describe('WordDictionaryPopup dictionary failures', () => {
     );
 
     expect(await screen.findByText('not heavy')).toBeTruthy();
+    expect(screen.queryByText('（英文原文，翻译失败）')).toBeNull();
     expect(translateWordFast).not.toHaveBeenCalled();
     expect(getWordAnalysis).not.toHaveBeenCalled();
   });
