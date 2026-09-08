@@ -86,6 +86,11 @@ const VocabularyPage: React.FC = () => {
   const [backfilling, setBackfilling] = useState(false);
   const [backfillingDefinitions, setBackfillingDefinitions] = useState(false);
   const [backfillDefinitionsError, setBackfillDefinitionsError] = useState<string | null>(null);
+  const [backfillTranslationStatus, setBackfillTranslationStatus] = useState<{
+    kind: 'success' | 'partial' | 'failed';
+    failed: number;
+  } | null>(null);
+  const [translationErrorIds, setTranslationErrorIds] = useState<Set<string>>(new Set());
 
   // Listen for cross-page data changes (e.g., StudyPage saving a word)
   useEffect(() => {
@@ -153,6 +158,7 @@ const VocabularyPage: React.FC = () => {
     const empty = vocabulary.filter((v) => isLocalNoTranslation(v.meaningCn));
     if (empty.length === 0) return;
     setBackfilling(true);
+    setBackfillTranslationStatus(null);
     try {
       const translations = await translateWords(
         empty.map((v) => ({ id: v.id, word: v.word, context: v.context })),
@@ -163,10 +169,17 @@ const VocabularyPage: React.FC = () => {
       }
       setVocabulary(updated);
       triggerCloudSync();
+      const failed = empty.length - Object.keys(translations).length;
+      setBackfillTranslationStatus({
+        kind: failed === 0 ? 'success' : Object.keys(translations).length > 0 ? 'partial' : 'failed',
+        failed,
+      });
+    } catch {
+      setBackfillTranslationStatus({ kind: 'failed', failed: empty.length });
     } finally {
       setBackfilling(false);
     }
-  }, [vocabulary]);
+  }, [vocabulary, triggerCloudSync]);
 
   const handleBackfillDefinitions = useCallback(async () => {
     const missing = vocabulary.filter((item) => isMissingEnglishDefinition(item.definitionEn));
@@ -262,22 +275,57 @@ const VocabularyPage: React.FC = () => {
     // Use the same enrichment path as transcript and AI saves so manually
     // searched words also receive an English definition.
     void enrichVocabularyItem(item).then((patch) => {
-      if (Object.keys(patch).length === 0) return;
-      setVocabulary(updateVocabularyItem(newId, patch));
-      triggerCloudSync();
+      if (Object.keys(patch).length > 0) {
+        setVocabulary(updateVocabularyItem(newId, patch));
+        triggerCloudSync();
+      }
+      const merged = { ...item, ...patch };
+      setTranslationErrorIds((previous) => {
+        const next = new Set(previous);
+        if (isLocalNoTranslation(merged.meaningCn)) next.add(newId);
+        else next.delete(newId);
+        return next;
+      });
+    }).catch(() => {
+      setTranslationErrorIds((previous) => new Set(previous).add(newId));
     });
   }, [vocabulary, triggerCloudSync]);
 
   /** Re-translate a single item whose meaning is empty or the local-no-translation placeholder. */
   const handleTranslateOne = useCallback((item: VocabularyItem) => {
     if (!isLocalNoTranslation(item.meaningCn)) return;
-    translateWord(item.word, item.context).then((meaningCn) => {
-      if (meaningCn) {
-        setVocabulary(updateVocabularyItem(item.id, { meaningCn }));
-        triggerCloudSync();
+    void translateWord(item.word, item.context).then((meaningCn) => {
+      if (!meaningCn) {
+        setTranslationErrorIds((previous) => new Set(previous).add(item.id));
+        return;
       }
-    }).catch(() => { /* silent */ });
+      setVocabulary(updateVocabularyItem(item.id, { meaningCn }));
+      triggerCloudSync();
+      setTranslationErrorIds((previous) => {
+        const next = new Set(previous);
+        next.delete(item.id);
+        return next;
+      });
+    }).catch(() => {
+      setTranslationErrorIds((previous) => new Set(previous).add(item.id));
+    });
   }, [triggerCloudSync]);
+
+  const renderTranslationFeedback = (item: VocabularyItem) => {
+    if (!translationErrorIds.has(item.id)) return null;
+    return (
+      <span role="alert" className="ml-2 text-xs text-red-500">
+        {t('vocab.translationFailed')}{' '}
+        <button
+          type="button"
+          className="underline"
+          onClick={() => handleTranslateOne(item)}
+        >
+          {t('vocab.retry')}
+        </button>
+      </span>
+    );
+  };
 
   /** Toggle the expand/collapse state of a card's example sentence. */
   const toggleContextExpand = useCallback((id: string) => {
@@ -391,6 +439,18 @@ const VocabularyPage: React.FC = () => {
             >
               {backfilling ? t('vocab.translating') : t('vocab.autoTranslate')}
             </button>
+          )}
+          {backfillTranslationStatus && (
+            <p
+              role={backfillTranslationStatus.kind === 'success' ? 'status' : 'alert'}
+              className="w-full text-xs text-amber-700 dark:text-amber-400"
+            >
+              {backfillTranslationStatus.kind === 'success'
+                ? t('vocab.translationComplete')
+                : backfillTranslationStatus.kind === 'partial'
+                  ? t('vocab.translationPartial', { count: backfillTranslationStatus.failed })
+                  : t('vocab.translationFailed')}
+            </p>
           )}
           {vocabulary.some((v) => isMissingEnglishDefinition(v.definitionEn)) && (
             <button
@@ -628,6 +688,7 @@ const VocabularyPage: React.FC = () => {
                   {item.meaningCn}
                 </p>
               )}
+              {renderTranslationFeedback(item)}
 
               {/* Example sentence — prefer a short dictionary example or the single
                   sentence containing the word; keep it to 2 lines by default with an
@@ -814,6 +875,7 @@ const VocabularyPage: React.FC = () => {
                           {item.meaningCn}
                         </span>
                       )}
+                      {renderTranslationFeedback(item)}
                     </td>
                     <td className="px-4 py-2.5 hidden md:table-cell">
                       {(() => {

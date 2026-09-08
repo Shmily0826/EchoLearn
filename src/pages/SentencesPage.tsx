@@ -69,6 +69,10 @@ const SentencesPage: React.FC = () => {
   const [dictPopup, setDictPopup] = useState<DictPopupState | null>(null);
   const [showExport, setShowExport] = useState(false);
   const [backfilling, setBackfilling] = useState(false);
+  const [backfillTranslationStatus, setBackfillTranslationStatus] = useState<{
+    kind: 'success' | 'partial' | 'failed';
+    failed: number;
+  } | null>(null);
   const [translateLang, setTranslateLang] = useState<TranslateLang>(() => getTranslateLang() as TranslateLang);
 
   // Listen for cross-page data changes (e.g., StudyPage saving a sentence)
@@ -158,6 +162,7 @@ const SentencesPage: React.FC = () => {
     const empty = sentences.filter((s) => isLocalNoTranslation(s.meaningCn));
     if (empty.length === 0) return;
     setBackfilling(true);
+    setBackfillTranslationStatus(null);
     try {
       const translations = await translateSentences(
         empty.map((s) => ({ id: s.id, text: s.text })),
@@ -169,6 +174,13 @@ const SentencesPage: React.FC = () => {
       }
       setSentences(updated);
       triggerCloudSync();
+      const failed = empty.length - Object.keys(translations).length;
+      setBackfillTranslationStatus({
+        kind: failed === 0 ? 'success' : Object.keys(translations).length > 0 ? 'partial' : 'failed',
+        failed,
+      });
+    } catch {
+      setBackfillTranslationStatus({ kind: 'failed', failed: empty.length });
     } finally {
       setBackfilling(false);
     }
@@ -249,6 +261,18 @@ const SentencesPage: React.FC = () => {
                 ))}
               </select>
             </div>
+          )}
+          {backfillTranslationStatus && (
+            <p
+              role={backfillTranslationStatus.kind === 'success' ? 'status' : 'alert'}
+              className="w-full text-xs text-amber-700 dark:text-amber-400"
+            >
+              {backfillTranslationStatus.kind === 'success'
+                ? t('sent.translationComplete')
+                : backfillTranslationStatus.kind === 'partial'
+                  ? t('sent.translationPartial', { count: backfillTranslationStatus.failed })
+                  : t('sent.translationFailed')}
+            </p>
           )}
           {/* Export dropdown */}
           <div className="relative">

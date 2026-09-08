@@ -191,7 +191,8 @@ describe('translateWords / translateSentences', () => {
     const body = JSON.parse(String(request?.body));
     const systemPrompt = body.messages[0].content as string;
     const userPrompt = body.messages[1].content as string;
-    expect(systemPrompt).toContain('meaningCn value must be a concise dictionary-style Chinese gloss');
+    expect(systemPrompt).toContain('The gloss must be concise, dictionary-style Chinese');
+    expect(systemPrompt).not.toContain('meaningCn');
     expect(systemPrompt).toContain('short phrase rather than an explanatory sentence');
     expect(systemPrompt).toContain('Do not include the English headword');
     expect(systemPrompt).toContain('bank in');

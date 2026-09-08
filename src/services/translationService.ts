@@ -96,7 +96,7 @@ async function callBatchTranslate(
   const wordGlossRules = kind === 'word' && targetLang === 'zh'
     ? `
 For each vocabulary word, use the supplied context to choose the exact sense.
-The resulting meaningCn value must be a concise dictionary-style Chinese gloss, preferably a short phrase rather than an explanatory sentence.
+The gloss must be concise, dictionary-style Chinese, preferably a short phrase rather than an explanatory sentence.
 Do not include the English headword, pinyin, quotation marks, or any explanatory sentence in the gloss.
 High-signal examples:
 - bank in "She sat on the bank of the river." -> 河岸
