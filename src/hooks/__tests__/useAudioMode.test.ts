@@ -101,10 +101,13 @@ describe('useAudioMode — audio source URLs', () => {
     expect(fetchMock).not.toHaveBeenCalled();
   });
 
-  it('Bilibili keeps extracted audio and a same-origin fallback', () => {
+  it('Bilibili exposes extracted audio and fallback after explicit enable', () => {
     const { result } = setup({ platform: 'bilibili', videoId: 'BV1xx411c7mD' });
-    // Bilibili auto-enables audio mode.
-    expect(result.current.audioMode).toBe(true);
+    expect(result.current.audioMode).toBe(false);
+    expect(result.current.audioSrc).toBeNull();
+    act(() => {
+      result.current.setAudioMode(true);
+    });
     expect(result.current.audioSrc).toBe(
       `${CF_WORKER_URL}/api/audio?url=${encodeURIComponent('https://www.bilibili.com/video/BV1xx411c7mD')}`,
     );
@@ -133,28 +136,32 @@ describe('useAudioMode — preference and platform rules', () => {
     expect(result.current.audioMode).toBe(true);
   });
 
-  it('auto-enables audio mode when the platform switches to bilibili', () => {
-    const { result, rerender } = setup({ platform: 'youtube' });
+  it('keeps Bilibili audio mode off by default without activating a source', () => {
+    const { result } = setup({ platform: 'bilibili', videoId: 'BV1xx411c7mD' });
     expect(result.current.audioMode).toBe(false);
-    act(() => {
-      rerender({ session: null, platform: 'bilibili', videoId: 'BV1xx411c7mD', biliPage: undefined });
-    });
-    expect(result.current.audioMode).toBe(true);
+    expect(result.current.audioSrc).toBeNull();
+    expect(result.current.audioFallbackSrc).toBeNull();
+    expect(fetchMock).not.toHaveBeenCalled();
   });
 });
 
-// ── Pre-warm lifecycle ───────────────────────────────────────
+// ── Explicit acquisition gate ───────────────────────────────
 
-describe('useAudioMode — audio cache pre-warm', () => {
-  beforeEach(() => {
-    vi.useFakeTimers();
+describe('useAudioMode — explicit audio acquisition', () => {
+
+  it('does not request audio when Bilibili video changes while mode is off', () => {
+    const { rerender } = setup({ platform: 'bilibili', videoId: 'BV1xx411c7mD' });
+    rerender({
+      session: makeSession('https://www.bilibili.com/video/BV1yy411c7mD'),
+      platform: 'bilibili',
+      videoId: 'BV1yy411c7mD',
+      biliPage: 2,
+    });
+    expect(fetchMock).not.toHaveBeenCalled();
   });
 
-  it('does not pre-warm YouTube focus mode or normal playback', async () => {
+  it('does not request YouTube audio in focus mode or normal playback', () => {
     setup({ platform: 'youtube' });
-    await act(async () => {
-      await vi.advanceTimersByTimeAsync(30_000);
-    });
     expect(fetchMock).not.toHaveBeenCalled();
   });
 
