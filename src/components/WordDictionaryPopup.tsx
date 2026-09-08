@@ -19,6 +19,12 @@ function speakWord(word: string): void {
   }
 }
 
+export interface WordDictionaryPopupData {
+  word: string;
+  entry: (DictionaryEntry & { lemma?: string }) | null;
+  meaningCn: string;
+}
+
 interface WordDictionaryPopupProps {
   /** The word to look up */
   word: string;
@@ -31,6 +37,8 @@ interface WordDictionaryPopupProps {
   actions?: React.ReactNode;
   /** Optional: called whenever the internally-displayed word changes (e.g. recursive lookup). */
   onWordChange?: (word: string) => void;
+  /** Optional: exposes current lookup data to parent actions such as saving vocabulary. */
+  onDataChange?: (data: WordDictionaryPopupData) => void;
   /** Optional: source video id, used to cache AI enrichment per (word, video). */
   videoId?: string;
   /** Optional: the sentence the word appeared in, used for contextual AI analysis. */
@@ -82,6 +90,7 @@ const WordDictionaryPopup: React.FC<WordDictionaryPopupProps> = ({
   onClose,
   actions,
   onWordChange,
+  onDataChange,
   videoId,
   context,
 }) => {
@@ -125,6 +134,14 @@ const WordDictionaryPopup: React.FC<WordDictionaryPopupProps> = ({
   useEffect(() => {
     onWordChange?.(currentWord);
   }, [currentWord, onWordChange]);
+
+  useEffect(() => {
+    onDataChange?.({
+      word: currentWord,
+      entry,
+      meaningCn: aiAnalysis?.meaningZh || definitionCn,
+    });
+  }, [currentWord, entry, definitionCn, aiAnalysis, onDataChange]);
 
   // Close on outside click
   useEffect(() => {

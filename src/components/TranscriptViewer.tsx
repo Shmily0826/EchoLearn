@@ -1,27 +1,12 @@
 import React, { useState, useRef, useEffect, useCallback } from 'react';
 import { useI18n } from '../i18n/I18nContext';
-import type { TranscriptLine, VocabularyItem, SentenceItem, DictionaryEntry } from '../types';
+import type { TranscriptLine, VocabularyItem, SentenceItem } from '../types';
 import { tomorrowMs } from '../utils/storage';
 import { createItemId, currentTimeMs } from '../utils/id';
 import { lemmatize } from '../utils/lemmatizer';
 import { extractSentence } from '../utils/sentence';
-import { lookupWord, isKnownProperNoun } from '../services/dictionaryService';
-import { translateWordFast } from '../services/translationService';
-import { getWordAnalysis, type WordAnalysis } from '../services/wordAnalysisService';
-
-/** Speak a word using the browser's built-in TTS (free, no network/API key). */
-function speakWord(word: string): void {
-  try {
-    const synth = window.speechSynthesis;
-    const u = new SpeechSynthesisUtterance(word);
-    u.lang = 'en-US';
-    u.rate = 0.9;
-    synth.cancel();
-    synth.speak(u);
-  } catch {
-    /* speech synthesis unavailable */
-  }
-}
+import { lookupWord } from '../services/dictionaryService';
+import WordDictionaryPopup, { type WordDictionaryPopupData } from './WordDictionaryPopup';
 
 interface TranscriptViewerProps {
   lines: TranscriptLine[];
@@ -37,11 +22,10 @@ interface TranscriptViewerProps {
   onSeekTo: (seconds: number) => void;
 }
 
-/** Popup card that appears when clicking a word */
 interface WordPopupState {
   word: string;
   context: string;
-  startTime: number; // transcript line start time for sourceTimestamp
+  startTime: number;
   x: number;
   y: number;
 }
@@ -61,23 +45,12 @@ const TranscriptViewer: React.FC<TranscriptViewerProps> = ({
 }) => {
   const { t, lang } = useI18n();
   const [popup, setPopup] = useState<WordPopupState | null>(null);
-  const [dictEntry, setDictEntry] = useState<(DictionaryEntry & { lemma?: string }) | null>(null);
-  const [dictLoading, setDictLoading] = useState(false);
-  const [dictError, setDictError] = useState<'not-found' | 'request' | null>(null);
-  const [translation, setTranslation] = useState('');
-  const [translationLoading, setTranslationLoading] = useState(false);
-  // AI enrichment (bilingual example + contextual analysis), zh mode only.
-  const [aiAnalysis, setAiAnalysis] = useState<WordAnalysis | null>(null);
-  const [aiLoading, setAiLoading] = useState(false);
-
-  const showChinese = lang === 'zh';
-
-  const popupRef = useRef<HTMLDivElement>(null);
+  const [dictionaryData, setDictionaryData] = useState<WordDictionaryPopupData | null>(null);
   const activeLineRef = useRef<HTMLDivElement>(null);
   const userScrolledRef = useRef(false);
   const scrollTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const showChinese = lang === 'zh';
 
-  // Track user manual scrolling — pause auto-scroll for 3 seconds
   const handleUserScroll = useCallback(() => {
     userScrolledRef.current = true;
     if (scrollTimerRef.current) clearTimeout(scrollTimerRef.current);
@@ -86,7 +59,6 @@ const TranscriptViewer: React.FC<TranscriptViewerProps> = ({
     }, 3000);
   }, []);
 
-  // Attach scroll listener to the nearest scrollable ancestor
   useEffect(() => {
     const lineEl = activeLineRef.current;
     if (!lineEl) return;
@@ -96,26 +68,6 @@ const TranscriptViewer: React.FC<TranscriptViewerProps> = ({
     return () => container.removeEventListener('scroll', handleUserScroll);
   }, [handleUserScroll, lines]);
 
-  // Close popup when clicking outside
-  useEffect(() => {
-    const handleClickOutside = (e: MouseEvent | TouchEvent) => {
-      if (popupRef.current && !popupRef.current.contains(e.target as Node)) {
-        setPopup(null);
-      }
-    };
-    if (popup) {
-      document.addEventListener('mousedown', handleClickOutside);
-      document.addEventListener('touchstart', handleClickOutside);
-    }
-    return () => {
-      document.removeEventListener('mousedown', handleClickOutside);
-      document.removeEventListener('touchstart', handleClickOutside);
-    };
-  }, [popup]);
-
-  // Auto-scroll to the active line using container-relative positioning
-  // (avoids scrollIntoView which can scroll the entire page). Anchor slightly
-  // above centre so controls stay visible while reading ahead.
   useEffect(() => {
     if (activeLineIndex < 0 || !activeLineRef.current || userScrolledRef.current) return;
     const el = activeLineRef.current;
@@ -131,89 +83,6 @@ const TranscriptViewer: React.FC<TranscriptViewerProps> = ({
     container.scrollTo({ top: Math.max(0, targetScroll), behavior: 'smooth' });
   }, [activeLineIndex]);
 
-  // Trigger dictionary lookup when popup opens (English definition is useful
-  // in both language modes, so this always runs).
-  useEffect(() => {
-    if (!popup) return;
-    // The popup input changed; clear the previous request's result before
-    // starting the replacement request so stale definitions never flash.
-    // eslint-disable-next-line react-hooks/set-state-in-effect
-    setDictEntry(null);
-    setDictLoading(true);
-    setDictError(null);
-
-    let cancelled = false;
-    // Pass the page language as the translation target so English mode asks the
-    // API for English definitions (fast, no server translation) and Chinese mode
-    // asks for Chinese. Previously hardcoded to zh-CN, so the popup always
-    // showed Chinese definitions even after switching to English.
-    lookupWord(popup.word, showChinese ? 'zh-CN' : 'en').then((entry) => {
-      if (cancelled) return;
-      if (entry) {
-        setDictEntry(entry);
-        // One-line Chinese gloss via the keyless Google gtx proxy. The
-        // noDeepSeekFallback option means a slow/empty Google response can
-        // never stall the popup the way DeepSeek (~3s) used to. The defs
-        // already show instantly from the backend response.
-        if (showChinese) {
-          setTranslationLoading(true);
-          translateWordFast(popup.word, 'zh', 'en', { noDeepSeekFallback: true })
-            .then((result) => {
-              if (cancelled) return;
-              setTranslation(result);
-              setTranslationLoading(false);
-            })
-            .catch(() => setTranslationLoading(false));
-        }
-      } else {
-        setDictError('not-found');
-      }
-      setDictLoading(false);
-    }).catch(() => {
-      if (cancelled) return;
-      setDictError('request');
-      setDictLoading(false);
-    });
-
-    return () => { cancelled = true; };
-  }, [popup, showChinese]);
-
-  // Fast translation layer for the inline popup (Chinese mode only).
-  // The headword gloss now comes from the dictionary response (server-translated,
-  // same round-trip), so a separate translate call is only a Google-only fallback.
-  useEffect(() => {
-    if (!popup) return;
-    // eslint-disable-next-line react-hooks/set-state-in-effect
-    setTranslation('');
-    setTranslationLoading(false);
-  }, [popup, showChinese]);
-
-  // Fetch AI enrichment (bilingual example + contextual 语境分析) for the
-  // clicked word. Chinese mode only — English study mode skips the call.
-  // Keyed by (word, videoId) in IndexedDB by the service, so repeats are free.
-  useEffect(() => {
-    if (!popup) return;
-    if (!showChinese) {
-      // eslint-disable-next-line react-hooks/set-state-in-effect
-      setAiAnalysis(null);
-      setAiLoading(false);
-      return;
-    }
-    let cancelled = false;
-    setAiLoading(true);
-    setAiAnalysis(null);
-    getWordAnalysis(popup.word, { videoId, context: popup.context, lang })
-      .then((res) => {
-        if (cancelled) return;
-        setAiAnalysis(res);
-        setAiLoading(false);
-      })
-      .catch(() => {
-        if (!cancelled) setAiLoading(false);
-      });
-    return () => { cancelled = true; };
-  }, [popup, showChinese, videoId, lang]);
-
   const handleWordClick = (
     word: string,
     context: string,
@@ -222,6 +91,7 @@ const TranscriptViewer: React.FC<TranscriptViewerProps> = ({
   ) => {
     e.stopPropagation();
     const rect = (e.target as HTMLElement).getBoundingClientRect();
+    setDictionaryData(null);
     setPopup({
       word,
       context,
@@ -233,12 +103,9 @@ const TranscriptViewer: React.FC<TranscriptViewerProps> = ({
 
   const handleAddWord = async () => {
     if (!popup) return;
-    const lemma = lemmatize(popup.word);
-    // dictEntry is language-specific: in Chinese mode it is a zh-CN entry, whose
-    // `definitionEn` field holds Chinese. Reuse it as the English source only in
-    // English mode; otherwise fetch the en entry so definitionEn/phonetic/audio
-    // stay English regardless of UI language (prevents Chinese leaking into EN mode).
-    let enDict = !showChinese ? dictEntry : null;
+    const word = dictionaryData?.word || popup.word;
+    const lemma = lemmatize(word);
+    let enDict = !showChinese ? dictionaryData?.entry : null;
     if (!enDict) {
       try {
         enDict = await lookupWord(lemma, 'en');
@@ -250,7 +117,7 @@ const TranscriptViewer: React.FC<TranscriptViewerProps> = ({
       id: createItemId('vocab'),
       word: lemma,
       lemma,
-      meaningCn: aiAnalysis?.meaningZh || translation || '',
+      meaningCn: dictionaryData?.meaningCn || '',
       context: extractSentence(popup.context, lemma),
       fullContext: popup.context,
       sourceVideoId: videoId,
@@ -261,7 +128,6 @@ const TranscriptViewer: React.FC<TranscriptViewerProps> = ({
       reviewCount: 0,
       lastReviewedAt: 0,
       nextReviewAt: tomorrowMs(),
-      // Merge dictionary data
       phonetic: enDict?.phonetic || '',
       audioUrl: enDict?.audioUrl || '',
       partOfSpeech: enDict?.partOfSpeech || '',
@@ -273,21 +139,7 @@ const TranscriptViewer: React.FC<TranscriptViewerProps> = ({
     };
     onAddVocabulary(item);
     setPopup(null);
-  };
-
-  const handlePlayAudio = (e: React.MouseEvent) => {
-    e.stopPropagation();
-    const word = popup?.word;
-    if (!word) return;
-    // Prefer the source recording when Free Dictionary provides one,
-    // otherwise fall back to the browser's built-in TTS (always available,
-    // no network) so pronunciation always works.
-    if (dictEntry?.audioUrl) {
-      const audio = new Audio(dictEntry.audioUrl);
-      audio.play().catch(() => { speakWord(word); });
-    } else {
-      speakWord(word);
-    }
+    setDictionaryData(null);
   };
 
   const handleAddSentence = (line: TranscriptLine) => {
@@ -308,271 +160,23 @@ const TranscriptViewer: React.FC<TranscriptViewerProps> = ({
     onAddSentence(item);
   };
 
-  const handleTimestampClick = (line: TranscriptLine, e: React.MouseEvent) => {
-    e.stopPropagation();
-    onSeekTo(line.start);
-  };
-
-  const handleLineClick = (line: TranscriptLine) => {
-    onSeekTo(line.start);
-  };
-
   const isWordSaved = (word: string) => savedWords.has(lemmatize(word).toLowerCase());
   const isSentenceSaved = (text: string) => savedSentences.has(text);
-
-  /** Strip punctuation from a word for display but keep it for reference */
-  const splitIntoWords = (text: string) => {
-    return text.match(/[\w']+|[^\w\s]+|\s+/g) || [];
-  };
-
-  // ── Determine popup flip direction ──────────────────────────
-  const shouldFlip = popup ? popup.y < 280 : false;
+  const splitIntoWords = (text: string) => text.match(/[\w']+|[^\w\s]+|\s+/g) || [];
 
   return (
     <div className="relative">
-      {/* Word popup */}
       {popup && (
-        <div
-          ref={popupRef}
-          className={`fixed z-50 transform -translate-x-1/2 ${
-            shouldFlip ? '' : '-translate-y-full'
-          }`}
-          style={{ left: Math.min(Math.max(popup.x, 170), window.innerWidth - 170), top: shouldFlip ? popup.y + 24 : popup.y }}
-        >
-          <div className="bg-white dark:bg-slate-800 rounded-xl shadow-xl border border-gray-200 dark:border-slate-700 p-4 min-w-[260px] max-w-[min(340px,90vw)] max-h-[70vh] overflow-y-auto">
-            {/* Close button — visible on mobile for easy dismissal */}
-            <button
-              onClick={() => setPopup(null)}
-              className="md:hidden absolute top-2 right-2 p-1.5 rounded-full hover:bg-gray-100 dark:hover:bg-slate-700 text-gray-400 hover:text-gray-600 transition-colors cursor-pointer"
-            >
-              <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
-                <path strokeLinecap="round" strokeLinejoin="round" d="M6 18L18 6M6 6l12 12" />
-              </svg>
-            </button>
-            {/* Word + phonetic + base-form */}
-            <div className="flex items-center gap-2 mb-1">
-              <span className="text-lg font-bold text-gray-800 dark:text-gray-200">
-                {popup.word}
-              </span>
-              {dictEntry?.lemma && (
-                <span
-                  className="text-xs font-normal text-gray-400 dark:text-gray-500"
-                  title="Base form (lemma)"
-                >
-                  ← {dictEntry.lemma}
-                </span>
-              )}
-              {/* Real UK/US split when the source provides both (Merriam-Webster),
-                  otherwise a single IPA. */}
-              {dictEntry?.phoneticUk &&
-              dictEntry?.phoneticUs &&
-              dictEntry.phoneticUk !== dictEntry.phoneticUs ? (
-                <span className="flex items-center gap-1.5 text-sm text-gray-400 dark:text-gray-500 font-mono">
-                  <span>
-                    <span className="text-[10px] mr-0.5 opacity-70">UK</span>/{dictEntry.phoneticUk}/
-                  </span>
-                  <span>
-                    <span className="text-[10px] mr-0.5 opacity-70">US</span>/{dictEntry.phoneticUs}/
-                  </span>
-                </span>
-              ) : (
-                dictEntry?.phonetic && (
-                  <span className="text-sm text-gray-400 dark:text-gray-500 font-mono">
-                    <span className="text-[10px] mr-0.5 opacity-70">IPA</span>
-                    {dictEntry.phonetic}
-                  </span>
-                )
-              )}
-              <button
-                onClick={handlePlayAudio}
-                title="Play pronunciation (TTS)"
-                className="p-1.5 text-indigo-600 hover:text-indigo-800 bg-indigo-50/70 hover:bg-indigo-100 rounded-full transition-colors cursor-pointer"
-                aria-label="Play pronunciation"
-              >
-                <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
-                  <path strokeLinecap="round" strokeLinejoin="round" d="M15.536 8.464a5 5 0 010 7.072m2.828-9.9a9 9 0 010 12.728M5.586 15H4a1 1 0 01-1-1v-4a1 1 0 011-1h1.586l4.707-4.707C10.923 3.663 12 4.109 12 5v14c0 .891-1.077 1.337-1.707.707L5.586 15z" />
-                </svg>
-              </button>
-            </div>
-
-            {/* Translation (Chinese) — primary fast layer for zh mode */}
-            {showChinese && translationLoading && (
-              <div className="flex items-center gap-2 py-1 mb-2 text-xs text-gray-400">
-                <svg className="animate-spin w-3.5 h-3.5" fill="none" viewBox="0 0 24 24">
-                  <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
-                  <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z" />
-                </svg>
-                Translating…
-              </div>
-            )}
-            {showChinese && translation && (
-              <p className="text-base font-semibold text-gray-900 dark:text-gray-100 leading-relaxed mb-2">
-                {translation}
-              </p>
-            )}
-
-            {/* Part of speech — hidden when the list below already labels each row */}
-            {dictEntry?.partOfSpeech &&
-              !(dictEntry.definitionsEn && dictEntry.definitionsEn.length > 0) && (
-                <span className="inline-block text-[11px] px-2 py-0.5 bg-indigo-50 dark:bg-indigo-950 text-indigo-600 rounded-full font-medium mb-2">
-                  {dictEntry.partOfSpeech}
-                </span>
-              )}
-
-            {/* Loading state */}
-            {dictLoading && (
-              <div className="flex items-center gap-2 py-2 text-xs text-gray-400">
-                <svg className="animate-spin w-3.5 h-3.5" fill="none" viewBox="0 0 24 24">
-                  <circle
-                    className="opacity-25"
-                    cx="12" cy="12" r="10"
-                    stroke="currentColor"
-                    strokeWidth="4"
-                  />
-                  <path
-                    className="opacity-75"
-                    fill="currentColor"
-                    d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z"
-                  />
-                </svg>
-                Looking up...
-              </div>
-            )}
-
-            {/* Dictionary result */}
-            {dictEntry && !dictLoading && (
-              <div className="mb-3">
-                {dictEntry.definitionsEn && dictEntry.definitionsEn.length > 0 ? (
-                  <ul className="space-y-1.5">
-                    {dictEntry.definitionsEn.map((d, i) => (
-                      <li
-                        key={i}
-                        className="text-sm text-gray-700 dark:text-gray-300 leading-relaxed"
-                      >
-                        {d.pos && (
-                          <span className="inline-block text-[10px] px-1.5 py-0.5 mr-1.5 align-middle bg-indigo-50 dark:bg-indigo-950 text-indigo-600 dark:text-indigo-400 rounded font-medium">
-                            {d.pos}
-                          </span>
-                        )}
-                         {d.definition}
-                         {showChinese && d.translationStatus === 'fallback-en' && (
-                           <span className="ml-1 text-[10px] text-amber-600 dark:text-amber-400">
-                             （英文原文，翻译失败）
-                           </span>
-                         )}
-                      </li>
-                    ))}
-                  </ul>
-                ) : (
-                  dictEntry.definitionEn && (
-                    <p className="text-sm text-gray-700 dark:text-gray-300 leading-relaxed">
-                      {dictEntry.definitionEn}
-                      {showChinese && dictEntry.definitionTranslationStatus === 'fallback-en' && (
-                        <span className="ml-1 text-[10px] text-amber-600 dark:text-amber-400">
-                          （英文原文，翻译失败）
-                        </span>
-                      )}
-                    </p>
-                  )
-                )}
-                {dictEntry.example && (
-                  <p className="text-xs text-gray-400 dark:text-gray-500 mt-1.5 italic leading-relaxed">
-                    &ldquo;{dictEntry.example}&rdquo;
-                  </p>
-                )}
-                {dictEntry.synonyms.length > 0 && (
-                  <div className="mt-2 flex items-start gap-1 flex-wrap">
-                    <span className="text-[10px] text-gray-400 dark:text-gray-500 font-medium mt-px">syn:</span>
-                    {dictEntry.synonyms.slice(0, 5).map((s) => (
-                      <span
-                        key={s}
-                        className="text-[10px] px-1.5 py-0.5 bg-gray-100 dark:bg-slate-700 text-gray-600 dark:text-gray-400 rounded"
-                      >
-                        {s}
-                      </span>
-                    ))}
-                  </div>
-                )}
-                {dictEntry.antonyms.length > 0 && (
-                  <div className="mt-1 flex items-start gap-1 flex-wrap">
-                    <span className="text-[10px] text-gray-400 dark:text-gray-500 font-medium mt-px">ant:</span>
-                    {dictEntry.antonyms.slice(0, 5).map((s) => (
-                      <span
-                        key={s}
-                        className="text-[10px] px-1.5 py-0.5 bg-gray-100 dark:bg-slate-700 text-gray-600 dark:text-gray-400 rounded"
-                      >
-                        {s}
-                      </span>
-                    ))}
-                  </div>
-                )}
-                {/* Attribution — required by the Merriam-Webster free tier. */}
-                {dictEntry.provider === 'Merriam-Webster' && (
-                  <a
-                    href="https://www.learnersdictionary.com"
-                    target="_blank"
-                    rel="noopener noreferrer"
-                    onClick={(e) => e.stopPropagation()}
-                    className="block mt-2 text-[10px] text-gray-400 dark:text-gray-500 hover:text-indigo-500 transition-colors"
-                  >
-                    Powered by Merriam-Webster Learner&apos;s Dictionary
-                  </a>
-                )}
-              </div>
-            )}
-
-            {/* AI enrichment: bilingual example + 语境分析 (zh mode only).
-                Kept compact: no separate AI meaning line (the Google/translation line
-                above already gives the Chinese gloss), just example + context note. */}
-            {showChinese && (aiLoading || aiAnalysis) && (
-              <div className="mb-2 border-t border-gray-100 dark:border-slate-700 pt-1.5 mt-1">
-                {aiLoading && !aiAnalysis && (
-                  <div className="flex items-center gap-2 py-0.5 text-xs text-gray-400">
-                    <svg className="animate-spin w-3.5 h-3.5" fill="none" viewBox="0 0 24 24">
-                      <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
-                      <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z" />
-                    </svg>
-                    {t('wordCard.aiLoading')}
-                  </div>
-                )}
-                {aiAnalysis?.exampleEn && (
-                  <div className="mb-1">
-                    <div className="text-[10px] font-medium text-indigo-500">{t('wordCard.bilingualExample')}</div>
-                    <p className="text-xs text-gray-700 dark:text-gray-300 leading-relaxed">{aiAnalysis.exampleEn}</p>
-                    {aiAnalysis.exampleZh && (
-                      <p className="text-[11px] text-gray-400 dark:text-gray-500 leading-relaxed">{aiAnalysis.exampleZh}</p>
-                    )}
-                  </div>
-                )}
-                {aiAnalysis?.analysis && (
-                  <div>
-                    <div className="text-[10px] font-medium text-indigo-500">{t('wordCard.aiAnalysis')}</div>
-                    <p className="text-[11px] text-gray-500 dark:text-gray-400 leading-relaxed">{aiAnalysis.analysis}</p>
-                  </div>
-                )}
-              </div>
-            )}
-
-            {/* Error / not found state (muted — translation above covers most words) */}
-            {dictError && !dictLoading && (
-              <p className="text-xs text-gray-400 mb-3">
-                {dictError === 'request'
-                  ? t('wordCard.lookupError')
-                  : showChinese && translation
-                  ? 'No offline dictionary definition, but the translation above is shown.'
-                  : isKnownProperNoun(popup.word)
-                    ? 'No dictionary entry — this looks like a name, brand, or abbreviation. You can still save it manually.'
-                    : 'Dictionary entry not found. You can still save this word manually.'}
-              </p>
-            )}
-
-            {/* Context */}
-            <p className="text-[11px] text-gray-400 dark:text-gray-500 mb-3 line-clamp-2 leading-relaxed">
-              &ldquo;{popup.context}&rdquo;
-            </p>
-
-            {/* Action button */}
-            {isWordSaved(popup.word) ? (
+        <WordDictionaryPopup
+          word={popup.word}
+          x={popup.x}
+          y={popup.y}
+          context={popup.context}
+          videoId={videoId}
+          onClose={() => { setPopup(null); setDictionaryData(null); }}
+          onDataChange={setDictionaryData}
+          actions={
+            isWordSaved(dictionaryData?.word || popup.word) ? (
               <span className="text-xs text-amber-600 dark:text-amber-400 font-medium">
                 {t('transcript.wordSaved')}
               </span>
@@ -584,20 +188,16 @@ const TranscriptViewer: React.FC<TranscriptViewerProps> = ({
               >
                 {t('transcript.addWord')}
               </button>
-            )}
-          </div>
-        </div>
+            )
+          }
+        />
       )}
 
-      {/* Transcript lines */}
       <div className="space-y-2">
         {lines.map((line, idx) => {
           const isActive = idx === activeLineIndex;
           const sentenceSaved = isSentenceSaved(line.text);
-
-          // Build className based on state
-          let lineClass =
-            'group rounded-lg px-3 py-2.5 transition-colors border cursor-pointer';
+          let lineClass = 'group rounded-lg px-3 py-2.5 transition-colors border cursor-pointer';
           if (isActive) {
             lineClass += ' bg-indigo-50 dark:bg-indigo-950 border-l-[3px] border-l-indigo-500 border-t-indigo-200 border-r-indigo-200 border-b-indigo-200 shadow-sm';
           } else if (sentenceSaved) {
@@ -612,33 +212,21 @@ const TranscriptViewer: React.FC<TranscriptViewerProps> = ({
               ref={isActive ? activeLineRef : undefined}
               data-transcript-line={idx}
               className={lineClass}
-              onClick={() => handleLineClick(line)}
+              onClick={() => onSeekTo(line.start)}
             >
               <div className="flex items-start gap-2">
-                {/* Main content: timestamp + words */}
                 <div className="flex-1 min-w-0">
-                  {/* Timestamp */}
                   <span
                     className="text-[11px] font-mono mr-2 select-none cursor-pointer hover:text-indigo-600 transition-colors py-1 md:py-0"
                     style={{ color: isActive ? '#6366f1' : undefined }}
-                    onClick={(e) => handleTimestampClick(line, e)}
+                    onClick={(e) => { e.stopPropagation(); onSeekTo(line.start); }}
                   >
                     {formatTime(line.start)}
                   </span>
-
-                  {/* Words */}
                   <span className="text-[15px] leading-relaxed">
                     {splitIntoWords(line.text).map((token, i) => {
-                      // Skip whitespace tokens
                       if (/^\s+$/.test(token)) return <span key={i}>{token}</span>;
-                      // Punctuation tokens
-                      if (/^[^\w']+$/.test(token))
-                        return (
-                          <span key={i} className="text-gray-400">
-                            {token}
-                          </span>
-                        );
-                      // Actual word
+                      if (/^[^\w']+$/.test(token)) return <span key={i} className="text-gray-400">{token}</span>;
                       const saved = isWordSaved(token.toLowerCase());
                       return (
                         <span
@@ -660,8 +248,6 @@ const TranscriptViewer: React.FC<TranscriptViewerProps> = ({
                     })}
                   </span>
                 </div>
-
-                {/* Bookmark button — toggle save / unsave sentence */}
                 <button
                   id="tour-transcript-save-sentence"
                   onClick={(e) => {
