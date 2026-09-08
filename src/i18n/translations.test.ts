@@ -21,3 +21,11 @@ describe('guest capability copy', () => {
     expect(t('study.loginRequired', 'zh')).toBe('登录后可使用 AI 分析。');
   });
 });
+
+describe('Study transport copy', () => {
+  it('distinguishes YouTube focus mode from extracted Bilibili audio mode', () => {
+    expect(t('study.youtubeFocusMode', 'en')).toBe('Focus / listening mode');
+    expect(t('study.youtubeFocusModeHint', 'en')).toContain('YouTube player visible');
+    expect(t('study.audioMode', 'en')).toBe('Audio mode');
+  });
+});

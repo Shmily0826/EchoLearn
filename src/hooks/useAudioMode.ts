@@ -11,13 +11,11 @@ import type { VideoPlatform, VideoStudySession } from '../types';
  *   - the Bilibili platform rule (native extracted audio is the only
  *     dependable transport there, so audio mode auto-enables)
  *   - the derived canonical watch URL (`videoUrl`) the audio endpoints need
- *   - the primary (CF Worker) audio URL and the same-origin Bilibili fallback
- *   - the audio cache pre-warm loop with backoff (aborts when the video
- *     changes or the user enters audio mode)
+ *   - the extracted-audio URLs and cache pre-warm loop for Bilibili
  *
- * The VPS is never contacted directly from the browser: the primary path
- * goes through the CF Worker (which holds the key) and the fallback through
- * the same-origin `/api/bilibili` proxy.
+ * YouTube keeps its official iframe/player transport in all modes. Bilibili
+ * uses extracted native audio because its iframe does not expose a reliable
+ * playback clock or control API.
  */
 export function useAudioMode({
   session,
@@ -30,8 +28,8 @@ export function useAudioMode({
   videoId: string | null;
   biliPage?: number;
 }) {
-  // Audio mode — global preference: play only the extracted audio (no video),
-  // transcript still scrolls in sync via the same PlayerHandle contract.
+  // Audio mode — persisted presentation preference. YouTube keeps its visible
+  // official player; Bilibili uses extracted audio for reliable sync.
   const [audioMode, setAudioMode] = useState<boolean>(
     () => localStorage.getItem('echolearn_audio_mode') === '1',
   );
@@ -74,23 +72,16 @@ export function useAudioMode({
     return `https://www.youtube.com/watch?v=${videoId}`;
   }, [session, platform, videoId, biliPage]);
 
-  // Audio stream URL (CF Worker → VPS yt-dlp /api/audio). Only meaningful in
-  // audio mode, but cheap to compute whenever a video is loaded.
+  // Extracted audio is only used for Bilibili. YouTube stays on YouTubeEmbed.
   const audioSrc = useMemo(() => {
-    if (!audioMode || !videoId) return null;
+    if (platform !== 'bilibili' || !audioMode || !videoId) return null;
     return `${CF_WORKER_URL}/api/audio?url=${encodeURIComponent(videoUrl)}`;
-  }, [audioMode, videoId, videoUrl]);
+  }, [audioMode, platform, videoId, videoUrl]);
 
-  // Fallback used if the primary Worker audio call hangs. The VPS now requires
-  // an API key that can't ship in the browser, so the fallback also goes
-  // through the Worker (which holds the key) rather than the VPS directly —
-  // except on Bilibili, which has the same-origin Vercel proxy instead.
+  // Bilibili fallback stays same-origin; YouTube has no extracted-audio path.
   const audioFallbackSrc = useMemo(() => {
-    if (!audioMode || !videoUrl) return null;
-    if (platform === 'bilibili') {
-      return `/api/bilibili?audio=1&url=${encodeURIComponent(videoUrl)}`;
-    }
-    return `${CF_WORKER_URL}/api/audio?url=${encodeURIComponent(videoUrl)}`;
+    if (platform !== 'bilibili' || !audioMode || !videoUrl) return null;
+    return `/api/bilibili?audio=1&url=${encodeURIComponent(videoUrl)}`;
   }, [audioMode, platform, videoUrl]);
 
   // ── Pre-warm audio cache (with auto-retry) ─────────────────
@@ -106,7 +97,7 @@ export function useAudioMode({
   // Retries abort if the video changes or the user enters audio mode (the
   // AudioPlayer then drives the single extraction itself).
   useEffect(() => {
-    if (!videoId || !videoUrl || audioMode) return;
+    if (platform !== 'bilibili' || !videoId || !videoUrl || audioMode) return;
     const controller = new AbortController();
     const audioUrl = `${CF_WORKER_URL}/api/audio?url=${encodeURIComponent(videoUrl)}`;
     const MAX_ATTEMPTS = 5;
@@ -144,7 +135,7 @@ export function useAudioMode({
       cancelled = true;
       controller.abort();
     };
-  }, [videoId, videoUrl, audioMode]);
+  }, [videoId, videoUrl, audioMode, platform]);
 
   return { audioMode, setAudioMode, videoUrl, audioSrc, audioFallbackSrc };
 }

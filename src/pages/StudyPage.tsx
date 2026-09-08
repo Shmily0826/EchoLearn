@@ -133,8 +133,8 @@ const StudyPage: React.FC = () => {
   const [biliPage, setBiliPage] = useState<number | undefined>(undefined);
   const [biliParts, setBiliParts] = useState<BiliPart[] | undefined>(undefined);
 
-  // Audio mode — extracted audio transport + canonical URL derivation + cache
-  // pre-warm live in useAudioMode (platform rule: Bilibili auto-enables).
+  // YouTube keeps its official visible player in Focus mode. Bilibili uses
+  // extracted audio because its iframe cannot provide reliable sync control.
   const { audioMode, setAudioMode, audioSrc, audioFallbackSrc } =
     useAudioMode({ session, platform, videoId, biliPage });
 
@@ -1196,10 +1196,10 @@ const StudyPage: React.FC = () => {
                   <button
                     type="button"
                     onClick={() => {
-                      // Stop the extracted transport before unmounting it.
+                      // Stop Bilibili's extracted transport before unmounting it.
                       // Bilibili's native iframe is cross-origin and cannot
                       // report its pause state back to the transcript clock.
-                      if (audioMode) playerRef.current?.pauseVideo();
+                      if (audioMode && platform === 'bilibili') playerRef.current?.pauseVideo();
                       setAudioMode((v) => !v);
                     }}
                     className={`flex items-center gap-1.5 px-3 py-1.5 text-xs sm:text-sm rounded-lg font-medium border transition-colors cursor-pointer ${
@@ -1207,19 +1207,21 @@ const StudyPage: React.FC = () => {
                         ? 'bg-indigo-600 text-white border-indigo-600'
                         : 'bg-white dark:bg-slate-800 border border-gray-200 dark:border-slate-700 text-gray-600 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-slate-700'
                     }`}
-                    title={t('study.audioModeHint')}
+                    title={platform === 'youtube' ? t('study.youtubeFocusModeHint') : t('study.audioModeHint')}
                   >
                     <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.8}>
                       <path strokeLinecap="round" strokeLinejoin="round" d="M9 19V6l12-3v13M9 19c0 1.1-1.34 2-3 2s-3-.9-3-2 1.34-2 3-2 3 .9 3 2zm12-3c0 1.1-1.34 2-3 2s-3-.9-3-2 1.34-2 3-2 3 .9 3 2zM9 10l12-3" />
                     </svg>
-                    {t('study.audioMode')}
+                    {platform === 'youtube' ? t('study.youtubeFocusMode') : t('study.audioMode')}
                   </button>
                   {audioMode && (
-                    <span className="text-[11px] text-gray-400 dark:text-gray-500">{t('study.audioModeOn')}</span>
+                    <span className="text-[11px] text-gray-400 dark:text-gray-500">
+                      {platform === 'youtube' ? t('study.youtubeFocusModeOn') : t('study.audioModeOn')}
+                    </span>
                   )}
                 </div>
 
-                {audioMode ? (
+                {audioMode && platform === 'bilibili' ? (
                   <AudioPlayer key={audioSrc ?? 'audio'} ref={playerRef} src={audioSrc ?? ''} fallbackSrc={audioFallbackSrc ?? undefined} bilibili={platform === 'bilibili'} startTime={startTime} playbackRate={playbackRate} />
                 ) : platform === 'bilibili' ? (
                   <>
@@ -1258,7 +1260,9 @@ const StudyPage: React.FC = () => {
                     )}
                   </>
                 ) : (
-                  <YouTubeEmbed key={lang} ref={playerRef} youtubeId={videoId} startTime={startTime} playbackRate={playbackRate} lang={lang} />
+                  <div className={audioMode ? 'w-full max-w-[480px] mx-auto' : 'w-full'}>
+                    <YouTubeEmbed key={lang} ref={playerRef} youtubeId={videoId} startTime={startTime} playbackRate={playbackRate} lang={lang} />
+                  </div>
                 )}
               </>
             ) : (

@@ -26,20 +26,44 @@ function silentWav(seconds = 60): Buffer {
   return wav;
 }
 
-async function enterGuestStudy(page: Page) {
-  await page.addInitScript(() => {
+async function enterGuestStudy(page: Page, platform: 'youtube' | 'bilibili' = 'youtube') {
+  await page.addInitScript((selectedPlatform) => {
     localStorage.setItem('echolearn-tour-completed-v1', '1');
     localStorage.setItem('echolearn_audio_mode', '0');
+    localStorage.removeItem('echolearn_session');
     localStorage.removeItem('echolearn_current_session');
     localStorage.removeItem('echolearn_vocabulary');
     localStorage.removeItem('echolearn_sentences');
-  });
+    if (selectedPlatform === 'bilibili') {
+      const lines = [
+        { id: 'b1', start: 27, end: 29, text: 'Good morning. How are you?' },
+        { id: 'b2', start: 29, end: 31, text: '(Audience) Good.' },
+        { id: 'b3', start: 31, end: 33, text: "It's been great, hasn't it?" },
+        { id: 'b4', start: 33, end: 36, text: "I've been blown away by the whole thing." },
+        { id: 'b5', start: 36, end: 38, text: "In fact, I'm leaving." },
+      ];
+      localStorage.setItem('echolearn_session', JSON.stringify({
+        id: 'e2e-bilibili-audio',
+        youtubeUrl: 'https://www.bilibili.com/video/BV1xx411c7mD',
+        youtubeId: 'BV1xx411c7mD',
+        platform: 'bilibili',
+        title: 'Media sync fixture',
+        transcriptLines: lines,
+        transcriptData: { rawBlocks: lines, sentenceLines: lines },
+        createdAt: 1,
+        updatedAt: 1,
+        status: 'studying',
+      }));
+    }
+  }, platform);
   await page.goto('/');
   await enterGuestMode(page);
   await page.getByRole('link', { name: 'Study' }).click();
   await expect(page).toHaveURL(/\/study$/);
-  await expect(page.getByText('good', { exact: true }).filter({ visible: true }).first()).toBeVisible({ timeout: 15_000 });
-  await page.getByRole('button', { name: /audio mode/i }).click();
+  await expect(page.locator('[data-transcript-line]').filter({ hasText: SAMPLE_FIRST, visible: true }).first()).toBeVisible({ timeout: 15_000 });
+  if (await page.locator('audio').count() === 0) {
+    await page.getByRole('button', { name: /audio mode/i }).click();
+  }
   await page.locator('audio').waitFor({ state: 'attached', timeout: 10_000 });
 }
 
@@ -64,7 +88,12 @@ async function mockAudioAndStart(page: Page) {
     contentType: 'audio/wav',
     body: silentWav(),
   }));
-  await enterGuestStudy(page);
+  await page.route('**/api/bilibili*', (route) => route.fulfill({
+    status: 200,
+    contentType: 'application/json',
+    body: JSON.stringify({ title: 'Media sync fixture' }),
+  }));
+  await enterGuestStudy(page, 'bilibili');
 }
 
 function activeLine(page: Page, text: RegExp) {
