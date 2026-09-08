@@ -10,6 +10,9 @@ describe('guest capability copy', () => {
       'Save vocabulary and sentences on this device. Sign in to sync across devices.',
     );
     expect(t('study.loginRequired', 'en')).toBe('Sign in to use AI analysis.');
+    expect(t('study.invalidVideo', 'en')).toBe('Enter a valid YouTube or Bilibili video URL or ID.');
+    expect(t('dash.onboardStep2', 'en')).toBe('Read the transcript, save words and sentences');
+    expect(t('tour.studyAnalyzeBody', 'en')).toContain('Sign in to use AI analysis.');
   });
 
   it('keeps the same capability distinction in Chinese', () => {

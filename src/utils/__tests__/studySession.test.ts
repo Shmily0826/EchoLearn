@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest';
 import {
   attachTranscriptToSession,
   createFreshStudySession,
+  hasUsableSessionTranscript,
   hasUsableTranscriptData,
   normalizeStudyUrl,
 } from '../studySession';
@@ -42,6 +43,18 @@ describe('study session helpers', () => {
     expect(
       hasUsableTranscriptData({ rawBlocks: 'invalid', sentenceLines: [] } as unknown as VideoStudySession['transcriptData']),
     ).toBe(false);
+  });
+
+  it('does not treat a fresh empty session as persistable', () => {
+    const session = createFreshStudySession(baseInput);
+    const lines: TranscriptLine[] = [{ start: 0, end: 1, text: 'usable' }];
+
+    expect(hasUsableSessionTranscript(session)).toBe(false);
+    expect(hasUsableSessionTranscript({
+      ...session,
+      transcriptLines: lines,
+      transcriptData: { rawBlocks: lines, sentenceLines: lines },
+    })).toBe(true);
   });
 
   it('creates a Bilibili session while preserving the selected page', () => {

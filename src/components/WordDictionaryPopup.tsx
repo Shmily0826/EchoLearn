@@ -56,7 +56,7 @@ const WordDictionaryPopup: React.FC<WordDictionaryPopupProps> = ({
   const [wordHistory, setWordHistory] = useState<string[]>([]);
   const [entry, setEntry] = useState<(DictionaryEntry & { lemma?: string }) | null>(null);
   const [loading, setLoading] = useState(true);
-  const [error, setError] = useState(false);
+  const [error, setError] = useState<'not-found' | 'request' | null>(null);
   const [definitionCn, setDefinitionCn] = useState('');
   // AI enrichment (bilingual example + contextual analysis), zh mode only.
   const [aiAnalysis, setAiAnalysis] = useState<WordAnalysis | null>(null);
@@ -110,7 +110,8 @@ const WordDictionaryPopup: React.FC<WordDictionaryPopupProps> = ({
     // The lookup key changed; show loading rather than stale data.
     // eslint-disable-next-line react-hooks/set-state-in-effect
     setLoading(true);
-    setError(false);
+    setError(null);
+    setEntry(null);
     setDefinitionCn('');
 
     // The one-line Chinese gloss is fetched in parallel with the dictionary
@@ -133,8 +134,12 @@ const WordDictionaryPopup: React.FC<WordDictionaryPopupProps> = ({
       if (result) {
         setEntry(result);
       } else {
-        setError(true);
+        setError('not-found');
       }
+      setLoading(false);
+    }).catch(() => {
+      if (cancelled) return;
+      setError('request');
       setLoading(false);
     });
     return () => { cancelled = true; };
@@ -475,7 +480,9 @@ const WordDictionaryPopup: React.FC<WordDictionaryPopupProps> = ({
         {error && !loading && (
           <div className="mb-3">
             <p className="text-xs text-gray-400">
-              {isKnownProperNoun(currentWord)
+              {error === 'request'
+                ? t('wordCard.lookupError')
+                : isKnownProperNoun(currentWord)
                 ? 'No dictionary entry — this looks like a name, brand, or abbreviation.'
                 : 'Dictionary entry not found.'}
             </p>

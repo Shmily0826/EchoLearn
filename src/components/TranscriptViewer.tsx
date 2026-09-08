@@ -63,7 +63,7 @@ const TranscriptViewer: React.FC<TranscriptViewerProps> = ({
   const [popup, setPopup] = useState<WordPopupState | null>(null);
   const [dictEntry, setDictEntry] = useState<(DictionaryEntry & { lemma?: string }) | null>(null);
   const [dictLoading, setDictLoading] = useState(false);
-  const [dictError, setDictError] = useState(false);
+  const [dictError, setDictError] = useState<'not-found' | 'request' | null>(null);
   const [translation, setTranslation] = useState('');
   const [translationLoading, setTranslationLoading] = useState(false);
   // AI enrichment (bilingual example + contextual analysis), zh mode only.
@@ -140,7 +140,7 @@ const TranscriptViewer: React.FC<TranscriptViewerProps> = ({
     // eslint-disable-next-line react-hooks/set-state-in-effect
     setDictEntry(null);
     setDictLoading(true);
-    setDictError(false);
+    setDictError(null);
 
     let cancelled = false;
     // Pass the page language as the translation target so English mode asks the
@@ -166,8 +166,12 @@ const TranscriptViewer: React.FC<TranscriptViewerProps> = ({
             .catch(() => setTranslationLoading(false));
         }
       } else {
-        setDictError(true);
+        setDictError('not-found');
       }
+      setDictLoading(false);
+    }).catch(() => {
+      if (cancelled) return;
+      setDictError('request');
       setDictLoading(false);
     });
 
@@ -542,7 +546,9 @@ const TranscriptViewer: React.FC<TranscriptViewerProps> = ({
             {/* Error / not found state (muted — translation above covers most words) */}
             {dictError && !dictLoading && (
               <p className="text-xs text-gray-400 mb-3">
-                {showChinese && translation
+                {dictError === 'request'
+                  ? t('wordCard.lookupError')
+                  : showChinese && translation
                   ? 'No offline dictionary definition, but the translation above is shown.'
                   : isKnownProperNoun(popup.word)
                     ? 'No dictionary entry — this looks like a name, brand, or abbreviation. You can still save it manually.'

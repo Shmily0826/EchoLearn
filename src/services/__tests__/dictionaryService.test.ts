@@ -253,11 +253,46 @@ describe('lookupWord — client-side fallback path', () => {
     expect(callsTo('dictionaryapi.dev')).toBe(1);
   });
 
-  it('returns null when backend and all client-side sources fail', async () => {
+  it('rejects when backend and all client-side sources fail', async () => {
     route('all-down');
     const mod = await freshModule();
 
-    expect(await mod.lookupWord('cat')).toBeNull();
+    await expect(mod.lookupWord('cat')).rejects.toMatchObject({
+      name: 'DictionaryLookupError',
+    });
+  });
+
+  it('returns null when every source confirms the word is missing', async () => {
+    fetchMock.mockImplementation(async (input) => {
+      const url = String(input);
+      return mockResponse('', { status: url.includes('/api/dictionary') || url.includes('dictionaryapi.dev') || url.includes('datamuse.com') ? 404 : 500 });
+    });
+    const mod = await freshModule();
+
+    await expect(mod.lookupWord('cat')).resolves.toBeNull();
+  });
+
+  it('rejects malformed backend entries instead of returning a blank entry', async () => {
+    fetchMock.mockImplementation(async (input) => {
+      const url = String(input);
+      if (url.includes('/api/dictionary')) return mockResponse(JSON.stringify({ entries: [{}] }));
+      return mockResponse('', { status: 404 });
+    });
+    const mod = await freshModule();
+
+    await expect(mod.lookupWord('cat')).rejects.toMatchObject({ name: 'DictionaryLookupError' });
+  });
+
+  it('rejects malformed Free Dictionary entries instead of returning a blank entry', async () => {
+    fetchMock.mockImplementation(async (input) => {
+      const url = String(input);
+      if (url.includes('/api/dictionary')) return mockResponse('', { status: 404 });
+      if (url.includes('dictionaryapi.dev')) return mockResponse('[{}]');
+      return mockResponse('', { status: 404 });
+    });
+    const mod = await freshModule();
+
+    await expect(mod.lookupWord('cat')).rejects.toMatchObject({ name: 'DictionaryLookupError' });
   });
 
   it('reuses a fallback entry without probing the backend again', async () => {

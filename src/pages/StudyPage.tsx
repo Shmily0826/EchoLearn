@@ -16,6 +16,7 @@ import {
   attachTranscriptToSession,
   createFreshStudySession,
   hasUsableTranscriptData,
+  hasUsableSessionTranscript,
   normalizeStudyUrl,
 } from '../utils/studySession';
 import { lemmatize } from '../utils/lemmatizer';
@@ -245,7 +246,7 @@ const StudyPage: React.FC = () => {
           setSession((prev) => {
             if (prev && prev.id === sessionId) {
               const u = { ...prev, title: info.title };
-              saveCurrentSession(u);
+              if (hasUsableSessionTranscript(prev)) saveCurrentSession(u);
               return u;
             }
             return prev;
@@ -278,6 +279,7 @@ const StudyPage: React.FC = () => {
     setSession((prev) => {
       if (!prev) return prev;
       const updated = { ...prev, lastPosition: position };
+      if (!hasUsableSessionTranscript(prev)) return prev;
       try {
         localStorage.setItem('echolearn_session', JSON.stringify(updated));
       } catch { /* quota exceeded — ignore */ }
@@ -620,8 +622,18 @@ const StudyPage: React.FC = () => {
 
   // ── Load video ─────────────────────────────────────────────
   const handleLoadVideo = useCallback(() => {
+    const failInvalidInput = (message: string) => {
+      setRawBlocks([]);
+      setSentenceLines([]);
+      setAnalysis(null);
+      invalidateCaptionRequests();
+      failCaptionRequest(message);
+    };
     const detected = detectPlatform(urlInput);
-    if (!detected) return;
+    if (!detected) {
+      failInvalidInput(t('study.invalidVideo'));
+      return;
+    }
 
     setAsrRecoveryRequested(false);
     setPlatform(detected);
@@ -641,11 +653,16 @@ const StudyPage: React.FC = () => {
 
     if (detected === 'bilibili') {
       const parsed = parseBilibiliId(urlInput);
+      if (!parsed) {
+        failInvalidInput(t('study.biliUnrecognized'));
+        return;
+      }
       // `parsed` is either a BV id ("BV1xx...") or, for a b23.tv short link,
       // the full URL ("https://b23.tv/xxx") that the backend resolves to a BV id.
       const isShortLink = !!parsed && parsed.startsWith('http');
       const st = parseBilibiliStartTime(urlInput);
       if (hasInvalidBilibiliPage(urlInput)) {
+        invalidateCaptionRequests();
         failCaptionRequest(t('study.biliInvalidPart'));
         return;
       }
@@ -658,7 +675,7 @@ const StudyPage: React.FC = () => {
       }
 
       const now = Date.now();
-      const fresh = createFreshStudySession({
+      let fresh = createFreshStudySession({
         id: `session_${now}_${Math.random().toString(36).slice(2, 8)}`,
         now,
         videoId: parsed && !isShortLink ? parsed : urlInput.trim(),
@@ -667,7 +684,6 @@ const StudyPage: React.FC = () => {
         biliPage: pg,
       });
       if (!session) trackEvent('video_studied', { platform: 'bilibili' });
-      saveCurrentSession(fresh);
       setSession(fresh);
       // Clear the input as soon as a valid video starts loading, so the next
       // paste is always clean and the user gets immediate "click accepted"
@@ -695,11 +711,8 @@ const StudyPage: React.FC = () => {
             if (meta?.bvid) {
               bvid = meta.bvid;
               setVideoId(bvid);
-              if (meta.title) {
-                const updated = { ...fresh, title: meta.title, youtubeId: bvid };
-                saveCurrentSession(updated);
-                setSession(updated);
-              }
+              fresh = { ...fresh, ...(meta.title ? { title: meta.title } : {}), youtubeId: bvid };
+              setSession(fresh);
               if (meta.partCount && meta.parts) {
                 setBiliParts(meta.parts);
               }
@@ -738,6 +751,7 @@ const StudyPage: React.FC = () => {
                   diagnostics: res.diagnostics,
                 };
               }
+              throw new Error(t('study.captionErrorFriendly'));
             },
           },
         );
@@ -745,7 +759,10 @@ const StudyPage: React.FC = () => {
     } else {
       // YouTube
       const id = parseYouTubeId(urlInput);
-      if (!id) return;
+      if (!id) {
+        failInvalidInput(t('study.invalidVideo'));
+        return;
+      }
       const st = parseStartTime(urlInput);
 
       if (session && rawBlocks.length > 0 && videoId) {
@@ -761,7 +778,6 @@ const StudyPage: React.FC = () => {
         platform: 'youtube',
       });
       if (!session) trackEvent('video_studied', { platform: 'youtube' });
-      saveCurrentSession(fresh);
       setSession(fresh);
       // Clear the input as soon as a valid video starts loading (see bilibili
       // branch for rationale).
@@ -790,10 +806,11 @@ const StudyPage: React.FC = () => {
               diagnostics: res.diagnostics,
             };
           }
+          throw new Error(t('study.captionErrorFriendly'));
         },
       });
     }
-  }, [urlInput, rawBlocks, sentenceLines, sessionTitle, session, videoId, persistSession, failCaptionRequest, t]);
+  }, [urlInput, rawBlocks, sentenceLines, sessionTitle, session, videoId, persistSession, failCaptionRequest, invalidateCaptionRequests, t]);
 
   // ── Import transcript (from TranscriptImporter) ─────────────
   const handleImportTranscript = useCallback(
@@ -923,7 +940,7 @@ const StudyPage: React.FC = () => {
       // even if the transcript fetch below fails.
       if (session) {
         const withPart = { ...session, biliPage: part, ...(partTitle ? { title: partTitle } : {}) };
-        saveCurrentSession(withPart);
+        if (hasUsableSessionTranscript(withPart)) saveCurrentSession(withPart);
         setSession(withPart);
       }
       runCaptionRequest(() => fetchBilibiliTranscript(videoId, undefined, part), {
@@ -961,7 +978,7 @@ const StudyPage: React.FC = () => {
 
   // ── Toggle session completion status ───────────────────────
   const handleToggleComplete = useCallback(() => {
-    if (!session) return;
+    if (!session || !hasUsableSessionTranscript(session)) return;
     const newStatus = session.status === 'completed' ? 'studying' : 'completed';
     const updated: VideoStudySession = { ...session, status: newStatus, updatedAt: Date.now() };
     saveCurrentSession(updated);

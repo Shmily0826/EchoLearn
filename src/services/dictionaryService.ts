@@ -12,7 +12,8 @@ export { isKnownProperNoun };
  *
  * If the backend is unreachable (e.g. `vercel dev` is not running locally, or
  * the edge function is down) we fall back to the previous client-side Free
- * Dictionary + Datamuse racing so the popup never hard-fails.
+ * Dictionary + Datamuse racing. If every path fails, the lookup rejects so the
+ * UI can distinguish service failure from a confirmed missing word.
  */
 
 const CACHE_KEY = 'echolearn_dictionary_cache_v4';
@@ -83,6 +84,18 @@ interface BackendResponse {
   source?: 'merriam-webster' | 'free-dictionary' | 'datamuse';
 }
 
+export class DictionaryLookupError extends Error {
+  constructor() {
+    super('Dictionary service unavailable');
+    this.name = 'DictionaryLookupError';
+  }
+}
+
+interface LookupAttempt<T> {
+  entry: T | null;
+  failed: boolean;
+}
+
 /** Human-readable provider label, used for attribution in the popup. */
 const PROVIDER_LABELS: Record<string, string> = {
   'merriam-webster': 'Merriam-Webster',
@@ -95,7 +108,7 @@ const PROVIDER_LABELS: Record<string, string> = {
 async function fetchFromBackend(
   cleaned: string,
   target: string,
-): Promise<(DictionaryEntry & { lemma?: string }) | null> {
+): Promise<LookupAttempt<DictionaryEntry & { lemma?: string }>> {
   try {
     const url =
       `${API_BASE}?word=${encodeURIComponent(cleaned)}` +
@@ -103,10 +116,11 @@ async function fetchFromBackend(
     const res = await fetch(url, { signal: AbortSignal.timeout(8000) });
     if (!res.ok) {
       console.warn(`[dictionary] ${url} returned HTTP ${res.status}`);
-      return null; // 404 / backend error → fall back below
+      return { entry: null, failed: res.status !== 404 }; // 404 is a confirmed miss
     }
     const raw: BackendResponse = await res.json();
-    if (!raw.entries || raw.entries.length === 0) return null;
+    if (!Array.isArray(raw.entries)) return { entry: null, failed: true };
+    if (raw.entries.length === 0) return { entry: null, failed: false };
 
     const firstEntry = raw.entries[0];
     const firstDef = firstEntry?.definitions?.[0]?.definitions_json?.definition ?? '';
@@ -121,12 +135,14 @@ async function fetchFromBackend(
       if (!entry?.definitions) continue;
       for (const d of entry.definitions) {
         const text = d?.definitions_json?.definition;
-        if (!text) continue;
+        if (typeof text !== 'string' || !text.trim()) continue;
         definitionsEn.push({ pos: entry.pos || '', definition: text });
       }
     }
 
-    return {
+    if (definitionsEn.length === 0) return { entry: null, failed: true };
+
+    return { entry: {
       word: cleaned,
       phonetic,
       phoneticUk: raw.ipa_uk || undefined,
@@ -140,10 +156,10 @@ async function fetchFromBackend(
       antonyms: [],
       provider: raw.source ? PROVIDER_LABELS[raw.source] ?? raw.source : 'EchoLearn Dictionary API',
       lemma: raw.base_form && raw.base_form !== cleaned ? raw.base_form : undefined,
-    };
+    }, failed: false };
   } catch (error) {
     console.warn(`[dictionary] Backend lookup failed for "${cleaned}"`, error);
-    return null;
+    return { entry: null, failed: true };
   }
 }
 
@@ -208,28 +224,36 @@ function buildCandidates(cleaned: string): string[] {
   return out;
 }
 
-async function fetchFromFreeDict(word: string): Promise<DictionaryEntry | null> {
+async function fetchFromFreeDict(word: string): Promise<LookupAttempt<DictionaryEntry>> {
   try {
     const res = await fetch(`${FREE_DICT_BASE}/${encodeURIComponent(word)}`, {
       signal: AbortSignal.timeout(8000),
     });
-    if (!res.ok) return null;
+    if (!res.ok) return { entry: null, failed: res.status !== 404 };
     const data: ApiEntry[] = await res.json();
-    if (!Array.isArray(data) || data.length === 0) return null;
-    return parseFreeDictEntry(data[0]);
+    if (!Array.isArray(data)) return { entry: null, failed: true };
+    if (data.length === 0) return { entry: null, failed: false };
+    const raw = data[0];
+    const hasDefinition = raw && typeof raw === 'object' && Array.isArray(raw.meanings)
+      && raw.meanings.some((meaning) => meaning && Array.isArray(meaning.definitions)
+        && meaning.definitions.some((definition) => typeof definition?.definition === 'string'
+          && definition.definition.trim().length > 0));
+    if (!hasDefinition) return { entry: null, failed: true };
+    return { entry: parseFreeDictEntry(raw), failed: false };
   } catch {
-    return null;
+    return { entry: null, failed: true };
   }
 }
 
-async function fetchFromDatamuse(word: string): Promise<DictionaryEntry | null> {
+async function fetchFromDatamuse(word: string): Promise<LookupAttempt<DictionaryEntry>> {
   try {
     const res = await fetch(`${DATAMUSE_BASE}?sp=${encodeURIComponent(word)}&md=d&max=10`, {
       signal: AbortSignal.timeout(6000),
     });
-    if (!res.ok) return null;
+    if (!res.ok) return { entry: null, failed: res.status !== 404 };
     const data = await res.json();
-    if (!Array.isArray(data) || data.length === 0) return null;
+    if (!Array.isArray(data)) return { entry: null, failed: true };
+    if (data.length === 0) return { entry: null, failed: false };
 
     const hit = data.find(
       (d: { word?: string; defs?: string[] }) =>
@@ -237,7 +261,7 @@ async function fetchFromDatamuse(word: string): Promise<DictionaryEntry | null> 
         Array.isArray(d.defs) &&
         d.defs.length > 0,
     );
-    if (!hit) return null;
+    if (!hit) return { entry: null, failed: false };
 
     const POS_MAP: Record<string, string> = {
       n: 'noun', v: 'verb', adj: 'adjective', adv: 'adverb',
@@ -247,7 +271,7 @@ async function fetchFromDatamuse(word: string): Promise<DictionaryEntry | null> 
     const posAbbr = tab >= 0 ? firstDef.slice(0, tab) : '';
     const defText = (tab >= 0 ? firstDef.slice(tab + 1) : firstDef).trim();
 
-    return {
+    return { entry: {
       word: hit.word ?? word,
       phonetic: '',
       audioUrl: '',
@@ -257,9 +281,9 @@ async function fetchFromDatamuse(word: string): Promise<DictionaryEntry | null> 
       synonyms: [],
       antonyms: [],
       provider: 'Datamuse',
-    };
+    }, failed: false };
   } catch {
-    return null;
+    return { entry: null, failed: true };
   }
 }
 
@@ -305,11 +329,11 @@ function parseFreeDictEntry(raw: ApiEntry): DictionaryEntry {
   };
 }
 
-async function fetchEntryParallel(word: string, target: string): Promise<DictionaryEntry | null> {
+async function fetchEntryParallel(word: string, target: string): Promise<LookupAttempt<DictionaryEntry>> {
   const cache = loadCache();
   const cacheKey = makeDictionaryCacheKey(word, target);
-  if (cacheKey in cache) return cache[cacheKey];
-  if (sessionMisses.has(word)) return null;
+  if (cacheKey in cache) return { entry: cache[cacheKey], failed: false };
+  if (sessionMisses.has(word)) return { entry: null, failed: false };
 
   try {
     const [freeDictResult, datamuseResult] = await Promise.allSettled([
@@ -317,21 +341,28 @@ async function fetchEntryParallel(word: string, target: string): Promise<Diction
       fetchFromDatamuse(word),
     ]);
 
-    const freeDict = freeDictResult.status === 'fulfilled' ? freeDictResult.value : null;
-    const datamuse = datamuseResult.status === 'fulfilled' ? datamuseResult.value : null;
+    const freeDict = freeDictResult.status === 'fulfilled'
+      ? freeDictResult.value
+      : { entry: null, failed: true };
+    const datamuse = datamuseResult.status === 'fulfilled'
+      ? datamuseResult.value
+      : { entry: null, failed: true };
 
-    const winner = freeDict ?? datamuse;
+    const winner = freeDict.entry ?? datamuse.entry;
     if (winner) {
       cache[cacheKey] = winner;
       saveCache(cache);
-      return winner;
+      return { entry: winner, failed: false };
     }
 
-    sessionMisses.add(word);
-    saveSessionMisses(sessionMisses);
-    return null;
+    const failed = freeDict.failed || datamuse.failed;
+    if (!failed) {
+      sessionMisses.add(word);
+      saveSessionMisses(sessionMisses);
+    }
+    return { entry: null, failed };
   } catch {
-    return null;
+    return { entry: null, failed: true };
   }
 }
 
@@ -392,25 +423,30 @@ export async function lookupWord(
     saveCache(cache);
     return legacy;
   }
-  const backend = await fetchFromBackend(lookupWordValue, target);
-  if (backend) {
-    cache[backendKey] = backend;
+  const backendAttempt = await fetchFromBackend(lookupWordValue, target);
+  if (backendAttempt.entry) {
+    cache[backendKey] = backendAttempt.entry;
     saveCache(cache);
-    const lemma = backend.lemma && backend.lemma !== cleaned ? backend.lemma : undefined;
-    return { ...backend, lemma };
+    const lemma = backendAttempt.entry.lemma && backendAttempt.entry.lemma !== cleaned
+      ? backendAttempt.entry.lemma
+      : undefined;
+    return { ...backendAttempt.entry, lemma };
   }
+  let sawFailure = backendAttempt.failed;
 
   // 2. Fallback (client-side) — note: English only, no server translation
   for (const candidate of buildCandidates(cleaned)) {
     const result = await fetchEntryParallel(candidate, target);
-    if (result) {
+    if (result.entry) {
       const lemma = candidate === cleaned ? undefined : candidate;
-      const cached: DictionaryEntry & { lemma?: string } = { ...result, lemma };
+      const cached: DictionaryEntry & { lemma?: string } = { ...result.entry, lemma };
       cache[makeDictionaryCacheKey(candidate, target)] = cached;
       saveCache(cache);
       return cached;
     }
+    sawFailure ||= result.failed;
   }
 
+  if (sawFailure) throw new DictionaryLookupError();
   return null;
 }

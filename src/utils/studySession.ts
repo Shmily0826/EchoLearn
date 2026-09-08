@@ -37,6 +37,13 @@ export function hasUsableTranscriptData(
   );
 }
 
+/** A session is safe to persist once it has at least one usable transcript line. */
+export function hasUsableSessionTranscript(
+  session: Pick<VideoStudySession, 'transcriptLines' | 'transcriptData'>,
+): boolean {
+  return (session.transcriptLines?.length ?? 0) > 0 || hasUsableTranscriptData(session.transcriptData);
+}
+
 /** Build a new empty session from already-parsed video identity data. */
 export function createFreshStudySession({
   id,

@@ -44,7 +44,7 @@ const MobileTranscriptPanel: React.FC<{
   const [popup, setPopup] = useState<MobileWordPopup | null>(null);
   const [dictEntry, setDictEntry] = useState<DictionaryEntry | null>(null);
   const [dictLoading, setDictLoading] = useState(false);
-  const [dictError, setDictError] = useState(false);
+  const [dictError, setDictError] = useState<'not-found' | 'request' | null>(null);
   const [dictWordHistory, setDictWordHistory] = useState<string[]>([]);
   const [dictCurrentWord, setDictCurrentWord] = useState('');
 
@@ -99,7 +99,7 @@ const MobileTranscriptPanel: React.FC<{
     // eslint-disable-next-line react-hooks/set-state-in-effect
     setDictEntry(null);
     setDictLoading(true);
-    setDictError(false);
+    setDictError(null);
     let cancelled = false;
     // Pass the page language as the translation target: English mode asks the
     // API for English definitions (fast, no server translation), Chinese mode
@@ -108,7 +108,11 @@ const MobileTranscriptPanel: React.FC<{
     lookupWord(dictCurrentWord, showChinese ? 'zh-CN' : 'en').then((entry) => {
       if (cancelled) return;
       if (entry) setDictEntry(entry);
-      else setDictError(true);
+      else setDictError('not-found');
+      setDictLoading(false);
+    }).catch(() => {
+      if (cancelled) return;
+      setDictError('request');
       setDictLoading(false);
     });
     return () => { cancelled = true; };
@@ -315,7 +319,11 @@ const MobileTranscriptPanel: React.FC<{
                 )}
               </div>
             )}
-            {dictError && !dictLoading && <p className="text-xs text-gray-400 mb-3">Dictionary entry not found.</p>}
+            {dictError && !dictLoading && (
+              <p className="text-xs text-gray-400 mb-3">
+                {dictError === 'request' ? t('wordCard.lookupError') : 'Dictionary entry not found.'}
+              </p>
+            )}
             <p className="text-[11px] text-gray-400 mb-3 line-clamp-2">&ldquo;{popup.context}&rdquo;</p>
             {isWordSaved(dictCurrentWord) ? (
               <span className="text-xs text-amber-600 dark:text-amber-400 font-medium">{t('study.alreadySaved')}</span>
