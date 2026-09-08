@@ -33,7 +33,7 @@ describe('AudioPlayer lifecycle', () => {
     const { container, unmount } = render(
       <AudioPlayer src="https://worker.test/api/audio?url=video" />,
     );
-    fireEvent.error(container.querySelector('audio'));
+    fireEvent.error(container.querySelector('audio')!);
 
     unmount();
     vi.advanceTimersByTime(5_000);
@@ -45,7 +45,7 @@ describe('AudioPlayer lifecycle', () => {
     const { container, rerender, unmount } = render(
       <AudioPlayer key="first" src="https://worker.test/api/audio?url=first" />,
     );
-    fireEvent.error(container.querySelector('audio'));
+    fireEvent.error(container.querySelector('audio')!);
 
     rerender(
       <AudioPlayer key="second" src="https://worker.test/api/audio?url=second" />,
