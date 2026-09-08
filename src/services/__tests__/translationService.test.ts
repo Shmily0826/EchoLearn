@@ -182,6 +182,35 @@ describe('translateWordFast', () => {
 // ── Batch APIs and rate limiting ───────────────────────────────
 
 describe('translateWords / translateSentences', () => {
+  it('requests context-specific concise Chinese dictionary glosses for words', async () => {
+    fetchMock.mockResolvedValueOnce(mockResponse(aiBody('["河岸"]')));
+
+    await translateWords([{ id: 'bank', word: 'bank', context: 'She sat on the bank of the river.' }]);
+
+    const request = fetchMock.mock.calls[0]?.[1];
+    const body = JSON.parse(String(request?.body));
+    const systemPrompt = body.messages[0].content as string;
+    const userPrompt = body.messages[1].content as string;
+    expect(systemPrompt).toContain('meaningCn value must be a concise dictionary-style Chinese gloss');
+    expect(systemPrompt).toContain('short phrase rather than an explanatory sentence');
+    expect(systemPrompt).toContain('Do not include the English headword');
+    expect(systemPrompt).toContain('bank in');
+    expect(systemPrompt).toContain('河岸');
+    expect(userPrompt).toContain('context: "She sat on the bank of the river."');
+    expect(body).not.toHaveProperty('gloss');
+  });
+
+  it('does not apply word-gloss instructions to sentence translation', async () => {
+    fetchMock.mockResolvedValueOnce(mockResponse(aiBody('["这是一个句子。"]')));
+
+    await translateSentences([{ id: 'sentence', text: 'This is a sentence.' }]);
+
+    const request = fetchMock.mock.calls[0]?.[1];
+    const body = JSON.parse(String(request?.body));
+    expect(body.messages[0].content).not.toContain('dictionary-style Chinese gloss');
+    expect(body.messages[0].content).not.toContain('bank in');
+  });
+
   it('maps batch results back to the submitted ids in order', async () => {
     fetchMock.mockResolvedValueOnce(mockResponse(aiBody('["猫","狗"]')));
 

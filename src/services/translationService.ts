@@ -93,9 +93,20 @@ async function callBatchTranslate(
 
   const kindLabel = kind === 'word' ? 'English vocabulary word' : 'English sentence';
   const langName = TRANSLATE_LANGS[targetLang] ?? 'Chinese';
+  const wordGlossRules = kind === 'word' && targetLang === 'zh'
+    ? `
+For each vocabulary word, use the supplied context to choose the exact sense.
+The resulting meaningCn value must be a concise dictionary-style Chinese gloss, preferably a short phrase rather than an explanatory sentence.
+Do not include the English headword, pinyin, quotation marks, or any explanatory sentence in the gloss.
+High-signal examples:
+- bank in "She sat on the bank of the river." -> 河岸
+- run in "She runs a small business." -> 经营；运营
+- light in "This bag is light." -> 轻的；轻便的`
+    : '';
 
   const systemPrompt = `You are a professional English-to-${langName} translator.
 Translate each ${kindLabel} into natural, accurate, concise ${langName}.
+${wordGlossRules}
 Return ONLY a valid JSON array of strings — no markdown fences, no explanation.
 The array must have exactly ${items.length} element(s), in the same order as the input.`;
 

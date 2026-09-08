@@ -494,6 +494,8 @@ const translations: Record<string, Record<Lang, string>> = {
   // ── Word-card AI enrichment (DeepSeek, per word+video) ────
   'wordCard.aiMeaning':       { en: 'AI meaning', zh: 'AI 释义' },
   'wordCard.bilingualExample':{ en: 'Bilingual example', zh: '双语例句' },
+  'wordCard.dictionaryExample': { en: 'Dictionary example', zh: '词典例句' },
+  'wordCard.aiExample':       { en: 'AI/context example', zh: 'AI 例句' },
   'wordCard.aiAnalysis':      { en: 'AI context analysis', zh: 'AI 语境分析' },
   'wordCard.aiLoading':       { en: 'AI analyzing…', zh: 'AI 分析中…' },
   'wordCard.expand':          { en: 'Expand', zh: '展开' },

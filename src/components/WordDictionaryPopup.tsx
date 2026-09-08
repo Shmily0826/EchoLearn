@@ -37,6 +37,39 @@ interface WordDictionaryPopupProps {
   context?: string;
 }
 
+const POS_ABBREVIATIONS: Record<string, string> = {
+  adjective: 'adj',
+  adverb: 'adv',
+  article: 'art',
+  auxiliary: 'aux',
+  conjunction: 'conj',
+  determiner: 'det',
+  interjection: 'interj',
+  noun: 'n',
+  'participle adjective': 'part adj',
+  preposition: 'prep',
+  pronoun: 'pron',
+  'proper noun': 'prop n',
+  'phrasal verb': 'phr v',
+  verb: 'v',
+};
+
+function compactPartOfSpeech(pos: string): string {
+  const normalized = pos.trim().toLowerCase().replace(/\.$/, '');
+  return POS_ABBREVIATIONS[normalized] ?? pos.trim();
+}
+
+function groupDefinitions(definitions: NonNullable<DictionaryEntry['definitionsEn']>) {
+  const groups = new Map<string, string[]>();
+  for (const item of definitions) {
+    const pos = compactPartOfSpeech(item.pos);
+    const current = groups.get(pos) ?? [];
+    current.push(item.definition);
+    groups.set(pos, current);
+  }
+  return [...groups.entries()].map(([pos, items]) => ({ pos, items }));
+}
+
 /**
  * A reusable popup that shows dictionary information for a word.
  * Used by TranscriptViewer, VocabularyPage, and SentencesPage.
@@ -75,6 +108,10 @@ const WordDictionaryPopup: React.FC<WordDictionaryPopupProps> = ({
   // In English page mode we deliberately hide the Chinese line and skip the
   // DeepSeek call entirely (pure-English study view, saves token quota).
   const showChinese = lang === 'zh';
+  const visibleDefinitions = entry?.definitionsEn
+    ? (expandDefs ? entry.definitionsEn : entry.definitionsEn.slice(0, DEF_LIMIT))
+    : [];
+  const definitionGroups = groupDefinitions(visibleDefinitions);
 
   // Reset when initial word changes
   useEffect(() => {
@@ -143,7 +180,7 @@ const WordDictionaryPopup: React.FC<WordDictionaryPopupProps> = ({
       setLoading(false);
     });
     return () => { cancelled = true; };
-  }, [currentWord, showChinese]);
+  }, [currentWord, showChinese, lang]);
 
   // Fetch AI enrichment (bilingual example + contextual analysis) for the word.
   // Chinese mode only — English study mode skips the call to save tokens.
@@ -346,21 +383,24 @@ const WordDictionaryPopup: React.FC<WordDictionaryPopupProps> = ({
           <div className="mb-3">
             {entry.definitionsEn && entry.definitionsEn.length > 0 ? (
               <>
-                <ul className="space-y-1.5">
-                  {(expandDefs ? entry.definitionsEn : entry.definitionsEn.slice(0, DEF_LIMIT)).map((d, i) => (
-                    <li
-                      key={i}
-                      className="text-sm text-gray-700 dark:text-gray-300 leading-relaxed"
-                    >
-                      {d.pos && (
-                        <span className="inline-block text-[10px] px-1.5 py-0.5 mr-1.5 align-middle bg-indigo-50 dark:bg-indigo-950 text-indigo-600 dark:text-indigo-400 rounded font-medium">
-                          {d.pos}
-                        </span>
+                <div className="space-y-3">
+                  {definitionGroups.map((group) => (
+                    <section key={group.pos || 'definition'} aria-label={`Part of speech ${group.pos}`}>
+                      {group.pos && (
+                        <h3 className="mb-1 text-[10px] uppercase tracking-wide text-gray-400 dark:text-gray-500 font-semibold">
+                          {group.pos}
+                        </h3>
                       )}
-                      {d.definition}
-                    </li>
+                      <ol className="list-decimal list-inside space-y-1.5">
+                        {group.items.map((definition, i) => (
+                          <li key={`${group.pos}-${i}`} className="text-sm text-gray-700 dark:text-gray-300 leading-relaxed">
+                            {definition}
+                          </li>
+                        ))}
+                      </ol>
+                    </section>
                   ))}
-                </ul>
+                </div>
                 {entry.definitionsEn.length > DEF_LIMIT && (
                   <button
                     onClick={() => setExpandDefs((v) => !v)}
@@ -383,9 +423,12 @@ const WordDictionaryPopup: React.FC<WordDictionaryPopupProps> = ({
               )
             )}
             {entry.example && (
-              <p className="text-xs text-gray-400 dark:text-gray-500 mt-1.5 italic leading-relaxed">
-                &ldquo;{entry.example}&rdquo;
-              </p>
+              <div className="mt-2 border-t border-gray-100 dark:border-slate-700 pt-2">
+                <div className="text-[10px] font-medium text-gray-400 dark:text-gray-500">{t('wordCard.dictionaryExample')}</div>
+                <p className="text-xs text-gray-500 dark:text-gray-400 italic leading-relaxed">
+                  &ldquo;{entry.example}&rdquo;
+                </p>
+              </div>
             )}
             {entry.synonyms.length > 0 && (
               <div className="mt-2 flex items-start gap-1 flex-wrap">
@@ -415,18 +458,6 @@ const WordDictionaryPopup: React.FC<WordDictionaryPopupProps> = ({
                 ))}
               </div>
             )}
-            {/* Attribution — required by the Merriam-Webster free tier. */}
-            {entry.provider === 'Merriam-Webster' && (
-              <a
-                href="https://www.learnersdictionary.com"
-                target="_blank"
-                rel="noopener noreferrer"
-                onClick={(e) => e.stopPropagation()}
-                className="block mt-2 text-[10px] text-gray-400 dark:text-gray-500 hover:text-indigo-500 transition-colors"
-              >
-                Powered by Merriam-Webster Learner&apos;s Dictionary
-              </a>
-            )}
           </div>
         )}
 
@@ -434,7 +465,7 @@ const WordDictionaryPopup: React.FC<WordDictionaryPopupProps> = ({
             Kept compact: no separate AI meaning line (the Google/translation line
             above already gives the Chinese gloss), just example + context note. */}
         {showChinese && (aiLoading || aiAnalysis) && (
-          <div className="mb-2 border-t border-gray-100 dark:border-slate-700 pt-1.5 mt-1">
+          <div className="mb-2 border-t border-gray-100 dark:border-slate-700 pt-1.5 mt-1 text-left">
             {aiLoading && !aiAnalysis && (
               <div className="flex items-center gap-2 py-0.5 text-xs text-gray-400">
                 <svg className="animate-spin w-3.5 h-3.5" fill="none" viewBox="0 0 24 24">
@@ -446,7 +477,7 @@ const WordDictionaryPopup: React.FC<WordDictionaryPopupProps> = ({
             )}
             {aiAnalysis?.exampleEn && (
               <div className="mb-1">
-                <div className="text-[10px] font-medium text-indigo-500">{t('wordCard.bilingualExample')}</div>
+                <div className="text-[10px] font-medium text-indigo-500">{t('wordCard.aiExample')}</div>
                 <p className="text-xs text-gray-700 dark:text-gray-300 leading-relaxed">{aiAnalysis.exampleEn}</p>
                 {aiAnalysis.exampleZh && (
                   <p className="text-[11px] text-gray-400 dark:text-gray-500 leading-relaxed">{aiAnalysis.exampleZh}</p>
@@ -492,8 +523,23 @@ const WordDictionaryPopup: React.FC<WordDictionaryPopupProps> = ({
           </div>
         )}
 
-        {/* Actions slot */}
-        {actions}
+        {/* One primary action area, followed by de-emphasized provider attribution. */}
+        {actions && (
+          <div className="mt-3 border-t border-gray-100 dark:border-slate-700 pt-3">
+            {actions}
+          </div>
+        )}
+        {entry?.provider === 'Merriam-Webster' && (
+          <a
+            href="https://www.learnersdictionary.com"
+            target="_blank"
+            rel="noopener noreferrer"
+            onClick={(e) => e.stopPropagation()}
+            className="block mt-2 text-[10px] text-gray-400 dark:text-gray-500 hover:text-indigo-500 transition-colors"
+          >
+            Powered by Merriam-Webster Learner&apos;s Dictionary
+          </a>
+        )}
       </div>
     </div>
   );
