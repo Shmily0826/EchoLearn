@@ -41,6 +41,16 @@ function logTranscriptEvent(event: string, fields: Record<string, unknown>): voi
   console.info(JSON.stringify({ service: 'vercel-transcript', event, ...fields }));
 }
 
+type CaptionMetric =
+  | { event: 'caption_backend_request' }
+  | { event: 'caption_provider_attempt'; provider: 'vps' | 'supadata' | 'npm' }
+  | { event: 'caption_provider_result'; provider: 'vps' | 'supadata' | 'npm'; outcome: 'success' | 'failure' }
+  | { event: 'caption_final_result'; finalProvider: 'vps' | 'supadata' | 'npm' | 'none' };
+
+function logCaptionMetric(metric: CaptionMetric): void {
+  console.info(JSON.stringify(metric));
+}
+
 // ── Per-IP rate limiter (per serverless instance, best-effort) ──
 const RATE_LIMIT_WINDOW_MS = 60_000;
 const RATE_LIMIT_MAX = 20;
@@ -269,6 +279,7 @@ async function fetchSupadataTranscript(
     return { data: null, failure, diagnostics: supadataDiagnostics(false, 'not_attempted') };
   }
 
+  logCaptionMetric({ event: 'caption_provider_attempt', provider: 'supadata' });
   const controller = new AbortController();
   let timer: ReturnType<typeof setTimeout> | undefined;
   let timedOut = false;
@@ -298,6 +309,7 @@ async function fetchSupadataTranscript(
     // fallback outcome, not a timeout or generic provider failure.
     if (upstream.status === 206) {
       const failure = failureForCode(TRANSCRIPT_FAILURE_CODES.CAPTIONS_NOT_FOUND);
+      logCaptionMetric({ event: 'caption_provider_result', provider: 'supadata', outcome: 'failure' });
       logTranscriptEvent('provider_result', {
         traceId,
         provider: 'supadata',
@@ -310,6 +322,7 @@ async function fetchSupadataTranscript(
 
     if (!upstream.ok) {
       const failure = classifySupadataHttpFailure(upstream.status);
+      logCaptionMetric({ event: 'caption_provider_result', provider: 'supadata', outcome: 'failure' });
       logTranscriptEvent('provider_result', {
         traceId,
         provider: 'supadata',
@@ -329,6 +342,7 @@ async function fetchSupadataTranscript(
       payload = await upstream.json();
     } catch {
       const failure = failureForCode(TRANSCRIPT_FAILURE_CODES.PROVIDER_FAILURE);
+      logCaptionMetric({ event: 'caption_provider_result', provider: 'supadata', outcome: 'failure' });
       logTranscriptEvent('provider_result', {
         traceId,
         provider: 'supadata',
@@ -343,6 +357,7 @@ async function fetchSupadataTranscript(
     const data = normalizeSupadataTranscript(payload, requestedLang);
     if (!data) {
       const failure = failureForCode(TRANSCRIPT_FAILURE_CODES.PROVIDER_FAILURE);
+      logCaptionMetric({ event: 'caption_provider_result', provider: 'supadata', outcome: 'failure' });
       logTranscriptEvent('provider_result', {
         traceId,
         provider: 'supadata',
@@ -362,11 +377,13 @@ async function fetchSupadataTranscript(
       status: upstream.status,
       lineCount: (data.lines as unknown[]).length,
     });
+    logCaptionMetric({ event: 'caption_provider_result', provider: 'supadata', outcome: 'success' });
     return { data, diagnostics: supadataDiagnostics(true, 'success') };
   } catch (err) {
     const failure = timedOut || (err instanceof Error && err.name === 'AbortError')
       ? failureForCode(TRANSCRIPT_FAILURE_CODES.PROVIDER_TIMEOUT)
       : failureForCode(TRANSCRIPT_FAILURE_CODES.PROVIDER_FAILURE);
+    logCaptionMetric({ event: 'caption_provider_result', provider: 'supadata', outcome: 'failure' });
     logTranscriptEvent('provider_result', {
       traceId,
       provider: 'supadata',
@@ -463,6 +480,7 @@ async function fetchVpsTranscript(
   }
   const timer = setTimeout(() => controller.abort(), timeoutMs);
   try {
+    logCaptionMetric({ event: 'caption_provider_attempt', provider: 'vps' });
     const upstream = await fetch(
       `${VPS_API_URL}/api/transcript?videoId=${encodeURIComponent(videoId)}&lang=${encodeURIComponent(lang)}`,
       {
@@ -473,6 +491,7 @@ async function fetchVpsTranscript(
     if (!upstream.ok) {
       const payload = await upstream.json().catch(() => undefined);
       const failure = classifyVpsFailure(upstream.status, payload);
+      logCaptionMetric({ event: 'caption_provider_result', provider: 'vps', outcome: 'failure' });
       logTranscriptEvent('vps_result', { traceId, videoId, status: upstream.status, usable: false, error: failure.code });
       return { data: null, failure };
     }
@@ -481,17 +500,21 @@ async function fetchVpsTranscript(
       data = await upstream.json();
     } catch {
       const failure = failureForCode(TRANSCRIPT_FAILURE_CODES.PROVIDER_FAILURE);
+      logCaptionMetric({ event: 'caption_provider_result', provider: 'vps', outcome: 'failure' });
       logTranscriptEvent('vps_result', { traceId, videoId, status: upstream.status, usable: false, reason: 'malformed_json', error: failure.code });
       return { data: null, failure };
     }
     if (!isUsableTranscript(data)) {
       const failure = failureForCode(TRANSCRIPT_FAILURE_CODES.CAPTIONS_NOT_FOUND);
+      logCaptionMetric({ event: 'caption_provider_result', provider: 'vps', outcome: 'failure' });
       logTranscriptEvent('vps_result', { traceId, videoId, status: upstream.status, usable: false, reason: 'empty_or_malformed', error: failure.code });
       return { data: null, failure };
     }
     logTranscriptEvent('vps_result', { traceId, videoId, status: upstream.status, usable: true, lineCount: data.lines.length });
+    logCaptionMetric({ event: 'caption_provider_result', provider: 'vps', outcome: 'success' });
     return { data: { ...data, source: (data as { source?: string }).source || 'vps' } };
   } catch (err) {
+    logCaptionMetric({ event: 'caption_provider_result', provider: 'vps', outcome: 'failure' });
     logTranscriptEvent('vps_error', {
       traceId,
       videoId,
@@ -550,12 +573,16 @@ export default async function handler(req: any, res: any): Promise<void> {
     res.status(400).json({ error: 'Missing videoId parameter' });
     return;
   }
+  if (req.method === 'GET' && req.query?.allowAsr !== '1') {
+    logCaptionMetric({ event: 'caption_backend_request' });
+  }
 
   const deadlineAt = Date.now() + TRANSCRIPT_DEADLINE_MS;
   let vpsFailure: TranscriptFailure | undefined;
   let supadataFailure: TranscriptFailure | undefined;
   let npmFailure: TranscriptFailure | undefined;
   let npmReturnedEmpty = false;
+  let npmAttempted = false;
   let supadataDiagnosticsState = supadataDiagnostics(false, 'not_attempted');
   try {
     const vpsKey = process.env.YTDLP_API_KEY;
@@ -566,6 +593,7 @@ export default async function handler(req: any, res: any): Promise<void> {
       const vpsOutcome = await fetchVpsTranscript(videoId, lang, vpsKey, traceId, deadlineAt);
       vpsFailure = vpsOutcome.failure;
       if (vpsOutcome.data) {
+        logCaptionMetric({ event: 'caption_final_result', finalProvider: 'vps' });
         logTranscriptEvent('request_finish', { traceId, videoId, provider: 'vps', status: 200 });
         if (isSharedCacheableCaptionRequest) {
           res.setHeader('Cache-Control', TRANSCRIPT_BROWSER_CACHE_CONTROL);
@@ -593,6 +621,7 @@ export default async function handler(req: any, res: any): Promise<void> {
       supadataFailure = supadataOutcome.failure;
       supadataDiagnosticsState = supadataOutcome.diagnostics;
       if (supadataOutcome.data) {
+        logCaptionMetric({ event: 'caption_final_result', finalProvider: 'supadata' });
         logTranscriptEvent('request_finish', {
           traceId,
           provider: 'supadata',
@@ -614,6 +643,8 @@ export default async function handler(req: any, res: any): Promise<void> {
     } else {
       const { YoutubeTranscript } = await import('youtube-transcript');
 
+      logCaptionMetric({ event: 'caption_provider_attempt', provider: 'npm' });
+      npmAttempted = true;
       const result = await fetchYoutubeTranscriptWithTimeout(
         (signal) => {
           // Custom fetch adds the consent cookie while retaining the remaining
@@ -635,6 +666,7 @@ export default async function handler(req: any, res: any): Promise<void> {
       );
 
       if (!result || result.length === 0) {
+        logCaptionMetric({ event: 'caption_provider_result', provider: 'npm', outcome: 'failure' });
         npmReturnedEmpty = true;
       } else {
         // Transform to our TranscriptLine format
@@ -649,6 +681,8 @@ export default async function handler(req: any, res: any): Promise<void> {
           }),
         );
 
+        logCaptionMetric({ event: 'caption_provider_result', provider: 'npm', outcome: 'success' });
+        logCaptionMetric({ event: 'caption_final_result', finalProvider: 'npm' });
         logTranscriptEvent('request_finish', { traceId, videoId, provider: 'youtube-transcript', status: 200, lineCount: lines.length });
         if (isSharedCacheableCaptionRequest) {
           res.setHeader('Cache-Control', TRANSCRIPT_BROWSER_CACHE_CONTROL);
@@ -665,11 +699,15 @@ export default async function handler(req: any, res: any): Promise<void> {
       }
     }
   } catch (err) {
+    if (npmAttempted) {
+      logCaptionMetric({ event: 'caption_provider_result', provider: 'npm', outcome: 'failure' });
+    }
     const message = err instanceof Error ? err.message : 'Unknown error';
     npmFailure = classifyYoutubeFailure(message);
   }
 
   const failure = chooseFinalFailure(vpsFailure, supadataFailure, npmFailure, npmReturnedEmpty);
+  logCaptionMetric({ event: 'caption_final_result', finalProvider: 'none' });
   logTranscriptEvent('request_error', { traceId, videoId, status: failure.status, error: failure.code });
   res.status(failure.status).json({
     error: failure.code,

@@ -58,6 +58,64 @@ afterEach(() => {
 });
 
 describe('api/transcript server fallback', () => {
+  it('emits only aggregate provider metrics at fresh execution boundaries', async () => {
+    const logSpy = vi.spyOn(console, 'info').mockImplementation(() => {});
+
+    try {
+      fetchMock.mockResolvedValueOnce(response({ lines: [{ text: 'from VPS' }], language: 'en' }));
+      const vpsRes = makeRes();
+      await handler(makeReq('video-id-vps'), vpsRes);
+
+      vi.stubEnv('YTDLP_API_KEY', '');
+      vi.stubEnv('SUPADATA_API_KEY', 'test-supadata-key');
+      fetchMock.mockResolvedValueOnce(response({
+        content: [{ text: 'from Supadata', offset: 0, duration: 1_000 }],
+        lang: 'en',
+      }));
+      const supadataRes = makeRes();
+      await handler(makeReq('video-id-supadata'), supadataRes);
+
+      vi.stubEnv('SUPADATA_API_KEY', '');
+      vi.mocked(YoutubeTranscript.fetchTranscript).mockResolvedValueOnce([
+        { text: 'from npm', offset: 0, duration: 1, lang: 'en' },
+      ]);
+      const npmRes = makeRes();
+      await handler(makeReq('video-id-npm'), npmRes);
+
+      const metricEvents = logSpy.mock.calls
+        .map(([message]) => JSON.parse(String(message)) as Record<string, unknown>)
+        .filter((event) => [
+          'caption_backend_request',
+          'caption_provider_attempt',
+          'caption_provider_result',
+          'caption_final_result',
+        ].includes(String(event.event))
+          && Object.keys(event).every((key) => ['event', 'provider', 'outcome', 'finalProvider'].includes(key)));
+
+      expect(metricEvents).toEqual([
+        { event: 'caption_backend_request' },
+        { event: 'caption_provider_attempt', provider: 'vps' },
+        { event: 'caption_provider_result', provider: 'vps', outcome: 'success' },
+        { event: 'caption_final_result', finalProvider: 'vps' },
+        { event: 'caption_backend_request' },
+        { event: 'caption_provider_attempt', provider: 'supadata' },
+        { event: 'caption_provider_result', provider: 'supadata', outcome: 'success' },
+        { event: 'caption_final_result', finalProvider: 'supadata' },
+        { event: 'caption_backend_request' },
+        { event: 'caption_provider_attempt', provider: 'npm' },
+        { event: 'caption_provider_result', provider: 'npm', outcome: 'success' },
+        { event: 'caption_final_result', finalProvider: 'npm' },
+      ]);
+
+      const allowedKeys = new Set(['event', 'provider', 'outcome', 'finalProvider']);
+      expect(metricEvents.every((event) => Object.keys(event).every((key) => allowedKeys.has(key)))).toBe(true);
+      expect(JSON.stringify(metricEvents)).not.toContain('video-id-');
+      expect(JSON.stringify(metricEvents)).not.toContain('traceId');
+    } finally {
+      logSpy.mockRestore();
+    }
+  });
+
   it('uses the authenticated VPS first and keeps the key server-side', async () => {
     fetchMock.mockResolvedValueOnce(response({ lines: [{ text: 'from VPS' }], language: 'en' }));
     const res = makeRes();

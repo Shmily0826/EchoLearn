@@ -176,3 +176,13 @@ Once the active goal, root cause, and acceptance criteria are sufficiently speci
 - Guardrails: Do not treat static bundle presence as proof of a live Supadata request or billing decrement. Do not read secrets, use direct Supadata requests, or bypass authentication. Preserve the local validation-layer limitation in release records.
 - Supersedes: None recorded.
 - Superseded by: None recorded.
+
+## ECHO-20260908-2333 - Caption cost baseline V1
+
+- Date: 2026-09-08
+- Status: ACTIVE
+- Decision: Amend D-011's remote-wiring defer for this explicitly authorized bounded baseline. The same-origin `/api/transcript` function emits a narrow JSON metric stream with unique `caption_backend_request`, `caption_provider_attempt`, `caption_provider_result`, and `caption_final_result` event values. Its only permitted fields are `event`, `provider`, `outcome`, and `finalProvider`; backend request is emitted once for each valid normal caption Function execution, provider attempt/result cover VPS, Supadata, and npm at their actual call boundaries, and final result records the final provider or `none`.
+- Semantics: Estimated fresh Supadata calls equal emitted `caption_provider_attempt` records with `provider=supadata`; this is a Function-execution/provider-call estimate, not page views, final source labels, or billing truth. Vercel CDN `x-vercel-cache` HIT/MISS is platform-observable only: a CDN HIT bypasses the Function, so cache-served counts are unavailable from application metrics. No client telemetry or database was added.
+- Privacy and behavior: Metric payloads contain no trace ID, video ID, URL, transcript text, user ID, IP, cookie, token, or upstream payload. Existing trace/diagnostic logs remain unchanged. Provider order, timeouts, retries, caching, quotas, ASR policy, and Worker/VPS behavior are unchanged.
+- Supersedes: D-011 only for the explicitly authorized remote-wiring defer; D-011 privacy guardrails remain active.
+- Superseded by: None recorded.
