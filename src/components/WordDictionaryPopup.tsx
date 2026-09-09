@@ -78,6 +78,15 @@ function groupDefinitions(definitions: NonNullable<DictionaryEntry['definitionsE
   return [...groups.entries()].map(([pos, items]) => ({ pos, items }));
 }
 
+function getPopupTop(y: number, popupHeight: number, viewportHeight: number, margin = 16): number {
+  const spaceBelow = viewportHeight - y - margin;
+  const spaceAbove = y - margin;
+  const preferBelow = popupHeight <= spaceBelow || (popupHeight > spaceAbove && spaceBelow >= spaceAbove);
+  const desiredTop = preferBelow ? y + 24 : y - popupHeight;
+  const maxTop = Math.max(margin, viewportHeight - margin - popupHeight);
+  return Math.min(Math.max(desiredTop, margin), maxTop);
+}
+
 /**
  * A reusable popup that shows dictionary information for a word.
  * Used by TranscriptViewer, VocabularyPage, and SentencesPage.
@@ -103,24 +112,28 @@ const WordDictionaryPopup: React.FC<WordDictionaryPopupProps> = ({
   // AI enrichment (bilingual example + contextual analysis), zh mode only.
   const [aiAnalysis, setAiAnalysis] = useState<WordAnalysis | null>(null);
   const [aiLoading, setAiLoading] = useState(false);
-  // Long words (e.g. "brief") can return 10+ senses; show the first few by
+  // Long words (e.g. "brief") can return 10+ senses; show a compact subset by
   // default and let the user expand, so the popup usually fits without scrolling.
   const [expandDefs, setExpandDefs] = useState(false);
-  const DEF_LIMIT = 5;
   // Chinese AI contextual analysis can be very verbose; collapse it by default.
   const [expandAiAnalysis, setExpandAiAnalysis] = useState(false);
-  // Dynamic vertical placement: prefer below the click, flip above if the
-  // popup would overflow the bottom edge of the viewport.
-  const [position, setPosition] = useState<'above' | 'below'>('below');
+  // Merriam-Webster details are useful on demand but too verbose for the compact zh popup.
+  const [expandDetailedDefinitions, setExpandDetailedDefinitions] = useState(false);
+  // Dynamic vertical placement: prefer below, flip above when it fits, and
+  // clamp the card when neither side has enough room.
+  const [popupTop, setPopupTop] = useState<number | null>(null);
   const popupRef = useRef<HTMLDivElement>(null);
   const { lang, t } = useI18n();
   // In English page mode we deliberately hide the Chinese line and skip the
   // DeepSeek call entirely (pure-English study view, saves token quota).
   const showChinese = lang === 'zh';
+  const definitionLimit = showChinese ? 3 : 5;
   const visibleDefinitions = entry?.definitionsEn
-    ? (expandDefs ? entry.definitionsEn : entry.definitionsEn.slice(0, DEF_LIMIT))
+    ? (expandDefs ? entry.definitionsEn : entry.definitionsEn.slice(0, definitionLimit))
     : [];
   const definitionGroups = groupDefinitions(visibleDefinitions);
+  const primaryMeaning = aiAnalysis?.meaningZh || definitionCn;
+  const collapseDetailedDefinitions = showChinese && Boolean(entry?.definitionsEn?.length);
 
   // Reset when initial word changes
   useEffect(() => {
@@ -167,6 +180,8 @@ const WordDictionaryPopup: React.FC<WordDictionaryPopupProps> = ({
     setError(null);
     setEntry(null);
     setDefinitionCn('');
+    setExpandDefs(false);
+    setExpandDetailedDefinitions(false);
 
     // The one-line Chinese gloss is fetched in parallel with the dictionary
     // lookup. It uses the keyless Google gtx proxy ONLY (noDeepSeekFallback) so
@@ -212,6 +227,7 @@ const WordDictionaryPopup: React.FC<WordDictionaryPopupProps> = ({
     let cancelled = false;
     setAiLoading(true);
     setAiAnalysis(null);
+    setExpandAiAnalysis(false);
 
     getWordAnalysis(currentWord, { videoId, context, lang })
       .then((res) => {
@@ -256,48 +272,28 @@ const WordDictionaryPopup: React.FC<WordDictionaryPopupProps> = ({
     }
   };
 
-  // Dynamic vertical placement: measure the rendered popup and choose whether
-  // to open it above or below the clicked word so it stays inside the viewport.
-  useLayoutEffect(() => {
+  const updatePlacement = useCallback(() => {
     if (!popupRef.current || loading) return;
-    const rect = popupRef.current.getBoundingClientRect();
-    const margin = 16;
-    const spaceBelow = window.innerHeight - y - margin;
-    const spaceAbove = y - margin;
-    if (rect.height <= spaceBelow) {
-      setPosition('below');
-    } else if (rect.height <= spaceAbove) {
-      setPosition('above');
-    } else {
-      setPosition(spaceBelow >= spaceAbove ? 'below' : 'above');
-    }
-  }, [entry, expandDefs, expandAiAnalysis, aiAnalysis, y, loading]);
+    setPopupTop(getPopupTop(y, popupRef.current.getBoundingClientRect().height, window.innerHeight));
+  }, [loading, y]);
+
+  useLayoutEffect(() => {
+    updatePlacement();
+  }, [updatePlacement, entry, expandDefs, expandDetailedDefinitions, expandAiAnalysis, aiAnalysis]);
 
   // Re-evaluate placement on window resize.
   useEffect(() => {
-    const handleResize = () => {
-      if (!popupRef.current) return;
-      const rect = popupRef.current.getBoundingClientRect();
-      const margin = 16;
-      const spaceBelow = window.innerHeight - y - margin;
-      const spaceAbove = y - margin;
-      if (rect.height <= spaceBelow) setPosition('below');
-      else if (rect.height <= spaceAbove) setPosition('above');
-      else setPosition(spaceBelow >= spaceAbove ? 'below' : 'above');
-    };
-    window.addEventListener('resize', handleResize);
-    return () => window.removeEventListener('resize', handleResize);
-  }, [y]);
+    window.addEventListener('resize', updatePlacement);
+    return () => window.removeEventListener('resize', updatePlacement);
+  }, [updatePlacement]);
 
   return (
     <div
       ref={popupRef}
-      className={`fixed z-50 transform -translate-x-1/2 ${
-        position === 'above' ? '-translate-y-full' : ''
-      }`}
+      className="fixed z-50 transform -translate-x-1/2"
       style={{
         left: Math.min(Math.max(x, 170), window.innerWidth - 170),
-        top: position === 'above' ? y : y + 24,
+        top: popupTop ?? y + 24,
       }}
     >
       <div className="bg-white dark:bg-slate-800 rounded-xl shadow-xl border border-gray-200 dark:border-slate-700 p-4 min-w-[260px] max-w-[min(340px,90vw)] max-h-[85vh] overflow-y-auto overflow-x-hidden relative thin-scrollbar">
@@ -370,9 +366,9 @@ const WordDictionaryPopup: React.FC<WordDictionaryPopupProps> = ({
         )}
 
         {/* One-line Chinese translation at the top of the dictionary content */}
-        {showChinese && definitionCn && !loading && entry && (
+        {showChinese && primaryMeaning && !loading && entry && (
           <p className="text-sm text-indigo-600 dark:text-indigo-400 leading-relaxed mb-2">
-            {definitionCn}
+            {primaryMeaning}
           </p>
         )}
 
@@ -397,7 +393,17 @@ const WordDictionaryPopup: React.FC<WordDictionaryPopupProps> = ({
 
         {/* Dictionary result */}
         {entry && !loading && (
-          <div className="mb-3">
+          <>
+            {collapseDetailedDefinitions && (
+              <button
+                onClick={() => setExpandDetailedDefinitions((v) => !v)}
+                aria-expanded={expandDetailedDefinitions}
+                className="mb-2 text-xs text-indigo-600 dark:text-indigo-400 hover:text-indigo-800 dark:hover:text-indigo-300 cursor-pointer transition-colors"
+              >
+                {expandDetailedDefinitions ? '收起详细释义' : '查看详细释义'}
+              </button>
+            )}
+            {(!collapseDetailedDefinitions || expandDetailedDefinitions) && <div className="mb-3">
             {entry.definitionsEn && entry.definitionsEn.length > 0 ? (
               <>
                 <div className="space-y-3">
@@ -423,7 +429,7 @@ const WordDictionaryPopup: React.FC<WordDictionaryPopupProps> = ({
                     </section>
                   ))}
                 </div>
-                {entry.definitionsEn.length > DEF_LIMIT && (
+                {entry.definitionsEn.length > definitionLimit && (
                   <button
                     onClick={() => setExpandDefs((v) => !v)}
                     className="mt-1.5 text-xs text-indigo-600 dark:text-indigo-400 hover:text-indigo-800 dark:hover:text-indigo-300 cursor-pointer transition-colors"
@@ -431,8 +437,8 @@ const WordDictionaryPopup: React.FC<WordDictionaryPopupProps> = ({
                     {expandDefs
                       ? t('wordCard.collapse')
                       : t('wordCard.showMoreMeanings', {
-                          count: entry.definitionsEn.length - DEF_LIMIT,
-                          s: entry.definitionsEn.length - DEF_LIMIT > 1 ? 's' : '',
+                          count: entry.definitionsEn.length - definitionLimit,
+                          s: entry.definitionsEn.length - definitionLimit > 1 ? 's' : '',
                         })}
                   </button>
                 )}
@@ -485,7 +491,8 @@ const WordDictionaryPopup: React.FC<WordDictionaryPopupProps> = ({
                 ))}
               </div>
             )}
-          </div>
+            </div>}
+          </>
         )}
 
         {/* AI enrichment: bilingual example + 语境分析 (zh mode only).
@@ -513,21 +520,17 @@ const WordDictionaryPopup: React.FC<WordDictionaryPopupProps> = ({
             )}
             {aiAnalysis?.analysis && (
               <div>
-                <div className="text-[10px] font-medium text-indigo-500">{t('wordCard.aiAnalysis')}</div>
-                <p
-                  className={`text-[11px] text-gray-500 dark:text-gray-400 leading-relaxed ${
-                    expandAiAnalysis ? '' : 'line-clamp-3'
-                  }`}
+                <button
+                  onClick={() => setExpandAiAnalysis((v) => !v)}
+                  aria-expanded={expandAiAnalysis}
+                  className="text-[10px] font-medium text-indigo-500 cursor-pointer"
                 >
-                  {aiAnalysis.analysis}
-                </p>
-                {aiAnalysis.analysis.length > 90 && (
-                  <button
-                    onClick={() => setExpandAiAnalysis((v) => !v)}
-                    className="mt-0.5 text-[11px] text-indigo-600 dark:text-indigo-400 hover:text-indigo-800 dark:hover:text-indigo-300 cursor-pointer transition-colors"
-                  >
-                    {expandAiAnalysis ? t('wordCard.collapse') : t('wordCard.expand')}
-                  </button>
+                  {expandAiAnalysis ? '收起语境分析' : '查看语境分析'}
+                </button>
+                {expandAiAnalysis && (
+                  <p className="text-[11px] text-gray-500 dark:text-gray-400 leading-relaxed">
+                    {aiAnalysis.analysis}
+                  </p>
                 )}
               </div>
             )}
@@ -544,8 +547,8 @@ const WordDictionaryPopup: React.FC<WordDictionaryPopupProps> = ({
                 ? 'No dictionary entry — this looks like a name, brand, or abbreviation.'
                 : 'Dictionary entry not found.'}
             </p>
-            {showChinese && definitionCn && (
-              <p className="text-sm text-indigo-600 dark:text-indigo-400 leading-relaxed mt-1">{definitionCn}</p>
+            {showChinese && primaryMeaning && (
+              <p className="text-sm text-indigo-600 dark:text-indigo-400 leading-relaxed mt-1">{primaryMeaning}</p>
             )}
           </div>
         )}
