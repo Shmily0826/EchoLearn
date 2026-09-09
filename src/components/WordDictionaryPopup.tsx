@@ -133,6 +133,12 @@ const WordDictionaryPopup: React.FC<WordDictionaryPopupProps> = ({
     : [];
   const definitionGroups = groupDefinitions(visibleDefinitions);
   const primaryMeaning = aiAnalysis?.meaningZh || definitionCn;
+  const primaryPos = compactPartOfSpeech(
+    aiAnalysis?.pos || entry?.partOfSpeech || entry?.definitionsEn?.[0]?.pos || '',
+  );
+  const hasOtherPos = Boolean(primaryPos && entry?.definitionsEn?.some(
+    (definition) => compactPartOfSpeech(definition.pos) !== primaryPos,
+  ));
   const collapseDetailedDefinitions = showChinese && Boolean(entry?.definitionsEn?.length);
 
   // Reset when initial word changes
@@ -367,13 +373,21 @@ const WordDictionaryPopup: React.FC<WordDictionaryPopupProps> = ({
 
         {/* One-line Chinese translation at the top of the dictionary content */}
         {showChinese && primaryMeaning && !loading && entry && (
-          <p className="text-sm text-indigo-600 dark:text-indigo-400 leading-relaxed mb-2">
-            {primaryMeaning}
-          </p>
+          <div className="mb-2 flex flex-wrap items-baseline gap-x-2">
+            {primaryPos && (
+              <span className="text-xs font-medium text-gray-500 dark:text-gray-400">
+                {primaryPos}
+              </span>
+            )}
+            <span className="text-sm font-semibold text-gray-800 dark:text-gray-100 leading-relaxed">
+              {primaryMeaning}
+            </span>
+          </div>
         )}
 
         {/* Part of speech — hidden when the list below already labels each row */}
         {entry?.partOfSpeech &&
+          (!showChinese || !primaryMeaning) &&
           !(entry.definitionsEn && entry.definitionsEn.length > 0) && (
             <span className="inline-block text-[11px] px-2 py-0.5 bg-indigo-50 dark:bg-indigo-950 text-indigo-600 rounded-full font-medium mb-2">
               {entry.partOfSpeech}
@@ -400,7 +414,11 @@ const WordDictionaryPopup: React.FC<WordDictionaryPopupProps> = ({
                 aria-expanded={expandDetailedDefinitions}
                 className="mb-2 text-xs text-indigo-600 dark:text-indigo-400 hover:text-indigo-800 dark:hover:text-indigo-300 cursor-pointer transition-colors"
               >
-                {expandDetailedDefinitions ? '收起详细释义' : '查看详细释义'}
+                {expandDetailedDefinitions
+                  ? '收起详细释义'
+                  : hasOtherPos
+                  ? '查看其他词性与详细释义'
+                  : '查看详细释义'}
               </button>
             )}
             {(!collapseDetailedDefinitions || expandDetailedDefinitions) && <div className="mb-3">
@@ -548,7 +566,7 @@ const WordDictionaryPopup: React.FC<WordDictionaryPopupProps> = ({
                 : 'Dictionary entry not found.'}
             </p>
             {showChinese && primaryMeaning && (
-              <p className="text-sm text-indigo-600 dark:text-indigo-400 leading-relaxed mt-1">{primaryMeaning}</p>
+              <p className="text-sm font-semibold text-gray-800 dark:text-gray-100 leading-relaxed mt-1">{primaryMeaning}</p>
             )}
           </div>
         )}

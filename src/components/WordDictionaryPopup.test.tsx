@@ -60,6 +60,7 @@ describe('WordDictionaryPopup dictionary failures', () => {
     });
     vi.mocked(translateWordFast).mockResolvedValue('dictionary fallback');
     vi.mocked(getWordAnalysis).mockResolvedValue({
+      pos: 'noun',
       meaningZh: 'contextual meaning',
       exampleEn: 'She packed light for the trip.',
       exampleZh: '她轻装出行。',
@@ -78,13 +79,17 @@ describe('WordDictionaryPopup dictionary failures', () => {
       </I18nProvider>,
     );
 
-    expect(await screen.findByText('查看详细释义')).toBeTruthy();
-    expect(screen.getByText('contextual meaning')).toBeTruthy();
+    expect(await screen.findByText('查看其他词性与详细释义')).toBeTruthy();
+    const primaryMeaning = screen.getByText('contextual meaning');
+    expect(primaryMeaning.className).toContain('text-gray-800');
+    expect(primaryMeaning.className).not.toContain('text-indigo-600');
+    const primaryPos = screen.getByText('n', { exact: true });
+    expect(primaryPos.compareDocumentPosition(primaryMeaning) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
     expect(screen.queryByText('dictionary fallback')).toBeNull();
     expect(screen.queryByText('词典例句')).toBeNull();
     expect(screen.getByText('AI 例句')).toBeTruthy();
     expect(screen.queryByText('Here, light describes the amount of luggage.')).toBeNull();
-    fireEvent.click(screen.getByRole('button', { name: '查看详细释义' }));
+    fireEvent.click(screen.getByRole('button', { name: '查看其他词性与详细释义' }));
     expect(screen.getByRole('heading', { name: 'adj' })).toBeTruthy();
     expect(screen.getByRole('heading', { name: 'n' })).toBeTruthy();
     expect(screen.queryByRole('heading', { name: 'adjective' })).toBeNull();
@@ -111,6 +116,7 @@ describe('WordDictionaryPopup dictionary failures', () => {
       antonyms: [],
       provider: 'Free Dictionary',
     });
+    vi.mocked(translateWordFast).mockResolvedValue('translated meaning');
 
     render(
       <I18nProvider>
@@ -119,6 +125,8 @@ describe('WordDictionaryPopup dictionary failures', () => {
     );
 
     expect(await screen.findByRole('button', { name: '查看详细释义' })).toBeTruthy();
+    expect(await screen.findByText('translated meaning')).toBeTruthy();
+    expect(screen.getByText('adj', { exact: true })).toBeTruthy();
     expect(screen.queryByText('（英文原文，翻译失败）')).toBeNull();
     fireEvent.click(screen.getByRole('button', { name: '查看详细释义' }));
     expect(screen.getByText('（英文原文，翻译失败）')).toBeTruthy();
@@ -150,9 +158,9 @@ describe('WordDictionaryPopup dictionary failures', () => {
       </I18nProvider>,
     );
 
-    expect(await screen.findByRole('button', { name: '查看详细释义' })).toBeTruthy();
+    expect(await screen.findByRole('button', { name: '查看其他词性与详细释义' })).toBeTruthy();
     expect(screen.queryByText('sense three')).toBeNull();
-    fireEvent.click(screen.getByRole('button', { name: '查看详细释义' }));
+    fireEvent.click(screen.getByRole('button', { name: '查看其他词性与详细释义' }));
     expect(screen.getByText('sense three')).toBeTruthy();
     expect(screen.queryByText('sense four')).toBeNull();
     fireEvent.click(screen.getByRole('button', { name: '显示另外 1 个释义' }));
