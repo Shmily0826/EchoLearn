@@ -9,9 +9,9 @@ import type {
 } from '../types';
 import { tomorrowMs } from '../utils/storage';
 import { createItemId, currentTimeMs } from '../utils/id';
-import { lemmatize } from '../utils/lemmatizer';
+import { prepareVocabularyItem } from '../services/vocabularyEnrichment';
 import ClickableRichText from './ClickableRichText';
-import WordDictionaryPopup from './WordDictionaryPopup';
+import WordDictionaryPopup, { type WordDictionaryPopupData } from './WordDictionaryPopup';
 
 interface AIAnalysisPanelProps {
   analysis: AIAnalysisResult;
@@ -37,14 +37,14 @@ const AIAnalysisPanel: React.FC<AIAnalysisPanelProps> = ({
   const [collapsed, setCollapsed] = useState(false);
   const [dictPopup, setDictPopup] = useState<{ word: string; x: number; y: number; context?: string } | null>(null);
   const [displayedWord, setDisplayedWord] = useState('');
+  const [dictPopupData, setDictPopupData] = useState<WordDictionaryPopupData | null>(null);
   const { t, lang } = useI18n();
 
   const handleAddVocab = (sug: VocabularySuggestion) => {
-    const item: VocabularyItem = {
+    const item = prepareVocabularyItem({
       id: createItemId('vocab'),
       word: sug.word,
-      lemma: sug.word,
-      meaningCn: sug.meaningCn,
+      meaningCn: '',
       context: sug.context,
       sourceVideoId: videoId,
       addedAt: currentTimeMs(),
@@ -52,7 +52,14 @@ const AIAnalysisPanel: React.FC<AIAnalysisPanelProps> = ({
       reviewCount: 0,
       lastReviewedAt: 0,
       nextReviewAt: tomorrowMs(),
-    };
+    }, {
+      learnerMeaning: {
+        text: sug.meaningCn,
+        provider: 'context-ai',
+        targetLanguage: 'zh-CN',
+        sourceSentence: sug.context,
+      },
+    });
     onAddVocabulary(item);
   };
 
@@ -77,19 +84,18 @@ const AIAnalysisPanel: React.FC<AIAnalysisPanelProps> = ({
     e.stopPropagation();
     const rect = (e.currentTarget as HTMLElement).getBoundingClientRect();
     setDisplayedWord(word);
+    setDictPopupData(null);
     setDictPopup({ word, x: rect.left + rect.width / 2, y: rect.top - 8, context });
   };
 
   const handleAddPopupWord = () => {
     const word = displayedWord || dictPopup?.word;
     if (!word) return;
-    const lemma = lemmatize(word);
-    onAddVocabulary({
+    const item = prepareVocabularyItem({
       id: createItemId('vocab'),
-      word: lemma,
-      lemma,
+      word,
       meaningCn: '',
-      context: '',
+      context: dictPopup?.context || '',
       sourceVideoId: videoId,
       sourceVideoTitle: videoTitle,
       addedAt: currentTimeMs(),
@@ -97,8 +103,13 @@ const AIAnalysisPanel: React.FC<AIAnalysisPanelProps> = ({
       reviewCount: 0,
       lastReviewedAt: 0,
       nextReviewAt: tomorrowMs(),
+    }, {
+      dictionaryEntry: dictPopupData?.entry,
+      learnerMeaning: dictPopupData?.learnerMeaning,
     });
+    onAddVocabulary(item);
     setDictPopup(null);
+    setDictPopupData(null);
   };
 
   return (
@@ -140,9 +151,10 @@ const AIAnalysisPanel: React.FC<AIAnalysisPanelProps> = ({
             x={dictPopup.x}
             y={dictPopup.y}
             context={dictPopup.context}
-          onClose={() => setDictPopup(null)}
-          onWordChange={setDisplayedWord}
-          videoId={videoId}
+            onClose={() => { setDictPopup(null); setDictPopupData(null); }}
+            onWordChange={setDisplayedWord}
+            onDataChange={setDictPopupData}
+            videoId={videoId}
             actions={
               savedWords.has((displayedWord || dictPopup.word).toLowerCase()) ? (
                 <span className="text-xs text-amber-600 dark:text-amber-400 font-medium">{t('ai.saved')}</span>

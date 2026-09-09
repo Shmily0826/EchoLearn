@@ -1,8 +1,8 @@
 // @vitest-environment jsdom
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react';
+import { act, cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react';
 import { I18nProvider } from '../i18n/I18nContext';
-import type { DictionaryEntry, TranscriptLine, VocabularyItem, SentenceItem } from '../types';
+import type { DictionaryEntry, LearnerMeaning, TranscriptLine, VocabularyItem, SentenceItem } from '../types';
 import TranscriptViewer from './TranscriptViewer';
 import MobileTranscriptPanel from './study/MobileTranscriptPanel';
 import { lookupWord } from '../services/dictionaryService';
@@ -15,7 +15,7 @@ vi.mock('./WordDictionaryPopup', () => ({
     context?: string;
     actions?: React.ReactNode;
     onClose: () => void;
-    onDataChange?: (data: { word: string; entry: DictionaryEntry | null; meaningCn: string }) => void;
+    onDataChange?: (data: { word: string; entry: DictionaryEntry | null; meaningCn: string; learnerMeaning?: LearnerMeaning }) => void;
   }) => {
     sharedPopup(props);
     return (
@@ -108,5 +108,47 @@ describe('Study dictionary popup convergence', () => {
     fireEvent.click(screen.getByRole('button', { name: 'Look up test' }));
     fireEvent.click(screen.getByRole('button', { name: /add/i }));
     await waitFor(() => expect(mobileProps.onAddVocabulary).toHaveBeenCalledOnce());
+  });
+
+  it('does not save English fallback text as the Chinese meaning', async () => {
+    vi.mocked(lookupWord)
+      .mockResolvedValueOnce({ ...entry, definitionTranslationStatus: 'fallback-en' })
+      .mockResolvedValueOnce(entry);
+    renderWithI18n(<MobileTranscriptPanel {...mobileProps} />);
+
+    fireEvent.click(screen.getByRole('button', { name: 'Look up test' }));
+    const popupProps = sharedPopup.mock.calls.at(-1)?.[0] as {
+      onDataChange?: (data: { word: string; entry: DictionaryEntry | null; meaningCn: string; learnerMeaning?: LearnerMeaning }) => void;
+    };
+    act(() => popupProps.onDataChange?.({ word: 'test', entry, meaningCn: '' }));
+    fireEvent.click(screen.getByRole('button', { name: /add/i }));
+
+    await waitFor(() => expect(mobileProps.onAddVocabulary).toHaveBeenCalledOnce());
+    expect(mobileProps.onAddVocabulary.mock.calls[0][0].meaningCn).toBe('');
+  });
+
+  it('saves an explicitly translated dictionary meaning', async () => {
+    vi.mocked(lookupWord).mockResolvedValueOnce({ ...entry, definitionTranslationStatus: 'translated' });
+    renderWithI18n(<MobileTranscriptPanel {...mobileProps} />);
+
+    fireEvent.click(screen.getByRole('button', { name: 'Look up test' }));
+    const popupProps = sharedPopup.mock.calls.at(-1)?.[0] as {
+      onDataChange?: (data: { word: string; entry: DictionaryEntry | null; meaningCn: string; learnerMeaning?: LearnerMeaning }) => void;
+    };
+    act(() => popupProps.onDataChange?.({
+      word: 'test',
+      entry,
+      meaningCn: '',
+      learnerMeaning: {
+        text: 'a test',
+        provider: 'dictionary',
+        targetLanguage: 'zh-CN',
+        sourceSentence: 'test word',
+      },
+    }));
+    fireEvent.click(screen.getByRole('button', { name: /add/i }));
+
+    await waitFor(() => expect(mobileProps.onAddVocabulary).toHaveBeenCalledOnce());
+    expect(mobileProps.onAddVocabulary.mock.calls[0][0].meaningCn).toBe('a test');
   });
 });

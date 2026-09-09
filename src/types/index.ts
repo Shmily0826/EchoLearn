@@ -39,6 +39,38 @@ export interface CaptionDiagnostics {
 /** Result from a dictionary API lookup */
 export type DictionaryDefinitionTranslationStatus = 'translated' | 'fallback-en';
 
+export type DictionaryReferenceTranslationStatus = 'source' | 'translated' | 'fallback-en' | 'unknown';
+
+export type DictionaryLemmaProvenance = 'provider-confirmed' | 'dictionary-confirmed' | 'candidate' | 'query';
+
+export interface DictionaryReferenceSense {
+  pos: string;
+  sourceText: string | null;
+  displayText: string | null;
+  translationStatus: DictionaryReferenceTranslationStatus;
+}
+
+export interface DictionaryReference {
+  queriedForm: string;
+  lemma?: string;
+  lemmaProvenance?: DictionaryLemmaProvenance;
+  provider: string;
+  sourceLanguage: string;
+  requestedLanguage: string;
+  displayLanguage: string;
+  translationStatus: DictionaryReferenceTranslationStatus;
+  senses: DictionaryReferenceSense[];
+}
+
+export type LearnerMeaningProvider = 'context-ai' | 'quick-gloss' | 'dictionary' | 'unavailable';
+
+export interface LearnerMeaning {
+  text: string;
+  provider: LearnerMeaningProvider;
+  targetLanguage: string;
+  sourceSentence: string;
+}
+
 export interface DictionaryEntry {
   word: string;
   phonetic: string;
@@ -64,6 +96,7 @@ export interface DictionaryEntry {
   synonyms: string[];
   antonyms: string[];
   provider: string;
+  reference?: DictionaryReference;
 }
 
 /** A vocabulary item saved by the user */

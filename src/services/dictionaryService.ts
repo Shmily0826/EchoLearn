@@ -1,11 +1,16 @@
-import type { DictionaryDefinitionTranslationStatus, DictionaryEntry } from '../types';
+import type {
+  DictionaryDefinitionTranslationStatus,
+  DictionaryEntry,
+  DictionaryLemmaProvenance,
+  DictionaryReferenceTranslationStatus,
+} from '../types';
 import { lemmatize } from '../utils/lemmatizer';
 import { KNOWN_PROPER_NOUNS, isKnownProperNoun } from '../utils/properNouns';
 
 export { isKnownProperNoun };
 
 /**
- * v4: primary path is the self-hosted backend /api/dictionary, which does
+ * v5: primary path is the self-hosted backend /api/dictionary, which does
  * server-side lemmatization (reusing src/utils/lemmatizer) + Free Dictionary
  * fetch + server translation + CDN caching, and returns a linkertube-shaped
  * payload { ipa_uk, ipa_us, audio_url, base_form, entries }.
@@ -16,7 +21,7 @@ export { isKnownProperNoun };
  * UI can distinguish service failure from a confirmed missing word.
  */
 
-const CACHE_KEY = 'echolearn_dictionary_cache_v4';
+const CACHE_KEY = 'echolearn_dictionary_cache_v5';
 const API_BASE = '/api/dictionary';
 const DEFAULT_TARGET = 'zh-CN';
 
@@ -36,10 +41,24 @@ interface CacheStore {
   [key: string]: DictionaryEntry & { lemma?: string }; // only successful lookups; never store null/miss
 }
 
+function isDurableDictionaryCacheEntry(entry: DictionaryEntry): boolean {
+  return entry.reference?.translationStatus !== 'fallback-en'
+    && entry.definitionTranslationStatus !== 'fallback-en'
+    && !entry.definitionsEn?.some((definition) => definition.translationStatus === 'fallback-en');
+}
+
 function loadCache(): CacheStore {
   try {
     const raw = localStorage.getItem(CACHE_KEY);
-    return raw ? JSON.parse(raw) : {};
+    const parsed = raw ? JSON.parse(raw) as CacheStore : {};
+    const cache: CacheStore = {};
+    let changed = false;
+    for (const [key, entry] of Object.entries(parsed)) {
+      if (isDurableDictionaryCacheEntry(entry)) cache[key] = entry;
+      else changed = true;
+    }
+    if (changed) saveCache(cache);
+    return cache;
   } catch {
     return {};
   }
@@ -47,7 +66,11 @@ function loadCache(): CacheStore {
 
 function saveCache(cache: CacheStore): void {
   try {
-    localStorage.setItem(CACHE_KEY, JSON.stringify(cache));
+    const durableCache: CacheStore = {};
+    for (const [key, entry] of Object.entries(cache)) {
+      if (isDurableDictionaryCacheEntry(entry)) durableCache[key] = entry;
+    }
+    localStorage.setItem(CACHE_KEY, JSON.stringify(durableCache));
   } catch {
     // localStorage full or unavailable — silently ignore
   }
@@ -56,6 +79,118 @@ function saveCache(cache: CacheStore): void {
 /** Canonical cache key shared by backend and client fallback results. */
 export function makeDictionaryCacheKey(word: string, targetLang = DEFAULT_TARGET): string {
   return `${word.trim().toLowerCase()}:${targetLang.trim().toLowerCase()}`;
+}
+
+function isEnglishTarget(target: string): boolean {
+  return target.trim().toLowerCase().split('-')[0] === 'en';
+}
+
+interface ReferenceSourceSense {
+  pos: string;
+  sourceText?: string | null;
+}
+
+function legacyLemmaProvenance(provider: string): DictionaryLemmaProvenance {
+  const normalized = provider.toLowerCase();
+  if (normalized.includes('datamuse')) return 'candidate';
+  return 'query';
+}
+
+function withDictionaryReference(
+  entry: DictionaryEntry & { lemma?: string },
+  queriedForm: string,
+  target: string,
+  sourceSenses?: ReferenceSourceSense[],
+  semanticLemma?: string,
+  semanticLemmaProvenance?: DictionaryLemmaProvenance,
+): DictionaryEntry & { lemma?: string } {
+  const existingSenses = entry.reference?.senses ?? [];
+  const lemma = semanticLemma || entry.lemma || entry.reference?.lemma || entry.word;
+  const lemmaProvenance = semanticLemmaProvenance
+    ?? entry.reference?.lemmaProvenance
+    ?? legacyLemmaProvenance(entry.provider);
+  const legacySenses = entry.definitionsEn?.length
+    ? entry.definitionsEn
+    : [{
+      pos: entry.partOfSpeech,
+      definition: entry.definitionEn,
+      translationStatus: entry.definitionTranslationStatus,
+    }];
+  const senses = legacySenses.map((definition, index) => {
+    const existing = existingSenses[index];
+    const translationStatus: DictionaryReferenceTranslationStatus = isEnglishTarget(target)
+      ? 'source'
+      : definition.translationStatus ?? existing?.translationStatus ?? 'unknown';
+    const sourceText = sourceSenses?.[index]?.sourceText
+      ?? existing?.sourceText
+      ?? (isEnglishTarget(target) || translationStatus === 'fallback-en' ? definition.definition : null);
+    return {
+      pos: definition.pos || existing?.pos || '',
+      sourceText,
+      displayText: definition.definition || existing?.displayText || null,
+      translationStatus,
+    };
+  });
+  const statuses = senses.map((sense) => sense.translationStatus);
+  const translationStatus: DictionaryReferenceTranslationStatus = statuses.includes('fallback-en')
+    ? 'fallback-en'
+    : statuses.includes('translated')
+      ? 'translated'
+      : statuses.length > 0 && statuses.every((status) => status === 'source')
+        ? 'source'
+        : 'unknown';
+  const displayLanguage = statuses.length === 0
+    ? 'unknown'
+    : statuses.every((status) => status === 'translated')
+      ? target
+      : statuses.every((status) => status === 'source' || status === 'fallback-en')
+        ? 'en'
+        : 'mixed';
+
+  return {
+    ...entry,
+    reference: {
+      queriedForm,
+      ...(lemma ? { lemma, lemmaProvenance } : {}),
+      provider: entry.provider,
+      sourceLanguage: entry.reference?.sourceLanguage || 'en',
+      requestedLanguage: target,
+      displayLanguage,
+      translationStatus,
+      senses,
+    },
+  };
+}
+
+function normalizeClientFallback(
+  entry: DictionaryEntry,
+  target: string,
+  queriedForm: string,
+  lemma?: string,
+  semanticLemmaProvenance?: DictionaryLemmaProvenance,
+): DictionaryEntry & { lemma?: string } {
+  const fallbackEntry = isEnglishTarget(target)
+    ? entry
+    : {
+      ...entry,
+      definitionTranslationStatus: 'fallback-en' as const,
+      definitionsEn: entry.definitionsEn?.map((definition) => ({
+        ...definition,
+        translationStatus: 'fallback-en' as const,
+      })) ?? [{
+        pos: entry.partOfSpeech,
+        definition: entry.definitionEn,
+        translationStatus: 'fallback-en' as const,
+      }],
+    };
+  return withDictionaryReference(
+    { ...fallbackEntry, lemma },
+    queriedForm,
+    target,
+    undefined,
+    lemma || entry.word,
+    semanticLemmaProvenance ?? legacyLemmaProvenance(entry.provider),
+  );
 }
 
 // ── Word cleaning ──────────────────────────────────────────────
@@ -69,7 +204,11 @@ function cleanWord(word: string): string {
 
 interface BackendDefinition {
   display_order: number;
-  definitions_json: { definition: string; translation_status?: DictionaryDefinitionTranslationStatus };
+  definitions_json: {
+    definition: string;
+    source_text?: string;
+    translation_status?: DictionaryDefinitionTranslationStatus;
+  };
 }
 interface BackendEntry {
   pos: string;
@@ -80,6 +219,7 @@ interface BackendResponse {
   ipa_us: string;
   audio_url: string;
   base_form: string;
+  lemma_provenance?: DictionaryLemmaProvenance;
   entries: BackendEntry[];
   source?: 'merriam-webster' | 'free-dictionary' | 'datamuse';
 }
@@ -94,6 +234,7 @@ export class DictionaryLookupError extends Error {
 interface LookupAttempt<T> {
   entry: T | null;
   failed: boolean;
+  lemmaProvenance?: DictionaryLemmaProvenance;
 }
 
 /** Human-readable provider label, used for attribution in the popup. */
@@ -102,6 +243,12 @@ const PROVIDER_LABELS: Record<string, string> = {
   'free-dictionary': 'Free Dictionary',
   datamuse: 'Datamuse',
 };
+
+function backendLemmaProvenance(raw: BackendResponse): DictionaryLemmaProvenance {
+  if (raw.lemma_provenance) return raw.lemma_provenance;
+  if (raw.source === 'datamuse') return 'candidate';
+  return 'query';
+}
 
 // ── Primary: backend lookup ────────────────────────────────────
 
@@ -134,7 +281,8 @@ async function fetchFromBackend(
       pos: string;
       definition: string;
       translationStatus?: DictionaryDefinitionTranslationStatus;
-    }> = [];
+      }> = [];
+    const sourceSenses: ReferenceSourceSense[] = [];
     for (const entry of raw.entries) {
       if (!entry?.definitions) continue;
       for (const d of entry.definitions) {
@@ -145,12 +293,16 @@ async function fetchFromBackend(
           definition: text,
           translationStatus: d.definitions_json.translation_status,
         });
+        sourceSenses.push({
+          pos: entry.pos || '',
+          sourceText: d.definitions_json.source_text,
+        });
       }
     }
 
     if (definitionsEn.length === 0) return { entry: null, failed: true };
 
-    return { entry: {
+    const mappedEntry: DictionaryEntry & { lemma?: string } = {
       word: cleaned,
       phonetic,
       phoneticUk: raw.ipa_uk || undefined,
@@ -165,7 +317,18 @@ async function fetchFromBackend(
       antonyms: [],
       provider: raw.source ? PROVIDER_LABELS[raw.source] ?? raw.source : 'EchoLearn Dictionary API',
       lemma: raw.base_form && raw.base_form !== cleaned ? raw.base_form : undefined,
-    }, failed: false };
+    };
+    return {
+      entry: withDictionaryReference(
+        mappedEntry,
+        cleaned,
+        target,
+        sourceSenses,
+        raw.base_form || cleaned,
+        backendLemmaProvenance(raw),
+      ),
+      failed: false,
+    };
   } catch (error) {
     console.warn(`[dictionary] Backend lookup failed for "${cleaned}"`, error);
     return { entry: null, failed: true };
@@ -248,7 +411,11 @@ async function fetchFromFreeDict(word: string): Promise<LookupAttempt<Dictionary
         && meaning.definitions.some((definition) => typeof definition?.definition === 'string'
           && definition.definition.trim().length > 0));
     if (!hasDefinition) return { entry: null, failed: true };
-    return { entry: parseFreeDictEntry(raw), failed: false };
+    return {
+      entry: parseFreeDictEntry(raw),
+      failed: false,
+      lemmaProvenance: 'dictionary-confirmed',
+    };
   } catch {
     return { entry: null, failed: true };
   }
@@ -280,17 +447,21 @@ async function fetchFromDatamuse(word: string): Promise<LookupAttempt<Dictionary
     const posAbbr = tab >= 0 ? firstDef.slice(0, tab) : '';
     const defText = (tab >= 0 ? firstDef.slice(tab + 1) : firstDef).trim();
 
-    return { entry: {
-      word: hit.word ?? word,
-      phonetic: '',
-      audioUrl: '',
-      partOfSpeech: POS_MAP[posAbbr] ?? '',
-      definitionEn: defText,
-      example: '',
-      synonyms: [],
-      antonyms: [],
-      provider: 'Datamuse',
-    }, failed: false };
+    return {
+      entry: {
+        word: hit.word ?? word,
+        phonetic: '',
+        audioUrl: '',
+        partOfSpeech: POS_MAP[posAbbr] ?? '',
+        definitionEn: defText,
+        example: '',
+        synonyms: [],
+        antonyms: [],
+        provider: 'Datamuse',
+      },
+      failed: false,
+      lemmaProvenance: 'candidate',
+    };
   } catch {
     return { entry: null, failed: true };
   }
@@ -341,7 +512,9 @@ function parseFreeDictEntry(raw: ApiEntry): DictionaryEntry {
 async function fetchEntryParallel(word: string, target: string): Promise<LookupAttempt<DictionaryEntry>> {
   const cache = loadCache();
   const cacheKey = makeDictionaryCacheKey(word, target);
-  if (cacheKey in cache) return { entry: cache[cacheKey], failed: false };
+  if (cacheKey in cache) {
+    return { entry: withDictionaryReference(cache[cacheKey], word, target), failed: false };
+  }
   if (sessionMisses.has(word)) return { entry: null, failed: false };
 
   try {
@@ -350,18 +523,25 @@ async function fetchEntryParallel(word: string, target: string): Promise<LookupA
       fetchFromDatamuse(word),
     ]);
 
-    const freeDict = freeDictResult.status === 'fulfilled'
+    const freeDict: LookupAttempt<DictionaryEntry> = freeDictResult.status === 'fulfilled'
       ? freeDictResult.value
       : { entry: null, failed: true };
-    const datamuse = datamuseResult.status === 'fulfilled'
+    const datamuse: LookupAttempt<DictionaryEntry> = datamuseResult.status === 'fulfilled'
       ? datamuseResult.value
       : { entry: null, failed: true };
 
     const winner = freeDict.entry ?? datamuse.entry;
     if (winner) {
-      cache[cacheKey] = winner;
+      const fallbackEntry = normalizeClientFallback(winner, target, word, undefined, freeDict.entry
+        ? freeDict.lemmaProvenance
+        : datamuse.lemmaProvenance);
+      cache[cacheKey] = fallbackEntry;
       saveCache(cache);
-      return { entry: winner, failed: false };
+      return {
+        entry: fallbackEntry,
+        failed: false,
+        lemmaProvenance: freeDict.entry ? freeDict.lemmaProvenance : datamuse.lemmaProvenance,
+      };
     }
 
     const failed = freeDict.failed || datamuse.failed;
@@ -423,23 +603,16 @@ export async function lookupWord(
   const backendKey = makeDictionaryCacheKey(lookupWordValue, target);
 
   // 1. Backend (primary)
-  if (backendKey in cache) return cache[backendKey];
-  // Compatibility with the previous bare-word fallback cache. Only the
-  // default target may read it, so another target can never inherit it.
-  if (target.trim().toLowerCase() === DEFAULT_TARGET.toLowerCase() && cleaned in cache) {
-    const legacy = cache[cleaned];
-    cache[makeDictionaryCacheKey(cleaned, target)] = legacy;
-    saveCache(cache);
-    return legacy;
-  }
+  if (backendKey in cache) return withDictionaryReference(cache[backendKey], cleaned, target);
   const backendAttempt = await fetchFromBackend(lookupWordValue, target);
   if (backendAttempt.entry) {
-    cache[backendKey] = backendAttempt.entry;
-    saveCache(cache);
     const lemma = backendAttempt.entry.lemma && backendAttempt.entry.lemma !== cleaned
       ? backendAttempt.entry.lemma
       : undefined;
-    return { ...backendAttempt.entry, lemma };
+    const normalized = withDictionaryReference({ ...backendAttempt.entry, lemma }, cleaned, target);
+    cache[backendKey] = normalized;
+    saveCache(cache);
+    return normalized;
   }
   let sawFailure = backendAttempt.failed;
 
@@ -448,7 +621,7 @@ export async function lookupWord(
     const result = await fetchEntryParallel(candidate, target);
     if (result.entry) {
       const lemma = candidate === cleaned ? undefined : candidate;
-      const cached: DictionaryEntry & { lemma?: string } = { ...result.entry, lemma };
+      const cached = normalizeClientFallback(result.entry, target, cleaned, lemma, result.lemmaProvenance);
       cache[makeDictionaryCacheKey(candidate, target)] = cached;
       saveCache(cache);
       return cached;

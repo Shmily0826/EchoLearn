@@ -29,7 +29,7 @@ import {
   YOUTUBE_ACQUISITION_BLOCKED,
 } from '../services/youtubeTranscript';
 import { fetchBilibiliTranscript, getBilibiliVideoTitle, getBilibiliMetaByUrl } from '../services/bilibiliTranscript';
-import { enrichVocabularyItem } from '../services/vocabularyEnrichment';
+import { enrichVocabularyItem, prepareVocabularyItem } from '../services/vocabularyEnrichment';
 import { pushItemsToCloud, pushSessionToCloud } from '../services/firestoreSync';
 import { useAuth } from '../contexts/AuthContext';
 import { CEFR_LEVELS, type CEFRLevel } from '../services/cefrWordList';
@@ -1048,7 +1048,8 @@ const StudyPage: React.FC = () => {
   // Saving is a core guest-mode feature (README: data stays on device).
   // Cloud sync below no-ops without a signed-in user, so no login gate here.
   const handleAddVocabulary = useCallback((item: VocabularyItem) => {
-    setVocabulary(addVocabularyItem(item));
+    const prepared = prepareVocabularyItem(item);
+    setVocabulary(addVocabularyItem(prepared));
     setSaveToast('vocabulary');
     if (saveToastTimer.current) clearTimeout(saveToastTimer.current);
     saveToastTimer.current = setTimeout(() => setSaveToast(null), 4500);
@@ -1056,7 +1057,7 @@ const StudyPage: React.FC = () => {
     triggerCloudSync();
     // Every save path (AI, transcript, popup and quick-add) is enriched the
     // same way: English definition is canonical; Chinese is a learning aid.
-    void enrichVocabularyItem(item).then((patch) => {
+    void enrichVocabularyItem(prepared).then((patch) => {
       if (Object.keys(patch).length === 0) return;
       setVocabulary(updateVocabularyItem(item.id, patch));
       triggerCloudSync();

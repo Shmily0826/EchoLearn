@@ -3,7 +3,9 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react';
 import WordDictionaryPopup from './WordDictionaryPopup';
 import { I18nProvider } from '../i18n/I18nContext';
+import type { DictionaryReferenceTranslationStatus } from '../types';
 import { lookupWord } from '../services/dictionaryService';
+import * as learnerMeaningService from '../services/learnerMeaning';
 import { translateWordFast } from '../services/translationService';
 import { getWordAnalysis } from '../services/wordAnalysisService';
 
@@ -13,6 +15,28 @@ vi.mock('../services/dictionaryService', () => ({
 }));
 vi.mock('../services/translationService', () => ({ translateWordFast: vi.fn() }));
 vi.mock('../services/wordAnalysisService', () => ({ getWordAnalysis: vi.fn() }));
+
+function referenceFor(
+  word: string,
+  senses: Array<{ pos: string; displayText: string; translationStatus?: DictionaryReferenceTranslationStatus }>,
+  status: DictionaryReferenceTranslationStatus = 'translated',
+  requestedLanguage = 'zh-CN',
+) {
+  return {
+    queriedForm: word,
+    provider: 'test',
+    sourceLanguage: 'en',
+    requestedLanguage,
+    displayLanguage: status === 'translated' ? requestedLanguage : 'en',
+    translationStatus: status,
+    senses: senses.map((sense) => ({
+      pos: sense.pos,
+      sourceText: sense.displayText,
+      displayText: sense.displayText,
+      translationStatus: sense.translationStatus ?? status,
+    })),
+  };
+}
 
 describe('WordDictionaryPopup dictionary failures', () => {
   beforeEach(() => {
@@ -57,6 +81,11 @@ describe('WordDictionaryPopup dictionary failures', () => {
       synonyms: [],
       antonyms: [],
       provider: 'Merriam-Webster',
+      reference: referenceFor('light', [
+        { pos: 'adjective', displayText: '轻的' },
+        { pos: 'adjective', displayText: '浅色的' },
+        { pos: 'noun', displayText: '光' },
+      ]),
     });
     vi.mocked(translateWordFast).mockResolvedValue('dictionary fallback');
     vi.mocked(getWordAnalysis).mockResolvedValue({
@@ -79,7 +108,7 @@ describe('WordDictionaryPopup dictionary failures', () => {
       </I18nProvider>,
     );
 
-    expect(await screen.findByText('查看其他词性与详细释义')).toBeTruthy();
+    expect(await screen.findByRole('button', { name: '查看词典参考释义' })).toBeTruthy();
     const primaryMeaning = screen.getByText('contextual meaning');
     expect(primaryMeaning.className).toContain('text-gray-800');
     expect(primaryMeaning.className).not.toContain('text-indigo-600');
@@ -89,7 +118,10 @@ describe('WordDictionaryPopup dictionary failures', () => {
     expect(screen.queryByText('词典例句')).toBeNull();
     expect(screen.getByText('AI 例句')).toBeTruthy();
     expect(screen.queryByText('Here, light describes the amount of luggage.')).toBeNull();
-    fireEvent.click(screen.getByRole('button', { name: '查看其他词性与详细释义' }));
+    fireEvent.click(screen.getByRole('button', { name: '查看词典参考释义' }));
+    expect(screen.getByText('轻的')).toBeTruthy();
+    expect(screen.getByText('浅色的')).toBeTruthy();
+    expect(screen.getByText('光')).toBeTruthy();
     expect(screen.getByRole('heading', { name: 'adj' })).toBeTruthy();
     expect(screen.getByRole('heading', { name: 'n' })).toBeTruthy();
     expect(screen.queryByRole('heading', { name: 'adjective' })).toBeNull();
@@ -99,6 +131,48 @@ describe('WordDictionaryPopup dictionary failures', () => {
     const save = screen.getByRole('button', { name: 'Save word' });
     const attribution = screen.getByText(/Powered by Merriam-Webster/);
     expect(save.compareDocumentPosition(attribution) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+  });
+
+  it.each([
+    ['audience', '\u89c2\u4f17', '\u4e00\u7fa4\u4eba\u805a\u96c6\u5728\u4e00\u8d77\u542c\u67d0\u4e8b\uff08\u4f8b\u5982\u97f3\u4e50\u4f1a\uff09\u6216\u89c2\u770b\u67d0\u4e8b\uff08\u4f8b\u5982\u7535\u5f71\u6216\u620f\u5267\uff09\uff1a\u53c2\u52a0\u8868\u6f14\u7684\u4eba'],
+    ['education', '\u6559\u80b2', '\u6559\u5b66\u67d0\u4eba\u7684\u884c\u52a8\u6216\u8fc7\u7a0b\uff0c\u5c24\u5176\u5728\u5b66\u6821\u3001\u5b66\u9662\u6216\u5927\u5b66\u4e2d'],
+    ['education', '\u6559\u80b2', '\u60a8\u4ece\u5b66\u6821\u3001\u5b66\u9662\u6216\u5927\u5b66\u83b7\u5f97\u7684\u77e5\u8bc6\u3001\u6280\u80fd\u548c\u7406\u89e3'],
+  ])('keeps long %s provider prose behind full dictionary disclosure', async (word, meaning, longDefinition) => {
+    localStorage.setItem('echolearn_lang', 'zh');
+    vi.mocked(lookupWord).mockResolvedValue({
+      word,
+      phonetic: '',
+      audioUrl: '',
+      partOfSpeech: 'noun',
+      definitionEn: longDefinition,
+      definitionsEn: [{ pos: 'noun', definition: longDefinition }],
+      example: '',
+      synonyms: [],
+      antonyms: [],
+      provider: 'Merriam-Webster',
+      reference: referenceFor(word, [{ pos: 'noun', displayText: longDefinition }], 'fallback-en'),
+    });
+    vi.mocked(getWordAnalysis).mockResolvedValue({
+      pos: 'noun',
+      meaningZh: meaning,
+      exampleEn: `A sentence using ${word}.`,
+      exampleZh: '...',
+      analysis: '...',
+    });
+
+    render(
+      <I18nProvider>
+        <WordDictionaryPopup word={word} x={100} y={100} onClose={vi.fn()} />
+      </I18nProvider>,
+    );
+
+    await screen.findByText(meaning);
+    expect(screen.queryByRole('button', { name: /\u67e5\u770b(?:\u8be6\u7ec6\u91ca\u4e49|\u5b8c\u6574\u8bcd\u5178\u91ca\u4e49)/u })).toBeNull();
+    expect(screen.getAllByText(meaning).length).toBeGreaterThan(0);
+    expect(screen.queryByText(longDefinition)).toBeNull();
+    fireEvent.click(screen.getByRole('button', { name: '\u67e5\u770b\u8bcd\u5178\u53c2\u8003\u91ca\u4e49' }));
+    expect(screen.getByText(longDefinition)).toBeTruthy();
+    expect(getWordAnalysis).toHaveBeenCalledTimes(1);
   });
 
   it('labels English fallback definitions in Chinese mode', async () => {
@@ -115,6 +189,7 @@ describe('WordDictionaryPopup dictionary failures', () => {
       synonyms: [],
       antonyms: [],
       provider: 'Free Dictionary',
+      reference: referenceFor('light', [{ pos: 'adjective', displayText: 'not heavy', translationStatus: 'fallback-en' }], 'fallback-en'),
     });
     vi.mocked(translateWordFast).mockResolvedValue('translated meaning');
 
@@ -124,15 +199,106 @@ describe('WordDictionaryPopup dictionary failures', () => {
       </I18nProvider>,
     );
 
-    expect(await screen.findByRole('button', { name: '查看详细释义' })).toBeTruthy();
+    expect(await screen.findByRole('button', { name: '查看词典参考释义' })).toBeTruthy();
     expect(await screen.findByText('translated meaning')).toBeTruthy();
     expect(screen.getByText('adj', { exact: true })).toBeTruthy();
     expect(screen.queryByText('（英文原文，翻译失败）')).toBeNull();
-    fireEvent.click(screen.getByRole('button', { name: '查看详细释义' }));
+    fireEvent.click(screen.getByRole('button', { name: '查看词典参考释义' }));
     expect(screen.getByText('（英文原文，翻译失败）')).toBeTruthy();
   });
 
-  it('shows three default senses and expands the remaining meanings', async () => {
+  it('does not promote an English fallback reference into Chinese learner meaning', async () => {
+    localStorage.setItem('echolearn_lang', 'zh');
+    vi.mocked(lookupWord).mockResolvedValue({
+      word: 'light',
+      phonetic: '',
+      audioUrl: '',
+      partOfSpeech: 'adjective',
+      definitionEn: 'not heavy',
+      definitionTranslationStatus: 'fallback-en',
+      definitionsEn: [{ pos: 'adjective', definition: 'not heavy', translationStatus: 'fallback-en' }],
+      example: '',
+      synonyms: [],
+      antonyms: [],
+      provider: 'Free Dictionary',
+      reference: referenceFor('light', [{ pos: 'adjective', displayText: 'not heavy', translationStatus: 'fallback-en' }], 'fallback-en'),
+    });
+    vi.mocked(translateWordFast).mockResolvedValue('');
+
+    render(
+      <I18nProvider>
+        <WordDictionaryPopup word="light" x={100} y={100} onClose={vi.fn()} />
+      </I18nProvider>,
+    );
+
+    expect(await screen.findByRole('button', { name: '查看词典参考释义' })).toBeTruthy();
+    expect(screen.queryByText('not heavy')).toBeNull();
+    fireEvent.click(screen.getByRole('button', { name: '查看词典参考释义' }));
+    expect(screen.getByText('not heavy')).toBeTruthy();
+  });
+
+  it('uses a translated dictionary reference as the final Chinese learner meaning', async () => {
+    localStorage.setItem('echolearn_lang', 'zh');
+    vi.mocked(lookupWord).mockResolvedValue({
+      word: 'cat',
+      phonetic: '',
+      audioUrl: '',
+      partOfSpeech: 'noun',
+      definitionEn: 'a small animal',
+      definitionsEn: [{ pos: 'noun', definition: '猫' }],
+      example: '',
+      synonyms: [],
+      antonyms: [],
+      provider: 'Free Dictionary',
+      reference: referenceFor('cat', [{ pos: 'noun', displayText: '猫' }]),
+    });
+    vi.mocked(translateWordFast).mockResolvedValue('');
+
+    render(
+      <I18nProvider>
+        <WordDictionaryPopup word="cat" x={100} y={100} onClose={vi.fn()} />
+      </I18nProvider>,
+    );
+
+    expect(await screen.findByText('猫')).toBeTruthy();
+  });
+
+  it('passes the clicked subtitle to the shared LearnerMeaning resolver', async () => {
+    localStorage.setItem('echolearn_lang', 'zh');
+    vi.mocked(lookupWord).mockResolvedValue({
+      word: 'cat',
+      phonetic: '',
+      audioUrl: '',
+      partOfSpeech: 'noun',
+      definitionEn: 'a small animal',
+      definitionsEn: [{ pos: 'noun', definition: '猫' }],
+      example: '',
+      synonyms: [],
+      antonyms: [],
+      provider: 'Free Dictionary',
+      reference: referenceFor('cat', [{ pos: 'noun', displayText: '猫' }]),
+    });
+    const resolveSpy = vi.spyOn(learnerMeaningService, 'resolveLearnerMeaning');
+
+    render(
+      <I18nProvider>
+        <WordDictionaryPopup
+          word="cat"
+          x={100}
+          y={100}
+          context="The cat slept on the mat."
+          onClose={vi.fn()}
+        />
+      </I18nProvider>,
+    );
+
+    await screen.findByText('猫');
+    expect(resolveSpy.mock.calls.at(-1)?.[0]).toMatchObject({
+      sourceSentence: 'The cat slept on the mat.',
+    });
+  });
+
+  it('shows all bounded provider senses behind one Chinese dictionary disclosure', async () => {
     localStorage.setItem('echolearn_lang', 'zh');
     vi.mocked(lookupWord).mockResolvedValue({
       word: 'light',
@@ -150,6 +316,12 @@ describe('WordDictionaryPopup dictionary failures', () => {
       synonyms: [],
       antonyms: [],
       provider: 'Merriam-Webster',
+      reference: referenceFor('light', [
+        { pos: 'adjective', displayText: 'sense one' },
+        { pos: 'noun', displayText: 'sense two' },
+        { pos: 'verb', displayText: 'sense three' },
+        { pos: 'verb', displayText: 'sense four' },
+      ]),
     });
 
     render(
@@ -158,17 +330,17 @@ describe('WordDictionaryPopup dictionary failures', () => {
       </I18nProvider>,
     );
 
-    expect(await screen.findByRole('button', { name: '查看其他词性与详细释义' })).toBeTruthy();
+    expect(await screen.findByRole('button', { name: '查看词典参考释义' })).toBeTruthy();
     expect(screen.queryByText('sense three')).toBeNull();
-    fireEvent.click(screen.getByRole('button', { name: '查看其他词性与详细释义' }));
+    fireEvent.click(screen.getByRole('button', { name: '查看词典参考释义' }));
     expect(screen.getByText('sense three')).toBeTruthy();
-    expect(screen.queryByText('sense four')).toBeNull();
-    fireEvent.click(screen.getByRole('button', { name: '显示另外 1 个释义' }));
     expect(screen.getByText('sense four')).toBeTruthy();
+    expect(screen.queryByRole('button', { name: /显示另外|查看详细释义|查看完整词典释义/u })).toBeNull();
   });
 
-  it('cleans concrete Datamuse editorial detail noise in Chinese mode', async () => {
+  it('renders a long reference definition without Popup rewriting it', async () => {
     localStorage.setItem('echolearn_lang', 'zh');
+    const definition = 'The name of various cities, towns and boroughs in the USA, United Kingdom, Canada, Australia and New Zealand. See the full list.';
     vi.mocked(lookupWord).mockResolvedValue({
       word: 'stratford',
       phonetic: '',
@@ -183,6 +355,7 @@ describe('WordDictionaryPopup dictionary failures', () => {
       synonyms: [],
       antonyms: [],
       provider: 'Datamuse',
+      reference: referenceFor('stratford', [{ pos: 'noun', displayText: definition }], 'fallback-en'),
     });
 
     render(
@@ -191,14 +364,13 @@ describe('WordDictionaryPopup dictionary failures', () => {
       </I18nProvider>,
     );
 
-    fireEvent.click(await screen.findByRole('button', { name: '\u67e5\u770b\u8be6\u7ec6\u91ca\u4e49' }));
-    expect(screen.getByText('\u7f8e\u56fd\u3001\u82f1\u56fd\u3001\u52a0\u62ff\u5927\u7b49\u5404\u4e2a\u57ce\u5e02\u3001\u57ce\u9547\u548c\u884c\u653f\u533a\u7684\u540d\u79f0\u3002')).toBeTruthy();
-    expect(screen.queryByText(/\u67e5\u770b\u5b8c\u6574\u5217\u8868/u)).toBeNull();
-    expect(screen.queryByText(/\u6fb3\u5927\u5229\u4e9a/u)).toBeNull();
+    fireEvent.click(await screen.findByRole('button', { name: '\u67e5\u770b\u8bcd\u5178\u53c2\u8003\u91ca\u4e49' }));
+    expect(screen.getByText(definition)).toBeTruthy();
   });
 
-  it('removes the anniversary usage tail without removing the sense', async () => {
+  it('renders the reference usage tail without rewriting the sense', async () => {
     localStorage.setItem('echolearn_lang', 'zh');
+    const definition = 'A date that is remembered or celebrated because a special or notable event occurred on that date in a previous year - usually used before another noun';
     vi.mocked(lookupWord).mockResolvedValue({
       word: 'anniversary',
       phonetic: '',
@@ -213,6 +385,7 @@ describe('WordDictionaryPopup dictionary failures', () => {
       synonyms: [],
       antonyms: [],
       provider: 'Merriam-Webster',
+      reference: referenceFor('anniversary', [{ pos: 'noun', displayText: definition }], 'fallback-en'),
     });
 
     render(
@@ -221,9 +394,8 @@ describe('WordDictionaryPopup dictionary failures', () => {
       </I18nProvider>,
     );
 
-    fireEvent.click(await screen.findByRole('button', { name: '\u67e5\u770b\u8be6\u7ec6\u91ca\u4e49' }));
-    expect(screen.getByText(/\u88ab\u8bb0\u4f4f\u6216\u5e86\u795d\u7684\u65e5\u671f$/u)).toBeTruthy();
-    expect(screen.queryByText(/\u901a\u5e38\u5728\u53e6\u4e00\u4e2a\u540d\u8bcd\u4e4b\u524d\u4f7f\u7528/u)).toBeNull();
+    fireEvent.click(await screen.findByRole('button', { name: '\u67e5\u770b\u8bcd\u5178\u53c2\u8003\u91ca\u4e49' }));
+    expect(screen.getByText(definition)).toBeTruthy();
   });
 
   it('clamps the popup inside the viewport when neither side fits', async () => {
@@ -247,6 +419,7 @@ describe('WordDictionaryPopup dictionary failures', () => {
       synonyms: [],
       antonyms: [],
       provider: 'Datamuse',
+      reference: referenceFor('compact', [{ pos: 'adjective', displayText: 'small' }], 'source', 'en'),
     });
 
     render(
@@ -272,6 +445,7 @@ describe('WordDictionaryPopup dictionary failures', () => {
       synonyms: [],
       antonyms: [],
       provider: 'Datamuse',
+      reference: referenceFor('light', [{ pos: 'adjective', displayText: 'not heavy' }], 'source', 'en'),
     });
 
     render(

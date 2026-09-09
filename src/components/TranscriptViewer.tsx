@@ -6,6 +6,7 @@ import { createItemId, currentTimeMs } from '../utils/id';
 import { lemmatize } from '../utils/lemmatizer';
 import { extractSentence } from '../utils/sentence';
 import { lookupWord } from '../services/dictionaryService';
+import { prepareVocabularyItem } from '../services/vocabularyEnrichment';
 import WordDictionaryPopup, { type WordDictionaryPopupData } from './WordDictionaryPopup';
 
 interface TranscriptViewerProps {
@@ -104,21 +105,19 @@ const TranscriptViewer: React.FC<TranscriptViewerProps> = ({
   const handleAddWord = async () => {
     if (!popup) return;
     const word = dictionaryData?.word || popup.word;
-    const lemma = lemmatize(word);
     let enDict = !showChinese ? dictionaryData?.entry : null;
     if (!enDict) {
       try {
-        enDict = await lookupWord(lemma, 'en');
+        enDict = await lookupWord(word, 'en');
       } catch {
         /* keep null */
       }
     }
-    const item: VocabularyItem = {
+    const item = prepareVocabularyItem({
       id: createItemId('vocab'),
-      word: lemma,
-      lemma,
-      meaningCn: dictionaryData?.meaningCn || '',
-      context: extractSentence(popup.context, lemma),
+      word,
+      meaningCn: '',
+      context: extractSentence(popup.context, word),
       fullContext: popup.context,
       sourceVideoId: videoId,
       sourceVideoTitle: videoTitle,
@@ -128,15 +127,11 @@ const TranscriptViewer: React.FC<TranscriptViewerProps> = ({
       reviewCount: 0,
       lastReviewedAt: 0,
       nextReviewAt: tomorrowMs(),
-      phonetic: enDict?.phonetic || '',
-      audioUrl: enDict?.audioUrl || '',
-      partOfSpeech: enDict?.partOfSpeech || '',
-      definitionEn: enDict?.definitionEn || '',
-      example: enDict?.example || '',
-      synonyms: enDict?.synonyms || [],
-      antonyms: enDict?.antonyms || [],
-      dictionaryProvider: enDict?.provider || '',
-    };
+    }, {
+      dictionaryEntry: dictionaryData?.entry,
+      dictionaryFields: enDict,
+      learnerMeaning: dictionaryData?.learnerMeaning,
+    });
     onAddVocabulary(item);
     setPopup(null);
     setDictionaryData(null);

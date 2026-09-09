@@ -28,6 +28,7 @@
 export const config = { runtime: 'edge' };
 
 import { lemmatize } from '../src/utils/lemmatizer';
+import type { DictionaryLemmaProvenance } from '../src/types';
 import { translateDictionaryDefinition, type DictionaryTranslationStatus } from './_shared/dictionaryTranslation';
 
 // ── Config ────────────────────────────────────────────────────
@@ -128,7 +129,11 @@ interface BackendEntry {
   pos: string;
   definitions: Array<{
     display_order: number;
-    definitions_json: { definition: string; translation_status?: DictionaryTranslationStatus };
+    definitions_json: {
+      definition: string;
+      source_text?: string;
+      translation_status?: DictionaryTranslationStatus;
+    };
   }>;
 }
 interface BackendResponse {
@@ -136,6 +141,7 @@ interface BackendResponse {
   ipa_us: string;
   audio_url: string;
   base_form: string;
+  lemma_provenance: DictionaryLemmaProvenance;
   entries: BackendEntry[];
   /** Which upstream produced this result — drives UI attribution. */
   source?: 'merriam-webster' | 'free-dictionary' | 'datamuse';
@@ -165,21 +171,24 @@ function extractCollocation(def: string): { cleaned: string; preposition?: strin
 
 export function normalizeSourceDefinition(definition: string): string {
   const text = definition.trim()
-    .replace(/\s*[-—–]\s*(?:often|usually)\s+used\s+before\s+another\s+noun\s*$/i, '')
+    .replace(/\s*[-—–]\s*(?:often|usually|sometimes)\s+used\b[^.!?]*[.!?]?\s*$/i, '')
     .trim();
   const fullList = text.match(/^(.*?)(?:\.\s*)?See the full list\.?$/i);
-  if (!fullList) return text;
+  if (fullList) {
+    const body = fullList[1].trim().replace(/[.!?]+$/u, '');
+    const locationList = body.match(/^(.*\b(?:in|of|from)\s+)([^.!?]+)$/i);
+    if (!locationList) return body;
+    const items = locationList[2]
+      .replace(/\s+and\s+/i, ', ')
+      .split(/\s*,\s*/u)
+      .map((item) => item.trim())
+      .filter(Boolean);
+    if (items.length < 4) return body;
+    return `${locationList[1]}${items.slice(0, 3).join(', ')}, etc.`;
+  }
 
-  const body = fullList[1].trim().replace(/[.!?]+$/u, '');
-  const locationList = body.match(/^(.*\b(?:in|of|from)\s+)([^.!?]+)$/i);
-  if (!locationList) return body;
-  const items = locationList[2]
-    .replace(/\s+and\s+/i, ', ')
-    .split(/\s*,\s*/u)
-    .map((item) => item.trim())
-    .filter(Boolean);
-  if (items.length < 4) return body;
-  return `${locationList[1]}${items.slice(0, 3).join(', ')}, etc.`;
+  const pointer = text.match(/^(.*?)(?:[.!?]\s+|;\s+|[-—–]\s+)(See\s+(?:also|the\s+entry)|Compare|More\s+at)\b[^.!?]*[.!?]?\s*$/i);
+  return pointer ? pointer[1].trim().replace(/[.!?]+$/u, '') : text;
 }
 
 function collocationNote(prep: string, target: string): string {
@@ -208,11 +217,19 @@ async function buildEntries(tasks: DefTask[], target: string): Promise<BackendEn
     }),
   );
 
-  const grouped = new Map<string, Array<{ text: string; status?: DictionaryTranslationStatus }>>();
+  const grouped = new Map<string, Array<{
+    text: string;
+    sourceText: string;
+    status?: DictionaryTranslationStatus;
+  }>>();
   for (let i = 0; i < prepared.length; i++) {
     const arr = grouped.get(prepared[i].pos) || [];
     const note = prepared[i].preposition ? collocationNote(prepared[i].preposition!, target) : '';
-    arr.push({ text: translated[i].text + note, status: translated[i].status });
+    arr.push({
+      text: translated[i].text + note,
+      sourceText: prepared[i].original,
+      status: translated[i].status,
+    });
     grouped.set(prepared[i].pos, arr);
   }
 
@@ -225,6 +242,7 @@ async function buildEntries(tasks: DefTask[], target: string): Promise<BackendEn
         display_order: order++,
         definitions_json: {
           definition: definition.text,
+          source_text: definition.sourceText,
           ...(definition.status ? { translation_status: definition.status } : {}),
         },
       })),
@@ -427,6 +445,7 @@ async function freeEntryToBackend(
     audio_url: audio,
     // Always a real dictionary headword — never a lemmatizer guess.
     base_form: baseFormOverride || entry.word || '',
+    lemma_provenance: 'dictionary-confirmed',
     entries: out,
     source: 'free-dictionary',
   };
@@ -591,13 +610,16 @@ async function fetchMerriamWebster(word: string, target: string): Promise<Backen
   const out = await buildEntries(tasks, target);
   if (out.length === 0) { mwLastStatus = 'translate-failed'; return null; }
 
+  const headword = mwHeadword(entries[0]);
+
   mwLastStatus = 'ok';
   return {
     ipa_uk: ipaUk || ipaUs,
     ipa_us: ipaUs || ipaUk,
     audio_url: audio,
-    // MW's own headword — authoritative base form.
-    base_form: mwHeadword(entries[0]) || word,
+    // Only an actual MW headword is provider-confirmed; the query is not.
+    base_form: headword || word,
+    lemma_provenance: headword ? 'provider-confirmed' : 'query',
     entries: out,
     source: 'merriam-webster',
   };
@@ -688,6 +710,7 @@ async function fetchFromDatamuse(word: string, target: string): Promise<BackendR
         display_order: entry.definitions.length,
         definitions_json: {
           definition: texts[i].text + note,
+          source_text: prepared[i].original,
           ...(texts[i].status ? { translation_status: texts[i].status } : {}),
         },
       });
@@ -697,6 +720,7 @@ async function fetchFromDatamuse(word: string, target: string): Promise<BackendR
     return {
       // CMUdict is a US pronunciation dictionary, so only claim US here.
       ipa_uk: '', ipa_us: ipa, audio_url: '', base_form: word,
+      lemma_provenance: 'candidate',
       entries: [...byPos.values()],
       source: 'datamuse',
     };

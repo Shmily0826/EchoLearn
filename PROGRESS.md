@@ -567,3 +567,10 @@ Browser-native fallback and managed alternate-provider/egress options have highe
 - Study "silent failure" investigation closed with no code change: the desktop/mobile error and loading machinery is complete (content-area loading card, error banner with Retry, session-restore auto-fetch). The dogfood anomaly is attributed to harness detection gap (the `/loading/i` probe missed the toolbar's "Fetching captions · Ns" indicator) during long client-route fallback. Re-open only for a real user report of a truly blank, non-loading panel.
 - Hygiene commit `d14fd3f` (pushed): removed the dormant `proxiedFetch`/`doScrapeFetch` gateway code and its two tests (binding deleted 2026-09-07; path could never re-activate); webpage/timedtext stages keep direct-fetch behavior; fixed the `YTDLP_TIMEOUT` doc comment (180 s). Validation: worker 22/22, VPS unittest 43/43 (isolated venv), full Vitest 460/460, tsc, build, diff-check — all PASS.
 - Standing reliability window automation active (Mondays 09:00, Worker-only). Open items: Supadata cost review (needs bill data), Invidious/Piped instance pruning (needs health data), consolidation Phase 5 leftovers (low priority).
+
+## 2026-09-09 ECHO-20260909-2106 - P1A DictionaryReference semantic contract
+
+- Added additive `DictionaryReference` types and service-boundary normalization while preserving legacy `DictionaryEntry` fields and P0 `fallback-en`/v5 behavior.
+- Backend dictionary payloads now carry normalized English `source_text` beside legacy `definition`; MW/Free Dictionary-style `buildEntries` and the manual Datamuse builder both preserve it.
+- Focused validation: **23/23 PASS** across dictionary service, Mobile P0, and Datamuse handler regressions; targeted ESLint, `tsc -b`, `git diff --check`, and `npm run build` PASS. Build retained existing chunk-size warnings.
+- Local only: no browser/E2E run, commit, push, deploy, or production/provider traffic. Popup, save-pipeline, lemma, and unrelated dirty work remain unchanged.

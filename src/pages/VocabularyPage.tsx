@@ -10,10 +10,10 @@ import {
   addVocabularyItem,
   loadAllSessions,
 } from '../utils/storage';
-import WordDictionaryPopup from '../components/WordDictionaryPopup';
+import WordDictionaryPopup, { type WordDictionaryPopupData } from '../components/WordDictionaryPopup';
 import { exportVocabularyCSV, exportVocabularyPDF } from '../services/exportService';
 import { translateWords, translateWord } from '../services/translationService';
-import { enrichVocabularyItem, isMissingEnglishDefinition } from '../services/vocabularyEnrichment';
+import { enrichVocabularyItem, isMissingEnglishDefinition, prepareVocabularyItem } from '../services/vocabularyEnrichment';
 import { isLocalNoTranslation } from '../services/aiAnalysis';
 import { jumpToSource, formatTimestamp, youtubeUrlAt } from '../utils/jumpToSource';
 import { extractSentence } from '../utils/sentence';
@@ -80,6 +80,7 @@ const VocabularyPage: React.FC = () => {
   const [editingId, setEditingId] = useState<string | null>(null);
   const [editMeaning, setEditMeaning] = useState('');
   const [dictPopup, setDictPopup] = useState<DictPopupState | null>(null);
+  const [dictPopupData, setDictPopupData] = useState<WordDictionaryPopupData | null>(null);
   const [dictCurrentWord, setDictCurrentWord] = useState('');
   const [expandedContextIds, setExpandedContextIds] = useState<Set<string>>(new Set());
   const [showExport, setShowExport] = useState(false);
@@ -224,6 +225,7 @@ const VocabularyPage: React.FC = () => {
   const handleWordClick = (word: string, context: string | undefined, e: React.MouseEvent) => {
     e.stopPropagation();
     const rect = (e.target as HTMLElement).getBoundingClientRect();
+    setDictPopupData(null);
     setDictPopup({
       word,
       context,
@@ -237,6 +239,7 @@ const VocabularyPage: React.FC = () => {
     const w = term.trim();
     if (!w) return;
     setDictCurrentWord(w);
+    setDictPopupData(null);
     setDictPopup({
       word: w,
       x: rect ? rect.left + rect.width / 2 : window.innerWidth / 2,
@@ -249,15 +252,8 @@ const VocabularyPage: React.FC = () => {
   const handleDictAddWord = useCallback((word: string) => {
     const w = word.trim();
     if (!w) return;
-    const alreadySaved = vocabulary.some(
-      (v) => v.word.toLowerCase() === w.toLowerCase() && v.sourceVideoId === '',
-    );
-    if (alreadySaved) {
-      setDictPopup(null);
-      return;
-    }
     const newId = `v_${Date.now()}_${Math.random().toString(36).slice(2, 7)}`;
-    const item: VocabularyItem = {
+    const item = prepareVocabularyItem({
       id: newId,
       word: w,
       meaningCn: '',
@@ -268,10 +264,21 @@ const VocabularyPage: React.FC = () => {
       reviewCount: 0,
       lastReviewedAt: 0,
       nextReviewAt: 0,
-    };
+    }, {
+      dictionaryEntry: dictPopupData?.entry,
+      learnerMeaning: dictPopupData?.learnerMeaning,
+    });
+    const alreadySaved = vocabulary.some(
+      (v) => v.word.toLowerCase() === item.word.toLowerCase() && v.sourceVideoId === '',
+    );
+    if (alreadySaved) {
+      setDictPopup(null);
+      return;
+    }
     setVocabulary(addVocabularyItem(item));
     triggerCloudSync();
     setDictPopup(null);
+    setDictPopupData(null);
     // Use the same enrichment path as transcript and AI saves so manually
     // searched words also receive an English definition.
     void enrichVocabularyItem(item).then((patch) => {
@@ -289,7 +296,7 @@ const VocabularyPage: React.FC = () => {
     }).catch(() => {
       setTranslationErrorIds((previous) => new Set(previous).add(newId));
     });
-  }, [vocabulary, triggerCloudSync]);
+  }, [dictPopupData, vocabulary, triggerCloudSync]);
 
   /** Re-translate a single item whose meaning is empty or the local-no-translation placeholder. */
   const handleTranslateOne = useCallback((item: VocabularyItem) => {
@@ -392,8 +399,9 @@ const VocabularyPage: React.FC = () => {
           word={dictPopup.word}
           x={dictPopup.x}
           y={dictPopup.y}
-          onClose={() => setDictPopup(null)}
+          onClose={() => { setDictPopup(null); setDictPopupData(null); }}
           onWordChange={setDictCurrentWord}
+          onDataChange={setDictPopupData}
           actions={
             dictPopup.fromLookup ? (
               <button

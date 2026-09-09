@@ -1,5 +1,6 @@
-import type { VocabularyItem } from '../types';
+import type { DictionaryEntry, LearnerMeaning, VocabularyItem } from '../types';
 import { lookupWord } from './dictionaryService';
+import { resolveLearnerMeaning } from './learnerMeaning';
 import { translateWord } from './translationService';
 import { isLocalNoTranslation } from './aiAnalysis';
 
@@ -15,6 +16,50 @@ export function isMissingEnglishDefinition(value: string | undefined | null): bo
   return normalized.length === 0 || EMPTY_DEFINITION_PLACEHOLDERS.has(normalized);
 }
 
+export interface VocabularySemanticInput {
+  dictionaryEntry?: DictionaryEntry | null;
+  dictionaryFields?: DictionaryEntry | null;
+  learnerMeaning?: LearnerMeaning | null;
+}
+
+function isTrustedLemma(entry: DictionaryEntry | null | undefined): boolean {
+  const provenance = entry?.reference?.lemmaProvenance;
+  return provenance === 'provider-confirmed' || provenance === 'dictionary-confirmed';
+}
+
+/** Prepare one vocabulary item without promoting query/candidate lemmas to identity. */
+export function prepareVocabularyItem(
+  item: VocabularyItem,
+  semantic: VocabularySemanticInput = {},
+): VocabularyItem {
+  const prepared: VocabularyItem = { ...item };
+  const reference = semantic.dictionaryEntry?.reference;
+  const trustedLemma = isTrustedLemma(semantic.dictionaryEntry) ? reference?.lemma?.trim() : '';
+
+  if (trustedLemma) {
+    prepared.word = trustedLemma;
+    prepared.lemma = trustedLemma;
+  } else if (prepared.lemma && prepared.lemma !== prepared.word) {
+    delete prepared.lemma;
+  }
+
+  if (semantic.learnerMeaning) prepared.meaningCn = semantic.learnerMeaning.text;
+
+  const dictionary = semantic.dictionaryFields;
+  if (dictionary) {
+    prepared.phonetic = dictionary.phonetic || '';
+    prepared.audioUrl = dictionary.audioUrl || '';
+    prepared.partOfSpeech = dictionary.partOfSpeech || '';
+    prepared.definitionEn = dictionary.definitionEn || '';
+    prepared.example = dictionary.example || '';
+    prepared.synonyms = dictionary.synonyms || [];
+    prepared.antonyms = dictionary.antonyms || [];
+    prepared.dictionaryProvider = dictionary.provider || '';
+  }
+
+  return prepared;
+}
+
 /**
  * Fill language-neutral dictionary data for a saved word.
  *
@@ -27,23 +72,29 @@ export async function enrichVocabularyItem(item: VocabularyItem): Promise<Partia
   const needsEnglish = isMissingEnglishDefinition(item.definitionEn);
   const needsChinese = isLocalNoTranslation(item.meaningCn);
 
-  const [dictionary, meaningCn] = await Promise.all([
+  const [dictionary, chineseEntry, quickGloss] = await Promise.all([
     needsEnglish ? lookupWord(word, 'en').catch(() => null) : Promise.resolve(null),
+    needsChinese ? lookupWord(word, 'zh-CN').catch(() => null) : Promise.resolve(null),
     needsChinese ? translateWord(word, item.context).catch(() => '') : Promise.resolve(''),
   ]);
 
+  const learnerMeaning = resolveLearnerMeaning({
+    targetLanguage: 'zh-CN',
+    sourceSentence: item.context,
+    quickGloss: quickGloss || undefined,
+    dictionaryReference: chineseEntry?.reference,
+  });
+  const prepared = prepareVocabularyItem(item, {
+    dictionaryEntry: dictionary,
+    dictionaryFields: dictionary,
+    learnerMeaning: learnerMeaning.provider === 'unavailable' ? null : learnerMeaning,
+  });
   const patch: Partial<VocabularyItem> = {};
-  if (dictionary) {
-    patch.definitionEn = dictionary.definitionEn || '';
-    patch.phonetic = dictionary.phonetic || '';
-    patch.audioUrl = dictionary.audioUrl || '';
-    patch.partOfSpeech = dictionary.partOfSpeech || '';
-    patch.example = dictionary.example || '';
-    patch.synonyms = dictionary.synonyms || [];
-    patch.antonyms = dictionary.antonyms || [];
-    patch.dictionaryProvider = dictionary.provider || '';
-    if (dictionary.lemma) patch.lemma = dictionary.lemma;
+  for (const key of [
+    'word', 'lemma', 'meaningCn', 'phonetic', 'audioUrl', 'partOfSpeech',
+    'definitionEn', 'example', 'synonyms', 'antonyms', 'dictionaryProvider',
+  ] as const) {
+    if (prepared[key] !== item[key]) patch[key] = prepared[key] as never;
   }
-  if (meaningCn) patch.meaningCn = meaningCn;
   return patch;
 }

@@ -3,6 +3,7 @@ import { useI18n } from '../../i18n/I18nContext';
 import { lemmatize } from '../../utils/lemmatizer';
 import { extractSentence } from '../../utils/sentence';
 import { lookupWord } from '../../services/dictionaryService';
+import { prepareVocabularyItem } from '../../services/vocabularyEnrichment';
 import { tomorrowMs } from '../../utils/storage';
 import type { TranscriptLine, VocabularyItem, SentenceItem } from '../../types';
 import WordDictionaryPopup, { type WordDictionaryPopupData } from '../WordDictionaryPopup';
@@ -77,28 +78,19 @@ const MobileTranscriptPanel: React.FC<{
   const handleAddWord = useCallback(async () => {
     if (!popup) return;
     const word = dictionaryData?.word || popup.word;
-    const lemma = lemmatize(word);
-    let meaningCn = '';
     let enEntry = !showChinese ? dictionaryData?.entry : null;
-    try {
-      const cnEntry = await lookupWord(lemma, 'zh-CN');
-      meaningCn = cnEntry?.definitionEn || '';
-    } catch {
-      /* keep empty */
-    }
     if (!enEntry) {
       try {
-        enEntry = await lookupWord(lemma, 'en');
+        enEntry = await lookupWord(word, 'en');
       } catch {
         /* keep empty */
       }
     }
-    const item: VocabularyItem = {
+    const item = prepareVocabularyItem({
       id: `vocab_${Date.now()}`,
-      word: lemma,
-      lemma,
-      meaningCn,
-      context: extractSentence(popup.context, lemma),
+      word,
+      meaningCn: '',
+      context: extractSentence(popup.context, word),
       fullContext: popup.context,
       sourceVideoId: videoId,
       sourceVideoTitle: videoTitle,
@@ -108,15 +100,11 @@ const MobileTranscriptPanel: React.FC<{
       reviewCount: 0,
       lastReviewedAt: 0,
       nextReviewAt: tomorrowMs(),
-      phonetic: enEntry?.phonetic || '',
-      audioUrl: enEntry?.audioUrl || '',
-      partOfSpeech: enEntry?.partOfSpeech || '',
-      definitionEn: enEntry?.definitionEn || '',
-      example: enEntry?.example || '',
-      synonyms: enEntry?.synonyms || [],
-      antonyms: enEntry?.antonyms || [],
-      dictionaryProvider: enEntry?.provider || '',
-    };
+    }, {
+      dictionaryEntry: dictionaryData?.entry || enEntry,
+      dictionaryFields: enEntry,
+      learnerMeaning: dictionaryData?.learnerMeaning,
+    });
     onAddVocabulary(item);
     setPopup(null);
     setDictionaryData(null);

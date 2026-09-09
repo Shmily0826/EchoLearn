@@ -4,6 +4,8 @@ import type { VocabularyItem } from '../types';
 import { lemmatize } from '../utils/lemmatizer';
 import { tomorrowMs } from '../utils/storage';
 import WordDictionaryPopup from './WordDictionaryPopup';
+import { prepareVocabularyItem } from '../services/vocabularyEnrichment';
+import type { WordDictionaryPopupData } from './WordDictionaryPopup';
 
 interface ClickableRichTextProps {
   text: string;
@@ -43,6 +45,7 @@ const ClickableRichText: React.FC<ClickableRichTextProps> = ({
   // The popup may switch to a related word (synonym / definition word); save
   // the currently-displayed word when the user presses "Add to Vocab".
   const [displayedWord, setDisplayedWord] = useState<string>('');
+  const [dictionaryData, setDictionaryData] = useState<WordDictionaryPopupData | null>(null);
 
   const isWordSaved = useCallback(
     (word: string) => savedWords.has(lemmatize(word).toLowerCase()),
@@ -53,6 +56,7 @@ const ClickableRichText: React.FC<ClickableRichTextProps> = ({
     e.stopPropagation();
     const rect = (e.target as HTMLElement).getBoundingClientRect();
     setDisplayedWord(word);
+    setDictionaryData(null);
     setPopup({
       word,
       x: rect.left + rect.width / 2,
@@ -63,12 +67,10 @@ const ClickableRichText: React.FC<ClickableRichTextProps> = ({
   const handleAddWord = () => {
     const word = displayedWord || popup?.word;
     if (!word) return;
-    const lemma = lemmatize(word);
-    const item: VocabularyItem = {
+    const item = prepareVocabularyItem({
       id: `vocab_${Date.now()}`,
-      word: lemma,
-      lemma,
-      meaningCn: '', // StudyPage auto-translates if empty
+      word,
+      meaningCn: '',
       context: text,
       sourceVideoId: videoId,
       sourceVideoTitle: videoTitle,
@@ -77,7 +79,10 @@ const ClickableRichText: React.FC<ClickableRichTextProps> = ({
       reviewCount: 0,
       lastReviewedAt: 0,
       nextReviewAt: tomorrowMs(),
-    };
+    }, {
+      dictionaryEntry: dictionaryData?.entry,
+      learnerMeaning: dictionaryData?.learnerMeaning,
+    });
     onAddVocabulary(item);
     setPopup(null);
   };
@@ -89,8 +94,9 @@ const ClickableRichText: React.FC<ClickableRichTextProps> = ({
           word={popup.word}
           x={popup.x}
           y={popup.y}
-          onClose={() => setPopup(null)}
+          onClose={() => { setPopup(null); setDictionaryData(null); }}
           onWordChange={setDisplayedWord}
+          onDataChange={setDictionaryData}
           videoId={videoId}
           context={text}
           actions={

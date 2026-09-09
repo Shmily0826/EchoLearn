@@ -46,6 +46,28 @@ function backendPayload(overrides: Record<string, unknown> = {}): string {
   });
 }
 
+function semanticBackendPayload(definition: string, status?: 'translated' | 'fallback-en'): string {
+  return JSON.stringify({
+    ipa_uk: '/kæt/',
+    ipa_us: '/kæt/',
+    audio_url: '',
+    base_form: 'cat',
+    source: 'merriam-webster',
+    lemma_provenance: 'provider-confirmed',
+    entries: [{
+      pos: 'noun',
+      definitions: [{
+        display_order: 1,
+        definitions_json: {
+          definition,
+          source_text: 'a small pet animal',
+          ...(status ? { translation_status: status } : {}),
+        },
+      }],
+    }],
+  });
+}
+
 function freeDictPayload(): string {
   return JSON.stringify([
     {
@@ -211,6 +233,63 @@ describe('lookupWord — backend primary path', () => {
     expect(entry?.definitionEn).toBe('a small domesticated feline');
     expect(entry?.audioUrl).toBe('https://audio.example/cat.mp3');
   });
+
+  it('builds and round-trips a translated DictionaryReference', async () => {
+    fetchMock.mockImplementation(async (input) => {
+      if (String(input).includes('/api/dictionary')) {
+        return mockResponse(semanticBackendPayload('一只小宠物', 'translated'));
+      }
+      throw new Error(`unexpected url: ${String(input)}`);
+    });
+    const mod = await freshModule();
+
+    const entry = await mod.lookupWord('cats');
+    expect(entry?.reference).toEqual({
+      queriedForm: 'cats',
+      lemma: 'cat',
+      lemmaProvenance: 'provider-confirmed',
+      provider: 'Merriam-Webster',
+      sourceLanguage: 'en',
+      requestedLanguage: 'zh-CN',
+      displayLanguage: 'zh-CN',
+      translationStatus: 'translated',
+      senses: [{
+        pos: 'noun',
+        sourceText: 'a small pet animal',
+        displayText: '一只小宠物',
+        translationStatus: 'translated',
+      }],
+    });
+
+    fetchMock.mockClear();
+    const cached = await mod.lookupWord('cats');
+    expect(fetchMock).not.toHaveBeenCalled();
+    expect(cached?.reference).toEqual(entry?.reference);
+  });
+
+  it('uses explicit source semantics for an English-target backend result', async () => {
+    fetchMock.mockImplementation(async (input) => {
+      if (String(input).includes('/api/dictionary')) {
+        return mockResponse(semanticBackendPayload('a small pet animal'));
+      }
+      throw new Error(`unexpected url: ${String(input)}`);
+    });
+    const mod = await freshModule();
+
+    const entry = await mod.lookupWord('cat', 'en');
+    expect(entry?.reference).toMatchObject({
+      queriedForm: 'cat',
+      provider: 'Merriam-Webster',
+      sourceLanguage: 'en',
+      displayLanguage: 'en',
+      translationStatus: 'source',
+      senses: [{
+        sourceText: 'a small pet animal',
+        displayText: 'a small pet animal',
+        translationStatus: 'source',
+      }],
+    });
+  });
 });
 
 // ── Fallback: Free Dictionary / Datamuse racing ────────────────
@@ -230,6 +309,25 @@ describe('lookupWord — client-side fallback path', () => {
     expect(entry?.provider).toBe('Datamuse');
     expect(entry?.partOfSpeech).toBe('noun'); // parsed from "n\t..."
     expect(entry?.definitionEn).toBe('a small pet that says meow');
+    expect(entry?.reference).toMatchObject({
+      queriedForm: 'cat',
+      lemma: 'cat',
+      lemmaProvenance: 'candidate',
+      provider: 'Datamuse',
+    });
+  });
+
+  it('keeps a local lemmatizer candidate non-authoritative in the Datamuse fallback', async () => {
+    route('datamuse');
+    const mod = await freshModule();
+
+    const entry = await mod.lookupWord('cats');
+    expect(entry?.lemma).toBe('cat');
+    expect(entry?.reference).toMatchObject({
+      queriedForm: 'cats',
+      lemma: 'cat',
+      lemmaProvenance: 'candidate',
+    });
   });
 
   it('tries the lemmatized candidate first and reports it as lemma', async () => {
@@ -248,6 +346,10 @@ describe('lookupWord — client-side fallback path', () => {
     const entry = await mod.lookupWord('cats');
     expect(entry?.word).toBe('cat');
     expect(entry?.lemma).toBe('cat'); // candidate differed from the input word
+    expect(entry?.reference).toMatchObject({
+      lemma: 'cat',
+      lemmaProvenance: 'dictionary-confirmed',
+    });
     // The candidate loop stops at the first success — "cat" hit, so the
     // original "cats" is never tried.
     expect(callsTo('dictionaryapi.dev')).toBe(1);
@@ -307,14 +409,101 @@ describe('lookupWord — client-side fallback path', () => {
       antonyms: [],
       provider: 'Datamuse',
     };
-    localStorage.setItem('echolearn_dictionary_cache_v4', JSON.stringify({ cat: cached }));
+    localStorage.setItem('echolearn_dictionary_cache_v4', JSON.stringify({ 'cat:zh-cn': cached }));
 
     const mod = await freshModule();
+    route('backend');
     const entry = await mod.lookupWord('cat');
-    expect(entry?.definitionEn).toBe('cached definition');
-    expect(callsTo('/api/dictionary')).toBe(0);
-    expect(callsTo('dictionaryapi.dev')).toBe(0); // client sources NOT re-hit
-    expect(callsTo('datamuse.com')).toBe(0);
+    expect(entry?.definitionEn).toBe('a small pet animal');
+    expect(callsTo('/api/dictionary')).toBe(1);
+  });
+
+  it('keeps non-English client fallback usable without durable caching', async () => {
+    route('freedict');
+    const mod = await freshModule();
+
+    const entry = await mod.lookupWord('cat', 'zh-CN');
+    expect(entry?.definitionTranslationStatus).toBe('fallback-en');
+    expect(entry?.definitionsEn?.[0]?.translationStatus).toBe('fallback-en');
+    expect(entry?.reference).toMatchObject({
+      queriedForm: 'cat',
+      provider: 'Free Dictionary API',
+      sourceLanguage: 'en',
+      requestedLanguage: 'zh-CN',
+      displayLanguage: 'en',
+      translationStatus: 'fallback-en',
+      senses: [{
+        pos: 'noun',
+        sourceText: 'a small domesticated feline',
+        displayText: 'a small domesticated feline',
+        translationStatus: 'fallback-en',
+      }],
+    });
+
+    const cached = JSON.parse(localStorage.getItem('echolearn_dictionary_cache_v5') || '{}');
+    expect(cached['cat:zh-cn']).toBeUndefined();
+    expect(localStorage.getItem('echolearn_dictionary_cache_v4')).toBeNull();
+  });
+
+  it('retries the backend after a non-English fallback instead of reusing it', async () => {
+    let backendCalls = 0;
+    fetchMock.mockImplementation(async (input) => {
+      const url = String(input);
+      if (url.includes('/api/dictionary')) {
+        backendCalls += 1;
+        return backendCalls === 1
+          ? mockResponse('down', { status: 503 })
+          : mockResponse(semanticBackendPayload('一只小宠物', 'translated'));
+      }
+      if (url.includes('dictionaryapi.dev')) return mockResponse(freeDictPayload());
+      if (url.includes('datamuse.com')) return mockResponse('[]', { status: 404 });
+      throw new Error(`unexpected url: ${url}`);
+    });
+    const mod = await freshModule();
+
+    const fallback = await mod.lookupWord('cat', 'zh-CN');
+    expect(fallback?.reference?.translationStatus).toBe('fallback-en');
+    const translated = await mod.lookupWord('cat', 'zh-CN');
+    expect(translated?.reference?.translationStatus).toBe('translated');
+    expect(backendCalls).toBe(2);
+  });
+
+  it('ignores a pre-existing v5 fallback cache entry as a durable hit', async () => {
+    localStorage.setItem('echolearn_dictionary_cache_v5', JSON.stringify({
+      'cat:zh-cn': {
+        word: 'cat', phonetic: '', audioUrl: '', partOfSpeech: 'noun', definitionEn: 'old English',
+        definitionTranslationStatus: 'fallback-en',
+        definitionsEn: [{ pos: 'noun', definition: 'old English', translationStatus: 'fallback-en' }],
+        example: '', synonyms: [], antonyms: [], provider: 'Free Dictionary API',
+        reference: { translationStatus: 'fallback-en' },
+      },
+    }));
+    route('backend');
+    const mod = await freshModule();
+
+    const entry = await mod.lookupWord('cat', 'zh-CN');
+    expect(entry?.definitionEn).toBe('a small pet animal');
+    expect(callsTo('/api/dictionary')).toBe(1);
+    expect(JSON.parse(localStorage.getItem('echolearn_dictionary_cache_v5') || '{}')['cat:zh-cn'].definitionEn)
+      .toBe('a small pet animal');
+  });
+
+  it('does not upgrade a legacy provider label without semantic provenance', async () => {
+    localStorage.setItem('echolearn_dictionary_cache_v5', JSON.stringify({
+      'cat:zh-cn': {
+        word: 'cat', lemma: 'cat', phonetic: '', audioUrl: '', partOfSpeech: 'noun',
+        definitionEn: 'cached definition', example: '', synonyms: [], antonyms: [],
+        provider: 'Merriam-Webster',
+      },
+    }));
+    const mod = await freshModule();
+
+    const entry = await mod.lookupWord('cat');
+    expect(entry?.lemma).toBe('cat');
+    expect(entry?.reference).toMatchObject({
+      lemma: 'cat',
+      lemmaProvenance: 'query',
+    });
   });
 
   it('keeps fallback cache entries isolated by target language', async () => {
@@ -323,7 +512,7 @@ describe('lookupWord — client-side fallback path', () => {
       definitionEn: 'English definition', example: '', synonyms: [], antonyms: [], provider: 'Datamuse',
     };
     localStorage.setItem(
-      'echolearn_dictionary_cache_v4',
+      'echolearn_dictionary_cache_v5',
       JSON.stringify({ 'cat:zh-cn': cached }),
     );
 

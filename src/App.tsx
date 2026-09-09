@@ -147,7 +147,7 @@ function AppContent({ onLoginRequest }: { onLoginRequest?: () => void }) {
 /**
  * Auth gate — supports guest mode.
  * First visit shows LoginPage with a "try as guest" option.
- * Guests can browse videos/subtitles; saving & AI analysis require login.
+ * Guests can browse videos/subtitles; AI analysis requires login.
  * After login, guest localStorage data auto-merges via syncWithCloud.
  */
 function AuthGate() {

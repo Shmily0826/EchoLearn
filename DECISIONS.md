@@ -186,3 +186,14 @@ Once the active goal, root cause, and acceptance criteria are sufficiently speci
 - Privacy and behavior: Metric payloads contain no trace ID, video ID, URL, transcript text, user ID, IP, cookie, token, or upstream payload. Existing trace/diagnostic logs remain unchanged. Provider order, timeouts, retries, caching, quotas, ASR policy, and Worker/VPS behavior are unchanged.
 - Supersedes: D-011 only for the explicitly authorized remote-wiring defer; D-011 privacy guardrails remain active.
 - Superseded by: None recorded.
+
+## ECHO-20260909-2106 - P1A DictionaryReference semantic contract
+
+- Date: 2026-09-09
+- Status: ACTIVE / LOCAL VERIFIED
+- Decision: Keep legacy `DictionaryEntry` fields for compatibility and attach an additive typed `DictionaryReference` at the dictionary service boundary. The reference records queried form, known lemma, provider, source/display languages, translation status, and per-sense source/display text.
+- Semantics: Backend responses carry normalized English `source_text` beside legacy translated `definition`; client fallback uses `fallback-en` for non-English targets, while English-target results use explicit `source` status. Missing source text remains `null` rather than being inferred from translated display text.
+- Cache: Dictionary cache v5 stores the reference; v5 entries without it are deterministically reconstructed on read. v4 is not resurrected or migrated.
+- Boundaries: No Popup, Chinese cleanup, lemma architecture, vocabulary save-pipeline, production, commit, or push change is included.
+- Supersedes: None recorded.
+- Superseded by: None recorded.
