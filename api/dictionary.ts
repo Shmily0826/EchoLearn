@@ -163,6 +163,25 @@ function extractCollocation(def: string): { cleaned: string; preposition?: strin
   return { cleaned: def };
 }
 
+export function normalizeSourceDefinition(definition: string): string {
+  const text = definition.trim()
+    .replace(/\s*[-—–]\s*(?:often|usually)\s+used\s+before\s+another\s+noun\s*$/i, '')
+    .trim();
+  const fullList = text.match(/^(.*?)(?:\.\s*)?See the full list\.?$/i);
+  if (!fullList) return text;
+
+  const body = fullList[1].trim().replace(/[.!?]+$/u, '');
+  const locationList = body.match(/^(.*\b(?:in|of|from)\s+)([^.!?]+)$/i);
+  if (!locationList) return body;
+  const items = locationList[2]
+    .replace(/\s+and\s+/i, ', ')
+    .split(/\s*,\s*/u)
+    .map((item) => item.trim())
+    .filter(Boolean);
+  if (items.length < 4) return body;
+  return `${locationList[1]}${items.slice(0, 3).join(', ')}, etc.`;
+}
+
 function collocationNote(prep: string, target: string): string {
   if (target.startsWith('zh')) return `（常与 ${prep} 连用）`;
   return ` (often + ${prep})`;
@@ -179,7 +198,7 @@ async function buildEntries(tasks: DefTask[], target: string): Promise<BackendEn
   // they don't become "——经常+" in Chinese.
   const prepared = tasks.map((t) => {
     const { cleaned, preposition } = extractCollocation(t.original);
-    return { ...t, original: cleaned, preposition };
+    return { ...t, original: normalizeSourceDefinition(cleaned), preposition };
   });
 
   const translated = await Promise.all(
@@ -645,7 +664,7 @@ async function fetchFromDatamuse(word: string, target: string): Promise<BackendR
     // Extract collocation notes before translating, same as the MW path.
     const prepared = tasks.map((t) => {
       const { cleaned, preposition } = extractCollocation(t.original);
-      return { ...t, original: cleaned, preposition };
+      return { ...t, original: normalizeSourceDefinition(cleaned), preposition };
     });
 
     // Translate every sense in parallel — sequential calls were the main

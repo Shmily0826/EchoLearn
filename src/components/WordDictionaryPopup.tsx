@@ -87,6 +87,28 @@ function getPopupTop(y: number, popupHeight: number, viewportHeight: number, mar
   return Math.min(Math.max(desiredTop, margin), maxTop);
 }
 
+function normalizeDictionaryDefinition(definition: string, showChinese: boolean): string {
+  const text = definition.trim()
+    .replace(/\s*(?:see\s+(?:the\s+)?full\s+list|\u67e5\u770b\u5b8c\u6574\u5217\u8868)\s*[.!?。！？]?$/iu, '')
+    .replace(/\s*(?:[-—–,:：;；]\s*)?(?:usually\s+used\s+before\s+another\s+noun|\u901a\u5e38\u5728\u53e6\u4e00\u4e2a\u540d\u8bcd\u4e4b\u524d\u4f7f\u7528|\u901a\u5e38\u7528\u4e8e\u53e6\u4e00\u4e2a\u540d\u8bcd(?:\u4e4b\u524d|\u524d)\u4f7f\u7528)\s*[.!?。！？]?$/iu, '')
+    .replace(/\s*[-—–,:：;；]\s*$/u, '')
+    .trim();
+
+  if (!showChinese) return text;
+
+  const listSuffix = text.match(/^(.*?)(\u5404\u4e2a\u57ce\u5e02\u3001\u57ce\u9547\u548c\u884c\u653f\u533a\u7684\u540d\u79f0[\u3002.!?\uFF01\uFF1F]?)$/u);
+  if (!listSuffix) return text;
+  const listPrefix = listSuffix[1].trim();
+  const listItems = listPrefix
+    .replace(/\u548c([^\u548c]*)$/u, '\u3001$1')
+    .split(/[\u3001\uFF0C,]\s*/u)
+    .map((item) => item.trim())
+    .filter(Boolean);
+  if (listItems.length < 4) return text;
+
+  return `${listItems.slice(0, 3).join('\u3001')}\u7b49${listSuffix[2]}`;
+}
+
 /**
  * A reusable popup that shows dictionary information for a word.
  * Used by TranscriptViewer, VocabularyPage, and SentencesPage.
@@ -128,10 +150,19 @@ const WordDictionaryPopup: React.FC<WordDictionaryPopupProps> = ({
   // DeepSeek call entirely (pure-English study view, saves token quota).
   const showChinese = lang === 'zh';
   const definitionLimit = showChinese ? 3 : 5;
-  const visibleDefinitions = entry?.definitionsEn
-    ? (expandDefs ? entry.definitionsEn : entry.definitionsEn.slice(0, definitionLimit))
-    : [];
+  const cleanedDefinitions = entry?.definitionsEn
+    ?.map((definition) => ({
+      ...definition,
+      definition: normalizeDictionaryDefinition(definition.definition, showChinese),
+    }))
+    .filter((definition) => definition.definition) ?? [];
+  const visibleDefinitions = expandDefs
+    ? cleanedDefinitions
+    : cleanedDefinitions.slice(0, definitionLimit);
   const definitionGroups = groupDefinitions(visibleDefinitions);
+  const fallbackDefinition = entry?.definitionEn
+    ? normalizeDictionaryDefinition(entry.definitionEn, showChinese)
+    : '';
   const primaryMeaning = aiAnalysis?.meaningZh || definitionCn;
   const primaryPos = compactPartOfSpeech(
     aiAnalysis?.pos || entry?.partOfSpeech || entry?.definitionsEn?.[0]?.pos || '',
@@ -139,7 +170,7 @@ const WordDictionaryPopup: React.FC<WordDictionaryPopupProps> = ({
   const hasOtherPos = Boolean(primaryPos && entry?.definitionsEn?.some(
     (definition) => compactPartOfSpeech(definition.pos) !== primaryPos,
   ));
-  const collapseDetailedDefinitions = showChinese && Boolean(entry?.definitionsEn?.length);
+  const collapseDetailedDefinitions = showChinese && cleanedDefinitions.length > 0;
 
   // Reset when initial word changes
   useEffect(() => {
@@ -422,7 +453,7 @@ const WordDictionaryPopup: React.FC<WordDictionaryPopupProps> = ({
               </button>
             )}
             {(!collapseDetailedDefinitions || expandDetailedDefinitions) && <div className="mb-3">
-            {entry.definitionsEn && entry.definitionsEn.length > 0 ? (
+            {cleanedDefinitions.length > 0 ? (
               <>
                 <div className="space-y-3">
                   {definitionGroups.map((group) => (
@@ -447,7 +478,7 @@ const WordDictionaryPopup: React.FC<WordDictionaryPopupProps> = ({
                     </section>
                   ))}
                 </div>
-                {entry.definitionsEn.length > definitionLimit && (
+                {cleanedDefinitions.length > definitionLimit && (
                   <button
                     onClick={() => setExpandDefs((v) => !v)}
                     className="mt-1.5 text-xs text-indigo-600 dark:text-indigo-400 hover:text-indigo-800 dark:hover:text-indigo-300 cursor-pointer transition-colors"
@@ -455,16 +486,16 @@ const WordDictionaryPopup: React.FC<WordDictionaryPopupProps> = ({
                     {expandDefs
                       ? t('wordCard.collapse')
                       : t('wordCard.showMoreMeanings', {
-                          count: entry.definitionsEn.length - definitionLimit,
-                          s: entry.definitionsEn.length - definitionLimit > 1 ? 's' : '',
+                          count: cleanedDefinitions.length - definitionLimit,
+                          s: cleanedDefinitions.length - definitionLimit > 1 ? 's' : '',
                         })}
                   </button>
                 )}
               </>
             ) : (
-              entry.definitionEn && (
+              fallbackDefinition && (
                 <p className="text-sm text-gray-700 dark:text-gray-300 leading-relaxed">
-                  {entry.definitionEn}
+                  {fallbackDefinition}
                   {showChinese && entry.definitionTranslationStatus === 'fallback-en' && (
                     <span className="ml-1 text-[10px] text-amber-600 dark:text-amber-400">
                       （英文原文，翻译失败）

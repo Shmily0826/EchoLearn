@@ -167,6 +167,65 @@ describe('WordDictionaryPopup dictionary failures', () => {
     expect(screen.getByText('sense four')).toBeTruthy();
   });
 
+  it('cleans concrete Datamuse editorial detail noise in Chinese mode', async () => {
+    localStorage.setItem('echolearn_lang', 'zh');
+    vi.mocked(lookupWord).mockResolvedValue({
+      word: 'stratford',
+      phonetic: '',
+      audioUrl: '',
+      partOfSpeech: 'noun',
+      definitionEn: '',
+      definitionsEn: [{
+        pos: 'noun',
+        definition: '\u7f8e\u56fd\u3001\u82f1\u56fd\u3001\u52a0\u62ff\u5927\u3001\u6fb3\u5927\u5229\u4e9a\u548c\u65b0\u897f\u5170\u5404\u4e2a\u57ce\u5e02\u3001\u57ce\u9547\u548c\u884c\u653f\u533a\u7684\u540d\u79f0\u3002\u67e5\u770b\u5b8c\u6574\u5217\u8868\u3002',
+      }],
+      example: '',
+      synonyms: [],
+      antonyms: [],
+      provider: 'Datamuse',
+    });
+
+    render(
+      <I18nProvider>
+        <WordDictionaryPopup word="stratford" x={100} y={100} onClose={vi.fn()} />
+      </I18nProvider>,
+    );
+
+    fireEvent.click(await screen.findByRole('button', { name: '\u67e5\u770b\u8be6\u7ec6\u91ca\u4e49' }));
+    expect(screen.getByText('\u7f8e\u56fd\u3001\u82f1\u56fd\u3001\u52a0\u62ff\u5927\u7b49\u5404\u4e2a\u57ce\u5e02\u3001\u57ce\u9547\u548c\u884c\u653f\u533a\u7684\u540d\u79f0\u3002')).toBeTruthy();
+    expect(screen.queryByText(/\u67e5\u770b\u5b8c\u6574\u5217\u8868/u)).toBeNull();
+    expect(screen.queryByText(/\u6fb3\u5927\u5229\u4e9a/u)).toBeNull();
+  });
+
+  it('removes the anniversary usage tail without removing the sense', async () => {
+    localStorage.setItem('echolearn_lang', 'zh');
+    vi.mocked(lookupWord).mockResolvedValue({
+      word: 'anniversary',
+      phonetic: '',
+      audioUrl: '',
+      partOfSpeech: 'noun',
+      definitionEn: '',
+      definitionsEn: [{
+        pos: 'noun',
+        definition: '\u7531\u4e8e\u524d\u4e00\u5e74\u7684\u8be5\u65e5\u671f\u53d1\u751f\u4e86\u7279\u6b8a\u6216\u503c\u5f97\u6ce8\u610f\u7684\u4e8b\u4ef6\u800c\u88ab\u8bb0\u4f4f\u6216\u5e86\u795d\u7684\u65e5\u671f - \u901a\u5e38\u5728\u53e6\u4e00\u4e2a\u540d\u8bcd\u4e4b\u524d\u4f7f\u7528',
+      }],
+      example: '',
+      synonyms: [],
+      antonyms: [],
+      provider: 'Merriam-Webster',
+    });
+
+    render(
+      <I18nProvider>
+        <WordDictionaryPopup word="anniversary" x={100} y={100} onClose={vi.fn()} />
+      </I18nProvider>,
+    );
+
+    fireEvent.click(await screen.findByRole('button', { name: '\u67e5\u770b\u8be6\u7ec6\u91ca\u4e49' }));
+    expect(screen.getByText(/\u88ab\u8bb0\u4f4f\u6216\u5e86\u795d\u7684\u65e5\u671f$/u)).toBeTruthy();
+    expect(screen.queryByText(/\u901a\u5e38\u5728\u53e6\u4e00\u4e2a\u540d\u8bcd\u4e4b\u524d\u4f7f\u7528/u)).toBeNull();
+  });
+
   it('clamps the popup inside the viewport when neither side fits', async () => {
     localStorage.setItem('echolearn_lang', 'en');
     Object.defineProperty(window, 'innerHeight', { configurable: true, value: 500 });
