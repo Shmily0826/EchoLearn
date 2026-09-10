@@ -1,3 +1,42 @@
+# Current Validation Index
+
+> INDEX OF LATEST RECORDED EVIDENCE — not live/current source of truth. Re-verify Git/source/Production whenever a decision depends on them.
+> Older FAIL/BLOCKED/PARTIAL/NOT EXECUTED entries are historical evidence. Before acting, check for a later superseding/resolving entry.
+
+## How to use this report
+
+Read this index first; then read only the latest relevant section/final classification for the subsystem. Use older sections for historical/root-cause evidence. Do not treat this document alone as live Git/Production truth.
+
+## Current Validation Index — 2026-09-10 alignment
+
+| Area | Current local evidence | GitHub | Production boundary |
+|---|---|---|---|
+| P0 dictionary failure loop | LOCAL ACCEPTED on the current uncommitted worktree only: `WordDictionaryPopup` focused validation 15/15 PASS; installed-Chrome `dictionary-failure-loop` browser E2E 1/1 PASS after the minimal bilingual guest-selector fix; persistent dictionary 502 plus forced translate/AI failures did not cause Maximum update depth. | Not yet reproducible from HEAD/origin: `e2e/dictionary-failure-loop.spec.ts` is untracked, and the guestMode bilingual selector plus `WordDictionaryPopup` useMemo fix are uncommitted. | No deploy or Production claim. |
+| P1 reliability runner | LOCAL ACCEPTED: only the stale direct `buildCallPlan({ paidProviderPolicy })` call changed to `buildCallPlan()`; acceptance-cycle reliability was `attribution.test.mjs` 10/10 + `paid-provider-guard.test.mjs` 7/7 = 17/17. A later reviewer reran all four reliability Node test files and got 27/27 (10+7+4+6); these are separate evidence scopes. | No commit or push from that acceptance cycle. | No deploy or Production claim. |
+| P2 Study transcript UX | LOCAL ACCEPTED: desktop browser golden path 1/1 PASS, mobile transcript browser check 1/1 PASS, focused `StudyDictionaryPopupConvergence` 4/4 PASS; no P2 product code change in that cycle. | No commit or push from that acceptance cycle. | No successful direct screenshot capture; no independent mobile real-browser dictionary-popup click claim. The custom screenshot path stopped after an unrelated guest/navigation setup failure. |
+| Bilibili WBI recovery | Local focused backend tests 11/11 PASS and `py_compile` PASS were obtained before push. | Recovery commit `4fe93979aa3087dbb550a98e92f08ae4d71e6a2f` is on `origin/main`. | NOT deployed to VPS/Production and not real-Production Bilibili validated. |
+
+This alignment block is documentation-only. The current cycle made no commit, push, deploy, or provider request; unrelated dirty and untracked work remains preserved.
+
+## 2026-09-10 - Evidence alignment
+
+- **P0 LOCAL ACCEPTED on the current uncommitted worktree only:** `WordDictionaryPopup` focused validation 15/15 PASS; installed-Chrome dictionary-failure-loop 1/1 PASS; persistent dictionary 502 plus forced translate/AI failures did not cause Maximum update depth. The accepted state is not yet reproducible from HEAD/origin because `e2e/dictionary-failure-loop.spec.ts` is untracked and the guestMode bilingual selector plus `WordDictionaryPopup` useMemo fix are uncommitted. No commit/push/deploy from that cycle.
+- **P1 LOCAL ACCEPTED:** stale direct `buildCallPlan({ paidProviderPolicy })` changed only to `buildCallPlan()`; the acceptance-cycle reliability evidence was `attribution.test.mjs` 10/10 + `paid-provider-guard.test.mjs` 7/7 = 17/17. A later reviewer reran all four reliability Node test files and got 27/27 (10+7+4+6); this later result must not be rewritten as the original cycle’s 17/17. Windows direct-runner dry-run PASS; Vercel-only normal caption plan, paid provider blocked by default, no traffic. No commit/push/deploy from that cycle.
+- **P2 LOCAL ACCEPTED:** desktop golden path 1/1 PASS, mobile transcript browser check 1/1 PASS, `StudyDictionaryPopupConvergence` 4/4 PASS; no P2 product code change. No direct screenshot proof and no independent mobile real-browser dictionary-popup click claim; the custom screenshot path stopped after unrelated guest/navigation setup failure.
+- **Bilibili WBI:** local focused backend tests 11/11 PASS and `py_compile` PASS before push; recovery commit `4fe93979aa3087dbb550a98e92f08ae4d71e6a2f` is on `origin/main`. It is not deployed to VPS/Production and has no real Production Bilibili validation.
+
+| Area | Latest recorded evidence (date + exact section title) | Evidence level/boundary | Recorded status/notes |
+|---|---|---|---|
+| Dictionary browser semantics | 2026-09-10 — current `e2e/dictionary-semantics.spec.ts` | Current uncommitted worktree only; newer 4-scenario browser semantics E2E artifact; untracked and not in HEAD/origin | Separate from the older P1A 23/23 deterministic semantic-contract run. |
+| Dictionary semantic contract | 2026-09-09 — `ECHO-20260909-2106 P1A DictionaryReference semantic contract` | Local deterministic tests and source/build validation; no browser/provider/Production traffic | 23/23 focused tests PASS; typed source/display/status mapping, v5 cache round-trip, English source semantics, fallback-en quarantine, and Datamuse `source_text` covered. |
+| Architecture / final gate | 2026-09-07 — `Post-architecture-consolidation reconciliation` | Documentation reconciliation; no fresh provider/browser/network/Production verification | Option B and recorded source/deployment evidence reconciled; current state still needs re-verification. |
+| YouTube / caption reliability | 2026-09-07 — `Post-architecture-consolidation reconciliation` | Historical production attribution/A-B and frozen-matrix records; reconciliation only | Worker-only attribution was recorded 0/36; later Option B recorded 12/12 usable `source=supadata`; not a fresh reliability run. |
+| Auth / Firestore / data integrity | 2026-09-08 (2) — `CONTROLLED_INTEGRATION：登录态 AI 分析验证（test@test.com）` | One test account, browser dogfood, limited Firebase/Firestore activity | Login and data retention recorded PASS; saving a word triggered sync; multi-device consistency and full lifecycle remain untested. |
+| Study / UX dogfood | 2026-09-08 — `COST_SAFE UX Dogfood Campaign（全新游客视角）` | Real UI/browser with transcript and AI fixtures; provider routes blocked; visitor-only | COST_SAFE_DOGFOOD recorded PASS; visitor AI is gated, invalid URLs are silent, and failed loads leave zero-line sessions. |
+| AI controlled integration | 2026-09-08 (2) — `CONTROLLED_INTEGRATION：登录态 AI 分析验证（test@test.com）` | One authorized real DeepSeek call and one test-account login; no retry/fallback | AI panel completed with relevant output and transparent source; one unlocated `toLowerCase` error was observed. |
+| Mobile / PWA | 2026-08-27 — `Batch 13 — mobile/PWA focused validation (2026-08-27)` | Isolated viewport plus automated Playwright; no physical device or installed-PWA lifecycle proof | 10/10 automated mobile/PWA tests and overflow fix recorded PASS; physical/PWA limitations remain. |
+| Production / release evidence | 2026-09-07 — `Post-architecture-consolidation reconciliation` | Historical production/GitHub/Worker records summarized; no fresh verification | Recorded deployment/smoke evidence remains historical; this reconciliation did not re-establish Production or Git truth. |
+
 # EchoLearn 单元测试报告（2026-08-22，更新于 2026-08-23 晚）
 
 > 本文件是给后续 AI agent / 开发者看的持久化测试报告。
