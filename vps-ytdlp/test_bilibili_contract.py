@@ -4,7 +4,14 @@ All provider and CDN calls are mocked. These tests protect the API-direct
 multi-part selection boundary without invoking ASR or Groq.
 """
 
+import io
+import json
+import os
+import tempfile
 import unittest
+import urllib.error
+import urllib.parse
+import urllib.request
 from unittest.mock import patch
 
 import main
@@ -24,6 +31,194 @@ def view_payload():
             {"index": 2, "cid": 202, "title": "Part two", "duration": 20},
         ],
     }
+
+
+class _Response:
+    def __init__(self, payload, status=200):
+        self.status = status
+        self._body = json.dumps(payload).encode()
+
+    def read(self):
+        return self._body
+
+    def __enter__(self):
+        return self
+
+    def __exit__(self, *_):
+        return False
+
+
+class _Opener:
+    def __init__(self, responses):
+        self.responses = list(responses)
+        self.requests = []
+
+    def open(self, request, timeout):
+        self.requests.append((request, timeout))
+        response = self.responses.pop(0)
+        if isinstance(response, BaseException):
+            raise response
+        return response
+
+
+def _wbi_nav_payload():
+    img_key = "imgkey" + "a" * 26
+    sub_key = "subkey" + "b" * 26
+    return {
+        "code": 0,
+        "data": {"wbi_img": {
+            "img_url": f"https://i0.hdslb.com/bfs/wbi/{img_key}.png",
+            "sub_url": f"https://i0.hdslb.com/bfs/wbi/{sub_key}.png",
+        }},
+    }
+
+
+def _wbi_detail_payload():
+    view = view_payload()
+    return {
+        "code": 0,
+        "data": {"View": {
+            "title": view["title"],
+            "owner": {"name": view["owner"]},
+            "duration": view["duration"],
+            "pages": [
+                {"page": page["index"], "cid": page["cid"],
+                 "part": page["title"], "duration": page["duration"]}
+                for page in view["pages"]
+            ],
+        }},
+    }
+
+
+def _cookie_file(directory, content=None):
+    path = os.path.join(directory, "cookies.txt")
+    with open(path, "w", encoding="utf-8") as stream:
+        stream.write(content or (
+            "# Netscape HTTP Cookie File\n"
+            ".bilibili.com\tTRUE\t/\tFALSE\t2147483647\tSESSDATA\tcookie-value\n"
+        ))
+    return path
+
+
+class BilibiliViewRecoveryTests(unittest.TestCase):
+    def setUp(self):
+        main._BILI_VIEW_CACHE.clear()
+
+    def tearDown(self):
+        main._BILI_VIEW_CACHE.clear()
+
+    def test_unsigned_success_returns_without_wbi(self):
+        response = _Response({"code": 0, "data": {
+            "title": "Multipart test", "owner": {"name": "Uploader"},
+            "duration": 30, "pages": [
+                {"page": 1, "cid": 101, "part": "Part one", "duration": 10},
+            ],
+        }})
+        with patch.object(main, "_urlopen_no_proxy", return_value=response), patch.object(
+            main, "_bilibili_wbi_view"
+        ) as recovery:
+            result = main._bilibili_view(BVID)
+
+        self.assertEqual(result["title"], "Multipart test")
+        recovery.assert_not_called()
+
+    def test_http_or_json_412_runs_one_wbi_sequence(self):
+        first_responses = [
+            urllib.error.HTTPError(
+                "https://api.bilibili.com/x/web-interface/view", 412,
+                "Precondition Failed", {}, io.BytesIO(b"{}")
+            ),
+            _Response({"code": -412, "message": "risk control"}),
+        ]
+        for first in first_responses:
+            with self.subTest(first=type(first).__name__):
+                main._BILI_VIEW_CACHE.clear()
+                with tempfile.TemporaryDirectory() as directory:
+                    cookie_path = _cookie_file(directory)
+                    opener = _Opener([_Response(_wbi_nav_payload()), _Response(_wbi_detail_payload())])
+                    unsigned_side_effect = first if isinstance(first, BaseException) else [first]
+                    with patch.object(main, "YTDLP_COOKIES", cookie_path), patch.object(
+                        main, "_urlopen_no_proxy", side_effect=unsigned_side_effect
+                    ) as unsigned, patch.object(
+                        main.urllib.request, "build_opener", return_value=opener
+                    ) as build_opener, patch.object(main.time, "time", return_value=1700000000):
+                        result = main._bilibili_view(BVID)
+
+                self.assertEqual(result, view_payload())
+                self.assertEqual(unsigned.call_count, 1)
+                self.assertEqual(len(opener.requests), 2)
+                self.assertEqual(
+                    opener.requests[0][0].full_url,
+                    "https://api.bilibili.com/x/web-interface/nav",
+                )
+                detail_request = opener.requests[1][0]
+                query = urllib.parse.parse_qs(urllib.parse.urlsplit(detail_request.full_url).query)
+                self.assertEqual(query["bvid"], [BVID])
+                self.assertEqual(query["platform"], ["web"])
+                self.assertEqual(query["wts"], ["1700000000"])
+                self.assertEqual(query["w_rid"], ["b0cf8c310457de36c9861e0e583455fe"])
+                self.assertNotIn("imgkey", detail_request.full_url)
+                self.assertNotIn("subkey", detail_request.full_url)
+                self.assertEqual(detail_request.headers.get("User-agent"), main._BILI_UA)
+                self.assertEqual(detail_request.headers.get("Referer"), main._BILI_REFERER)
+                self.assertEqual(detail_request.headers.get("Origin"), "https://www.bilibili.com")
+                self.assertEqual(
+                    detail_request.headers.get("Accept"), "application/json, text/plain, */*"
+                )
+                handlers = build_opener.call_args.args
+                self.assertTrue(any(isinstance(handler, urllib.request.ProxyHandler) for handler in handlers))
+                self.assertTrue(any(isinstance(handler, urllib.request.HTTPCookieProcessor) for handler in handlers))
+
+    def test_explicit_412_with_missing_or_unreadable_cookie_does_not_loop(self):
+        with tempfile.TemporaryDirectory() as directory:
+            paths = [
+                os.path.join(directory, "missing.txt"),
+                _cookie_file(directory, "not a Netscape cookie jar\n"),
+            ]
+            for cookie_path in paths:
+                with self.subTest(cookie_path=cookie_path):
+                    with patch.object(main, "YTDLP_COOKIES", cookie_path), patch.object(
+                        main, "_urlopen_no_proxy", side_effect=urllib.error.HTTPError(
+                            "https://api.bilibili.com/x/web-interface/view", 412,
+                            "Precondition Failed", {}, io.BytesIO(b"{}")
+                        )
+                    ) as unsigned, patch.object(main.urllib.request, "build_opener") as build_opener:
+                        self.assertIsNone(main._bilibili_view(BVID))
+                    self.assertEqual(unsigned.call_count, 1)
+                    build_opener.assert_not_called()
+
+    def test_wbi_nav_or_detail_failure_returns_none_without_unsigned_retry(self):
+        with tempfile.TemporaryDirectory() as directory:
+            cookie_path = _cookie_file(directory)
+            cases = [
+                [_Response({"code": -1})],
+                [_Response(_wbi_nav_payload()), _Response({"code": -1})],
+            ]
+            for responses in cases:
+                with self.subTest(response_count=len(responses)):
+                    opener = _Opener(responses)
+                    with patch.object(main, "YTDLP_COOKIES", cookie_path), patch.object(
+                        main, "_urlopen_no_proxy", side_effect=urllib.error.HTTPError(
+                            "https://api.bilibili.com/x/web-interface/view", 412,
+                            "Precondition Failed", {}, io.BytesIO(b"{}")
+                        )
+                    ) as unsigned, patch.object(
+                        main.urllib.request, "build_opener", return_value=opener
+                    ):
+                        self.assertIsNone(main._bilibili_view(BVID))
+                    self.assertEqual(unsigned.call_count, 1)
+                    self.assertEqual(len(opener.requests), len(responses))
+
+    def test_non_412_json_failure_keeps_three_unsigned_attempts(self):
+        responses = [_Response({"code": -1}) for _ in range(3)]
+        with patch.object(main, "_urlopen_no_proxy", side_effect=responses) as unsigned, patch.object(
+            main.time, "sleep"
+        ) as sleep, patch.object(main, "_bilibili_wbi_view") as recovery:
+            self.assertIsNone(main._bilibili_view(BVID))
+
+        self.assertEqual(unsigned.call_count, 3)
+        self.assertEqual([call.args[0] for call in sleep.call_args_list], [0.75, 1.5])
+        recovery.assert_not_called()
 
 
 class BilibiliPartContractTests(unittest.TestCase):

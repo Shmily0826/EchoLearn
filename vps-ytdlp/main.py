@@ -62,6 +62,7 @@ wall by transcribing the audio instead — no SESSDATA cookie needed for that.
 import asyncio
 import contextlib
 import hashlib
+import http.cookiejar
 import json
 import os
 import re
@@ -581,6 +582,13 @@ def _bilibili_view(bvid: str):
         try:
             with _urlopen_no_proxy(req, timeout=15) as resp:
                 data = json.loads(resp.read().decode("utf-8", "ignore"))
+                if getattr(resp, "status", None) == 412 or (
+                    isinstance(data, dict) and data.get("code") == -412
+                ):
+                    result = _bilibili_wbi_view(bvid)
+                    if result:
+                        _BILI_VIEW_CACHE[bvid] = (time.time() + _BILI_VIEW_CACHE_TTL, result)
+                    return result
             if data.get("code") == 0:
                 d = data.get("data") or {}
                 pages = [
@@ -596,11 +604,95 @@ def _bilibili_view(bvid: str):
                 }
                 _BILI_VIEW_CACHE[bvid] = (time.time() + _BILI_VIEW_CACHE_TTL, result)
                 return result
+        except urllib.error.HTTPError as exc:
+            if exc.code == 412:
+                result = _bilibili_wbi_view(bvid)
+                if result:
+                    _BILI_VIEW_CACHE[bvid] = (time.time() + _BILI_VIEW_CACHE_TTL, result)
+                return result
         except Exception:
             pass
         if attempt < 2:
             time.sleep(0.75 * (attempt + 1))
     return None
+
+
+_BILI_WBI_MIXIN_KEY_ENCODE = (
+    46, 47, 18, 2, 53, 8, 23, 32, 15, 50, 10, 31, 58, 3, 45, 35,
+    27, 43, 5, 49, 33, 9, 42, 19, 29, 28, 14, 39, 12, 38, 41, 13,
+    37, 48, 7, 16, 24, 55, 40, 61, 26, 17, 0, 1, 60, 51, 30, 4,
+    22, 25, 54, 21, 56, 59, 6, 63, 57, 62, 11, 36, 20, 34, 44, 52,
+)
+
+
+def _bilibili_view_result(view):
+    if not isinstance(view, dict):
+        return None
+    pages = [
+        {"index": p.get("page"), "cid": p.get("cid"),
+         "title": p.get("part") or "", "duration": p.get("duration") or 0}
+        for p in (view.get("pages") or [])
+    ]
+    return {
+        "title": view.get("title") or "",
+        "owner": (view.get("owner") or {}).get("name") or "",
+        "duration": view.get("duration") or 0,
+        "pages": pages,
+    }
+
+
+def _bilibili_wbi_view(bvid: str):
+    if not YTDLP_COOKIES or not os.path.isfile(YTDLP_COOKIES):
+        return None
+    try:
+        jar = http.cookiejar.MozillaCookieJar(YTDLP_COOKIES)
+        jar.load(ignore_discard=True)
+        opener = urllib.request.build_opener(
+            urllib.request.ProxyHandler({}),
+            urllib.request.HTTPCookieProcessor(jar),
+        )
+        headers = {
+            "User-Agent": _BILI_UA,
+            "Referer": _BILI_REFERER,
+            "Origin": "https://www.bilibili.com",
+            "Accept": "application/json, text/plain, */*",
+        }
+        nav_req = urllib.request.Request(
+            "https://api.bilibili.com/x/web-interface/nav", headers=headers
+        )
+        with opener.open(nav_req, timeout=15) as resp:
+            nav = json.loads(resp.read().decode("utf-8", "ignore"))
+        if not isinstance(nav, dict) or nav.get("code") != 0:
+            return None
+        wbi_img = (nav.get("data") or {}).get("wbi_img") or {}
+        img_url = wbi_img.get("img_url") or ""
+        sub_url = wbi_img.get("sub_url") or ""
+        img_key = os.path.basename(urllib.parse.urlparse(img_url).path).split(".", 1)[0]
+        sub_key = os.path.basename(urllib.parse.urlparse(sub_url).path).split(".", 1)[0]
+        if not img_key or not sub_key:
+            return None
+        mixin_key = "".join((img_key + sub_key)[i] for i in _BILI_WBI_MIXIN_KEY_ENCODE)[:32]
+        params = {"bvid": bvid, "platform": "web", "wts": int(time.time())}
+        filtered = {
+            key: re.sub(r"[!'()*]", "", str(value))
+            for key, value in sorted(params.items())
+        }
+        query = urllib.parse.urlencode(filtered)
+        params["w_rid"] = hashlib.md5((query + mixin_key).encode()).hexdigest()
+        signed_query = urllib.parse.urlencode(
+            [(key, params[key]) for key in sorted(params)]
+        )
+        detail_req = urllib.request.Request(
+            "https://api.bilibili.com/x/web-interface/wbi/view/detail?" + signed_query,
+            headers=headers,
+        )
+        with opener.open(detail_req, timeout=15) as resp:
+            detail = json.loads(resp.read().decode("utf-8", "ignore"))
+        if not isinstance(detail, dict) or detail.get("code") != 0:
+            return None
+        return _bilibili_view_result((detail.get("data") or {}).get("View"))
+    except Exception:
+        return None
 
 
 def _bilibili_play_parse(data):
