@@ -51,6 +51,9 @@ async function routeBilibili(page: Page, options: BilibiliRouteOptions = {}) {
 
   await page.route('**/*', (route) => {
     const url = route.request().url();
+    if (/\/api\/(?:bilibili|info)(?:\?|\/|$)/.test(url)) {
+      return route.fallback();
+    }
     if (url.startsWith('http://localhost:5173/') || url.startsWith('http://127.0.0.1:5173/')) {
       return route.continue();
     }

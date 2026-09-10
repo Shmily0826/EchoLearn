@@ -338,7 +338,7 @@ test.describe('Batch 3 — Study failure recovery', () => {
     await page.getByRole('link', { name: 'Study' }).click();
     await expect(page).toHaveURL(/\/study$/);
 
-    const good = page.getByText(/good/i).filter({ visible: true }).first();
+    const good = page.getByText('good', { exact: true }).filter({ visible: true }).first();
     await expect(good).toBeVisible({ timeout: 15_000 });
     await good.click();
     const saveButton = page.locator('#tour-transcript-save-word');
