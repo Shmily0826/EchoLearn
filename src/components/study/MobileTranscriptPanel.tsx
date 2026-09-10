@@ -202,7 +202,7 @@ const MobileTranscriptPanel: React.FC<{
                       <span
                         key={i}
                         onClick={(e) => showPopup(token, line.text, line.start, e)}
-                        className={`inline-block mx-[1px] px-1 py-0.5 rounded cursor-pointer transition-colors underline decoration-indigo-200/70 underline-offset-2 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-indigo-400 ${
+                        className={`inline-block mx-[1px] px-1 py-0.5 rounded cursor-pointer transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-indigo-400 ${
                           saved
                             ? 'bg-amber-100 dark:bg-amber-900/50 text-amber-800 dark:text-amber-300'
                             : 'active:bg-indigo-100'

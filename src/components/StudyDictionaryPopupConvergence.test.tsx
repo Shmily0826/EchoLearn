@@ -87,7 +87,9 @@ describe('Study dictionary popup convergence', () => {
   it('desktop Study word clicks render the shared P2 popup and retain save action', () => {
     renderWithI18n(<TranscriptViewer {...desktopProps} />);
 
-    fireEvent.click(screen.getByRole('button', { name: 'Look up test' }));
+    const word = screen.getByRole('button', { name: 'Look up test' });
+    expect(word.className).not.toContain('underline');
+    fireEvent.click(word);
 
     expect(screen.getByTestId('shared-study-popup').getAttribute('data-word')).toBe('test');
     expect(screen.getByTestId('shared-p2-content')).toBeTruthy();
@@ -98,7 +100,9 @@ describe('Study dictionary popup convergence', () => {
   it('mobile Study word clicks render the shared P2 popup and retain close/save behavior', async () => {
     renderWithI18n(<MobileTranscriptPanel {...mobileProps} />);
 
-    fireEvent.click(screen.getByRole('button', { name: 'Look up test' }));
+    const word = screen.getByRole('button', { name: 'Look up test' });
+    expect(word.className).not.toContain('underline');
+    fireEvent.click(word);
 
     expect(screen.getByTestId('shared-study-popup').getAttribute('data-word')).toBe('test');
     expect(screen.getByTestId('shared-p2-content')).toBeTruthy();
