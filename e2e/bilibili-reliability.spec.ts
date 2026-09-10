@@ -39,6 +39,7 @@ async function seedCleanVisitor(page: Page) {
     localStorage.setItem('echolearn_lang', 'en');
     localStorage.setItem('echolearn-lang-chosen', '1');
     localStorage.setItem('echolearn-tour-completed-v1', '1');
+    localStorage.setItem('echolearn_audio_mode', '1');
     localStorage.removeItem('echolearn_current_session');
     localStorage.removeItem('echolearn_vocabulary');
     localStorage.removeItem('echolearn_sentences');
