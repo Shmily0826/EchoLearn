@@ -1,7 +1,8 @@
 // @vitest-environment jsdom
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import { useState } from 'react';
 import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react';
-import WordDictionaryPopup from './WordDictionaryPopup';
+import WordDictionaryPopup, { type WordDictionaryPopupData } from './WordDictionaryPopup';
 import { I18nProvider } from '../i18n/I18nContext';
 import type { DictionaryReferenceTranslationStatus } from '../types';
 import { lookupWord } from '../services/dictionaryService';
@@ -61,6 +62,31 @@ describe('WordDictionaryPopup dictionary failures', () => {
     );
 
     expect(await screen.findByText('Dictionary service unavailable. Please try again.')).toBeTruthy();
+    expect(screen.queryByText('Dictionary entry not found.')).toBeNull();
+  });
+
+  it('settles when a parent stores onDataChange during unavailable lookups', async () => {
+    localStorage.setItem('echolearn_lang', 'zh');
+    const ParentWithDataSink = () => {
+      const [, setData] = useState<WordDictionaryPopupData | null>(null);
+      return (
+        <WordDictionaryPopup
+          word="loosely"
+          x={100}
+          y={100}
+          onClose={vi.fn()}
+          onDataChange={setData}
+        />
+      );
+    };
+
+    render(
+      <I18nProvider>
+        <ParentWithDataSink />
+      </I18nProvider>,
+    );
+
+    expect(await screen.findByText('词典服务暂时不可用，请稍后重试。')).toBeTruthy();
     expect(screen.queryByText('Dictionary entry not found.')).toBeNull();
   });
 

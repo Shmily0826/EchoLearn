@@ -8,7 +8,7 @@ import { expect, type Page } from '@playwright/test';
  * overlays. This helper waits on the actual DOM state instead.
  */
 export async function enterGuestMode(page: Page) {
-  const guestButton = page.getByRole('button', { name: 'Try without login', exact: true });
+  const guestButton = page.getByRole('button', { name: /^(Try without login|先体验一下)$/ });
   const englishButton = page.getByRole('button', { name: 'English', exact: true });
   const studyNav = page.locator('a[href="/study"]').filter({ visible: true });
   const needsLanguageChoice = await page.evaluate(() =>

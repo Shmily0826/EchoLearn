@@ -1,4 +1,4 @@
-import { useState, useEffect, useRef, useCallback, useLayoutEffect } from 'react';
+import { useState, useEffect, useRef, useCallback, useLayoutEffect, useMemo } from 'react';
 import type { DictionaryEntry, DictionaryReferenceSense, LearnerMeaning } from '../types';
 import { lookupWord, isKnownProperNoun } from '../services/dictionaryService';
 import { resolveLearnerMeaning } from '../services/learnerMeaning';
@@ -131,13 +131,13 @@ const WordDictionaryPopup: React.FC<WordDictionaryPopupProps> = ({
   const showChinese = lang === 'zh';
   const definitionLimit = showChinese ? 3 : 5;
   const referenceSenses = entry?.reference?.senses.filter((sense) => sense.displayText) ?? [];
-  const learnerMeaning = resolveLearnerMeaning({
+  const learnerMeaning = useMemo(() => resolveLearnerMeaning({
     targetLanguage: showChinese ? 'zh-CN' : 'en',
     sourceSentence: context || '',
     contextAi: aiAnalysis?.meaningZh,
     quickGloss: definitionCn,
     dictionaryReference: entry?.reference,
-  });
+  }), [showChinese, context, aiAnalysis?.meaningZh, definitionCn, entry?.reference]);
   const primaryMeaning = learnerMeaning.text;
   const visibleDefinitions = showChinese
     ? (expandDictionaryDefinitions ? referenceSenses : [])
