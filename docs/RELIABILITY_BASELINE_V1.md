@@ -1,6 +1,6 @@
 # Caption Reliability Baseline V1 — Specification
 
-> Status: PROPOSED (2026-09-06). Frozen until the two execution gates below are decided.
+> Status: LOCAL ACCEPTED (2026-09-10) for the reliability-runner dry-run. Production observation remains NOT RUN; this document does not claim Production validation.
 > Successor of the consolidation programme; uses the infra shipped in `6546d8c`/`a258707`
 > (cache-state header, typed error codes, provenance `source` field).
 
@@ -9,7 +9,7 @@
 For a fixed, small, real-video matrix, produce a per-layer acquisition result:
 
 ```
-URL → L1 CF Worker /api/transcript → L2 Vercel /api/transcript → L3 Study UI usable
+URL → L2 Vercel /api/transcript → L3 Study UI usable
 ```
 
 and answer: **which layer drags the success rate**, with typed evidence — not a single
@@ -47,10 +47,10 @@ replacement is recorded; no silent swaps.
 One row per video per layer, containing only:
 
 - `videoId` (needed for cache-busting reproducibility; never logged with transcript text)
-- layer (`L1-worker` / `L2-vercel` / `L3-study`)
+- layer (`L2-vercel` / `L3-study`)
 - HTTP status + typed code from `docs/CAPTION_ERROR_CONTRACT.md`
 - `source` provenance (`supadata`/`vps`/`npm`/`innertube`/…) where present
-- Worker `X-EchoLearn-Transcript-Cache` state (MISS/HIT/BYPASS/absent)
+- `X-EchoLearn-Transcript-Cache` state where present; otherwise `absent`
 - latency bucket (not raw ms beyond bucketing: <2s, 2–8s, 8–15s, 15–25s, >25s)
 - line-count bucket (0, 1–20, >20) — never the lines themselves
 
@@ -60,9 +60,8 @@ Never recorded: transcript text, upstream payloads, cookies, tokens, IP, user id
 
 1. **Sequential, one-shot per video per layer** — no automatic retry, no re-run of a
    failed call inside the window. A failed call stays failed for attribution.
-2. **L1 → L2 ordering** mirrors the production cascade (Worker first). Cache effect is
-   measured by the first (MISS) pass; a second pass per video is allowed **only** to
-   observe HIT and is recorded separately, never merged into the first-pass result.
+2. The current-path runner makes exactly one sequential L2 Vercel request per video.
+   It does not probe the Worker, retry, or make a cache-verification second pass.
 3. **Inter-call pause ≥ 3 s** to avoid rate limiting artifacts.
 4. **Single window**: all calls inside one bounded session; wall-clock window recorded
    (start/end), no cross-window averaging.
@@ -76,19 +75,19 @@ Never recorded: transcript text, upstream payloads, cookies, tokens, IP, user id
 - A layer result `captions_not_found`/`transcript_disabled`/`asr_required` against a
   matrix-confirmed positive is an **acquisition/classification discrepancy** — the most
   valuable outcome class; it is highlighted, not averaged away.
-- `source=supadata` success at L2 with L1 failure is the expected healthy pattern for
-  cloud-egress-blocked videos (per 2026-09-05 evidence).
+- `source=supadata`/`vps`/`npm` success at L2 is the current Vercel caption-path
+  result; the Worker is not part of this current-path measurement.
 - Window verdicts: per-layer success rate (n=12) + discrepancy count + the single
   dominant failure layer. No broader YouTube reliability claims.
 
 ## 6. Execution modes (gates — user decision required)
 
 - **Gate P (push)**: production observation is only meaningful with the diagnostics
-  live. The 6 local commits must be pushed (Vercel auto-deploys the frontend + API).
-  The Worker cache header additionally requires a manual Worker deploy — without it,
-  L1 rows simply record `cache: absent` and attribution still works via typed codes.
-- **Mode A — API probes only** (default): local Node runner calls L1/L2 directly.
-  Cheap, precise, no browser. This is the minimum viable window.
+  live. The local commits must be pushed (Vercel auto-deploys the frontend + API).
+  Worker deployment/cache state is outside this current-path measurement.
+- **Mode A — API probes only** (default): local Node runner calls the same-origin
+  Vercel transcript endpoint directly. Cheap, precise, no browser. This is the
+  minimum viable window.
 - **Mode B — API + guest browser Study flow**: adds L3. Higher confidence, heavier;
   can be a separate later window.
 
@@ -114,3 +113,11 @@ Never recorded: transcript text, upstream payloads, cookies, tokens, IP, user id
 - [ ] Manifests re-readable and unmodified
 - [ ] Runner + mocked attribution tests on main
 - [ ] Window start/end recorded; rows appended to a sanitized local evidence file
+
+## 9. 2026-09-10 local acceptance and release boundary
+
+- P1 reliability runner is **LOCAL ACCEPTED**. The only stale direct call changed was `buildCallPlan({ paidProviderPolicy })` -> `buildCallPlan()`.
+- Focused reliability Node tests: **17/17 PASS**. Actual Windows direct-runner dry-run: **PASS**.
+- The normal caption plan is Vercel-only; the paid-provider path is blocked by default. No provider traffic occurred.
+- No commit or push was made from that acceptance cycle, and no deploy or Production observation was performed.
+- This section records local runner acceptance only; it does not turn the dry-run into a Production reliability result.

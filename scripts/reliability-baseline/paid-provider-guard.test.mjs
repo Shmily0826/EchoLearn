@@ -8,13 +8,6 @@ import {
 import { runArm } from './budget-ab.mjs';
 import { runWindow } from './runner.mjs';
 
-const workerResponse = {
-  ok: false,
-  status: 504,
-  headers: { get: () => null },
-  json: async () => ({ error: 'provider_timeout' }),
-};
-
 const paidResponse = {
   ok: true,
   status: 200,
@@ -75,18 +68,20 @@ test('zero cap is an explicit no-paid path', async () => {
   assert.equal(fetches, 0);
 });
 
-test('baseline runner remains Worker-only by default', async () => {
+test('baseline runner is Vercel-only and remains paid-gated by default', async () => {
   let calls = 0;
-  const { rows } = await runWindow({
-    matrix: [{ videoId: 'ZbZSe6N_BXs' }],
-    fetchImpl: async () => { calls += 1; return workerResponse; },
-    cacheVerify: false,
-    pauseMs: 0,
-    sleepImpl: async () => {},
-    paidProviderPolicy: { enabled: false, maxInvocations: 0 },
-  });
-  assert.equal(calls, 1);
-  assert.deepEqual(rows.map((row) => row.layer), ['L1-worker']);
+  await assert.rejects(
+    () => runWindow({
+      matrix: [{ videoId: 'ZbZSe6N_BXs' }],
+      appBase: 'https://app.test',
+      fetchImpl: async () => { calls += 1; return paidResponse; },
+      pauseMs: 0,
+      sleepImpl: async () => {},
+      paidProviderPolicy: { enabled: false, maxInvocations: 0 },
+    }),
+    (error) => error.code === 'blocked',
+  );
+  assert.equal(calls, 0);
 });
 
 test('baseline runner propagates cap exhaustion and makes no next paid fetch', async () => {
@@ -96,17 +91,17 @@ test('baseline runner propagates cap exhaustion and makes no next paid fetch', a
       matrix: [{ videoId: 'ZbZSe6N_BXs' }, { videoId: 'JGwWNGJdvx8' }],
       fetchImpl: async (url) => {
         calls.push(String(url));
-        return String(url).includes('echo-learn.uk') ? paidResponse : workerResponse;
+        return paidResponse;
       },
-      cacheVerify: false,
+      appBase: 'https://app.test',
       pauseMs: 0,
       sleepImpl: async () => {},
       paidProviderPolicy: { enabled: true, maxInvocations: 1 },
     }),
     (error) => error.code === 'cap_exceeded' && /cap exceeded/.test(error.message),
   );
-  assert.equal(calls.length, 3);
-  assert.equal(calls.filter((url) => url.includes('echo-learn.uk')).length, 1);
+  assert.equal(calls.length, 1);
+  assert.equal(calls[0], 'https://app.test/api/transcript?videoId=ZbZSe6N_BXs&lang=en');
 });
 
 test('budget runner also propagates cap exhaustion before another paid fetch', async () => {

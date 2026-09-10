@@ -96,7 +96,7 @@ export function isLayerSuccess(row) {
  * separately and never merged into the first-pass result.
  */
 export function windowVerdict(rows, matrixVideoIds) {
-  const layers = ['L1-worker', 'L2-vercel'];
+  const layers = ['L2-vercel'];
   const perLayer = {};
   for (const layer of layers) {
     const firstPass = rows.filter((row) => row.layer === layer && row.pass === 1);
