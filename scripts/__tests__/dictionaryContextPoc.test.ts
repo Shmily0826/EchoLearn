@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { parseDictionary } from '../../../scripts/dictionary-evaluation.ts';
+import { parseDictionary } from '../dictionary-evaluation.ts';
 import {
   cleanDefinitions,
   cleanTranslations,
@@ -7,7 +7,7 @@ import {
   evaluateContextRows,
   normalizeLookup,
   parseContextRows,
-} from '../../../scripts/dictionary-context-poc.ts';
+} from '../dictionary-context-poc.ts';
 
 describe('dictionary context PoC', () => {
   it('normalizes phrases and uses the existing lemmatizer for inflected forms', () => {

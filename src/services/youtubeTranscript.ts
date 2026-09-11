@@ -673,7 +673,7 @@ async function fetchViaLocalProxy(
   return null;
 }
 
-// ── Strategy 1: Server-side transcript API (CF Worker + Vercel) ──
+// ── Strategy 1: Server-side transcript API (Vercel captions; CF Worker ASR) ──
 
 /**
  * Cloudflare Worker URL for server-side transcript fetching.
@@ -751,9 +751,11 @@ export class YouTubeAcquisitionBlockedError extends Error {
 
 /**
  * Calls server-side transcript APIs.
- * Tries the CF Worker first, then the same-origin Vercel function. The Vercel
- * function keeps YTDLP_API_KEY server-side and falls through to its existing
- * youtube-transcript implementation if the VPS is unavailable.
+ * Caption-only requests go directly to the same-origin Vercel
+ * `/api/transcript` function.
+ * Explicit allowAsr requests use the CF Worker with its existing 90-second
+ * budget. The Vercel function keeps YTDLP_API_KEY server-side and runs the
+ * VPS → Supadata → youtube-transcript caption chain.
  */
 export async function fetchYouTubeServerTranscript(
   videoId: string,
@@ -985,10 +987,10 @@ function mergeResultDiagnostics(
  *
  * Tries multiple strategies in order:
  *   0. Local proxy (residential IP — skipped if failed within 5 min)
- *   1. InnerTube API (ANDROID/WEB clients) via Edge Function proxy
- *   2. YouTube page HTML scraping via Edge Function proxy
- *   3. Server-side API: CF Worker (→ VPS yt-dlp) first, then Vercel fallback
- *      (Worker fallbacks = InnerTube/Web/Invidious/Piped/Whisper)
+ *   1. Server-side API: same-origin Vercel captions (VPS → Supadata → npm);
+ *      explicit allowAsr uses the CF Worker with its existing 90-second budget
+ *   2. InnerTube API (ANDROID/WEB clients) via Edge Function proxy
+ *   3. YouTube page HTML scraping via Edge Function proxy
  *   4. youtube-transcript npm package (client-side, last resort)
  *
  * @param videoId  The 11-character YouTube video ID
@@ -1016,7 +1018,7 @@ async function _fetchYouTubeTranscriptImpl(
     }
   }
 
-  // Strategy 1: Server-side transcript API (CF Worker → Vercel fallback).
+  // Strategy 1: Server-side transcript API (Vercel captions; CF Worker for ASR).
   // This is the default production path and keeps VPS credentials server-side.
   try {
     const serverFailures: string[] = [];

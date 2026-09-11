@@ -2,7 +2,7 @@
 
 This file is the source of truth for current project status only. Historical root causes belong in `.workbuddy/memory/YYYY-MM-DD.md`, validation detail belongs in `TEST_REPORT.md`, and durable rules belong in `DECISIONS.md`.
 
-Updated: 2026-09-05
+Updated: 2026-09-11
 
 ## Maintenance convention
 
@@ -14,7 +14,7 @@ Recruiter-safe YouTube subtitle stabilization and reliable real Video → Transc
 
 ## Current separation
 
-- Branch: `main`; release-record commit `6176800e59ce4bdd8bb67b60ac78e92fada9e954` is synchronized to `origin/main`.
+- Branch: `main`; current local `HEAD` and `origin/main` are both `8462641236fc5efb6d90939e8cc045f6ad0c6935`.
 - The accepted production Worker is version `9fcbd50b-d197-4691-951b-d9a8c4039197` (active deployment `974ee470-4498-4c79-b74a-b6109cc2feaf`); the Worker source is the only production candidate in this release record.
 - The source-record push produced verified `READY` Vercel deployment `dpl_GAAtbhbfZmjgevm1Pfz1vGeU5n5X` for commit `6176800e59ce4bdd8bb67b60ac78e92fada9e954`; subsequent docs-only pushes may produce equivalent-source Vercel rebuilds, so deployment IDs are operational metadata rather than this source-of-truth status. Runtime frontend/API source is unchanged because the Vercel/frontend candidate files were excluded.
 - Production is a separate validation layer from local work and GitHub state; its acceptance evidence is recorded below and in `TEST_REPORT.md`.
@@ -574,6 +574,14 @@ Browser-native fallback and managed alternate-provider/egress options have highe
 - Backend dictionary payloads now carry normalized English `source_text` beside legacy `definition`; MW/Free Dictionary-style `buildEntries` and the manual Datamuse builder both preserve it.
 - Focused validation: **23/23 PASS** across dictionary service, Mobile P0, and Datamuse handler regressions; targeted ESLint, `tsc -b`, `git diff --check`, and `npm run build` PASS. Build retained existing chunk-size warnings.
 - Local only: no browser/E2E run, commit, push, deploy, or production/provider traffic. Popup, save-pipeline, lemma, and unrelated dirty work remain unchanged.
+
+## 2026-09-11 ECHO-20260911-1833-DOCS-SYNC - Dictionary meaning presentation and offline evaluation
+
+- Tracked source commits `036057c` and `72e0e10` establish the learner-meaning order **context-ai → quick-gloss → compact dictionary gloss → unavailable**. Long generic translated dictionary prose is withheld from the learner-facing and saved Chinese meaning; English source text may remain available in the explicitly collapsed dictionary reference. `72e0e10` adds the withheld reason `dictionary-translation-not-compact` and a stronger saved-word positive control.
+- Tracked commit `5ec799a` adds Phase A offline ECDICT evaluation/context tooling, a 46-word evaluation list, a 17-row local context fixture, and an opt-in AI comparison harness. The tooling itself treats ECDICT as noisy lexical evidence rather than ground truth; no tracked result report proves a quality lift from injecting it, so ECDICT is not integrated into runtime meaning selection. Conclusions remain limited to the tested offline fixtures/sample.
+- Current release milestone: pushed commit `8462641236fc5efb6d90939e8cc045f6ad0c6935` (`Keep dictionary reference meanings consistent`) is present in local `HEAD` and `origin/main`. It aligns fully translated reference rows to the requested display language and omits source-less rows from mixed references; learner-meaning priority and runtime ECDICT boundaries are unchanged.
+- Current boundary: this confirms source/GitHub state only. No dictionary deployment or Production/provider verification is claimed. Existing dirty/untracked work remains preserved and is outside this record.
+- Resolution: Resolved and closed by pushed commit `8462641236fc5efb6d90939e8cc045f6ad0c6935`; this reference-consistency issue is not a current blocker.
 
 ## 2026-09-11 ECHO-20260911-ANALYTICS-TEST-EXCLUSION - Analytics test-traffic exclusion
 

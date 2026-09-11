@@ -7,7 +7,7 @@ import { defineConfig } from 'vitest/config';
 export default defineConfig({
   test: {
     environment: 'node',
-    include: ['src/**/*.{test,spec}.{ts,tsx}'],
+    include: ['src/**/*.{test,spec}.{ts,tsx}', 'scripts/**/*.{test,spec}.{ts,tsx}'],
     exclude: ['src/services/__tests__/firestoreRules.emulator.test.ts'],
     setupFiles: ['src/test/setup.ts'],
   },

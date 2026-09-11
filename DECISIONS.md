@@ -198,6 +198,18 @@ Once the active goal, root cause, and acceptance criteria are sufficiently speci
 - Supersedes: None recorded.
 - Superseded by: None recorded.
 
+## ECHO-20260911-1833-DOCS-SYNC - Conservative learner meaning and ECDICT evaluation boundary
+
+- Date: 2026-09-11
+- Status: ACTIVE / SOURCE VERIFIED
+- Decision: Keep learner meaning ordered as **context-ai → quick-gloss → compact dictionary gloss → unavailable**. Do not promote long generic machine-translated dictionary prose into the learner-facing or saved Chinese meaning. Keep the conservative compactness guard as a safety net until better evidence or provider gloss metadata exists; confine English source text to the collapsed dictionary-reference layer when the translated gloss is withheld.
+- Rationale: Commits `036057c` and `72e0e10` show that reusing long translated dictionary prose produced translationese in the learner meaning/save path. The hardening commit records `dictionary-translation-not-compact` and adds a saved-word positive control.
+- Evaluation boundary: Commit `5ec799a` adds offline ECDICT surface/lemma/context tooling and an opt-in AI comparison harness. ECDICT is useful lexical candidate evidence but its raw translations are noisy and not ground truth. No tracked comparison output proves a quality lift from injection, so do not integrate it into runtime meaning selection or generalize beyond the tested offline sample.
+- Reference consistency milestone: Pushed commit `8462641236fc5efb6d90939e8cc045f6ad0c6935` (`Keep dictionary reference meanings consistent`) is the current release. It keeps fully translated references in the requested display language and omits source-less rows from mixed-language references; it does not change learner-meaning priority or add ECDICT to runtime selection.
+- Resolution: Resolved and closed by pushed commit `8462641236fc5efb6d90939e8cc045f6ad0c6935`; this reference-consistency issue is not a current blocker.
+- Supersedes: None recorded.
+- Superseded by: None recorded.
+
 ## ECHO-20260911-ANALYTICS-TEST-EXCLUSION - Explicit test traffic analytics suppression
 
 - Date: 2026-09-11
