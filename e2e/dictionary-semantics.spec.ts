@@ -135,22 +135,27 @@ test.beforeEach(async ({ page }) => {
   await page.route('**/api/ai**', (route) => route.abort());
 });
 
-test('translated zh-CN sense drives the learner meaning and the saved meaningCn', async ({ page }) => {
+test('long translated zh-CN prose stays out of learner meaning and remains a collapsed reference', async ({ page }) => {
+  const translatedProse = '一段很长的机器翻译定义句子，不适合作为顶部学习释义。';
   await mockDictionaryApi(page, (target) =>
-    (target.startsWith('en') ? EN_PAYLOAD : zhPayload('高质量的', 'of high quality', 'translated')));
+    (target.startsWith('en') ? EN_PAYLOAD : zhPayload(translatedProse, 'a long provider definition sentence', 'translated')));
   await page.route('**/api/translate**', (route) => route.abort());
   await enterAppInLanguage(page, 'zh');
 
   const saveButton = await openPopupForSampleWord(page);
 
-  // LearnerMeaning resolves from the translated dictionary reference.
-  await expect(page.getByText('高质量的')).toBeVisible();
+  // Dictionary arrives first, but long translated prose is not a compact learner meaning.
+  await expect(page.getByText(translatedProse)).toHaveCount(0);
+  await expect(page.getByRole('button', { name: '查看词典参考释义' })).toBeVisible();
+  await page.getByRole('button', { name: '查看词典参考释义' }).click();
+  await expect(page.getByText('a long provider definition sentence')).toBeVisible();
+  await expect(page.getByText(translatedProse)).toHaveCount(0);
 
   await saveButton.click();
   await expect(saveButton).toBeHidden({ timeout: 45_000 });
 
   await openVocabulary(page);
-  await expect(page.getByText('高质量的').first()).toBeVisible();
+  await expect(page.getByText(translatedProse)).toHaveCount(0);
 });
 
 test('fallback-en never masquerades as a Chinese learner meaning or meaningCn', async ({ page }) => {

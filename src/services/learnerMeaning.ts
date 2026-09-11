@@ -16,6 +16,12 @@ function sameLanguage(left: string | undefined, right: string): boolean {
   return Boolean(left) && left!.trim().toLowerCase() === right.trim().toLowerCase();
 }
 
+export function isCompactLearnerMeaning(value: string | null | undefined): boolean {
+  const text = usableText(value);
+  // ponytail: conservative 24-character heuristic; use provider gloss metadata if it becomes available.
+  return text.length > 0 && text.length <= 24 && !/[.!?。！？]/.test(text);
+}
+
 function dictionaryMeaning(reference: DictionaryReference | null | undefined, targetLanguage: string): string {
   if (!reference
     || reference.translationStatus !== 'translated'
@@ -23,7 +29,7 @@ function dictionaryMeaning(reference: DictionaryReference | null | undefined, ta
     || !sameLanguage(reference.displayLanguage, targetLanguage)) return '';
 
   const sense = reference.senses.find((candidate) =>
-    candidate.translationStatus === 'translated' && usableText(candidate.displayText));
+    candidate.translationStatus === 'translated' && isCompactLearnerMeaning(candidate.displayText));
   return usableText(sense?.displayText);
 }
 

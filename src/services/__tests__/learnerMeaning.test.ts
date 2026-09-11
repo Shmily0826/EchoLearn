@@ -36,9 +36,36 @@ describe('resolveLearnerMeaning', () => {
       .toMatchObject({ text: '快速释义', provider: 'quick-gloss' });
   });
 
-  it('uses a translated dictionary reference as the final fallback', () => {
+  it('uses a compact translated dictionary reference as the final fallback', () => {
     expect(resolveLearnerMeaning(input({ dictionaryReference: translatedReference })))
       .toMatchObject({ text: '猫', provider: 'dictionary' });
+  });
+
+  it('accepts a compact semicolon-separated gloss list', () => {
+    const compactReference: DictionaryReference = {
+      ...translatedReference,
+      senses: [{
+        ...translatedReference.senses[0],
+        displayText: '观众；听众',
+      }],
+    };
+
+    expect(resolveLearnerMeaning(input({ dictionaryReference: compactReference })))
+      .toMatchObject({ text: '观众；听众', provider: 'dictionary' });
+  });
+
+  it('does not use long translated dictionary prose as learner meaning', () => {
+    const longReference: DictionaryReference = {
+      ...translatedReference,
+      senses: [{
+        ...translatedReference.senses[0],
+        sourceText: 'of high quality',
+        displayText: '一段很长的机器翻译定义句子，不适合作为顶部学习释义。',
+      }],
+    };
+
+    expect(resolveLearnerMeaning(input({ dictionaryReference: longReference })))
+      .toMatchObject({ text: '', provider: 'unavailable' });
   });
 
   it.each([

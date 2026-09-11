@@ -263,8 +263,10 @@ describe('WordDictionaryPopup dictionary failures', () => {
     expect(screen.getByText('not heavy')).toBeTruthy();
   });
 
-  it('uses a translated dictionary reference as the final Chinese learner meaning', async () => {
+  it('keeps long translated prose out of the top meaning and preserves English reference text', async () => {
     localStorage.setItem('echolearn_lang', 'zh');
+    const translatedProse = '一段很长的机器翻译定义句子，不适合作为顶部学习释义。';
+    const sourceProse = 'a long provider definition sentence';
     vi.mocked(lookupWord).mockResolvedValue({
       word: 'cat',
       phonetic: '',
@@ -276,7 +278,15 @@ describe('WordDictionaryPopup dictionary failures', () => {
       synonyms: [],
       antonyms: [],
       provider: 'Free Dictionary',
-      reference: referenceFor('cat', [{ pos: 'noun', displayText: '猫' }]),
+      reference: {
+        ...referenceFor('cat', [{ pos: 'noun', displayText: translatedProse }]),
+        senses: [{
+          pos: 'noun',
+          sourceText: sourceProse,
+          displayText: translatedProse,
+          translationStatus: 'translated',
+        }],
+      },
     });
     vi.mocked(translateWordFast).mockResolvedValue('');
 
@@ -286,7 +296,14 @@ describe('WordDictionaryPopup dictionary failures', () => {
       </I18nProvider>,
     );
 
-    expect(await screen.findByText('猫')).toBeTruthy();
+    const referenceButton = await screen.findByRole('button', { name: '查看词典参考释义' });
+    expect(referenceButton.getAttribute('aria-expanded')).toBe('false');
+    expect(screen.queryByText(translatedProse)).toBeNull();
+    expect(screen.queryByText(sourceProse)).toBeNull();
+    fireEvent.click(referenceButton);
+    expect(referenceButton.getAttribute('aria-expanded')).toBe('true');
+    expect(screen.getByText(sourceProse)).toBeTruthy();
+    expect(screen.queryByText(translatedProse)).toBeNull();
   });
 
   it('passes the clicked subtitle to the shared LearnerMeaning resolver', async () => {
