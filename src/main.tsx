@@ -5,6 +5,9 @@ import { Analytics } from '@vercel/analytics/react'
 import { registerSW } from 'virtual:pwa-register'
 import './index.css'
 import App from './App.tsx'
+import { initializeAnalyticsSuppression, isAnalyticsSuppressed } from './utils/analyticsSuppression'
+
+initializeAnalyticsSuppression()
 
 // Auto-update the PWA: when a new service worker is detected after a deploy,
 // it installs, takes control, and reloads the page to serve the new bundle.
@@ -32,6 +35,6 @@ if (SENTRY_DSN) {
 createRoot(document.getElementById('root')!).render(
   <StrictMode>
     <App />
-    <Analytics />
+    {!isAnalyticsSuppressed() && <Analytics />}
   </StrictMode>,
 )

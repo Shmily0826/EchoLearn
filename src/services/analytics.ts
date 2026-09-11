@@ -6,6 +6,7 @@ import {
   type Analytics,
 } from 'firebase/analytics';
 import app from '../lib/firebase';
+import { isAnalyticsSuppressed } from '../utils/analyticsSuppression';
 
 /**
  * Centralized, best-effort product analytics.
@@ -54,6 +55,8 @@ function getFbAnalytics(): Promise<Analytics | null> {
 }
 
 export function trackEvent(name: string, props?: EventParams): void {
+  if (isAnalyticsSuppressed()) return;
+
   // 1. Vercel Web Analytics (anonymous reach + behaviour)
   try {
     track(name, props);
