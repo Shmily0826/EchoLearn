@@ -1,0 +1,11 @@
+word,phonetic,definition,translation,pos,collins,oxford,tag,bt,frq,exchange,detail,audio
+apple,ˈæpəl,fruit,苹果,n,3,1,food,,100,p:apples,,
+run,rʌn,"move quickly; operate",跑；运行,v,5,1,"verb;common",,50,"0:ran;1:running;2:runs",,
+child,tʃaɪld,young person,孩子,n,4,1,common,,80,p:children,,
+bank,bæŋk,"financial institution; side of a river",银行；河岸,n,5,1,"common;polysemy",,40,p:banks,,
+study,ˈstʌdi,learn or examine,学习；研究,v,4,1,education,,60,"p:studies;d:studied;i:studying",,
+city,ˈsɪti,large town,城市,n,4,1,place,,70,p:cities,,
+wolf,wʊlf,wild animal,狼,n,3,1,animal,,20,p:wolves,,
+write,raɪt,form words with a pen,写,v,5,1,common,,90,d:wrote,,
+good,ɡʊd,of high quality,好；良好,adj,5,1,common,,100,"c:better;d:best",,
+happy,ˈhæpi,feeling pleasure,快乐的；高兴的,adj,4,1,common,,30,"c:happier;d:happiest",,

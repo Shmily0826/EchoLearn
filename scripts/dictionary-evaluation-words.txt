@@ -1,0 +1,58 @@
+# EchoLearn Phase A local/offline dictionary evaluation list (46 words).
+# Keep categories and spellings auditable; one lookup expression per line.
+
+[common]
+apple
+book
+house
+learn
+speak
+watch
+water
+world
+
+[polysemous]
+bank
+break
+change
+charge
+light
+mean
+plant
+record
+run
+spring
+
+[inflected]
+running
+children
+better
+studied
+cities
+wolves
+written
+going
+made
+happier
+
+[harder]
+awkward
+nuance
+yield
+conduct
+issue
+scale
+draft
+plain
+fine
+strike
+
+[ambiguous-or-phrasal]
+look up
+carry on
+figure out
+set up
+well-known
+self-driving
+make up
+take off

@@ -1,0 +1,19 @@
+[
+  { "category": "inflected-trap", "target": "studied", "sentence": "She studied the map before driving home.", "expected": "学习/研究" },
+  { "category": "compound-control", "target": "self-driving", "sentence": "The company is testing a self-driving car.", "expected": "自动驾驶（的）" },
+  { "category": "running-senses", "target": "running", "sentence": "Leave the water running while you rinse the cup.", "expected": "流动/流出" },
+  { "category": "running-senses", "target": "running", "sentence": "The engine is running smoothly again.", "expected": "运转" },
+  { "category": "going-senses", "target": "going", "sentence": "We are going to school by bus.", "expected": "去/走" },
+  { "category": "going-senses", "target": "going", "sentence": "The project is going well despite the delay.", "expected": "进行中/成功" },
+  { "category": "made-sense", "target": "made", "sentence": "This table is made of local wood.", "expected": "制成" },
+  { "category": "phrasal-senses", "target": "figure out", "sentence": "I cannot figure out how this machine works.", "expected": "弄明白" },
+  { "category": "phrasal-senses", "target": "make up", "sentence": "He made up an excuse for being late.", "expected": "编造" },
+  { "category": "phrasal-senses", "target": "make up", "sentence": "After the argument, the two friends made up.", "expected": "和好" },
+  { "category": "phrasal-senses", "target": "take off", "sentence": "The plane took off just before sunset.", "expected": "起飞" },
+  { "category": "phrasal-senses", "target": "take off", "sentence": "Please take off your shoes at the door.", "expected": "脱下" },
+  { "category": "polysemous", "target": "bank", "sentence": "The children played beside the river bank.", "expected": "河岸" },
+  { "category": "polysemous", "target": "bank", "sentence": "She opened a savings account at the bank.", "expected": "银行" },
+  { "category": "control", "target": "nuance", "sentence": "The translation misses an important nuance.", "expected": "细微差别" },
+  { "category": "control", "target": "awkward", "sentence": "His apology sounded awkward in the meeting.", "expected": "尴尬/笨拙" },
+  { "category": "control", "target": "well-known", "sentence": "She is a well-known scientist in the field.", "expected": "众所周知/有名" }
+]
