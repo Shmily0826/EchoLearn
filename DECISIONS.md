@@ -197,3 +197,17 @@ Once the active goal, root cause, and acceptance criteria are sufficiently speci
 - Boundaries: No Popup, Chinese cleanup, lemma architecture, vocabulary save-pipeline, production, commit, or push change is included.
 - Supersedes: None recorded.
 - Superseded by: None recorded.
+
+## ECHO-20260911-ANALYTICS-TEST-EXCLUSION - Explicit test traffic analytics suppression
+
+- Date: 2026-09-11
+- Status: ACTIVE / PRODUCTION ACCEPTED
+- Decision: Suppress Vercel Web Analytics and Firebase custom events only when `sessionStorage['echolearn_test_traffic'] === '1'`. `?dogfood=1` sets that session marker before app render and removes only `dogfood` with `history.replaceState`; no localStorage, UA, webdriver, auth, Firestore, or other product behavior changes.
+- Automation: Keep marker installation opt-in through `page.addInitScript`; the current Playwright config is local-only and does not target Production.
+- Release: Analytics implementation commit `ac95f39b067e0a4cf8046d2b7db56bacc580b6d5`; build-gate repair commit `3dd523c075d172ca17c2d628cf97d2783ab35922` was the released repair SHA and matched `origin/main` at Production acceptance.
+- Evidence: GitHub Actions `test` and `e2e` succeeded for the exact repair SHA, and the Vercel Production deployment succeeded.
+- Production acceptance: `https://echo-learn.uk/?dogfood=1&foo=bar` set the session marker and cleaned to `https://echo-learn.uk/?foo=bar`; the same session stayed suppressed, a fresh context was unsuppressed, and observed traffic had zero Vercel Analytics, Firebase/GA Analytics, product, or provider requests.
+- Boundary: Dogfood is analytics suppression only; it does not authorize Production Firebase/Auth/Firestore mutation, product API traffic, paid/provider traffic, ASR, or other side effects. Sentry remains separate and out of scope.
+- Governance: Canonical deployed-browser validation rules are recorded in `docs/TESTING.md`.
+- Supersedes: None recorded.
+- Superseded by: None recorded.

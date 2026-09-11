@@ -574,3 +574,12 @@ Browser-native fallback and managed alternate-provider/egress options have highe
 - Backend dictionary payloads now carry normalized English `source_text` beside legacy `definition`; MW/Free Dictionary-style `buildEntries` and the manual Datamuse builder both preserve it.
 - Focused validation: **23/23 PASS** across dictionary service, Mobile P0, and Datamuse handler regressions; targeted ESLint, `tsc -b`, `git diff --check`, and `npm run build` PASS. Build retained existing chunk-size warnings.
 - Local only: no browser/E2E run, commit, push, deploy, or production/provider traffic. Popup, save-pipeline, lemma, and unrelated dirty work remain unchanged.
+
+## 2026-09-11 ECHO-20260911-ANALYTICS-TEST-EXCLUSION - Analytics test-traffic exclusion
+
+- Released centralized session-only suppression for explicit test traffic. `?dogfood=1` is consumed before app render, preserves other query parameters, and removes only `dogfood` without reload; normal sessions retain existing Vercel/Firebase event paths.
+- Analytics implementation commit `ac95f39b067e0a4cf8046d2b7db56bacc580b6d5` and build-gate repair commit `3dd523c075d172ca17c2d628cf97d2783ab35922` are released; the repair SHA was the released repair SHA and matched `origin/main` at Production acceptance.
+- GitHub Actions `test` and `e2e` succeeded for the exact repair SHA, and the Vercel Production deployment succeeded.
+- Production dogfood accepted: `?dogfood=1&foo=bar` set the session marker and cleaned to `?foo=bar`; same-session suppression persisted, fresh-context behavior was unsuppressed, and observed Vercel/Firebase/GA, product, and provider traffic was zero.
+- Current boundary: dogfood is analytics-safe only and does not authorize Production Firebase/Auth/Firestore mutation, product API traffic, paid/provider traffic, or ASR. Canonical governance is in `docs/TESTING.md`; Sentry is separate and out of scope.
+- Existing unrelated dirty and untracked work was preserved.
