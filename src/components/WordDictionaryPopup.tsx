@@ -1,7 +1,7 @@
 import { useState, useEffect, useRef, useCallback, useLayoutEffect, useMemo } from 'react';
 import type { DictionaryEntry, DictionaryReferenceSense, LearnerMeaning } from '../types';
 import { lookupWord, isKnownProperNoun } from '../services/dictionaryService';
-import { isCompactChineseDictionaryGloss, resolveLearnerMeaning } from '../services/learnerMeaning';
+import { resolveLearnerMeaning } from '../services/learnerMeaning';
 import { translateWordFast, type TranslateLang } from '../services/translationService';
 import { getWordAnalysis, type WordAnalysis } from '../services/wordAnalysisService';
 import { useI18n } from '../i18n/I18nContext';
@@ -130,16 +130,20 @@ const WordDictionaryPopup: React.FC<WordDictionaryPopupProps> = ({
   // DeepSeek call entirely (pure-English study view, saves token quota).
   const showChinese = lang === 'zh';
   const definitionLimit = showChinese ? 3 : 5;
-  const referenceSenses = entry?.reference?.senses
-    .filter((sense) => sense.displayText)
-    .map((sense) => ({
+  const referenceLanguage = entry?.reference?.displayLanguage.trim().toLowerCase();
+  const referenceSenses = entry?.reference?.senses.flatMap((sense) => {
+    if (!sense.displayText) return [];
+    // Reference rows must share one language. A fully translated Chinese
+    // reference keeps every translated row, regardless of length.
+    if (showChinese && referenceLanguage === 'zh-cn') return [{ ...sense }];
+    // Mixed references use source text only; omitting a row without sourceText
+    // avoids silently putting an unexplained Chinese row beside English.
+    if (showChinese && referenceLanguage === 'mixed' && !sense.sourceText) return [];
+    return [{
       ...sense,
-      // Keep long translated prose as the provider's trustworthy English reference.
-      displayText: showChinese && sense.translationStatus === 'translated'
-        && !isCompactChineseDictionaryGloss(sense.displayText) && sense.sourceText
-        ? sense.sourceText
-        : sense.displayText,
-    })) ?? [];
+      displayText: showChinese ? sense.sourceText || sense.displayText : sense.displayText,
+    }];
+  }) ?? [];
   const learnerMeaning = useMemo(() => resolveLearnerMeaning({
     targetLanguage: showChinese ? 'zh-CN' : 'en',
     sourceSentence: context || '',

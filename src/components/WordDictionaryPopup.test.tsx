@@ -263,7 +263,7 @@ describe('WordDictionaryPopup dictionary failures', () => {
     expect(screen.getByText('not heavy')).toBeTruthy();
   });
 
-  it('keeps long translated prose out of the top meaning and preserves English reference text', async () => {
+  it('keeps long translated prose out of the top meaning and preserves Chinese reference text', async () => {
     localStorage.setItem('echolearn_lang', 'zh');
     const translatedProse = '一段很长的机器翻译定义句子，不适合作为顶部学习释义。';
     const sourceProse = 'a long provider definition sentence';
@@ -302,8 +302,104 @@ describe('WordDictionaryPopup dictionary failures', () => {
     expect(screen.queryByText(sourceProse)).toBeNull();
     fireEvent.click(referenceButton);
     expect(referenceButton.getAttribute('aria-expanded')).toBe('true');
-    expect(screen.getByText(sourceProse)).toBeTruthy();
-    expect(screen.queryByText(translatedProse)).toBeNull();
+    expect(screen.getByText(translatedProse)).toBeTruthy();
+    expect(screen.queryByText(sourceProse)).toBeNull();
+  });
+
+  it('keeps a fully translated reference in Chinese even when one sense is long', async () => {
+    localStorage.setItem('echolearn_lang', 'zh');
+    const translatedLongSense = '\u4e00\u4e2a\u5173\u4e8e\u4f1a\u8bae\u7684\u5f88\u957f\u7684\u7ffb\u8bd1\u91ca\u4e49\u6587\u672c\uff0c\u4e0d\u5e94\u88ab\u66ff\u6362\u4e3a\u82f1\u6587\u3002';
+    const sourceLongSense = 'an organized meeting for discussion';
+    vi.mocked(translateWordFast).mockResolvedValue('\u4f1a\u8bae');
+    vi.mocked(lookupWord).mockResolvedValue({
+      word: 'conference',
+      phonetic: '',
+      audioUrl: '',
+      partOfSpeech: 'noun',
+      definitionEn: sourceLongSense,
+      definitionsEn: [
+        { pos: 'noun', definition: sourceLongSense },
+        { pos: 'noun', definition: 'a meeting' },
+      ],
+      example: '',
+      synonyms: [],
+      antonyms: [],
+      provider: 'Merriam-Webster',
+      reference: {
+        queriedForm: 'conference',
+        provider: 'Merriam-Webster',
+        sourceLanguage: 'en',
+        requestedLanguage: 'zh-CN',
+        displayLanguage: 'zh-CN',
+        translationStatus: 'translated',
+        senses: [
+          { pos: 'noun', sourceText: sourceLongSense, displayText: translatedLongSense, translationStatus: 'translated' },
+          { pos: 'noun', sourceText: 'a meeting', displayText: '\u4f1a\u8bae', translationStatus: 'translated' },
+        ],
+      },
+    });
+
+    render(
+      <I18nProvider>
+        <WordDictionaryPopup word="conference" x={100} y={100} onClose={vi.fn()} />
+      </I18nProvider>,
+    );
+
+    expect(await screen.findByText('\u4f1a\u8bae')).toBeTruthy();
+    fireEvent.click(screen.getByRole('button', { name: '\u67e5\u770b\u8bcd\u5178\u53c2\u8003\u91ca\u4e49' }));
+    expect(screen.getByText(translatedLongSense)).toBeTruthy();
+    expect(screen.getAllByText('\u4f1a\u8bae').length).toBeGreaterThan(1);
+    expect(screen.queryByText(sourceLongSense)).toBeNull();
+  });
+
+  it('omits a missing-source mixed sense without changing the top learner meaning', async () => {
+    localStorage.setItem('echolearn_lang', 'zh');
+    const sourceSense = 'an organized meeting for discussion';
+    const missingSourceChinese = '\u4e0d\u5e94\u663e\u793a\u7684\u4e2d\u6587\u91ca\u4e49';
+    const onDataChange = vi.fn();
+    vi.mocked(translateWordFast).mockResolvedValue('\u4f1a\u8bae');
+    vi.mocked(lookupWord).mockResolvedValue({
+      word: 'conference',
+      phonetic: '',
+      audioUrl: '',
+      partOfSpeech: 'noun',
+      definitionEn: sourceSense,
+      definitionsEn: [{ pos: 'noun', definition: sourceSense }],
+      example: '',
+      synonyms: [],
+      antonyms: [],
+      provider: 'Merriam-Webster',
+      reference: {
+        queriedForm: 'conference',
+        provider: 'Merriam-Webster',
+        sourceLanguage: 'en',
+        requestedLanguage: 'zh-CN',
+        displayLanguage: 'mixed',
+        translationStatus: 'translated',
+        senses: [
+          { pos: 'noun', sourceText: sourceSense, displayText: sourceSense, translationStatus: 'fallback-en' },
+          { pos: 'noun', sourceText: null, displayText: missingSourceChinese, translationStatus: 'translated' },
+        ],
+      },
+    });
+
+    render(
+      <I18nProvider>
+        <WordDictionaryPopup
+          word="conference"
+          x={100}
+          y={100}
+          onClose={vi.fn()}
+          onDataChange={onDataChange}
+        />
+      </I18nProvider>,
+    );
+
+    await waitFor(() => expect(onDataChange.mock.calls.at(-1)?.[0]?.meaningCn).toBe('\u4f1a\u8bae'));
+    fireEvent.click(screen.getByRole('button', { name: '\u67e5\u770b\u8bcd\u5178\u53c2\u8003\u91ca\u4e49' }));
+    expect(screen.getByText(sourceSense)).toBeTruthy();
+    expect(screen.queryByText(missingSourceChinese)).toBeNull();
+    expect(screen.getAllByText('\u4f1a\u8bae')).toHaveLength(1);
   });
 
   it('passes the clicked subtitle to the shared LearnerMeaning resolver', async () => {

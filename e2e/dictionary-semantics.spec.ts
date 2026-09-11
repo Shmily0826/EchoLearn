@@ -135,7 +135,7 @@ test.beforeEach(async ({ page }) => {
   await page.route('**/api/ai**', (route) => route.abort());
 });
 
-test('long translated zh-CN prose stays out of learner meaning and remains a collapsed reference', async ({ page }) => {
+test('long translated zh-CN prose stays out of learner meaning while the reference remains Chinese', async ({ page }) => {
   const translatedProse = '一段很长的机器翻译定义句子，不适合作为顶部学习释义。';
   await mockDictionaryApi(page, (target) =>
     (target.startsWith('en') ? EN_PAYLOAD : zhPayload(translatedProse, 'a long provider definition sentence', 'translated')));
@@ -148,14 +148,14 @@ test('long translated zh-CN prose stays out of learner meaning and remains a col
   await expect(page.getByText(translatedProse)).toHaveCount(0);
   await expect(page.getByRole('button', { name: '查看词典参考释义' })).toBeVisible();
   await page.getByRole('button', { name: '查看词典参考释义' }).click();
-  await expect(page.getByText('a long provider definition sentence')).toBeVisible();
-  await expect(page.getByText(translatedProse)).toHaveCount(0);
+  await expect(page.getByText(translatedProse)).toBeVisible();
+  await expect(page.getByText('a long provider definition sentence')).toHaveCount(0);
 
   await saveButton.click();
   await expect(saveButton).toBeHidden({ timeout: 45_000 });
 
   await openVocabulary(page);
-  // Positive control: the target word was saved; only the long translation was demoted.
+  // Positive control: the target word was saved; the long reference was never learner meaning.
   await expect(page.getByText(/^good\b/).filter({ visible: true }).first()).toBeVisible();
   await expect(page.getByText(translatedProse)).toHaveCount(0);
 });
