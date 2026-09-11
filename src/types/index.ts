@@ -63,10 +63,12 @@ export interface DictionaryReference {
 }
 
 export type LearnerMeaningProvider = 'context-ai' | 'quick-gloss' | 'dictionary' | 'unavailable';
+export type LearnerMeaningWithheldReason = 'dictionary-translation-not-compact';
 
 export interface LearnerMeaning {
   text: string;
   provider: LearnerMeaningProvider;
+  withheldReason?: LearnerMeaningWithheldReason;
   targetLanguage: string;
   sourceSentence: string;
 }

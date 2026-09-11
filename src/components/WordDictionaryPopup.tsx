@@ -1,7 +1,7 @@
 import { useState, useEffect, useRef, useCallback, useLayoutEffect, useMemo } from 'react';
 import type { DictionaryEntry, DictionaryReferenceSense, LearnerMeaning } from '../types';
 import { lookupWord, isKnownProperNoun } from '../services/dictionaryService';
-import { isCompactLearnerMeaning, resolveLearnerMeaning } from '../services/learnerMeaning';
+import { isCompactChineseDictionaryGloss, resolveLearnerMeaning } from '../services/learnerMeaning';
 import { translateWordFast, type TranslateLang } from '../services/translationService';
 import { getWordAnalysis, type WordAnalysis } from '../services/wordAnalysisService';
 import { useI18n } from '../i18n/I18nContext';
@@ -136,7 +136,7 @@ const WordDictionaryPopup: React.FC<WordDictionaryPopupProps> = ({
       ...sense,
       // Keep long translated prose as the provider's trustworthy English reference.
       displayText: showChinese && sense.translationStatus === 'translated'
-        && !isCompactLearnerMeaning(sense.displayText) && sense.sourceText
+        && !isCompactChineseDictionaryGloss(sense.displayText) && sense.sourceText
         ? sense.sourceText
         : sense.displayText,
     })) ?? [];

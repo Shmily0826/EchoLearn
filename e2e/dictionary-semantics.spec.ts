@@ -155,6 +155,8 @@ test('long translated zh-CN prose stays out of learner meaning and remains a col
   await expect(saveButton).toBeHidden({ timeout: 45_000 });
 
   await openVocabulary(page);
+  // Positive control: the target word was saved; only the long translation was demoted.
+  await expect(page.getByText(/^good\b/).filter({ visible: true }).first()).toBeVisible();
   await expect(page.getByText(translatedProse)).toHaveCount(0);
 });
 

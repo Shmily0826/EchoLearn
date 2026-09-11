@@ -1,4 +1,9 @@
-import type { DictionaryReference, LearnerMeaning, LearnerMeaningProvider } from '../types';
+import type {
+  DictionaryReference,
+  LearnerMeaning,
+  LearnerMeaningProvider,
+  LearnerMeaningWithheldReason,
+} from '../types';
 
 export interface LearnerMeaningInput {
   targetLanguage: string;
@@ -16,34 +21,43 @@ function sameLanguage(left: string | undefined, right: string): boolean {
   return Boolean(left) && left!.trim().toLowerCase() === right.trim().toLowerCase();
 }
 
-export function isCompactLearnerMeaning(value: string | null | undefined): boolean {
+export function isCompactChineseDictionaryGloss(value: string | null | undefined): boolean {
   const text = usableText(value);
-  // ponytail: conservative 24-character heuristic; use provider gloss metadata if it becomes available.
   return text.length > 0 && text.length <= 24 && !/[.!?。！？]/.test(text);
 }
 
-function dictionaryMeaning(reference: DictionaryReference | null | undefined, targetLanguage: string): string {
+function dictionaryMeaning(
+  reference: DictionaryReference | null | undefined,
+  targetLanguage: string,
+): { text: string; withheldReason?: LearnerMeaningWithheldReason } {
   if (!reference
     || reference.translationStatus !== 'translated'
     || !sameLanguage(reference.requestedLanguage, targetLanguage)
-    || !sameLanguage(reference.displayLanguage, targetLanguage)) return '';
+    || !sameLanguage(reference.displayLanguage, targetLanguage)) return { text: '' };
 
-  const sense = reference.senses.find((candidate) =>
-    candidate.translationStatus === 'translated' && isCompactLearnerMeaning(candidate.displayText));
-  return usableText(sense?.displayText);
+  const translatedSenses = reference.senses.filter((candidate) => candidate.translationStatus === 'translated');
+  const sense = translatedSenses.find((candidate) => isCompactChineseDictionaryGloss(candidate.displayText));
+  if (sense) return { text: usableText(sense.displayText) };
+  return translatedSenses.some((candidate) => usableText(candidate.displayText))
+    ? { text: '', withheldReason: 'dictionary-translation-not-compact' }
+    : { text: '' };
 }
 
 export function resolveLearnerMeaning(input: LearnerMeaningInput): LearnerMeaning {
+  const dictionary = dictionaryMeaning(input.dictionaryReference, input.targetLanguage);
   const candidates: Array<[LearnerMeaningProvider, string]> = [
     ['context-ai', usableText(input.contextAi)],
     ['quick-gloss', usableText(input.quickGloss)],
-    ['dictionary', dictionaryMeaning(input.dictionaryReference, input.targetLanguage)],
+    ['dictionary', dictionary.text],
   ];
   const [provider, text] = candidates.find(([, value]) => value) ?? ['unavailable', ''];
 
   return {
     text,
     provider,
+    ...(provider === 'unavailable' && dictionary.withheldReason
+      ? { withheldReason: dictionary.withheldReason }
+      : {}),
     targetLanguage: input.targetLanguage,
     sourceSentence: input.sourceSentence,
   };

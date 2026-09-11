@@ -65,7 +65,11 @@ describe('resolveLearnerMeaning', () => {
     };
 
     expect(resolveLearnerMeaning(input({ dictionaryReference: longReference })))
-      .toMatchObject({ text: '', provider: 'unavailable' });
+      .toMatchObject({
+        text: '',
+        provider: 'unavailable',
+        withheldReason: 'dictionary-translation-not-compact',
+      });
   });
 
   it.each([
@@ -77,6 +81,7 @@ describe('resolveLearnerMeaning', () => {
     expect(resolveLearnerMeaning(input({ dictionaryReference }))).toMatchObject({
       text: '', provider: 'unavailable', targetLanguage: 'zh-CN',
     });
+    expect(resolveLearnerMeaning(input({ dictionaryReference }))).not.toHaveProperty('withheldReason');
   });
 
   it('preserves the clicked subtitle as sourceSentence', () => {
