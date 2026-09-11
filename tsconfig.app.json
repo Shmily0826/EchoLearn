@@ -23,5 +23,5 @@
     "noFallthroughCasesInSwitch": true
   },
   "include": ["src"],
-  "exclude": ["src/api/__tests__"]
+  "exclude": ["src/api/__tests__", "src/utils/__tests__/dictionaryContextPoc.test.ts"]
 }
