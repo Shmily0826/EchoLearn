@@ -1,6 +1,13 @@
-# EchoLearn Active Decisions
+# EchoLearn Decisions
 
-This file contains only durable, currently active architecture, product, and operational decisions. It is not a progress log or test report.
+This file retains durable architecture, product, and operational decisions with explicit `ACTIVE` or `SUPERSEDED` applicability. The current summary wins when applicability differs; historical records remain for traceability. This is not a progress log or test report.
+
+## CURRENT DECISION SUMMARY — 2026-09-12
+
+- `PROGRESS.md` is authoritative for current status; `TEST_REPORT.md` is authoritative for validation evidence; this file is for durable decisions. Historical execution records remain traceable in the dated sections.
+- The current non-ASR subtitle architecture is the accepted Option B boundary: same-origin Vercel (`VPS → Supadata → npm`) handles the normal caption path; the Cloudflare Worker is an explicit ASR opt-in path. Earlier Worker-first, synchronous-probe, and subtitle-budget `NEXT` text is historical, not a new implementation request.
+- Dictionary reference consistency is **PRODUCTION ACCEPTED** on exact SHA `5094c66c63018dd5a8cb0d39837528d0842c34c7`. Its acceptance smoke used local `/api/dictionary` fixtures and observed zero paid/provider outbound traffic; this does not establish billing truth.
+- No proven high-value engineering bug is currently active. Current evidence-dependent follow-up is limited to Supadata cost/billing review, Invidious/Piped health/pruning, and low-priority consolidation leftovers. A real learning-session UX milestone is only a recommended future product-selection direction until explicitly accepted.
 
 ## D-001 — Documentation source-of-truth ownership
 
@@ -11,10 +18,10 @@ This file contains only durable, currently active architecture, product, and ope
 - Supersedes: None recorded.
 - Superseded by: None recorded.
 
-## ECHO-20260905-2125 - User-reported Production secret status
+## HISTORICAL ECHO-20260905-2125 - User-reported Production secret status
 
 - Date: 2026-09-05
-- Status: CURRENT / UNVERIFIED
+- Status: HISTORICAL / UNVERIFIED
 - Decision: Record the user's report that Vercel Dashboard Production-only `SUPADATA_API_KEY` was manually added, while preserving ECHO-20260905-1818 as the historical point when setup was blocked. Do not treat the dashboard report as independently verified or as proof that the secret is active in a production runtime before redeploy.
 - Boundaries: No secret value was read or stored. No redeploy has occurred, so production behavior remains unchanged. Local source/config release-prep remains green per ECHO-20260905-2120. Commit, push, and deploy still require explicit authorization. `.playwright-cli/` and `.tmp-playwright-daemon/` are investigation artifacts and must not be staged.
 
@@ -148,14 +155,14 @@ Once the active goal, root cause, and acceptance criteria are sufficiently speci
 - Supersedes: None recorded.
 - Superseded by: None recorded.
 
-## D-012 - Two-window no-VPS subtitle reliability gate
+## D-012 - Two-window no-VPS subtitle reliability gate (HISTORICAL / SUPERSEDED)
 
 - Date: 2026-09-04
-- Status: ACTIVE
-- Decision: Local native-caption success does not equal production success, and fixed or cached controls do not prove fresh acquisition. Keep the current recommendation **NO VPS**; the current next path is no-VPS measurement and source-level/root-cause work. Reopen fallback R&D only after two distinct low-volume, no-VPS bad windows on independently YouTube-confirmed, fresh caption-positive controls. Count a bad window only for technical acquisition failures such as `provider_timeout`, `provider_failure`, network failure, or upstream 5xx; `captions_not_found` is not a technical bad-window failure when native captions were confirmed. If a later window recovers strongly, continue observation rather than create infrastructure. Any production browser fallback or other fallback-service choice requires a separate newly authorized product/safety decision and gate; it remains unintegrated.
+- Status: SUPERSEDED
+- Decision: Historical gate only. Local native-caption success did not equal production success, and fixed or cached controls did not prove fresh acquisition. Its former **NO VPS** recommendation and no-VPS next path are superseded by the later accepted Option B non-ASR architecture; the browser fallback remains unintegrated unless separately authorized and gated. The original two-window measurement criteria remain historical evidence, not current scope.
 - Rationale: Avoid overreacting to one hard-video or transient window and avoid infrastructure churn while preserving a measurable escalation path. See the ECHO-20260904-2235 and ECHO-20260904-2325 entries in `PROGRESS.md` and `TEST_REPORT.md` for the bounded matrices and evidence boundaries.
 - Supersedes: None recorded.
-- Superseded by: None recorded.
+- Superseded by: Accepted Option B non-ASR architecture recorded in `PROGRESS.md` and `TEST_REPORT.md` under the 2026-09-07 entries.
 
 ## D-013 - Caption Diagnostics V1 stays privacy-safe and browser-local
 

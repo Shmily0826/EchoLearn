@@ -2,32 +2,47 @@
 
 This file is the source of truth for current project status only. Historical root causes belong in `.workbuddy/memory/YYYY-MM-DD.md`, validation detail belongs in `TEST_REPORT.md`, and durable rules belong in `DECISIONS.md`.
 
-Updated: 2026-09-11
+Updated: 2026-09-12
+
+## CURRENT SNAPSHOT — 2026-09-12
+
+This snapshot is authoritative for current status. Dated entries below preserve historical evidence; their `Next`, `Open`, `Risk`, and `pending` text is not current work unless this snapshot explicitly repeats it.
+
+- **Local/Git:** branch `main`; local `HEAD` and `origin/main` both equal `5094c66c63018dd5a8cb0d39837528d0842c34c7`; the staged index is empty. Current local state includes this uncommitted docs cleanup. Pre-existing unrelated state is the false-dirty `src/pages/StudyPage.tsx` and untracked historical docs `docs/ARCHITECTURE_RECONSTRUCTION_V1.md` and `docs/STORY_MINING_V1.md`. No commit, push, or deploy is authorized for this cleanup.
+- **Production:** dictionary reference consistency is **PRODUCTION ACCEPTED** on the deployed exact SHA `5094c66c63018dd5a8cb0d39837528d0842c34c7`. The acceptance smoke used local browser fixtures for `/api/dictionary`; paid/provider outbound traffic was `0`. This is a production UI/semantic acceptance result, not proof of live provider billing or fresh provider traffic.
+- **Accepted milestones:** the Worker-only subtitle acceptance and the later Option B/Supadata Vercel-first non-ASR reliability milestones remain accepted historical/release evidence, not current `NEXT` items. Explicit ASR remains the separate Worker opt-in boundary.
+- **Current engineering status:** no proven high-value engineering bug is active. The old audio silent-prewarm, guest onboarding/AI contradiction, and failed/empty-transcript zero-line-session findings are resolved or stale on current code; the old `undefined.toLowerCase` observation is **INSUFFICIENT EVIDENCE**, not an active bug.
+- **Genuine open evidence-dependent items:** Supadata cost/billing review, Invidious/Piped health and pruning, and low-priority consolidation leftovers. These are review/measurement items, not authorization to spend, deploy, or redesign.
+- **Recommended next product-selection direction:** choose the next committed product milestone explicitly; real learning-session UX is the leading candidate, but it is not yet accepted implementation scope.
+
+## Historical status sections
+
+The dated sections that follow are retained for traceability. Their local `Next gate`, `Open state`, and similar labels describe the historical cycle that recorded them, not the current project plan above.
 
 ## Maintenance convention
 
 After each autonomous engineering cycle, append the actual test/validation results, evidence boundary, repository state, and next decision to `TEST_REPORT.md`; update this file's current status when the decision or open gap changes. Preserve historical report entries and do not replace them with chat-only notes.
 
-## Current priority
+## HISTORICAL / SUPERSEDED current priority (2026-09-11)
 
 Recruiter-safe YouTube subtitle stabilization and reliable real Video → Transcript → Study behavior.
 
-## Current separation
+## HISTORICAL / SUPERSEDED current separation (2026-09-11)
 
 - Branch: `main`; current local `HEAD` and `origin/main` are both `8462641236fc5efb6d90939e8cc045f6ad0c6935`.
 - The accepted production Worker is version `9fcbd50b-d197-4691-951b-d9a8c4039197` (active deployment `974ee470-4498-4c79-b74a-b6109cc2feaf`); the Worker source is the only production candidate in this release record.
 - The source-record push produced verified `READY` Vercel deployment `dpl_GAAtbhbfZmjgevm1Pfz1vGeU5n5X` for commit `6176800e59ce4bdd8bb67b60ac78e92fada9e954`; subsequent docs-only pushes may produce equivalent-source Vercel rebuilds, so deployment IDs are operational metadata rather than this source-of-truth status. Runtime frontend/API source is unchanged because the Vercel/frontend candidate files were excluded.
 - Production is a separate validation layer from local work and GitHub state; its acceptance evidence is recorded below and in `TEST_REPORT.md`.
 
-## Acceptance gate
+## HISTORICAL acceptance gate — superseded by CURRENT SNAPSHOT
 
 The gate is satisfied for the Worker-only production path: one sequential caption-only matrix achieved 7/7 positive controls (100%, above the 80% gate), the no-caption control failed truthfully with typed `provider_timeout`, and the real guest Video → Transcript → Study flow displayed 277 non-empty lines with usable controls and zero page errors. Cache HIT/MISS was not captured per matrix row, so this is not claimed as a cold provider matrix; the cache namespace is shared at transcript version `v=1`.
 
-## Open state
+## HISTORICAL open state — superseded by CURRENT SNAPSHOT
 
 The Worker-only production acceptance is complete under `ECHO-20260901-0139`. The remaining local `api/transcript.ts`, frontend service, and VPS changes describe an un-deployed coordinated fallback candidate; they are not required for the accepted Worker-only path and must not be deployed merely because they remain dirty. ECHO-20260905-0012 locally corrects frontend fallback ordering so Worker `asr_required` and server `provider_timeout` do not prematurely suppress independent non-ASR caption routes; no production mutation occurred.
 
-## Next
+## HISTORICAL next — superseded by CURRENT SNAPSHOT
 
 Keep the local production-sensitive Worker and VPS candidates separate until a future coordinated release is explicitly justified and validated. Browser-native and ScrapingBee experiments are paused/archive candidates and remain unintegrated; no new VPS/provider spend is planned. The next step is local review/validation of the coordinated fallback candidate and its production configuration; do not deploy the uncommitted change from this cycle.
 
@@ -591,3 +606,12 @@ Browser-native fallback and managed alternate-provider/egress options have highe
 - Production dogfood accepted: `?dogfood=1&foo=bar` set the session marker and cleaned to `?foo=bar`; same-session suppression persisted, fresh-context behavior was unsuppressed, and observed Vercel/Firebase/GA, product, and provider traffic was zero.
 - Current boundary: dogfood is analytics-safe only and does not authorize Production Firebase/Auth/Firestore mutation, product API traffic, paid/provider traffic, or ASR. Canonical governance is in `docs/TESTING.md`; Sentry is separate and out of scope.
 - Existing unrelated dirty and untracked work was preserved.
+
+## 2026-09-12 ECHO-20260912-DICTIONARY-PRODUCTION-CLOSEOUT_V1 - Dictionary Production acceptance closeout
+
+- Acceptance verdict: **DICTIONARY_REFERENCE_CONSISTENCY = PRODUCTION ACCEPTED** for `echo-learn.uk`.
+- Vercel deployment `dpl_H43DHQqybVvEDxSbNBfqvq8npPBQ` was `READY`; its Production `githubCommitSha` was `5094c66c63018dd5a8cb0d39837528d0842c34c7`. Local `HEAD` and `origin/main` are the same SHA.
+- A fresh isolated System Chrome Production smoke passed two semantic scenarios: A+B long translated reference/saved meaning, and C fallback-en learner/saved meaning. Assertions passed for dogfood URL cleanup/session marker, observed `zh-CN` target, withholding long translated prose from learner meaning, explicit reference expansion, no source-English substitution into translated reference, vocabulary visibility, and exclusion of long/fallback English from saved learner meaning.
+- Traffic boundary: `/api/dictionary` fixtures were fulfilled locally through browser interception; external/provider and prohibited API attempts were blocked before network. Actual paid/provider outbound traffic was `0`.
+- Git postflight ultimately proved the staged index clean using the correct `LASTEXITCODE` check; cached name-status/stat were empty. The earlier nonempty report was a PowerShell conditional-semantics false alarm.
+- The acceptance run changed no files, committed nothing, pushed nothing, and deployed nothing. This closeout is documentation-only; unrelated dirty/untracked work remains preserved.
