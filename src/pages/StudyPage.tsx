@@ -211,6 +211,10 @@ const StudyPage: React.FC = () => {
   // YouTube player ref & playback time
   const playerRef = useRef<PlayerHandle>(null);
 
+  useEffect(() => {
+    if (pathname !== '/study') playerRef.current?.pauseVideo();
+  }, [pathname]);
+
   // Tracks which videoId the currently-displayed title actually belongs to.
   // We only re-fetch the real title when the loaded video CHANGES, so a title
   // left over from a previously-viewed video can never leak onto a new one.
