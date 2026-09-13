@@ -4,6 +4,7 @@
  */
 
 import { checkAiRateLimit, rateLimitWaitSeconds } from './aiRateLimit';
+import { aiAuthHeaders } from './apiAuth';
 
 /** Requests go through the server-side proxy at /api/ai (API key stays server-side). */
 const DEEPSEEK_ENDPOINT = '/api/ai';
@@ -124,6 +125,7 @@ The array must have exactly ${items.length} element(s), in the same order as the
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
+        ...(await aiAuthHeaders()),
       },
       body: JSON.stringify({
         model: DEEPSEEK_MODEL,

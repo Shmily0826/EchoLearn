@@ -10,6 +10,10 @@ import * as learnerMeaningService from '../services/learnerMeaning';
 import { translateWordFast } from '../services/translationService';
 import { getWordAnalysis } from '../services/wordAnalysisService';
 
+const authState = { user: { uid: 'test-user' } as { uid: string } | null };
+vi.mock('../contexts/AuthContext', () => ({
+  useAuth: () => ({ user: authState.user }),
+}));
 vi.mock('../services/dictionaryService', () => ({
   lookupWord: vi.fn(),
   isKnownProperNoun: vi.fn(() => false),
@@ -42,6 +46,7 @@ function referenceFor(
 describe('WordDictionaryPopup dictionary failures', () => {
   beforeEach(() => {
     localStorage.clear();
+    authState.user = { uid: 'test-user' };
     vi.clearAllMocks();
     vi.mocked(lookupWord).mockRejectedValue(new Error('request failed'));
     vi.mocked(translateWordFast).mockResolvedValue('');
@@ -569,6 +574,28 @@ describe('WordDictionaryPopup dictionary failures', () => {
 
     const popup = (await screen.findByText('small')).closest('div.fixed') as HTMLElement;
     await waitFor(() => expect(popup.style.top).toBe('84px'));
+  });
+
+  it('skips AI enrichment for guests in Chinese mode without touching the display language', async () => {
+    localStorage.setItem('echolearn_lang', 'zh');
+    authState.user = null;
+    vi.mocked(lookupWord).mockResolvedValue({
+      word: 'light', phonetic: '', audioUrl: '', partOfSpeech: 'noun',
+      definitionEn: '光', example: '', synonyms: [], antonyms: [],
+      provider: 'Merriam-Webster',
+      reference: referenceFor('light', [{ pos: 'noun', displayText: '光' }]),
+    });
+    vi.mocked(translateWordFast).mockResolvedValue('光');
+
+    render(
+      <I18nProvider>
+        <WordDictionaryPopup word="light" x={100} y={100} onClose={vi.fn()} />
+      </I18nProvider>,
+    );
+
+    // Dictionary + quick gloss (non-AI) still resolve for the guest.
+    await screen.findByText('光');
+    expect(getWordAnalysis).not.toHaveBeenCalled();
   });
 
   it('skips Chinese translation and AI enrichment in English mode', async () => {

@@ -230,3 +230,15 @@ Once the active goal, root cause, and acceptance criteria are sufficiently speci
 - Governance: Canonical deployed-browser validation rules are recorded in `docs/TESTING.md`.
 - Supersedes: None recorded.
 - Superseded by: None recorded.
+
+## GUEST_AI_COST_BOUNDARY_V1 - /api/ai authenticated trust boundary
+
+- Date: 2026-09-12
+- Status: ACTIVE / LOCAL VERIFIED (not committed, not deployed)
+- Decision: `/api/ai` now requires a verified Firebase ID token (`Authorization: Bearer`, RS256 against Google's public JWKS) BEFORE any provider fetch; unauthenticated requests get 401 and can never spend DeepSeek/Gemini quota. Origin/CORS/per-IP rate limiting remain hardening only, not identity. Client-side, AI enrichment is an authenticated-only capability: Guest save (`enrichVocabularyItem`) and Vocabulary/Sentences auto-translate skip the AI translation path and keep the non-AI fallbacks (dictionary reference meaning, quick gloss); saving never fails for guests. Authenticated users keep existing AI behavior (token attached by `src/services/apiAuth.ts`).
+- Evidence: `DICTIONARY_LANGUAGE_AI_GATE_REPRO_V1` proved Guest saves fired `POST /api/ai` (DeepSeek) through `translationService.translateWord`, with no authentication anywhere on the path; language-race hypothesis disproven 5/5.
+- Implementation: `api/_shared/firebaseAuth.ts` (new verifier, no firebase-admin), `api/ai.ts` 401 gate, `src/services/apiAuth.ts` + three AI services, `vocabularyEnrichment.ts` `aiTranslationEnabled` flag (default false = fail-closed), StudyPage/VocabularyPage/SentencesPage/WordDictionaryPopup gating.
+- Deploy note: project id falls back to the public bundled `echolearn-9f369` config value; override with `FIREBASE_PROJECT_ID`/`VITE_FIREBASE_PROJECT_ID` env if desired. No secret env required.
+- Boundary: No seek-before-ready, Review hierarchy, UX copy, or other polish changes are included. Real authenticated provider execution was not tested (mock/contract only).
+- Supersedes: None recorded.
+- Superseded by: None recorded.

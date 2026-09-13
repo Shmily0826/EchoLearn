@@ -66,8 +66,18 @@ export function prepareVocabularyItem(
  * `definitionEn` is always fetched from an English dictionary, regardless of
  * the current UI language. Chinese is an optional learning aid and is only
  * generated when the entry does not already have a usable Chinese meaning.
+ *
+ * `aiTranslationEnabled` must reflect the signed-in state: the AI-backed
+ * contextual translation (`translateWord`) is an authenticated-only capability
+ * (the /api/ai proxy rejects anonymous callers), and guests must still be able
+ * to save words — they simply keep the non-AI fallbacks (dictionary reference
+ * meaning, quick gloss, local no-translation placeholder).
  */
-export async function enrichVocabularyItem(item: VocabularyItem): Promise<Partial<VocabularyItem>> {
+export async function enrichVocabularyItem(
+  item: VocabularyItem,
+  options: { aiTranslationEnabled?: boolean } = {},
+): Promise<Partial<VocabularyItem>> {
+  const aiTranslationEnabled = options.aiTranslationEnabled ?? false;
   const word = item.lemma || item.word;
   const needsEnglish = isMissingEnglishDefinition(item.definitionEn);
   const needsChinese = isLocalNoTranslation(item.meaningCn);
@@ -75,7 +85,9 @@ export async function enrichVocabularyItem(item: VocabularyItem): Promise<Partia
   const [dictionary, chineseEntry, quickGloss] = await Promise.all([
     needsEnglish ? lookupWord(word, 'en').catch(() => null) : Promise.resolve(null),
     needsChinese ? lookupWord(word, 'zh-CN').catch(() => null) : Promise.resolve(null),
-    needsChinese ? translateWord(word, item.context).catch(() => '') : Promise.resolve(''),
+    needsChinese && aiTranslationEnabled
+      ? translateWord(word, item.context).catch(() => '')
+      : Promise.resolve(''),
   ]);
 
   const learnerMeaning = resolveLearnerMeaning({

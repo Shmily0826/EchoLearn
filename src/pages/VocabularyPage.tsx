@@ -156,6 +156,9 @@ const VocabularyPage: React.FC = () => {
   };
 
   const handleBackfillTranslations = useCallback(async () => {
+    // AI-backed batch translation is authenticated-only; the trigger button is
+    // hidden for guests so no anonymous /api/ai traffic can be produced here.
+    if (!user) return;
     const empty = vocabulary.filter((v) => isLocalNoTranslation(v.meaningCn));
     if (empty.length === 0) return;
     setBackfilling(true);
@@ -180,7 +183,7 @@ const VocabularyPage: React.FC = () => {
     } finally {
       setBackfilling(false);
     }
-  }, [vocabulary, triggerCloudSync]);
+  }, [user, vocabulary, triggerCloudSync]);
 
   const handleBackfillDefinitions = useCallback(async () => {
     const missing = vocabulary.filter((item) => isMissingEnglishDefinition(item.definitionEn));
@@ -195,7 +198,7 @@ const VocabularyPage: React.FC = () => {
         const batch = missing.slice(index, index + 4);
         const results = await Promise.all(batch.map(async (item) => {
           try {
-            return { id: item.id, word: item.word, patch: await enrichVocabularyItem(item) };
+            return { id: item.id, word: item.word, patch: await enrichVocabularyItem(item, { aiTranslationEnabled: !!user }) };
           } catch (error) {
             console.warn(`[vocabulary] English enrichment failed for "${item.word}"`, error);
             return { id: item.id, word: item.word, patch: {} };
@@ -220,7 +223,7 @@ const VocabularyPage: React.FC = () => {
     } finally {
       setBackfillingDefinitions(false);
     }
-  }, [vocabulary, triggerCloudSync]);
+  }, [user, vocabulary, triggerCloudSync]);
 
   const handleWordClick = (word: string, context: string | undefined, e: React.MouseEvent) => {
     e.stopPropagation();
@@ -280,8 +283,9 @@ const VocabularyPage: React.FC = () => {
     setDictPopup(null);
     setDictPopupData(null);
     // Use the same enrichment path as transcript and AI saves so manually
-    // searched words also receive an English definition.
-    void enrichVocabularyItem(item).then((patch) => {
+    // searched words also receive an English definition. AI translation is
+    // authenticated-only.
+    void enrichVocabularyItem(item, { aiTranslationEnabled: !!user }).then((patch) => {
       if (Object.keys(patch).length > 0) {
         setVocabulary(updateVocabularyItem(newId, patch));
         triggerCloudSync();
@@ -296,10 +300,11 @@ const VocabularyPage: React.FC = () => {
     }).catch(() => {
       setTranslationErrorIds((previous) => new Set(previous).add(newId));
     });
-  }, [dictPopupData, vocabulary, triggerCloudSync]);
+  }, [user, dictPopupData, vocabulary, triggerCloudSync]);
 
   /** Re-translate a single item whose meaning is empty or the local-no-translation placeholder. */
   const handleTranslateOne = useCallback((item: VocabularyItem) => {
+    if (!user) return; // AI translation is authenticated-only
     if (!isLocalNoTranslation(item.meaningCn)) return;
     void translateWord(item.word, item.context).then((meaningCn) => {
       if (!meaningCn) {
@@ -316,7 +321,7 @@ const VocabularyPage: React.FC = () => {
     }).catch(() => {
       setTranslationErrorIds((previous) => new Set(previous).add(item.id));
     });
-  }, [triggerCloudSync]);
+  }, [user, triggerCloudSync]);
 
   const renderTranslationFeedback = (item: VocabularyItem) => {
     if (!translationErrorIds.has(item.id)) return null;
@@ -438,8 +443,8 @@ const VocabularyPage: React.FC = () => {
           >
             {t('vocab.review')}{dueCount > 0 ? ` (${dueCount})` : ''}
           </button>
-          {/* Backfill translations */}
-          {vocabulary.some((v) => isLocalNoTranslation(v.meaningCn)) && (
+          {/* Backfill translations (AI-backed → authenticated users only) */}
+          {user && vocabulary.some((v) => isLocalNoTranslation(v.meaningCn)) && (
             <button
               onClick={handleBackfillTranslations}
               disabled={backfilling}

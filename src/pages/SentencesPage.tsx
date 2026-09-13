@@ -159,6 +159,9 @@ const SentencesPage: React.FC = () => {
   }, []);
 
   const handleBackfillTranslations = useCallback(async () => {
+    // AI-backed batch translation is authenticated-only; the trigger button is
+    // hidden for guests so no anonymous /api/ai traffic can be produced here.
+    if (!user) return;
     const empty = sentences.filter((s) => isLocalNoTranslation(s.meaningCn));
     if (empty.length === 0) return;
     setBackfilling(true);
@@ -184,7 +187,7 @@ const SentencesPage: React.FC = () => {
     } finally {
       setBackfilling(false);
     }
-  }, [sentences, translateLang, triggerCloudSync]);
+  }, [user, sentences, translateLang, triggerCloudSync]);
 
   // Search
   const q = search.toLowerCase();
@@ -240,8 +243,8 @@ const SentencesPage: React.FC = () => {
           >
             {t('sent.review')}{dueCount > 0 ? ` (${dueCount})` : ''}
           </button>
-          {/* Backfill translations */}
-          {sentences.some((s) => isLocalNoTranslation(s.meaningCn)) && (
+          {/* Backfill translations (AI-backed → authenticated users only) */}
+          {user && sentences.some((s) => isLocalNoTranslation(s.meaningCn)) && (
             <div className="flex items-center gap-1">
               <button
                 onClick={handleBackfillTranslations}

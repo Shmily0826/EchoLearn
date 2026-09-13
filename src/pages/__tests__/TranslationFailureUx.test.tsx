@@ -76,7 +76,7 @@ vi.mock('../../i18n/I18nContext', () => ({
     },
   }),
 }));
-vi.mock('../../contexts/AuthContext', () => ({ useAuth: () => ({ user: null }) }));
+vi.mock('../../contexts/AuthContext', () => ({ useAuth: () => ({ user: { uid: 'test-user' } }) }));
 vi.mock('../../services/firestoreSync', () => ({ pushItemsToCloud: vi.fn(() => Promise.resolve()) }));
 vi.mock('../../components/WordDictionaryPopup', () => ({ default: () => null }));
 vi.mock('../../services/exportService', () => ({

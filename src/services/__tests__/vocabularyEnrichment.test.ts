@@ -76,9 +76,35 @@ describe('canonical vocabulary preparation and enrichment', () => {
     lookupWordMock.mockImplementation(async (_word: string, target: string) => target === 'en' ? english : fallbackChinese);
     translateWordMock.mockResolvedValue('语境中的跑步');
 
-    const patch = await enrichVocabularyItem(item());
+    const patch = await enrichVocabularyItem(item(), { aiTranslationEnabled: true });
 
     expect(patch.meaningCn).toBe('语境中的跑步');
     expect(translateWordMock).toHaveBeenCalledWith('running', 'They are running.');
+  });
+
+  it('guest saves keep non-AI enrichment and never call the AI translation path', async () => {
+    translateWordMock.mockClear();
+    const english = entry({
+      queriedForm: 'running', lemma: 'run', lemmaProvenance: 'dictionary-confirmed',
+      provider: 'Free Dictionary API', sourceLanguage: 'en', requestedLanguage: 'en',
+      displayLanguage: 'en', translationStatus: 'source', senses: [],
+    });
+    const fallbackChinese = entry({
+      queriedForm: 'running', lemma: 'run', lemmaProvenance: 'dictionary-confirmed',
+      provider: 'Free Dictionary API', sourceLanguage: 'en', requestedLanguage: 'zh-CN',
+      displayLanguage: 'en', translationStatus: 'fallback-en', senses: [],
+    });
+    lookupWordMock.mockImplementation(async (_word: string, target: string) => target === 'en' ? english : fallbackChinese);
+
+    // Default (no options) and explicit guest mode must both skip the AI call.
+    const guestPatch = await enrichVocabularyItem(item());
+    const explicitPatch = await enrichVocabularyItem(item(), { aiTranslationEnabled: false });
+
+    expect(translateWordMock).not.toHaveBeenCalled();
+    // Dictionary data (free providers) is still enriched so the save succeeds.
+    expect(guestPatch.definitionEn).toBe('to move quickly');
+    expect(explicitPatch.definitionEn).toBe('to move quickly');
+    // Neither patch should contain an AI-generated meaning.
+    expect(translateWordMock.mock.calls.length).toBe(0);
   });
 });

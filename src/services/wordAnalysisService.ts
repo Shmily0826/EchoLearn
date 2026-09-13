@@ -28,6 +28,7 @@
  */
 
 import { checkAiRateLimit } from './aiRateLimit';
+import { aiAuthHeaders } from './apiAuth';
 
 /** Server-side DeepSeek proxy (API key never reaches the browser). */
 const DEEPSEEK_ENDPOINT = '/api/ai';
@@ -262,7 +263,7 @@ export async function getWordAnalysis(
     try {
       const response = await fetch(DEEPSEEK_ENDPOINT, {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers: { 'Content-Type': 'application/json', ...(await aiAuthHeaders()) },
         body: JSON.stringify({
           model: DEEPSEEK_MODEL,
           messages: buildMessages(word, opts.context),

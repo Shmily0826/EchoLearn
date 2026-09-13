@@ -1061,12 +1061,13 @@ const StudyPage: React.FC = () => {
     triggerCloudSync();
     // Every save path (AI, transcript, popup and quick-add) is enriched the
     // same way: English definition is canonical; Chinese is a learning aid.
-    void enrichVocabularyItem(prepared).then((patch) => {
+    // AI-backed translation is authenticated-only; guests keep non-AI fallbacks.
+    void enrichVocabularyItem(prepared, { aiTranslationEnabled: !!user }).then((patch) => {
       if (Object.keys(patch).length === 0) return;
       setVocabulary(updateVocabularyItem(item.id, patch));
       triggerCloudSync();
     });
-  }, [triggerCloudSync, setVocabulary]);
+  }, [user, triggerCloudSync, setVocabulary]);
 
   const handleAddSentence = useCallback((item: SentenceItem) => {
     setSentences(addSentenceItem(item));

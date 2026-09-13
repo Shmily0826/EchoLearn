@@ -11,6 +11,12 @@ vi.mock('@google/genai', () => ({
   },
 }));
 
+const authMock = vi.hoisted(() => ({ verify: vi.fn() }));
+
+vi.mock('../../../api/_shared/firebaseAuth', () => ({
+  verifyFirebaseIdToken: authMock.verify,
+}));
+
 import handler from '../../../api/ai';
 
 type MockResponse = {
@@ -53,6 +59,7 @@ function makeRequest(body: unknown, headers: Record<string, string> = {}) {
       host: 'echo-learn.uk',
       'content-type': 'application/json',
       origin: 'https://echo-learn.uk',
+      authorization: 'Bearer valid-token',
       ...headers,
     },
     body,
@@ -78,6 +85,8 @@ const normalBody = {
 
 describe('/api/ai Node runtime boundary', () => {
   beforeEach(() => {
+    authMock.verify.mockImplementation(async (authorization: string | null) =>
+      authorization === 'Bearer valid-token' ? { uid: 'user-1' } : null);
     process.env.AI_PROVIDER = 'gemini';
     process.env.GEMINI_API_KEY = 'test-gemini-key';
     delete process.env.DEEPSEEK_API_KEY;
@@ -147,6 +156,15 @@ describe('/api/ai Node runtime boundary', () => {
     await handler(makeRequest('x'.repeat(100 * 1024 + 1)), oversized);
     expect(oversized.statusCode).toBe(413);
     expect(responseText(oversized)).toContain('Request body too large');
+  });
+
+  it('rejects unauthenticated requests with 401 before any provider call', async () => {
+    const response = makeResponse();
+    await handler(makeRequest(normalBody, { authorization: '' }), response);
+    expect(response.statusCode).toBe(401);
+    expect(responseText(response)).toContain('Authentication required');
+    expect(providerMocks.generateContent).not.toHaveBeenCalled();
+    expect(providerMocks.generateContentStream).not.toHaveBeenCalled();
   });
 
   it('handles OPTIONS without requiring a provider key', async () => {

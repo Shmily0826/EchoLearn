@@ -22,6 +22,7 @@
 export const config = { runtime: 'nodejs' };
 
 import { GoogleGenAI } from '@google/genai';
+import { verifyFirebaseIdToken } from './_shared/firebaseAuth';
 
 const DEEPSEEK_API_URL = 'https://api.deepseek.com/chat/completions';
 const DEFAULT_GEMINI_MODEL = 'gemini-3.5-flash-lite';
@@ -403,6 +404,15 @@ async function handleWebRequest(request: Request): Promise<Response> {
 
   if (request.method !== 'POST') {
     return jsonResponse({ error: 'Method not allowed' }, 405, origin);
+  }
+
+  // Authentication trust boundary — must run before any provider fetch.
+  // AI enrichment is an authenticated-only capability ("Sign in to use AI");
+  // Origin/CORS/rate limits are not identity, so this gate is the only thing
+  // that guarantees unauthenticated requests can never spend provider keys.
+  const identity = await verifyFirebaseIdToken(request.headers.get('authorization'));
+  if (!identity) {
+    return jsonResponse({ error: 'Authentication required' }, 401, origin);
   }
 
   // Rate limit by client IP

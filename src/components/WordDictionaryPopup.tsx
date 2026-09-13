@@ -5,6 +5,7 @@ import { resolveLearnerMeaning } from '../services/learnerMeaning';
 import { translateWordFast, type TranslateLang } from '../services/translationService';
 import { getWordAnalysis, type WordAnalysis } from '../services/wordAnalysisService';
 import { useI18n } from '../i18n/I18nContext';
+import { useAuth } from '../contexts/AuthContext';
 
 /** Speak a word using the browser's built-in TTS (free, no network/API key). */
 function speakWord(word: string): void {
@@ -126,6 +127,7 @@ const WordDictionaryPopup: React.FC<WordDictionaryPopupProps> = ({
   const [popupTop, setPopupTop] = useState<number | null>(null);
   const popupRef = useRef<HTMLDivElement>(null);
   const { lang, t } = useI18n();
+  const { user } = useAuth();
   // In English page mode we deliberately hide the Chinese line and skip the
   // DeepSeek call entirely (pure-English study view, saves token quota).
   const showChinese = lang === 'zh';
@@ -245,7 +247,8 @@ const WordDictionaryPopup: React.FC<WordDictionaryPopupProps> = ({
   // Chinese mode only — English study mode skips the call to save tokens.
   // Cached per (word, videoId) in IndexedDB by the service, so repeats are free.
   useEffect(() => {
-    if (!showChinese) {
+    // Guests skip the DeepSeek enrichment entirely: AI is authenticated-only.
+    if (!showChinese || !user) {
       // eslint-disable-next-line react-hooks/set-state-in-effect
       setAiAnalysis(null);
       setAiLoading(false);
@@ -266,7 +269,7 @@ const WordDictionaryPopup: React.FC<WordDictionaryPopupProps> = ({
         if (!cancelled) setAiLoading(false);
       });
     return () => { cancelled = true; };
-  }, [currentWord, showChinese, videoId, context, lang]);
+  }, [user, currentWord, showChinese, videoId, context, lang]);
 
   // Look up a new word from the definition (push current to history)
   const handleLookupWord = useCallback((w: string) => {

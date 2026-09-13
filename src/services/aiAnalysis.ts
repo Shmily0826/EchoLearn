@@ -7,6 +7,7 @@ import { extractWordsByLevel, type CEFRLevel } from './cefrWordList';
 import { t, type Lang } from '../i18n/translations';
 import { checkAiRateLimit, rateLimitWaitSeconds } from './aiRateLimit';
 import { doc, getDoc, setDoc, serverTimestamp } from 'firebase/firestore';
+import { aiAuthHeaders } from './apiAuth';
 import { db } from '../lib/firebase';
 
 // ── Local-analysis "no translation" sentinel ──────────────────
@@ -200,6 +201,7 @@ async function callDeepSeek(
     method: 'POST',
     headers: {
       'Content-Type': 'application/json',
+      ...(await aiAuthHeaders()),
     },
     body: JSON.stringify({
       model: DEEPSEEK_MODEL,
