@@ -9,10 +9,31 @@ Read this index first; then read only the latest relevant section/final classifi
 
 ## CURRENT VALIDATION INDEX — 2026-09-13
 - **Production AI configuration:** current primary is Gemini (`AI_PROVIDER=gemini`), manually verified in the Vercel Dashboard for Production scope on 2026-09-13. `GEMINI_MODEL` and `GEMINI_API_KEY` are configured in Production; no secret value is recorded.
-- **Latest deployment:** Production deployment for Git SHA `ff8f5b71ee356bf3397fb92ebdd1cd31a81c7415` (`ff8f5b7`) is **READY**.
+- **Latest deployment:** Production serves the build of Git SHA `2b151f0f84d06a1399d8728ca87c134db8e5cf28` (`2b151f0`, `Close dictionary popup and keep the source sentence visible`); the follow-up commit `3c5fb62` touched E2E specs only, so the served frontend source is `2b151f0`. Deployment serving is verified by bundle-marker discriminator (see dated section); Vercel control-plane status was not directly readable this cycle (local API token not authorized).
+- **CI:** restored **GREEN** on `3c5fb62` (GitHub Actions run `34755422996`). The previous four commits had been red on two pre-existing issues fixed by `3c5fb62`: an unused-parameter lint error in `e2e/youtube-route-lifecycle.spec.ts` (introduced by `eea6639`) and a stale text locator in the duplicate-save E2E (outranked by the `ff8f5b7` context bar).
 - **Provider evidence boundary:** the DeepSeek V4 refresh in `2146c74` is fallback/provider-compatibility work and did not change the active Gemini primary. The earlier authenticated Production smoke that observed DeepSeek remains historical evidence.
-- **Accepted evidence:** `AI_AUTH_COST_BOUNDARY_V1`, dictionary reference consistency, the Option B/Supadata Vercel-first non-ASR subtitle boundary, and the YouTube route-leave regression remain accepted at their recorded evidence levels. Lemma provenance is **STALE / NOT A BUG**.
-- **Current status:** `STUDY_CONTEXT_CONTINUITY_V1` is **LOCAL VERIFIED** and deployed, but Production behavioral smoke is **UNVERIFIED / PARTIAL**; `REAL_LEARNING_SESSION_UX_V2` is the next substantive product-direction candidate, not yet accepted implementation scope.
+- **Accepted evidence:** `WORD_LOOKUP_RETURN_FLOW_V1` is **PRODUCTION BEHAVIOR VERIFIED** (2026-09-13, fresh-guest dogfood, all nine desktop ACs + mobile smoke, `/api/ai` = 0). `AI_AUTH_COST_BOUNDARY_V1`, dictionary reference consistency, the Option B/Supadata Vercel-first non-ASR subtitle boundary, and the YouTube route-leave regression remain accepted at their recorded evidence levels. Lemma provenance is **STALE / NOT A BUG**.
+- **Current status:** the `STUDY_CONTEXT_CONTINUITY_V1` behavioral gap is **largely closed** by the same production run (context-bar retention, Replay sentence seek+play, and retained context across lookup all verified on Production with interception); `REAL_LEARNING_SESSION_UX_V2` remains the next substantive product-direction candidate, with the Study controls hierarchy as the leading next slice — not yet accepted implementation scope.
+
+## 2026-09-13 - WORD_LOOKUP_RETURN_FLOW_V1 production acceptance + CI restoration
+
+- **Git checkpoint (factual, timestamped):** branch `main`; `HEAD` == `origin/main` == `3c5fb62e83ae37792a596d5bfb3df73805cb15e4`, 0/0 ahead/behind. Release train this cycle: `2b151f0` (milestone, 5 files: WordDictionaryPopup, TranscriptViewer, MobileTranscriptPanel, popup tests, journey E2E) + `3c5fb62` (CI fixes, 2 E2E spec files). Untracked historical docs remain preserved.
+- **CI:** run `34755422996` **success** for `3c5fb62` after fixing (1) the unused `_rate` parameter lint error (`e2e/youtube-route-lifecycle.spec.ts`, introduced by `eea6639`) and (2) the duplicate-save E2E stale locator (`getByText(/good/i).first()` was outranked in DOM order by the `ff8f5b7` context-bar text "Good morning…", so the second click landed on the bar; now scoped to `getByRole('button', { name: 'Look up Good' })`). Local confirmation: full desktop Playwright suite 32/32 PASS before push.
+- **Deployment verification (discriminator):** the Vercel API token available locally is not authorized for control-plane reads, so deployment was verified behaviorally: the served production chunks contain `sourceRowTop/Bottom` (only present since `2b151f0`) in `StudyPage-qrUOG0j4.js` and `data-dictionary-popup` in the shared `aiAnalysis-DNGl9FfW.js` chunk. Served frontend source = `2b151f0`. Control-plane deployment ID/READY state was not directly read.
+- **Production behavior smoke (fresh disposable guest context, `?dogfood=1` marker verified via sessionStorage, `/api/dictionary` fulfilled from a local fixture, `/api/ai` intercepted+counted, desktop 1280×720):** all nine ACs PASS —
+  1. word click opens the dictionary popup;
+  2. source sentence identifiable (popup context box "CURRENT SENTENCE / Good morning." plus the top "Current sentence" bar);
+  3. popup does not cover the source row (popup top 355.9 vs row bottom 331.9, `covers: false`);
+  4. outside press closes the popup, context bar retained;
+  5. Escape closes the popup, context retained;
+  6. clicking another word ("morning") switches the lookup in place — the outside-click close does not eat the new word click;
+  7. save → "Saved to Vocabulary" toast, popup closes, amber saved highlight, context retained, Replay sentence available;
+  8. Replay sentence: active line moves to the source line (0:27) and playback advances (0:29 after 4s) — seek + play verified;
+  9. `/api/ai` attempts = **0** for the whole smoke.
+- **Mobile smoke (390×844):** popup visible, close button reachable, "Add to vocabulary" reachable. Card design unchanged.
+- **Traffic boundary:** `/api/dictionary` × 3 (local fixture, zero MW quota); `/api/ai` = 0; no Gemini/DeepSeek/Supadata/ASR/yt-dlp/Worker traffic. Aborted non-product requests: 3 Sentry envelopes (documented out of scope) and YouTube's own player-internal `/api/timedtext` + `/api/stats/*` endpoints (blocked by the guard; playback verified working regardless — they are not EchoLearn product APIs).
+- **Classification: `WORD_LOOKUP_RETURN_FLOW_V1` = PRODUCTION BEHAVIOR VERIFIED.** The same run also provides production behavioral evidence for the `STUDY_CONTEXT_CONTINUITY_V1` surface (context-bar retention and Replay seek+play), narrowing its earlier UNVERIFIED/PARTIAL classification; the synthetic-session part of that milestone (non-demo video session restore) remains not separately exercised.
+- **Docs edits this cycle are LOCAL ONLY (not committed); no product code changed.**
 
 ## 2026-09-13 — STUDY_CONTEXT_CONTINUITY_V1 deployment verification
 

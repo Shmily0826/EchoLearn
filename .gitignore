@@ -62,3 +62,7 @@ __pycache__/
 /.playwright-cli/
 /.playwright-mcp/
 /.tmp-playwright-daemon/
+
+# Historical / internal snapshot docs (kept locally, intentionally untracked)
+/docs/ARCHITECTURE_RECONSTRUCTION_V1.md
+/docs/STORY_MINING_V1.md
