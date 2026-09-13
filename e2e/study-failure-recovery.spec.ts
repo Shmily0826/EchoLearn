@@ -376,7 +376,10 @@ test.describe('Batch 3 — Study failure recovery', () => {
 
     // Save once, then open the same word again. The second interaction should
     // show the dedup state instead of exposing a second save button.
-    const firstWord = page.getByText(/good/i).filter({ visible: true }).first();
+    // Scope to word tokens: after the first save the Current-sentence context
+    // bar also contains "Good morning...", and it precedes the transcript in
+    // DOM order, so a bare text locator would resolve to the bar.
+    const firstWord = page.getByRole('button', { name: 'Look up Good', exact: true }).filter({ visible: true }).first();
     await firstWord.click();
     const firstSaveButton = page.locator('#tour-transcript-save-word');
     await expect(firstSaveButton).toBeVisible();
@@ -384,7 +387,7 @@ test.describe('Batch 3 — Study failure recovery', () => {
     await expect(firstSaveButton).toBeHidden({ timeout: 45_000 });
     await expectGuestWordPersisted(page);
 
-    const secondWord = page.getByText(/good/i).filter({ visible: true }).first();
+    const secondWord = page.getByRole('button', { name: 'Look up Good', exact: true }).filter({ visible: true }).first();
     await secondWord.click();
     await expect(page.getByText('Already in vocab', { exact: true })).toBeVisible();
 
@@ -425,7 +428,7 @@ test.describe('Batch 3 — Study failure recovery', () => {
     await page.getByRole('link', { name: 'Study' }).click();
     await expect(page).toHaveURL(/\/study$/);
 
-    const good = page.getByText(/good/i).filter({ visible: true }).first();
+    const good = page.getByRole('button', { name: 'Look up Good', exact: true }).filter({ visible: true }).first();
     await expect(good).toBeVisible({ timeout: 15_000 });
     await good.click();
     const saveButton = page.locator('#tour-transcript-save-word');

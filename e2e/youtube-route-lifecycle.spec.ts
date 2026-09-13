@@ -66,7 +66,9 @@ test('pauses the local YouTube player on Study leave and stays paused on return'
         return this.state.currentTime;
       }
 
-      setPlaybackRate(_rate: number) {}
+      setPlaybackRate(rate: number) {
+        void rate;
+      }
 
       getPlaybackRate() {
         return 1;
