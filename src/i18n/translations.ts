@@ -551,6 +551,8 @@ const translations: Record<string, Record<Lang, string>> = {
   'study.resumedAt':     { en: 'Resumed at {time}', zh: '已从 {time} 继续播放' },
   'study.loginRequired': { en: 'Sign in to use AI analysis.', zh: '登录后可使用 AI 分析。' },
   'study.transcriptHint': { en: 'Tip: click a word for its definition. Click a sentence to jump to that moment; use the bookmark to save it.', zh: '提示：点击单词查看释义，点击句子跳转到对应位置，使用书签保存句子。' },
+  'study.currentContext': { en: 'Current sentence', zh: '当前句子' },
+  'study.replayContext': { en: 'Replay sentence', zh: '重播句子' },
   'study.playerStillLoading': { en: 'The transcript is ready below. The video player loads separately, so you can start studying now.', zh: '下面的字幕已经准备好。视频播放器独立加载，你现在就可以开始学习。' },
   'study.wordSaved': { en: 'Saved to Vocabulary', zh: '已保存到词汇' },
   'study.sentenceSaved': { en: 'Saved to Sentences', zh: '已保存到句子' },

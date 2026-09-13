@@ -46,6 +46,10 @@ interface WordDictionaryPopupProps {
   videoId?: string;
   /** Optional: the sentence the word appeared in, used for contextual AI analysis. */
   context?: string;
+  /** Optional: show the originating transcript sentence in Study lookups. */
+  showContext?: boolean;
+  /** Optional: exact subtitle start for the originating Study line. */
+  sourceLineStart?: number;
 }
 
 const POS_ABBREVIATIONS: Record<string, string> = {
@@ -105,6 +109,8 @@ const WordDictionaryPopup: React.FC<WordDictionaryPopupProps> = ({
   onDataChange,
   videoId,
   context,
+  showContext = false,
+  sourceLineStart,
 }) => {
   const [currentWord, setCurrentWord] = useState(initialWord);
   const [wordHistory, setWordHistory] = useState<string[]>([]);
@@ -336,6 +342,19 @@ const WordDictionaryPopup: React.FC<WordDictionaryPopupProps> = ({
             <path strokeLinecap="round" strokeLinejoin="round" d="M6 18L18 6M6 6l12 12" />
           </svg>
         </button>
+        {showContext && context && (
+          <div
+            className="mb-3 rounded-lg bg-indigo-50 dark:bg-indigo-950/40 border border-indigo-100 dark:border-indigo-900 px-2.5 py-2"
+            data-testid="dictionary-source-context"
+            data-source-line-start={sourceLineStart}
+          >
+            <div className="text-[10px] font-semibold uppercase tracking-wide text-indigo-500 dark:text-indigo-300">
+              {t('study.currentContext')}
+            </div>
+            <div className="mt-0.5 text-xs leading-relaxed text-indigo-900 dark:text-indigo-100">{context}</div>
+          </div>
+        )}
+
         {/* Word header */}
         <div className="flex flex-wrap items-baseline gap-x-2 gap-y-1 mb-1">
           {wordHistory.length > 0 && (

@@ -141,6 +141,7 @@ const StudyPage: React.FC = () => {
   // Transcript state — raw caption blocks + sentence-level lines
   const [rawBlocks, setRawBlocks] = useState<TranscriptLine[]>([]);
   const [sentenceLines, setSentenceLines] = useState<TranscriptLine[]>([]);
+  const [selectedContext, setSelectedContext] = useState<{ videoId: string; line: TranscriptLine } | null>(null);
 
   // Saved data state (all items, filtered by current video for display)
   const [vocabulary, setVocabulary] = useState<VocabularyItem[]>([]);
@@ -311,6 +312,15 @@ const StudyPage: React.FC = () => {
     currentTime,
     displayLines,
   });
+
+  const handleSelectTranscriptLine = useCallback((line: TranscriptLine) => {
+    if (videoId) setSelectedContext({ videoId, line });
+  }, [videoId]);
+
+  const currentContext = selectedContext?.videoId === videoId ? selectedContext.line : null;
+  const replayCurrentContext = useCallback(() => {
+    if (currentContext) handleSeekTo(currentContext.start, true);
+  }, [currentContext, handleSeekTo]);
 
   // ── Restore last session on mount ──────────────────────────
   useEffect(() => {
@@ -1192,6 +1202,30 @@ const StudyPage: React.FC = () => {
 
       {/* Main content */}
       <main className="max-w-7xl mx-auto px-4 sm:px-6 py-4 sm:py-6">
+        {currentContext && (
+          <div
+            className="mb-3 flex items-center gap-3 px-3 py-2 bg-indigo-50 dark:bg-indigo-950/30 border border-indigo-200 dark:border-indigo-900 rounded-lg"
+            data-testid="study-current-context"
+            data-line-start={currentContext.start}
+            role="status"
+          >
+            <span className="text-[11px] font-semibold text-indigo-700 dark:text-indigo-300 shrink-0">
+              {t('study.currentContext')}
+            </span>
+            <span className="min-w-0 flex-1 text-xs text-indigo-900 dark:text-indigo-100 truncate" title={currentContext.text}>
+              {currentContext.text}
+            </span>
+            <button
+              type="button"
+              data-testid="study-replay-context"
+              onClick={replayCurrentContext}
+              aria-label={t('study.replayContext')}
+              className="shrink-0 flex items-center gap-1 px-2 py-1 text-[11px] font-medium text-indigo-700 dark:text-indigo-300 bg-white/80 dark:bg-indigo-900/50 rounded hover:bg-white dark:hover:bg-indigo-900 transition-colors cursor-pointer"
+            >
+              {t('study.replayContext')}
+            </button>
+          </div>
+        )}
         <div className="study-layout flex flex-col lg:flex-row gap-4 lg:gap-6">
           {/* Left: video — always visible (mobile: above transcript, desktop: left column) */}
           <div className="w-full lg:w-[55%] flex-shrink-0">
@@ -1637,7 +1671,9 @@ const StudyPage: React.FC = () => {
                   onAddVocabulary={handleAddVocabulary}
                   onAddSentence={handleAddSentence}
                   onRemoveSentence={handleToggleSentenceOff}
-                  onSeekTo={(seconds) => playerRef.current?.seekTo(seconds)}
+                  selectedLineStart={currentContext?.start}
+                  onSelectLine={handleSelectTranscriptLine}
+                  onSeekTo={handleSeekTo}
                 />
               </div>
             )}
@@ -1839,6 +1875,8 @@ const StudyPage: React.FC = () => {
                 savedSentences={savedSentencesSet}
                 savedSentenceIds={savedSentenceIds}
                 activeLineIndex={activeLineIndex}
+                selectedLineStart={currentContext?.start}
+                onSelectLine={handleSelectTranscriptLine}
                 onSeekTo={handleSeekTo}
                 />
               </>

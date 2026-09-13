@@ -25,11 +25,13 @@ const MobileTranscriptPanel: React.FC<{
   savedWords: Set<string>;
   savedSentences: Set<string>;
   savedSentenceIds: Map<string, string>;
+  selectedLineStart?: number;
+  onSelectLine?: (line: TranscriptLine) => void;
   onAddVocabulary: (item: VocabularyItem) => void;
   onAddSentence: (item: SentenceItem) => void;
   onRemoveSentence: (id: string) => void;
   onSeekTo: (seconds: number) => void;
-}> = ({ lines, activeLineIndex, videoId, videoTitle, savedWords, savedSentences, savedSentenceIds, onAddVocabulary, onAddSentence, onRemoveSentence, onSeekTo }) => {
+}> = ({ lines, activeLineIndex, videoId, videoTitle, savedWords, savedSentences, savedSentenceIds, selectedLineStart, onSelectLine, onAddVocabulary, onAddSentence, onRemoveSentence, onSeekTo }) => {
   const { t, lang } = useI18n();
   const containerRef = useRef<HTMLDivElement>(null);
   const activeRef = useRef<HTMLDivElement>(null);
@@ -61,19 +63,20 @@ const MobileTranscriptPanel: React.FC<{
     container.scrollTo({ top: Math.max(0, targetScroll), behavior: 'smooth' });
   }, [activeLineIndex]);
 
-  const showPopup = useCallback((word: string, context: string, lineStart: number, e: React.MouseEvent | React.TouchEvent) => {
+  const showPopup = useCallback((word: string, line: TranscriptLine, e: React.MouseEvent | React.TouchEvent) => {
     e.stopPropagation();
     e.preventDefault();
     const rect = (e.target as HTMLElement).getBoundingClientRect();
     setDictionaryData(null);
     setPopup({
       word,
-      context,
-      startTime: lineStart,
+      context: line.text,
+      startTime: line.start,
       x: rect.left + rect.width / 2,
       y: rect.top - 8,
     });
-  }, []);
+    onSelectLine?.(line);
+  }, [onSelectLine]);
 
   const handleAddWord = useCallback(async () => {
     if (!popup) return;
@@ -148,6 +151,8 @@ const MobileTranscriptPanel: React.FC<{
           x={popup.x}
           y={popup.y}
           context={popup.context}
+          showContext
+          sourceLineStart={popup.startTime}
           videoId={videoId}
           onClose={() => { setPopup(null); setDictionaryData(null); }}
           onDataChange={setDictionaryData}
@@ -177,20 +182,23 @@ const MobileTranscriptPanel: React.FC<{
               key={line.id || idx}
               ref={isActive ? activeRef : null}
               data-transcript-line={idx}
+              data-selected-context={selectedLineStart === line.start ? 'true' : undefined}
               className={`px-2 py-1.5 rounded-lg text-sm leading-relaxed transition-colors ${
                 isActive
                   ? 'bg-indigo-50 dark:bg-indigo-950/40 text-indigo-900 dark:text-indigo-100 font-medium'
+                  : selectedLineStart === line.start
+                    ? 'ring-2 ring-indigo-300 dark:ring-indigo-700 text-indigo-900 dark:text-indigo-100'
                   : sentenceSaved
                     ? 'bg-violet-50 dark:bg-violet-950/20 text-gray-600 dark:text-gray-400'
                     : 'text-gray-600 dark:text-gray-400'
               }`}
             >
               <div className="flex items-start gap-1.5">
-                <div className="flex-1 min-w-0" onClick={() => onSeekTo(line.start)}>
+                <div className="flex-1 min-w-0" onClick={() => { onSelectLine?.(line); onSeekTo(line.start); }}>
                   <span
                     className="text-[10px] font-mono mr-1.5 select-none cursor-pointer hover:text-indigo-600"
                     style={{ color: isActive ? '#6366f1' : undefined }}
-                    onClick={(e) => { e.stopPropagation(); onSeekTo(line.start); }}
+                    onClick={(e) => { e.stopPropagation(); onSelectLine?.(line); onSeekTo(line.start); }}
                   >
                     {formatTime(line.start)}
                   </span>
@@ -201,7 +209,7 @@ const MobileTranscriptPanel: React.FC<{
                     return (
                       <span
                         key={i}
-                        onClick={(e) => showPopup(token, line.text, line.start, e)}
+                        onClick={(e) => showPopup(token, line, e)}
                         className={`inline-block mx-[1px] px-1 py-0.5 rounded cursor-pointer transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-indigo-400 ${
                           saved
                             ? 'bg-amber-100 dark:bg-amber-900/50 text-amber-800 dark:text-amber-300'

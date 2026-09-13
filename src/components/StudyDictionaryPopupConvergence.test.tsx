@@ -57,6 +57,7 @@ const desktopProps = {
   savedSentences: new Set<string>(),
   savedSentenceIds: new Map<string, string>(),
   activeLineIndex: -1,
+  onSelectLine: vi.fn<(line: TranscriptLine) => void>(),
   onSeekTo: vi.fn<(seconds: number) => void>(),
 };
 
@@ -72,6 +73,7 @@ const mobileProps = {
   onAddSentence: vi.fn<(item: SentenceItem) => void>(),
   onRemoveSentence: vi.fn<(id: string) => void>(),
   onSeekTo: vi.fn<(seconds: number) => void>(),
+  onSelectLine: vi.fn<(line: TranscriptLine) => void>(),
 };
 
 describe('Study dictionary popup convergence', () => {
@@ -94,6 +96,7 @@ describe('Study dictionary popup convergence', () => {
     expect(screen.getByTestId('shared-study-popup').getAttribute('data-word')).toBe('test');
     expect(screen.getByTestId('shared-p2-content')).toBeTruthy();
     expect(screen.getByRole('button', { name: /add/i })).toBeTruthy();
+    expect(desktopProps.onSelectLine).toHaveBeenCalledWith(line);
     expect(sharedPopup).toHaveBeenCalled();
   });
 
@@ -106,6 +109,7 @@ describe('Study dictionary popup convergence', () => {
 
     expect(screen.getByTestId('shared-study-popup').getAttribute('data-word')).toBe('test');
     expect(screen.getByTestId('shared-p2-content')).toBeTruthy();
+    expect(mobileProps.onSelectLine).toHaveBeenCalledWith(line);
     fireEvent.click(screen.getByRole('button', { name: 'Close popup' }));
     expect(screen.queryByTestId('shared-study-popup')).toBeNull();
 

@@ -151,8 +151,6 @@ test('guest learning journey: study → understand → save → listen → leave
   const visibleLines = page.locator('[data-transcript-line]:visible');
   const activeLine = (text: string) => page.locator('[data-transcript-line].bg-indigo-50')
     .filter({ hasText: text }).filter({ visible: true }).first();
-  const clickLine = async (text: string) =>
-    visibleLines.filter({ hasText: text }).first().locator('span').first().click();
 
   // ── A. Enter learning ─────────────────────────────────────────
   await page.goto('/');
@@ -168,6 +166,8 @@ test('guest learning journey: study → understand → save → listen → leave
   await page.getByRole('button', { name: 'Look up Good', exact: true }).filter({ visible: true }).first().click();
   const saveButton = page.locator('#tour-transcript-save-word');
   await expect(saveButton).toBeVisible();
+  await expect(page.getByTestId('dictionary-source-context')).toHaveText(/Good morning\. How are you\?/);
+  await expect(page.getByTestId('dictionary-source-context')).toHaveAttribute('data-source-line-start', '27');
   // The popup must make the word understandable, not merely exist.
   await expect(page.locator('text=of high quality').first()).toBeVisible();
 
@@ -179,6 +179,8 @@ test('guest learning journey: study → understand → save → listen → leave
   await expect(
     page.locator('span.bg-amber-100, span[class*="bg-amber-100"]').filter({ hasText: /^good$/i }).filter({ visible: true }).first(),
   ).toBeVisible({ timeout: 10_000 });
+  await expect(page.getByTestId('study-current-context')).toContainText('Good morning. How are you?');
+  await expect(page.getByTestId('study-current-context')).toHaveAttribute('data-line-start', '27');
 
   // ── D. Save sentence ──────────────────────────────────────────
   const firstLineBookmark = visibleLines.filter({ hasText: 'Good morning' }).first()
@@ -212,11 +214,12 @@ test('guest learning journey: study → understand → save → listen → leave
     return stable;
   }, { timeout: 10_000 }).toBe(true);
 
-  // Replay an earlier line while paused: seek + active line must agree.
-  await clickLine('Good morning');
+  // Replay the retained source sentence while paused: one action must seek + play.
+  await page.getByTestId('study-replay-context').click();
   await expect.poll(async () => (await audioState(page)).currentTime, { timeout: 10_000 })
     .toBeLessThan(pausedState.currentTime);
   const replayPosition = await audioState(page);
+  expect(replayPosition.currentTime).toBeGreaterThanOrEqual(27);
   await expect.poll(async () => (await audioState(page)).paused, { timeout: 10_000 }).toBe(false);
   await activeLine('Good morning').waitFor({ state: 'visible', timeout: 5_000 });
   await expect.poll(async () => (await audioState(page)).currentTime, { timeout: 10_000 })

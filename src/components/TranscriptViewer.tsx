@@ -20,6 +20,8 @@ interface TranscriptViewerProps {
   savedSentences: Set<string>;
   savedSentenceIds?: Map<string, string>;
   activeLineIndex: number;
+  selectedLineStart?: number;
+  onSelectLine?: (line: TranscriptLine) => void;
   onSeekTo: (seconds: number) => void;
 }
 
@@ -42,6 +44,8 @@ const TranscriptViewer: React.FC<TranscriptViewerProps> = ({
   savedSentences,
   savedSentenceIds,
   activeLineIndex,
+  selectedLineStart,
+  onSelectLine,
   onSeekTo,
 }) => {
   const { t, lang } = useI18n();
@@ -86,8 +90,7 @@ const TranscriptViewer: React.FC<TranscriptViewerProps> = ({
 
   const handleWordClick = (
     word: string,
-    context: string,
-    lineStart: number,
+    line: TranscriptLine,
     e: React.MouseEvent | React.KeyboardEvent,
   ) => {
     e.stopPropagation();
@@ -95,11 +98,12 @@ const TranscriptViewer: React.FC<TranscriptViewerProps> = ({
     setDictionaryData(null);
     setPopup({
       word,
-      context,
-      startTime: lineStart,
+      context: line.text,
+      startTime: line.start,
       x: rect.left + rect.width / 2,
       y: rect.top - 8,
     });
+    onSelectLine?.(line);
   };
 
   const handleAddWord = async () => {
@@ -167,6 +171,8 @@ const TranscriptViewer: React.FC<TranscriptViewerProps> = ({
           x={popup.x}
           y={popup.y}
           context={popup.context}
+          showContext
+          sourceLineStart={popup.startTime}
           videoId={videoId}
           onClose={() => { setPopup(null); setDictionaryData(null); }}
           onDataChange={setDictionaryData}
@@ -206,15 +212,16 @@ const TranscriptViewer: React.FC<TranscriptViewerProps> = ({
               key={idx}
               ref={isActive ? activeLineRef : undefined}
               data-transcript-line={idx}
-              className={lineClass}
-              onClick={() => onSeekTo(line.start)}
+              data-selected-context={selectedLineStart === line.start ? 'true' : undefined}
+              className={`${lineClass}${selectedLineStart === line.start ? ' ring-2 ring-indigo-300 dark:ring-indigo-700' : ''}`}
+              onClick={() => { onSelectLine?.(line); onSeekTo(line.start); }}
             >
               <div className="flex items-start gap-2">
                 <div className="flex-1 min-w-0">
                   <span
                     className="text-[11px] font-mono mr-2 select-none cursor-pointer hover:text-indigo-600 transition-colors py-1 md:py-0"
                     style={{ color: isActive ? '#6366f1' : undefined }}
-                    onClick={(e) => { e.stopPropagation(); onSeekTo(line.start); }}
+                    onClick={(e) => { e.stopPropagation(); onSelectLine?.(line); onSeekTo(line.start); }}
                   >
                     {formatTime(line.start)}
                   </span>
@@ -226,8 +233,8 @@ const TranscriptViewer: React.FC<TranscriptViewerProps> = ({
                       return (
                         <span
                           key={i}
-                          onClick={(e) => handleWordClick(token, line.text, line.start, e)}
-                          onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); handleWordClick(token, line.text, line.start, e); } }}
+                          onClick={(e) => handleWordClick(token, line, e)}
+                          onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); handleWordClick(token, line, e); } }}
                           role="button"
                           tabIndex={0}
                           aria-label={`Look up ${token}`}
