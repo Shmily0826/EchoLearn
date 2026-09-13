@@ -1,4 +1,4 @@
-import React, { useState, useRef, useEffect, useCallback } from 'react';
+import React, { useState, useRef, useEffect, useLayoutEffect, useCallback } from 'react';
 import { useI18n } from '../i18n/I18nContext';
 import type { TranscriptLine, VocabularyItem, SentenceItem } from '../types';
 import { tomorrowMs } from '../utils/storage';
@@ -31,6 +31,8 @@ interface WordPopupState {
   startTime: number;
   x: number;
   y: number;
+  rowTop: number;
+  rowBottom: number;
 }
 
 const TranscriptViewer: React.FC<TranscriptViewerProps> = ({
@@ -51,6 +53,10 @@ const TranscriptViewer: React.FC<TranscriptViewerProps> = ({
   const { t, lang } = useI18n();
   const [popup, setPopup] = useState<WordPopupState | null>(null);
   const [dictionaryData, setDictionaryData] = useState<WordDictionaryPopupData | null>(null);
+  // Row element of the popup's source sentence, kept for a post-render
+  // re-measure: selecting a line mounts the context bar above the transcript,
+  // which shifts every row down AFTER the click-time rect was taken.
+  const popupRowRef = useRef<HTMLElement | null>(null);
   const activeLineRef = useRef<HTMLDivElement>(null);
   const userScrolledRef = useRef(false);
   const scrollTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -94,7 +100,11 @@ const TranscriptViewer: React.FC<TranscriptViewerProps> = ({
     e: React.MouseEvent | React.KeyboardEvent,
   ) => {
     e.stopPropagation();
-    const rect = (e.target as HTMLElement).getBoundingClientRect();
+    const target = e.target as HTMLElement;
+    const rect = target.getBoundingClientRect();
+    const rowEl = target.closest<HTMLElement>('[data-transcript-line]');
+    const rowRect = rowEl?.getBoundingClientRect();
+    popupRowRef.current = rowEl ?? null;
     setDictionaryData(null);
     setPopup({
       word,
@@ -102,9 +112,26 @@ const TranscriptViewer: React.FC<TranscriptViewerProps> = ({
       startTime: line.start,
       x: rect.left + rect.width / 2,
       y: rect.top - 8,
+      rowTop: rowRect?.top ?? rect.top - 8,
+      rowBottom: rowRect?.bottom ?? rect.bottom,
     });
     onSelectLine?.(line);
   };
+
+  // Re-measure the source row once the context bar (mounted by this same
+  // selection) has shifted the transcript, so the popup anchors to where the
+  // row actually is, not where it was at click time.
+  useLayoutEffect(() => {
+    if (!popup) return;
+    const rowEl = popupRowRef.current;
+    if (!rowEl || !rowEl.isConnected) return;
+    const rect = rowEl.getBoundingClientRect();
+    if (rect.height === 0) return;
+    setPopup((prev) => {
+      if (!prev || (prev.rowTop === rect.top && prev.rowBottom === rect.bottom)) return prev;
+      return { ...prev, rowTop: rect.top, rowBottom: rect.bottom };
+    });
+  }, [popup]);
 
   const handleAddWord = async () => {
     if (!popup) return;
@@ -173,6 +200,8 @@ const TranscriptViewer: React.FC<TranscriptViewerProps> = ({
           context={popup.context}
           showContext
           sourceLineStart={popup.startTime}
+          sourceRowTop={popup.rowTop}
+          sourceRowBottom={popup.rowBottom}
           videoId={videoId}
           onClose={() => { setPopup(null); setDictionaryData(null); }}
           onDataChange={setDictionaryData}

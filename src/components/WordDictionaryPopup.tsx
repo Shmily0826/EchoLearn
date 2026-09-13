@@ -50,6 +50,12 @@ interface WordDictionaryPopupProps {
   showContext?: boolean;
   /** Optional: exact subtitle start for the originating Study line. */
   sourceLineStart?: number;
+  /** Optional: viewport-space top of the transcript row the word was clicked in.
+   *  When present, the popup anchors to the row so it avoids covering the
+   *  sentence the learner is reading. */
+  sourceRowTop?: number;
+  /** Optional: viewport-space bottom of the source transcript row. */
+  sourceRowBottom?: number;
 }
 
 const POS_ABBREVIATIONS: Record<string, string> = {
@@ -85,11 +91,22 @@ function groupDefinitions(definitions: DictionaryReferenceSense[]) {
   return [...groups.entries()].map(([pos, items]) => ({ pos, items }));
 }
 
-function getPopupTop(y: number, popupHeight: number, viewportHeight: number, margin = 16): number {
-  const spaceBelow = viewportHeight - y - margin;
-  const spaceAbove = y - margin;
+function getPopupTop(
+  y: number,
+  popupHeight: number,
+  viewportHeight: number,
+  margin = 16,
+  sourceRow?: { top: number; bottom: number },
+): number {
+  // Anchor to the source transcript row when known: "below" starts under the
+  // whole row and "above" ends on top of it, so the sentence the learner is
+  // reading stays visible in either placement.
+  const anchorBottom = sourceRow ? sourceRow.bottom : y;
+  const anchorTop = sourceRow ? sourceRow.top : y;
+  const spaceBelow = viewportHeight - anchorBottom - margin;
+  const spaceAbove = anchorTop - margin;
   const preferBelow = popupHeight <= spaceBelow || (popupHeight > spaceAbove && spaceBelow >= spaceAbove);
-  const desiredTop = preferBelow ? y + 24 : y - popupHeight;
+  const desiredTop = preferBelow ? anchorBottom + 24 : anchorTop - popupHeight;
   const maxTop = Math.max(margin, viewportHeight - margin - popupHeight);
   return Math.min(Math.max(desiredTop, margin), maxTop);
 }
@@ -111,6 +128,8 @@ const WordDictionaryPopup: React.FC<WordDictionaryPopupProps> = ({
   context,
   showContext = false,
   sourceLineStart,
+  sourceRowTop,
+  sourceRowBottom,
 }) => {
   const [currentWord, setCurrentWord] = useState(initialWord);
   const [wordHistory, setWordHistory] = useState<string[]>([]);
@@ -310,8 +329,32 @@ const WordDictionaryPopup: React.FC<WordDictionaryPopupProps> = ({
 
   const updatePlacement = useCallback(() => {
     if (!popupRef.current || loading) return;
-    setPopupTop(getPopupTop(y, popupRef.current.getBoundingClientRect().height, window.innerHeight));
-  }, [loading, y]);
+    const sourceRow = sourceRowTop !== undefined && sourceRowBottom !== undefined
+      ? { top: sourceRowTop, bottom: sourceRowBottom }
+      : undefined;
+    setPopupTop(getPopupTop(y, popupRef.current.getBoundingClientRect().height, window.innerHeight, 16, sourceRow));
+  }, [loading, y, sourceRowTop, sourceRowBottom]);
+
+  // The learner's natural "back to reading" gesture: any pointer press outside
+  // the card, or Escape, dismisses the popup. A press on another transcript
+  // word closes this popup first and that word's own click then opens the next
+  // lookup, so consecutive lookups are unaffected.
+  useEffect(() => {
+    const onPointerDown = (event: PointerEvent) => {
+      if (popupRef.current && event.target instanceof Node && !popupRef.current.contains(event.target)) {
+        onClose();
+      }
+    };
+    const onKeyDown = (event: KeyboardEvent) => {
+      if (event.key === 'Escape') onClose();
+    };
+    document.addEventListener('pointerdown', onPointerDown);
+    document.addEventListener('keydown', onKeyDown);
+    return () => {
+      document.removeEventListener('pointerdown', onPointerDown);
+      document.removeEventListener('keydown', onKeyDown);
+    };
+  }, [onClose]);
 
   useLayoutEffect(() => {
     updatePlacement();
@@ -326,6 +369,7 @@ const WordDictionaryPopup: React.FC<WordDictionaryPopupProps> = ({
   return (
     <div
       ref={popupRef}
+      data-dictionary-popup=""
       className="fixed z-50 transform -translate-x-1/2"
       style={{
         left: Math.min(Math.max(x, 170), window.innerWidth - 170),

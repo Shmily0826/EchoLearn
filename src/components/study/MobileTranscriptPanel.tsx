@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useCallback, useRef } from 'react';
+import React, { useState, useEffect, useLayoutEffect, useCallback, useRef } from 'react';
 import { useI18n } from '../../i18n/I18nContext';
 import { lemmatize } from '../../utils/lemmatizer';
 import { extractSentence } from '../../utils/sentence';
@@ -15,6 +15,8 @@ interface MobileWordPopup {
   startTime: number;
   x: number;
   y: number;
+  rowTop: number;
+  rowBottom: number;
 }
 
 const MobileTranscriptPanel: React.FC<{
@@ -39,6 +41,9 @@ const MobileTranscriptPanel: React.FC<{
   const scrollTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const [popup, setPopup] = useState<MobileWordPopup | null>(null);
   const [dictionaryData, setDictionaryData] = useState<WordDictionaryPopupData | null>(null);
+  // Row element of the popup's source sentence: the context bar mounted by the
+  // selection shifts the transcript after the click-time rect was taken.
+  const popupRowRef = useRef<HTMLElement | null>(null);
   const showChinese = lang === 'zh';
 
   const handleScroll = useCallback(() => {
@@ -66,7 +71,11 @@ const MobileTranscriptPanel: React.FC<{
   const showPopup = useCallback((word: string, line: TranscriptLine, e: React.MouseEvent | React.TouchEvent) => {
     e.stopPropagation();
     e.preventDefault();
-    const rect = (e.target as HTMLElement).getBoundingClientRect();
+    const target = e.target as HTMLElement;
+    const rect = target.getBoundingClientRect();
+    const rowEl = target.closest<HTMLElement>('[data-transcript-line]');
+    const rowRect = rowEl?.getBoundingClientRect();
+    popupRowRef.current = rowEl ?? null;
     setDictionaryData(null);
     setPopup({
       word,
@@ -74,9 +83,25 @@ const MobileTranscriptPanel: React.FC<{
       startTime: line.start,
       x: rect.left + rect.width / 2,
       y: rect.top - 8,
+      rowTop: rowRect?.top ?? rect.top - 8,
+      rowBottom: rowRect?.bottom ?? rect.bottom,
     });
     onSelectLine?.(line);
   }, [onSelectLine]);
+
+  // Re-measure the source row after the context bar shifts the layout, so the
+  // popup anchors to where the row actually is.
+  useLayoutEffect(() => {
+    if (!popup) return;
+    const rowEl = popupRowRef.current;
+    if (!rowEl || !rowEl.isConnected) return;
+    const rect = rowEl.getBoundingClientRect();
+    if (rect.height === 0) return;
+    setPopup((prev) => {
+      if (!prev || (prev.rowTop === rect.top && prev.rowBottom === rect.bottom)) return prev;
+      return { ...prev, rowTop: rect.top, rowBottom: rect.bottom };
+    });
+  }, [popup]);
 
   const handleAddWord = useCallback(async () => {
     if (!popup) return;
@@ -153,6 +178,8 @@ const MobileTranscriptPanel: React.FC<{
           context={popup.context}
           showContext
           sourceLineStart={popup.startTime}
+          sourceRowTop={popup.rowTop}
+          sourceRowBottom={popup.rowBottom}
           videoId={videoId}
           onClose={() => { setPopup(null); setDictionaryData(null); }}
           onDataChange={setDictionaryData}

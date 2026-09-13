@@ -171,6 +171,41 @@ test('guest learning journey: study → understand → save → listen → leave
   // The popup must make the word understandable, not merely exist.
   await expect(page.locator('text=of high quality').first()).toBeVisible();
 
+  // ── B2. Return flow: placement + dismissal ────────────────────
+  // Desktop placement must not cover the source sentence row.
+  await expect(async () => {
+    const boxes = await page.evaluate(() => {
+      const popup = document.querySelector('[data-dictionary-popup]')?.getBoundingClientRect();
+      const line = [...document.querySelectorAll('[data-transcript-line]')]
+        .find((l) => l.offsetParent !== null && l.innerText.includes('Good morning. How are you?'))
+        ?.getBoundingClientRect();
+      if (!popup || !line) return null;
+      const xOverlap = Math.max(0, Math.min(popup.right, line.right) - Math.max(popup.left, line.left));
+      const yOverlap = Math.max(0, Math.min(popup.bottom, line.bottom) - Math.max(popup.top, line.top));
+      return {
+        covers: xOverlap > 0 && yOverlap > 0,
+        popup: { top: popup.top, bottom: popup.bottom, left: popup.left, height: popup.height },
+        line: { top: line.top, bottom: line.bottom },
+        viewportH: innerHeight,
+      };
+    });
+    expect(boxes, JSON.stringify(boxes)).toBeTruthy();
+    expect(boxes, JSON.stringify(boxes)).toEqual(expect.objectContaining({ covers: false }));
+  }).toPass({ timeout: 5_000 });
+
+  // Pressing outside the card closes the popup; the sentence context stays.
+  await page.getByTestId('study-current-context').click();
+  await expect(saveButton).toBeHidden();
+  await expect(page.getByTestId('study-current-context')).toContainText('Good morning. How are you?');
+
+  // Escape closes too, and reopening restores the same lookup.
+  await page.getByRole('button', { name: 'Look up Good', exact: true }).filter({ visible: true }).first().click();
+  await expect(saveButton).toBeVisible();
+  await page.keyboard.press('Escape');
+  await expect(saveButton).toBeHidden();
+  await page.getByRole('button', { name: 'Look up Good', exact: true }).filter({ visible: true }).first().click();
+  await expect(saveButton).toBeVisible();
+
   // ── C. Save vocabulary (guest hard boundary: /api/ai = 0) ────
   await saveButton.click();
   await expect(page.getByRole('status').filter({ hasText: 'Saved to Vocabulary' })).toBeVisible();
@@ -181,6 +216,15 @@ test('guest learning journey: study → understand → save → listen → leave
   ).toBeVisible({ timeout: 10_000 });
   await expect(page.getByTestId('study-current-context')).toContainText('Good morning. How are you?');
   await expect(page.getByTestId('study-current-context')).toHaveAttribute('data-line-start', '27');
+
+  // ── C2. Consecutive lookups ───────────────────────────────────
+  // A press on another word must replace the popup content, not get eaten by
+  // the outside-click dismissal.
+  await page.getByRole('button', { name: 'Look up How', exact: true }).filter({ visible: true }).first().click();
+  await expect(saveButton).toBeVisible();
+  await expect(page.locator('[data-dictionary-popup]')).toContainText('How', { ignoreCase: true });
+  await page.getByTestId('study-current-context').click();
+  await expect(saveButton).toBeHidden();
 
   // ── D. Save sentence ──────────────────────────────────────────
   const firstLineBookmark = visibleLines.filter({ hasText: 'Good morning' }).first()

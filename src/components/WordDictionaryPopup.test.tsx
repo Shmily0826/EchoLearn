@@ -626,3 +626,100 @@ describe('WordDictionaryPopup dictionary failures', () => {
     expect(getWordAnalysis).not.toHaveBeenCalled();
   });
 });
+
+describe('WordDictionaryPopup return-to-reading flow', () => {
+  beforeEach(() => {
+    localStorage.clear();
+    authState.user = { uid: 'test-user' };
+    vi.clearAllMocks();
+    vi.mocked(lookupWord).mockRejectedValue(new Error('request failed'));
+    vi.mocked(translateWordFast).mockResolvedValue('');
+    vi.mocked(getWordAnalysis).mockResolvedValue(null);
+  });
+
+  afterEach(() => {
+    vi.restoreAllMocks();
+    cleanup();
+  });
+
+  it('closes when the learner presses outside the card but not on card content', () => {
+    const onClose = vi.fn();
+    render(
+      <I18nProvider>
+        <div data-testid="outside-area">transcript around the popup</div>
+        <WordDictionaryPopup word="cat" x={100} y={100} onClose={onClose} />
+      </I18nProvider>,
+    );
+    const popup = document.querySelector('[data-dictionary-popup]') as HTMLElement;
+    expect(popup).toBeTruthy();
+
+    fireEvent.pointerDown(screen.getByTestId('outside-area'));
+    expect(onClose).toHaveBeenCalledTimes(1);
+
+    // Presses on card content (header, actions area) must not dismiss it.
+    fireEvent.pointerDown(popup);
+    expect(onClose).toHaveBeenCalledTimes(1);
+  });
+
+  it('closes on Escape', () => {
+    const onClose = vi.fn();
+    render(
+      <I18nProvider>
+        <WordDictionaryPopup word="cat" x={100} y={100} onClose={onClose} />
+      </I18nProvider>,
+    );
+
+    fireEvent.keyDown(document.body, { key: 'Escape' });
+    expect(onClose).toHaveBeenCalledTimes(1);
+
+    fireEvent.keyDown(document.body, { key: 'Enter' });
+    expect(onClose).toHaveBeenCalledTimes(1);
+  });
+
+  it('anchors below the source transcript row when row bounds are given', async () => {
+    vi.mocked(lookupWord).mockResolvedValue({
+      word: 'light',
+      phonetic: '',
+      audioUrl: '',
+      partOfSpeech: 'adjective',
+      definitionEn: 'not heavy',
+      definitionsEn: [{ pos: 'adjective', definition: 'not heavy' }],
+      example: '',
+      synonyms: [],
+      antonyms: [],
+      provider: 'Merriam-Webster',
+    });
+
+    render(
+      <I18nProvider>
+        <WordDictionaryPopup word="light" x={100} y={308} onClose={vi.fn()} sourceRowTop={300} sourceRowBottom={350} />
+      </I18nProvider>,
+    );
+    const popup = document.querySelector('[data-dictionary-popup]') as HTMLElement;
+    // Below placement starts under the whole row, not under the word token.
+    await waitFor(() => expect(popup.style.top).toBe(`${350 + 24}px`));
+  });
+
+  it('keeps the word-anchored fallback when no source row is provided', async () => {
+    vi.mocked(lookupWord).mockResolvedValue({
+      word: 'light',
+      phonetic: '',
+      audioUrl: '',
+      partOfSpeech: 'adjective',
+      definitionEn: 'not heavy',
+      definitionsEn: [{ pos: 'adjective', definition: 'not heavy' }],
+      example: '',
+      synonyms: [],
+      antonyms: [],
+      provider: 'Merriam-Webster',
+    });
+
+    render(
+      <I18nProvider>
+        <WordDictionaryPopup word="light" x={100} y={100} onClose={vi.fn()} />
+      </I18nProvider>,
+    );
+    const popup = document.querySelector('[data-dictionary-popup]') as HTMLElement;
+    await waitFor(() => expect(popup.style.top).toBe(`${100 + 24}px`));
+  });
+});
