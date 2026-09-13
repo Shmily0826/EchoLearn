@@ -22,7 +22,7 @@
 export const config = { runtime: 'nodejs' };
 
 import { GoogleGenAI } from '@google/genai';
-import { verifyFirebaseIdToken } from './_shared/firebaseAuth';
+import { verifyFirebaseIdToken } from './_shared/firebaseAuth.js';
 
 const DEEPSEEK_API_URL = 'https://api.deepseek.com/chat/completions';
 const DEFAULT_GEMINI_MODEL = 'gemini-3.5-flash-lite';
