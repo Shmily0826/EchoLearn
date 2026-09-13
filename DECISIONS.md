@@ -3,13 +3,13 @@
 This file retains durable architecture, product, and operational decisions with explicit `ACTIVE` or `SUPERSEDED` applicability. The current summary wins when applicability differs; historical records remain for traceability. This is not a progress log or test report.
 
 ## CURRENT DECISION SUMMARY — 2026-09-13
-
 - `PROGRESS.md` is authoritative for current status; `TEST_REPORT.md` is authoritative for validation evidence; this file is for durable decisions. Historical execution records remain traceable in the dated sections.
-- The current non-ASR subtitle architecture is the accepted Option B boundary: same-origin Vercel (`VPS → Supadata → npm`) handles the normal caption path; the Cloudflare Worker is an explicit ASR opt-in path. Earlier Worker-first, synchronous-probe, and subtitle-budget `NEXT` text is historical, not a new implementation request.
-- `AI_AUTH_COST_BOUNDARY_V1` is **PRODUCTION ACCEPTED** (2026-09-13): `/api/ai` requires a verified Firebase ID token before any provider fetch; anonymous calls get 401; Guest learning journeys run with zero `/api/ai` attempts; the authenticated positive path (Bearer → JWKS verify → real DeepSeek 200 → usable UI result) is production-verified for both transcript Analyze and vocabulary AI enrichment.
-- Dictionary reference consistency is **PRODUCTION ACCEPTED** (2026-09-12). Its acceptance smoke used local `/api/dictionary` fixtures and observed zero paid/provider outbound traffic; this does not establish billing truth.
-- No proven high-value engineering bug is currently active. Current evidence-dependent follow-up is limited to Supadata cost/billing review, Invidious/Piped health/pruning, and low-priority consolidation leftovers. Queued directions: `DEEPSEEK_V4_MODEL_REFRESH_V1` (research-first), lemma-provenance bounded verification, and `REAL_LEARNING_SESSION_UX_V2` product selection — none change release state yet.
-
+- **Accepted milestones:** `AI_AUTH_COST_BOUNDARY_V1`, dictionary reference consistency, the Option B/Supadata Vercel-first non-ASR subtitle boundary, and the YouTube route-leave regression remain accepted at their recorded evidence levels. Lemma provenance remains **STALE / NOT A BUG**.
+- **Production AI authority:** current primary is Gemini (`AI_PROVIDER=gemini`), manually verified in the Vercel Dashboard for Production scope on 2026-09-13. `GEMINI_MODEL` and `GEMINI_API_KEY` are configured in Production; no secret value is recorded. Production deployment `ff8f5b7` is **READY**.
+- **Provider compatibility decision:** the DeepSeek V4 refresh in `2146c74` is fallback/provider-compatibility work, not a change to the active Gemini primary. The earlier authenticated Production smoke that observed DeepSeek remains historical evidence.
+- **Study context continuity:** `STUDY_CONTEXT_CONTINUITY_V1` is **LOCAL VERIFIED** and deployed in `ff8f5b7`, but its bounded Production behavioral smoke remains **UNVERIFIED / PARTIAL** because tooling could not safely seed a synthetic session or install network interception. No Production behavioral acceptance is claimed.
+- `REAL_LEARNING_SESSION_UX_V2` is the next substantive product-direction candidate, not yet accepted implementation scope.
+- No proven high-value engineering bug is currently active. Current evidence-dependent follow-up remains limited to Supadata cost/billing review, Invidious/Piped health and pruning, and low-priority consolidation leftovers.
 ## D-001 — Documentation source-of-truth ownership
 
 - Date: 2026-09-01
