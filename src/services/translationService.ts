@@ -8,6 +8,7 @@ import { aiAuthHeaders } from './apiAuth';
 
 /** Requests go through the server-side proxy at /api/ai (API key stays server-side). */
 const DEEPSEEK_ENDPOINT = '/api/ai';
+// DeepSeek-V4-Flash-0731; disable thinking for routine single-word translation.
 const DEEPSEEK_MODEL = 'deepseek-v4-flash';
 
 // ── localStorage cache (per-device, per-browser) ───────────────
@@ -129,6 +130,7 @@ The array must have exactly ${items.length} element(s), in the same order as the
       },
       body: JSON.stringify({
         model: DEEPSEEK_MODEL,
+        thinking: { type: 'disabled' },
         messages: [
           { role: 'system', content: systemPrompt },
           { role: 'user', content: userPrompt },

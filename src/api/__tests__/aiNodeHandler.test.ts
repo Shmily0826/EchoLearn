@@ -204,4 +204,64 @@ describe('/api/ai Node runtime boundary', () => {
     expect(JSON.parse(responseText(deepSeekResponse)).choices[0].message.content).toBe('deepseek works');
     expect(providerMocks.generateContent).toHaveBeenCalledTimes(1);
   });
+
+  it('forwards the sanitized thinking switch and current Flash model to DeepSeek', async () => {
+    process.env.AI_PROVIDER = 'deepseek';
+    process.env.DEEPSEEK_API_KEY = 'test-deepseek-key';
+    const fetchMock = vi.fn().mockResolvedValue(new Response(
+      JSON.stringify({ choices: [{ message: { role: 'assistant', content: 'ok' } }] }),
+      { status: 200, headers: { 'Content-Type': 'application/json' } },
+    ));
+    vi.stubGlobal('fetch', fetchMock);
+    const response = makeResponse();
+    await handler(makeRequest({
+      model: 'deepseek-v4-flash',
+      thinking: { type: 'disabled' },
+      reasoning_effort: 'none',
+      messages: normalBody.messages,
+    }), response);
+    expect(response.statusCode).toBe(200);
+    const forwarded = JSON.parse(fetchMock.mock.calls[0][1].body);
+    expect(forwarded.model).toBe('deepseek-v4-flash');
+    expect(forwarded.thinking).toEqual({ type: 'disabled' });
+    expect(forwarded.reasoning_effort).toBeUndefined();
+  });
+
+  it('drops malformed thinking and falls unknown models back to the current Flash id', async () => {
+    process.env.AI_PROVIDER = 'deepseek';
+    process.env.DEEPSEEK_API_KEY = 'test-deepseek-key';
+    const fetchMock = vi.fn().mockResolvedValue(new Response(
+      JSON.stringify({ choices: [{ message: { role: 'assistant', content: 'ok' } }] }),
+      { status: 200, headers: { 'Content-Type': 'application/json' } },
+    ));
+    vi.stubGlobal('fetch', fetchMock);
+    const response = makeResponse();
+    await handler(makeRequest({
+      model: 'not-a-real-model',
+      thinking: { mode: 'off' },
+      messages: normalBody.messages,
+    }), response);
+    expect(response.statusCode).toBe(200);
+    const forwarded = JSON.parse(fetchMock.mock.calls[0][1].body);
+    expect(forwarded.model).toBe('deepseek-v4-flash');
+    expect(forwarded.thinking).toBeUndefined();
+  });
+
+  it('falls the legacy DeepSeek model id back to the current Flash id', async () => {
+    process.env.AI_PROVIDER = 'deepseek';
+    process.env.DEEPSEEK_API_KEY = 'test-deepseek-key';
+    const fetchMock = vi.fn().mockResolvedValue(new Response(
+      JSON.stringify({ choices: [{ message: { role: 'assistant', content: 'ok' } }] }),
+      { status: 200, headers: { 'Content-Type': 'application/json' } },
+    ));
+    vi.stubGlobal('fetch', fetchMock);
+    const response = makeResponse();
+    await handler(makeRequest({
+      model: 'deepseek-chat',
+      messages: normalBody.messages,
+    }), response);
+    expect(response.statusCode).toBe(200);
+    const forwarded = JSON.parse(fetchMock.mock.calls[0][1].body);
+    expect(forwarded.model).toBe('deepseek-v4-flash');
+  });
 });

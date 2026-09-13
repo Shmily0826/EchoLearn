@@ -36,8 +36,8 @@ const MAX_BODY_BYTES = 100 * 1024; // 100 KB
 const RATE_LIMIT_WINDOW_MS = 60_000; // 1 minute
 const RATE_LIMIT_MAX = 60;
 
-/** Models the proxy is allowed to forward to. */
-const ALLOWED_MODELS = ['deepseek-v4-flash', 'deepseek-chat'];
+/** The only DeepSeek model this proxy forwards; stale client ids use this fallback. */
+const ALLOWED_MODELS = ['deepseek-v4-flash'];
 
 /** Hard cap on max_tokens even if the client requests more. */
 const MAX_TOKENS_CAP = 8192;
@@ -361,6 +361,8 @@ interface SanitizedBody {
   temperature?: number;
   response_format?: { type: 'text' | 'json_object' };
   max_tokens?: number;
+  /** Thinking-mode switch; only an explicit enabled/disabled type passes through. */
+  thinking?: { type: 'enabled' | 'disabled' };
 }
 
 function sanitizeBody(parsed: unknown): SanitizedBody | null {
@@ -387,6 +389,19 @@ function sanitizeBody(parsed: unknown): SanitizedBody | null {
 
   if (typeof obj.max_tokens === 'number' && Number.isFinite(obj.max_tokens)) {
     out.max_tokens = Math.min(Math.max(Math.floor(obj.max_tokens), 1), MAX_TOKENS_CAP);
+  }
+
+  // Thinking-mode switch: forward only the exact {type} shape the DeepSeek API
+  // documents; everything else is dropped so the proxy can't become a free-form
+  // passthrough for provider options.
+  if (
+    typeof obj.thinking === 'object' && obj.thinking !== null &&
+    ((obj.thinking as Record<string, unknown>).type === 'disabled' ||
+      (obj.thinking as Record<string, unknown>).type === 'enabled')
+  ) {
+    out.thinking = {
+      type: (obj.thinking as Record<string, unknown>).type as 'enabled' | 'disabled',
+    };
   }
 
   return out;

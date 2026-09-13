@@ -2,12 +2,13 @@
 
 This file retains durable architecture, product, and operational decisions with explicit `ACTIVE` or `SUPERSEDED` applicability. The current summary wins when applicability differs; historical records remain for traceability. This is not a progress log or test report.
 
-## CURRENT DECISION SUMMARY — 2026-09-12
+## CURRENT DECISION SUMMARY — 2026-09-13
 
 - `PROGRESS.md` is authoritative for current status; `TEST_REPORT.md` is authoritative for validation evidence; this file is for durable decisions. Historical execution records remain traceable in the dated sections.
 - The current non-ASR subtitle architecture is the accepted Option B boundary: same-origin Vercel (`VPS → Supadata → npm`) handles the normal caption path; the Cloudflare Worker is an explicit ASR opt-in path. Earlier Worker-first, synchronous-probe, and subtitle-budget `NEXT` text is historical, not a new implementation request.
-- Dictionary reference consistency is **PRODUCTION ACCEPTED** on exact SHA `5094c66c63018dd5a8cb0d39837528d0842c34c7`. Its acceptance smoke used local `/api/dictionary` fixtures and observed zero paid/provider outbound traffic; this does not establish billing truth.
-- No proven high-value engineering bug is currently active. Current evidence-dependent follow-up is limited to Supadata cost/billing review, Invidious/Piped health/pruning, and low-priority consolidation leftovers. A real learning-session UX milestone is only a recommended future product-selection direction until explicitly accepted.
+- `AI_AUTH_COST_BOUNDARY_V1` is **PRODUCTION ACCEPTED** (2026-09-13): `/api/ai` requires a verified Firebase ID token before any provider fetch; anonymous calls get 401; Guest learning journeys run with zero `/api/ai` attempts; the authenticated positive path (Bearer → JWKS verify → real DeepSeek 200 → usable UI result) is production-verified for both transcript Analyze and vocabulary AI enrichment.
+- Dictionary reference consistency is **PRODUCTION ACCEPTED** (2026-09-12). Its acceptance smoke used local `/api/dictionary` fixtures and observed zero paid/provider outbound traffic; this does not establish billing truth.
+- No proven high-value engineering bug is currently active. Current evidence-dependent follow-up is limited to Supadata cost/billing review, Invidious/Piped health/pruning, and low-priority consolidation leftovers. Queued directions: `DEEPSEEK_V4_MODEL_REFRESH_V1` (research-first), lemma-provenance bounded verification, and `REAL_LEARNING_SESSION_UX_V2` product selection — none change release state yet.
 
 ## D-001 — Documentation source-of-truth ownership
 
@@ -234,11 +235,21 @@ Once the active goal, root cause, and acceptance criteria are sufficiently speci
 ## GUEST_AI_COST_BOUNDARY_V1 - /api/ai authenticated trust boundary
 
 - Date: 2026-09-12
-- Status: ACTIVE / LOCAL VERIFIED (not committed, not deployed)
+- Status: ACTIVE / PRODUCTION ACCEPTED (2026-09-13; deployed as `391a08e` + `962f613`)
 - Decision: `/api/ai` now requires a verified Firebase ID token (`Authorization: Bearer`, RS256 against Google's public JWKS) BEFORE any provider fetch; unauthenticated requests get 401 and can never spend DeepSeek/Gemini quota. Origin/CORS/per-IP rate limiting remain hardening only, not identity. Client-side, AI enrichment is an authenticated-only capability: Guest save (`enrichVocabularyItem`) and Vocabulary/Sentences auto-translate skip the AI translation path and keep the non-AI fallbacks (dictionary reference meaning, quick gloss); saving never fails for guests. Authenticated users keep existing AI behavior (token attached by `src/services/apiAuth.ts`).
-- Evidence: `DICTIONARY_LANGUAGE_AI_GATE_REPRO_V1` proved Guest saves fired `POST /api/ai` (DeepSeek) through `translationService.translateWord`, with no authentication anywhere on the path; language-race hypothesis disproven 5/5.
+- Evidence: `DICTIONARY_LANGUAGE_AI_GATE_REPRO_V1` proved Guest saves fired `POST /api/ai` (DeepSeek) through `translationService.translateWord`, with no authentication anywhere on the path; language-race hypothesis disproven 5/5. Production acceptance evidence (2026-09-13): anonymous 401 probes, fresh-Guest journey with `/api/ai` = 0, authenticated positive path — see `TEST_REPORT.md` 2026-09-13 and `AI_AUTH_COST_BOUNDARY_V1` below.
 - Implementation: `api/_shared/firebaseAuth.ts` (new verifier, no firebase-admin), `api/ai.ts` 401 gate, `src/services/apiAuth.ts` + three AI services, `vocabularyEnrichment.ts` `aiTranslationEnabled` flag (default false = fail-closed), StudyPage/VocabularyPage/SentencesPage/WordDictionaryPopup gating.
 - Deploy note: project id falls back to the public bundled `echolearn-9f369` config value; override with `FIREBASE_PROJECT_ID`/`VITE_FIREBASE_PROJECT_ID` env if desired. No secret env required.
-- Boundary: No seek-before-ready, Review hierarchy, UX copy, or other polish changes are included. Real authenticated provider execution was not tested (mock/contract only).
+- Boundary: No seek-before-ready, Review hierarchy, UX copy, or other polish changes are included.
+- Supersedes: None recorded.
+- Superseded by: None recorded.
+
+## AI_AUTH_COST_BOUNDARY_V1 - Authenticated positive-path production acceptance
+
+- Date: 2026-09-13
+- Status: ACTIVE / PRODUCTION ACCEPTED
+- Decision: The AI auth cost boundary is accepted at all three validation layers on Production: (1) anonymous `/api/ai` → 401 before body validation and provider fetch; (2) fresh Guest learning journeys complete with `/api/ai` attempts = 0 (request-level evidence); (3) the authenticated positive path — browser `getIdToken()` Bearer → server JWKS verify → real DeepSeek 200 → usable UI result — is verified for transcript Analyze and vocabulary AI enrichment. AI remains an authenticated-only capability; guests keep the full non-AI learning path.
+- Evidence: `TEST_REPORT.md` section "2026-09-13 - AI_AUTH_COST_BOUNDARY_V1 production acceptance" (three real provider calls total this cycle; transient empty-stream fallback observed once and classified as designed degradation, backlog copy note).
+- Boundary: Vercel function logs were not read (no safe sanitized access this cycle); provider billing truth remains out of scope. No source changes were made in this acceptance cycle.
 - Supersedes: None recorded.
 - Superseded by: None recorded.

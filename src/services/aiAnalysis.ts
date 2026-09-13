@@ -29,11 +29,8 @@ export function isLocalNoTranslation(value: string | undefined | null): boolean 
 
 /** Requests go through the server-side proxy at /api/ai (API key stays server-side). */
 const DEEPSEEK_ENDPOINT = '/api/ai';
-// NOTE: previously 'deepseek-v4-flash', but that is a REASONING model — it returns
-// a large reasoning_content block that we discard, wastes tokens, is slow (~50s),
-// and is more prone to truncating the JSON on long transcripts. 'deepseek-chat' is
-// the non-reasoning chat model: faster, cheaper, and produces cleaner JSON.
-const DEEPSEEK_MODEL = 'deepseek-chat';
+// DeepSeek-V4-Flash-0731; disable thinking for routine structured analysis.
+const DEEPSEEK_MODEL = 'deepseek-v4-flash';
 
 /** Max characters of transcript to send (keeps tokens reasonable). */
 const MAX_TRANSCRIPT_CHARS = 12000;
@@ -205,6 +202,7 @@ async function callDeepSeek(
     },
     body: JSON.stringify({
       model: DEEPSEEK_MODEL,
+      thinking: { type: 'disabled' },
       messages: [
         { role: 'system', content: buildSystemPrompt() },
         {

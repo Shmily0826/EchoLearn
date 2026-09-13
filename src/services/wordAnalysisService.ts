@@ -22,8 +22,8 @@
  *  - Any failure (network, rate-limit, bad JSON) degrades gracefully to null —
  *    the Free Dictionary data still renders, so the popup never hard-fails.
  *
- * Cost: ~0.5–0.7K tokens per call; deepseek-chat is ~$0.07 / 1M tokens, so at
- * any realistic scale this is effectively free, especially with per-(word,video)
+ * Cost: ~0.5–0.7K tokens per call; at any realistic scale this is effectively
+ * free, especially with per-(word,video)
  * caching + the zh-only gate.
  */
 
@@ -32,7 +32,8 @@ import { aiAuthHeaders } from './apiAuth';
 
 /** Server-side DeepSeek proxy (API key never reaches the browser). */
 const DEEPSEEK_ENDPOINT = '/api/ai';
-const DEEPSEEK_MODEL = 'deepseek-chat';
+// DeepSeek-V4-Flash-0731; disable thinking for routine single-word analysis.
+const DEEPSEEK_MODEL = 'deepseek-v4-flash';
 const MAX_TOKENS = 500;
 const TTL_MS = 1000 * 60 * 60 * 24 * 30; // 30 days
 
@@ -266,6 +267,7 @@ export async function getWordAnalysis(
         headers: { 'Content-Type': 'application/json', ...(await aiAuthHeaders()) },
         body: JSON.stringify({
           model: DEEPSEEK_MODEL,
+          thinking: { type: 'disabled' },
           messages: buildMessages(word, opts.context),
           temperature: 0.3,
           response_format: { type: 'json_object' },
