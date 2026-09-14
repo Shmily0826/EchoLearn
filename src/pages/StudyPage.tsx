@@ -8,6 +8,7 @@ import TranscriptImporter from '../components/TranscriptImporter';
 import AIAnalysisPanel from '../components/AIAnalysisPanel';
 import MobileTranscriptPanel from '../components/study/MobileTranscriptPanel';
 import SavedItemsPanel from '../components/study/SavedItemsPanel';
+import StudySettingsMenu from '../components/study/StudySettingsMenu';
 import { parseYouTubeId, parseStartTime } from '../utils/youtube';
 import { detectPlatform, parseBilibiliId, parseBilibiliStartTime, parseBilibiliPage, hasInvalidBilibiliPage } from '../utils/bilibili';
 import { normalizeTranscriptToSentences } from '../utils/transcriptNormalizer';
@@ -32,7 +33,7 @@ import { fetchBilibiliTranscript, getBilibiliVideoTitle, getBilibiliMetaByUrl } 
 import { enrichVocabularyItem, prepareVocabularyItem } from '../services/vocabularyEnrichment';
 import { pushItemsToCloud, pushSessionToCloud } from '../services/firestoreSync';
 import { useAuth } from '../contexts/AuthContext';
-import { CEFR_LEVELS, type CEFRLevel } from '../services/cefrWordList';
+import { type CEFRLevel } from '../services/cefrWordList';
 import { useI18n } from '../i18n/I18nContext';
 import { useCaptionRequest } from '../hooks/useCaptionRequest';
 import { useSleepTimer } from '../hooks/useSleepTimer';
@@ -70,7 +71,11 @@ import type {
   VideoPlatform,
 } from '../types';
 
-const SPEED_PRESETS = [0.5, 0.75, 1, 1.25, 1.5, 1.75, 2];
+// First-level speed shortcuts. Playback speed IS a high-frequency learning
+// control (1x → 0.8x → 1x and back), so it stays one click away; only the
+// most-used rates get a first-level button. Every rate from 0.25x to 3x stays
+// reachable through the slider next to them.
+const QUICK_SPEED_PRESETS = [0.75, 1, 1.25, 1.5];
 
 // ── Demo / sample video ──────────────────────────────────────
 // When a user opens Study with no saved session, we pre-load a well-known,
@@ -1454,81 +1459,68 @@ const StudyPage: React.FC = () => {
             {/* Quick info */}
             {videoId && (
               <div className="mt-2 flex flex-col gap-1.5">
-                {/* Playback speed + timer — merged on mobile */}
-                <div className="flex items-center gap-2 flex-wrap">
-                  <span className="text-[10px] text-gray-400 dark:text-gray-500 font-medium shrink-0">
-                    {t('study.speed')}:
-                  </span>
-                  <div className="flex items-center gap-1 sm:gap-0.5">
-                    {SPEED_PRESETS.map((rate) => (
-                      <button
-                        key={rate}
-                        onClick={() => setPlaybackRate(rate)}
-                        className={`px-2 py-1 sm:px-1.5 sm:py-0.5 text-[11px] sm:text-[10px] rounded transition-colors cursor-pointer ${
-                          playbackRate === rate
-                            ? 'bg-indigo-100 dark:bg-indigo-900/40 text-indigo-700 dark:text-indigo-300 font-semibold'
-                            : 'text-gray-500 dark:text-gray-400 hover:bg-gray-100 dark:hover:bg-slate-700'
-                        }`}
-                      >
-                        {rate}x
-                      </button>
-                    ))}
-                  </div>
-                  {/* Slider — compact on mobile, wider on desktop */}
-                  <div className="flex items-center gap-1 flex-1 min-w-[100px] sm:min-w-[140px] relative">
-                    <input
-                      type="range"
-                      min={0.25}
-                      max={3}
-                      step={0.05}
-                      value={playbackRate}
-                      onChange={(e) => setPlaybackRate(parseFloat(e.target.value))}
-                      className="flex-1 h-1 accent-indigo-500 cursor-pointer"
-                    />
-                    <span className={`text-[10px] font-mono w-10 tabular-nums shrink-0 transition-opacity duration-300 ${
-                      speedToast
-                        ? 'text-indigo-600 dark:text-indigo-400 font-semibold opacity-100'
-                        : 'text-gray-500 dark:text-gray-400 opacity-0 sm:opacity-100'
-                    }`}>
-                      {playbackRate.toFixed(2)}x
+                {/* Playback speed stays first-level: it is a high-frequency
+                    learning control. Timer / CEFR level / reload transcript are
+                    session-level or recovery controls, so they live in the
+                    secondary settings menu beside it. */}
+                <div className="flex items-center gap-2">
+                  {/* The speed controls may wrap onto several lines on a phone.
+                      The settings trigger deliberately sits outside that
+                      wrapping block so it always stays at the right end of the
+                      row — its popover is right-anchored, so keeping the
+                      trigger at the row's right edge is what stops the panel
+                      from being pushed off the left of a narrow viewport. */}
+                  <div className="flex items-center gap-2 flex-1 min-w-0 flex-wrap">
+                    <span className="text-[10px] text-gray-400 dark:text-gray-500 font-medium shrink-0">
+                      {t('study.speed')}:
                     </span>
-                  </div>
-                  {/* Timer — on same row as speed on mobile */}
-                  <div className="flex items-center gap-1">
-                    <span className="text-[10px] text-gray-400 dark:text-gray-500 font-medium shrink-0 ml-1">
-                      {t('study.timer')}:
-                    </span>
-                    <div className="flex items-center gap-0.5">
-                      {[0, 15, 30, 45, 60].map((min) => (
+                    <div className="flex items-center gap-1 sm:gap-0.5">
+                      {QUICK_SPEED_PRESETS.map((rate) => (
                         <button
-                          key={min}
-                          onClick={() => setSleepMinutes(min)}
-                          className={`px-1 py-0.5 text-[10px] rounded transition-colors cursor-pointer ${
-                            sleepMinutes === min
+                          key={rate}
+                          onClick={() => setPlaybackRate(rate)}
+                          aria-pressed={playbackRate === rate}
+                          className={`px-2 py-1 sm:px-1.5 sm:py-0.5 text-[11px] sm:text-[10px] rounded transition-colors cursor-pointer ${
+                            playbackRate === rate
                               ? 'bg-indigo-100 dark:bg-indigo-900/40 text-indigo-700 dark:text-indigo-300 font-semibold'
                               : 'text-gray-500 dark:text-gray-400 hover:bg-gray-100 dark:hover:bg-slate-700'
                           }`}
                         >
-                          {min === 0 ? t('study.timerOff') : `${min}`}
+                          {rate}x
                         </button>
                       ))}
                     </div>
-                    {/* Manual minute input */}
-                    <input
-                      type="number"
-                      min={1}
-                      max={180}
-                      placeholder="min"
-                      value=""
-                      onChange={(e) => {
-                        const v = Math.max(0, Math.min(180, Number(e.target.value) || 0));
-                        if (v > 0) setSleepMinutes(v);
-                        e.target.value = '';
-                      }}
-                      className="w-10 px-1 py-0.5 text-[10px] border border-gray-200 dark:border-slate-700 rounded bg-white dark:bg-slate-800 text-gray-600 dark:text-gray-400 focus:outline-none text-center"
-                      title={t('study.timerCustom')}
-                    />
+                    {/* Slider — compact on mobile, wider on desktop */}
+                    <div className="flex items-center gap-1 flex-1 min-w-[100px] sm:min-w-[140px]">
+                      <input
+                        type="range"
+                        min={0.25}
+                        max={3}
+                        step={0.05}
+                        value={playbackRate}
+                        onChange={(e) => setPlaybackRate(parseFloat(e.target.value))}
+                        aria-label={t('study.speed')}
+                        className="flex-1 h-1 accent-indigo-500 cursor-pointer"
+                      />
+                      <span className={`text-[10px] font-mono w-10 tabular-nums shrink-0 transition-opacity duration-300 ${
+                        speedToast
+                          ? 'text-indigo-600 dark:text-indigo-400 font-semibold opacity-100'
+                          : 'text-gray-500 dark:text-gray-400 opacity-0 sm:opacity-100'
+                      }`}>
+                        {playbackRate.toFixed(2)}x
+                      </span>
+                    </div>
                   </div>
+                  <StudySettingsMenu
+                    sleepMinutes={sleepMinutes}
+                    onSleepMinutesChange={setSleepMinutes}
+                    cefrMin={cefrMin}
+                    onCefrMinChange={setCefrMin}
+                    cefrMax={cefrMax}
+                    onCefrMaxChange={setCefrMax}
+                    onReloadTranscript={handleReloadTranscript}
+                    reloadDisabled={fetchingCaption}
+                  />
                 </div>
                 {sleepRemaining > 0 && (
                   <span className="flex items-center gap-1.5 text-[10px] text-amber-600 dark:text-amber-400 font-mono tabular-nums">
@@ -1606,57 +1598,8 @@ const StudyPage: React.FC = () => {
                         )}
                       </button>
                     )}
-                    {displayLines.length > 0 && (
-                      <button
-                        onClick={handleReloadTranscript}
-                        disabled={fetchingCaption}
-                        className="flex items-center gap-1 px-2 py-0.5 text-[10px] font-medium text-gray-500 dark:text-gray-400 hover:text-indigo-500 dark:hover:text-indigo-400 disabled:opacity-50 disabled:cursor-not-allowed cursor-pointer"
-                      >
-                        <svg className={`w-2.5 h-2.5 ${fetchingCaption ? 'animate-spin' : ''}`} fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
-                          <path strokeLinecap="round" strokeLinejoin="round" d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" />
-                        </svg>
-                        {t('study.reloadTranscript')}
-                      </button>
-                    )}
                   </div>
                 </div>
-                {/* Mobile analysis controls — words/sents/level only */}
-                {displayLines.length > 0 && (
-                  <div data-tour="study-controls" className="flex items-center gap-2 px-3 py-1.5 border-b border-gray-100 dark:border-slate-700 flex-wrap">
-                    <div className="flex items-center gap-1 text-[10px]" title={t('study.levelTooltip')}>
-                      <span className="text-gray-400">{t('study.level')}</span>
-                      <select
-                        value={cefrMin}
-                        title={t('study.levelTooltip')}
-                        onChange={(e) => {
-                          const v = e.target.value as CEFRLevel;
-                          setCefrMin(v);
-                          if (CEFR_LEVELS.indexOf(v) > CEFR_LEVELS.indexOf(cefrMax)) setCefrMax(v);
-                        }}
-                        className="px-1 py-0.5 border border-gray-200 dark:border-slate-700 rounded text-[10px] bg-white dark:bg-slate-800 text-gray-600 dark:text-gray-400 focus:outline-none cursor-pointer"
-                      >
-                        {CEFR_LEVELS.map((l) => (
-                          <option key={l} value={l}>{l}</option>
-                        ))}
-                      </select>
-                      <span className="text-gray-300">–</span>
-                      <select
-                        value={cefrMax}
-                        title={t('study.levelTooltip')}
-                        onChange={(e) => {
-                          const v = e.target.value as CEFRLevel;
-                          setCefrMax(v);
-                          if (CEFR_LEVELS.indexOf(v) < CEFR_LEVELS.indexOf(cefrMin)) setCefrMin(v);
-                        }}
-                        className="px-1 py-0.5 border border-gray-200 dark:border-slate-700 rounded text-[10px] bg-white dark:bg-slate-800 text-gray-600 dark:text-gray-400 focus:outline-none cursor-pointer"
-                      >
-                        {CEFR_LEVELS.map((l) => (
-                          <option key={l} value={l}>{l}</option>
-                        ))}
-                      </select>
-                    </div>
-                  </div>
-                )}
                 <p className="w-full min-w-0 max-w-full overflow-hidden px-3 py-1.5 text-[11px] text-indigo-600 dark:text-indigo-300 bg-indigo-50/70 dark:bg-indigo-950/30 border-b border-indigo-100 dark:border-indigo-900 break-words">
                   {t('study.transcriptHint')}
                 </p>
@@ -1766,49 +1709,8 @@ const StudyPage: React.FC = () => {
                     {t('study.fetchingCaption')} <span className="tabular-nums opacity-80">· {fetchElapsed}s</span>
                   </span>
                 )}
-                {/* Count selectors + CEFR + Analyze (only when transcript loaded) */}
-                {displayLines.length > 0 && (
-                  <div data-tour="study-controls" className="flex items-center gap-1.5 sm:gap-3 flex-wrap">
-                    {/* CEFR level range selector */}
-                    <div className="flex items-center gap-1 text-[11px]" title={t('study.levelTooltip')}>
-                      <span className="text-gray-400 dark:text-gray-500 mr-0.5">{t('study.level')}</span>
-                      <select
-                        value={cefrMin}
-                        title={t('study.levelTooltip')}
-                        onChange={(e) => {
-                          const v = e.target.value as CEFRLevel;
-                          setCefrMin(v);
-                          if (CEFR_LEVELS.indexOf(v) > CEFR_LEVELS.indexOf(cefrMax)) {
-                            setCefrMax(v);
-                          }
-                        }}
-                        className="px-1.5 py-1 border border-gray-200 dark:border-slate-700 rounded text-[11px] bg-white dark:bg-slate-800 text-gray-600 dark:text-gray-400 focus:outline-none focus:ring-1 focus:ring-indigo-300 cursor-pointer"
-                      >
-                        {CEFR_LEVELS.map((l) => (
-                          <option key={l} value={l}>{l}</option>
-                        ))}
-                      </select>
-                      <span className="text-gray-300 dark:text-gray-500">–</span>
-                      <select
-                        value={cefrMax}
-                        title={t('study.levelTooltip')}
-                        onChange={(e) => {
-                          const v = e.target.value as CEFRLevel;
-                          setCefrMax(v);
-                          if (CEFR_LEVELS.indexOf(v) < CEFR_LEVELS.indexOf(cefrMin)) {
-                            setCefrMin(v);
-                          }
-                        }}
-                        className="px-1.5 py-1 border border-gray-200 dark:border-slate-700 rounded text-[11px] bg-white dark:bg-slate-800 text-gray-600 dark:text-gray-400 focus:outline-none focus:ring-1 focus:ring-indigo-300 cursor-pointer"
-                      >
-                        {CEFR_LEVELS.map((l) => (
-                          <option key={l} value={l}>{l}</option>
-                        ))}
-                      </select>
-                    </div>
-                  </div>
-                )}
-                {/* Analyze button */}
+                {/* Analyze button — the level range it uses now lives in the
+                    secondary Study settings menu. */}
                 {displayLines.length > 0 && (
                   <button
                     data-tour="study-ai"
@@ -1841,19 +1743,6 @@ const StudyPage: React.FC = () => {
                 >
                   {`${sentenceLines.length} ${t('study.totalLines')}`}
                 </span>
-                {videoId && (
-                  <button
-                    onClick={handleReloadTranscript}
-                    disabled={fetchingCaption}
-                    title={t('study.reloadTranscript')}
-                    className="flex items-center gap-1 px-2 py-1 text-[11px] text-gray-500 dark:text-gray-400 hover:text-indigo-500 dark:hover:text-indigo-400 disabled:opacity-40 disabled:cursor-not-allowed cursor-pointer"
-                  >
-                    <svg className={`w-3.5 h-3.5 ${fetchingCaption ? 'animate-spin' : ''}`} fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
-                      <path strokeLinecap="round" strokeLinejoin="round" d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" />
-                    </svg>
-                    <span className="hidden sm:inline">{t('study.reloadTranscript')}</span>
-                  </button>
-                )}
               </div>
             </div>
 
