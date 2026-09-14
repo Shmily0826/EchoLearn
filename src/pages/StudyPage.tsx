@@ -73,9 +73,11 @@ import type {
 
 // First-level speed shortcuts. Playback speed IS a high-frequency learning
 // control (1x → 0.8x → 1x and back), so it stays one click away; only the
-// most-used rates get a first-level button. Every rate from 0.25x to 3x stays
-// reachable through the slider next to them.
-const QUICK_SPEED_PRESETS = [0.75, 1, 1.25, 1.5];
+// most-used rates get a first-level button. 2x stays here because it is the
+// "revise quickly" rate learners actually switch to, and the media-sync E2E
+// journey depends on it being reachable in one click (dropping it broke CI).
+// Every rate from 0.25x to 3x stays reachable through the slider next to them.
+const QUICK_SPEED_PRESETS = [0.75, 1, 1.25, 1.5, 2];
 
 // ── Demo / sample video ──────────────────────────────────────
 // When a user opens Study with no saved session, we pre-load a well-known,
