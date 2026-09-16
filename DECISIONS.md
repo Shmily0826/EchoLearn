@@ -8,6 +8,7 @@ This file retains durable architecture, product, and operational decisions with 
 - **Production AI authority:** current primary is Gemini (`AI_PROVIDER=gemini`), manually verified in the Vercel Dashboard for Production scope on 2026-09-13. `GEMINI_MODEL` and `GEMINI_API_KEY` are configured in Production; no secret value is recorded. Production deployment `ff8f5b7` is **READY**.
 - **Provider compatibility decision:** the DeepSeek V4 refresh in `2146c74` is fallback/provider-compatibility work, not a change to the active Gemini primary. The earlier authenticated Production smoke that observed DeepSeek remains historical evidence.
 - **Study context continuity:** `STUDY_CONTEXT_CONTINUITY_V1` is **LOCAL VERIFIED** and deployed in `ff8f5b7`, but its bounded Production behavioral smoke remains **UNVERIFIED / PARTIAL** because tooling could not safely seed a synthetic session or install network interception. No Production behavioral acceptance is claimed.
+- **Auth-gated capability testing (2026-09-16):** AI Analyze, bulk translation and authenticated persistence cannot be reached by the guest E2E suites by construction. Cover them in two layers: an intercepted-identity fixture in CI, plus a manual on-demand run against a real dedicated test account. See D-009 for the boundary.
 - `REAL_LEARNING_SESSION_UX_V2` is the next substantive product-direction candidate, not yet accepted implementation scope.
 - No proven high-value engineering bug is currently active. Current evidence-dependent follow-up remains limited to Supadata cost/billing review, Invidious/Piped health and pruning, and low-priority consolidation leftovers.
 ## D-001 — Documentation source-of-truth ownership
@@ -63,6 +64,19 @@ A new issue blocks a milestone only when it reproduces in real execution, is pro
 ### Active-goal scope discipline
 
 Once the active goal, root cause, and acceptance criteria are sufficiently specific, every subsequent investigation, test, read, or edit must serve a clear current hypothesis, acceptance criterion, regression, or safety purpose. Unrelated historical rollout or memory reading, speculative edge-case exploration, repeating stable tests, and polishing unrelated paths are scope drift; the supervisor should redirect or interrupt work that no longer advances the bounded goal. History remains appropriate at task start or recovery, and when a concrete current hypothesis requires it. This guard prevents token/time waste, accidental scope expansion, stale-context fixation, misleading progress, and risk to unrelated dirty work.
+
+## D-009 - Auth-gated capabilities are tested in two layers
+
+- Date: 2026-09-16
+- Status: ACTIVE
+- Decision: Every AI-gated capability (Study Analyze, Vocabulary/Sentences bulk translation, authenticated learning-data persistence) sits behind one identity boundary that the guest E2E suites cannot cross: `AuthContext`'s `user` derives solely from Firebase `onAuthStateChanged`, guest mode only sets `localStorage['echolearn_guest_mode']` and never a user, and `api/ai.ts` rejects unauthenticated requests with 401 before any provider call. Cover these capabilities in exactly two layers:
+  1. **CI regression, intercepted identity.** Fake the Firebase Auth REST responses at the network layer so the real client SDK commits a signed-in state, and route-mock `/api/ai` to a fixed fixture. This is deterministic, spends nothing, writes no Production data, and covers the full UI behaviour (panel render, CEFR range, save flows, failure states, out-of-order responses).
+  2. **Manual on-demand end-to-end, real identity.** A dedicated test account, real provider call, real output judged against a quality rubric. Never in CI.
+- Rationale: The alternative of relaxing the identity boundary to make these flows guest-testable would remove the deliberate protection that keeps unauthenticated requests from spending provider keys. The alternative of a Firebase Auth emulator does not work here: `api/_shared/firebaseAuth.ts` verifies RS256 against Google's public JWKS directly (no `firebase-admin`), so an emulator-signed token fails validation, and supporting it would mean changing production authentication code for test convenience.
+- Cost boundary: provider cost is not the limiting factor and should not be treated as one. `gemini-3.5-flash-lite` is $0.30/1M input and $2.50/1M output; with the transcript capped at 12000 characters by `smartTruncate` and output capped at 4096 tokens, one Analyze call is roughly $0.008. `aiAnalysis.ts` additionally stores results in a shared Firestore `aiAnalyses` cache keyed by transcript hash with a 30-day TTL, so a repeated analysis of the same video costs nothing. The binding constraints are identity, rate limits (10/minute, 100/hour), model non-determinism, and keeping Production data clean.
+- Consequence for test design: because AI output is non-deterministic, provider-quality scoring is a report from layer 2, never a CI assertion. Cache HIT means a layer-2 run can silently stop exercising the provider, so a provider-quality run must confirm it actually missed the cache.
+- Supersedes: None recorded.
+- Superseded by: None recorded.
 
 ## D-008 - Bootstrap-aware Linux M7 gate remains unaccepted
 
