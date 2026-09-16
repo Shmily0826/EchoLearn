@@ -2958,3 +2958,7 @@ result recorded below.
 
 Lesson worth keeping: a console assertion that can only say "403 (Forbidden)" is not diagnostic. Always
 collect the response alongside it.
+
+**CI result: green.** Run 35162186590 (before the Vercel stub) named the URL; run 35162940514 on
+`d262974` passed both jobs — `test` and `e2e` (58 tests, 3 projects). Local at the same commit:
+Playwright 58/58, Vitest 597/597 (54 files), `tsc --noEmit` clean.
