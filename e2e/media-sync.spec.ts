@@ -105,8 +105,24 @@ test.describe('Batch 4 — media synchronization', () => {
     await mockAudioAndStart(page);
     await setControlledMediaTime(page, 27.5);
     await expect(activeLine(page, SAMPLE_FIRST)).toHaveClass(/bg-indigo-50/);
+    await expect(page.getByTestId('study-current-context')).toContainText(SAMPLE_FIRST);
+    await expect(page.getByTestId('study-replay-context')).toBeVisible();
     await setControlledMediaTime(page, 30.2);
     await expect(activeLine(page, SAMPLE_SECOND)).toHaveClass(/bg-indigo-50/);
+    await expect(page.getByTestId('study-current-context')).toContainText(SAMPLE_SECOND);
+  });
+
+  test('explicit transcript selection overrides playback-derived context', async ({ page }) => {
+    await mockAudioAndStart(page);
+    await setControlledMediaTime(page, 30.2);
+    await expect(page.getByTestId('study-current-context')).toContainText(SAMPLE_SECOND);
+
+    await activeLine(page, SAMPLE_FIRST).click();
+    await expect(page.getByTestId('study-current-context')).toContainText(SAMPLE_FIRST);
+
+    await setControlledMediaTime(page, 31.5);
+    await expect(activeLine(page, SAMPLE_THIRD)).toHaveClass(/bg-indigo-50/);
+    await expect(page.getByTestId('study-current-context')).toContainText(SAMPLE_FIRST);
   });
 
   test('pause keeps the active line tied to media time', async ({ page }) => {

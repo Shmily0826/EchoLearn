@@ -324,7 +324,8 @@ const StudyPage: React.FC = () => {
     if (videoId) setSelectedContext({ videoId, line });
   }, [videoId]);
 
-  const currentContext = selectedContext?.videoId === videoId ? selectedContext.line : null;
+  const playbackContext = activeLineIndex >= 0 ? displayLines[activeLineIndex] ?? null : null;
+  const currentContext = selectedContext?.videoId === videoId ? selectedContext.line : playbackContext;
   const replayCurrentContext = useCallback(() => {
     if (currentContext) handleSeekTo(currentContext.start, true);
   }, [currentContext, handleSeekTo]);
