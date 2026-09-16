@@ -148,7 +148,12 @@ const StudyPage: React.FC = () => {
   // Transcript state — raw caption blocks + sentence-level lines
   const [rawBlocks, setRawBlocks] = useState<TranscriptLine[]>([]);
   const [sentenceLines, setSentenceLines] = useState<TranscriptLine[]>([]);
-  const [selectedContext, setSelectedContext] = useState<{ videoId: string; line: TranscriptLine } | null>(null);
+  const [selectedContext, setSelectedContext] = useState<{
+    videoId: string;
+    line: TranscriptLine;
+    selectedAtTime: number;
+  } | null>(null);
+  const [lookupActive, setLookupActive] = useState(false);
 
   // Saved data state (all items, filtered by current video for display)
   const [vocabulary, setVocabulary] = useState<VocabularyItem[]>([]);
@@ -321,10 +326,34 @@ const StudyPage: React.FC = () => {
   });
 
   const handleSelectTranscriptLine = useCallback((line: TranscriptLine) => {
-    if (videoId) setSelectedContext({ videoId, line });
-  }, [videoId]);
+    if (videoId) {
+      setSelectedContext({ videoId, line, selectedAtTime: currentTime });
+    }
+  }, [currentTime, videoId]);
 
   const playbackContext = activeLineIndex >= 0 ? displayLines[activeLineIndex] ?? null : null;
+  const selectedContextIndex = selectedContext?.videoId === videoId
+    ? displayLines.findIndex((line) => line.start === selectedContext.line.start)
+    : -1;
+  useEffect(() => {
+    if (
+      !selectedContext ||
+      selectedContext.videoId !== videoId ||
+      selectedContextIndex < 0 ||
+      lookupActive ||
+      currentTime === selectedContext.selectedAtTime ||
+      currentTime < selectedContext.line.end ||
+      activeLineIndex <= selectedContextIndex
+    ) return;
+    const releaseTimer = window.setTimeout(() => {
+      setSelectedContext((current) => (
+        current?.videoId === selectedContext.videoId && current.line.start === selectedContext.line.start
+          ? null
+          : current
+      ));
+    }, 0);
+    return () => window.clearTimeout(releaseTimer);
+  }, [activeLineIndex, currentTime, lookupActive, selectedContext, selectedContextIndex, videoId]);
   const currentContext = selectedContext?.videoId === videoId ? selectedContext.line : playbackContext;
   const replayCurrentContext = useCallback(() => {
     if (currentContext) handleSeekTo(currentContext.start, true);
@@ -850,6 +879,8 @@ const StudyPage: React.FC = () => {
     clearCurrentSession();
     setSession(null);
     setVideoId(null);
+    setSelectedContext(null);
+    setLookupActive(false);
     setStartTime(undefined);
     setUrlInput('');
     setSessionTitle('');
@@ -1619,6 +1650,7 @@ const StudyPage: React.FC = () => {
                   onRemoveSentence={handleToggleSentenceOff}
                   selectedLineStart={currentContext?.start}
                   onSelectLine={handleSelectTranscriptLine}
+                  onLookupStateChange={setLookupActive}
                   onSeekTo={handleSeekTo}
                 />
               </div>
@@ -1769,6 +1801,7 @@ const StudyPage: React.FC = () => {
                 activeLineIndex={activeLineIndex}
                 selectedLineStart={currentContext?.start}
                 onSelectLine={handleSelectTranscriptLine}
+                onLookupStateChange={setLookupActive}
                 onSeekTo={handleSeekTo}
                 />
               </>

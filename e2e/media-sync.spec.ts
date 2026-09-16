@@ -93,6 +93,11 @@ async function mockAudioAndStart(page: Page) {
     contentType: 'application/json',
     body: JSON.stringify({ title: 'Media sync fixture' }),
   }));
+  await page.route('**/api/dictionary*', (route) => route.fulfill({
+    status: 200,
+    contentType: 'application/json',
+    body: JSON.stringify({ word: 'Good', definition: 'of high quality', partOfSpeech: 'adjective' }),
+  }));
   await enterGuestStudy(page, 'bilibili');
 }
 
@@ -112,7 +117,7 @@ test.describe('Batch 4 — media synchronization', () => {
     await expect(page.getByTestId('study-current-context')).toContainText(SAMPLE_SECOND);
   });
 
-  test('explicit transcript selection overrides playback-derived context', async ({ page }) => {
+  test('explicit transcript selection temporarily overrides playback-derived context', async ({ page }) => {
     await mockAudioAndStart(page);
     await setControlledMediaTime(page, 30.2);
     await expect(page.getByTestId('study-current-context')).toContainText(SAMPLE_SECOND);
@@ -122,7 +127,22 @@ test.describe('Batch 4 — media synchronization', () => {
 
     await setControlledMediaTime(page, 31.5);
     await expect(activeLine(page, SAMPLE_THIRD)).toHaveClass(/bg-indigo-50/);
+    await expect(page.getByTestId('study-current-context')).toContainText(SAMPLE_THIRD);
+  });
+
+  test('active word lookup retains its source context while playback advances', async ({ page }) => {
+    await mockAudioAndStart(page);
+    await setControlledMediaTime(page, 27.5);
+    await activeLine(page, SAMPLE_FIRST).getByRole('button', { name: 'Look up Good', exact: true }).click();
+    await expect(page.getByTestId('dictionary-source-context')).toContainText(SAMPLE_FIRST);
+
+    await setControlledMediaTime(page, 31.5);
+    await expect(activeLine(page, SAMPLE_THIRD)).toHaveClass(/bg-indigo-50/);
     await expect(page.getByTestId('study-current-context')).toContainText(SAMPLE_FIRST);
+
+    await page.getByTestId('study-current-context').click();
+    await expect(page.locator('[data-dictionary-popup]')).toHaveCount(0);
+    await expect(page.getByTestId('study-current-context')).toContainText(SAMPLE_THIRD);
   });
 
   test('pause keeps the active line tied to media time', async ({ page }) => {

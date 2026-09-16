@@ -29,11 +29,12 @@ const MobileTranscriptPanel: React.FC<{
   savedSentenceIds: Map<string, string>;
   selectedLineStart?: number;
   onSelectLine?: (line: TranscriptLine) => void;
+  onLookupStateChange?: (active: boolean) => void;
   onAddVocabulary: (item: VocabularyItem) => void;
   onAddSentence: (item: SentenceItem) => void;
   onRemoveSentence: (id: string) => void;
   onSeekTo: (seconds: number) => void;
-}> = ({ lines, activeLineIndex, videoId, videoTitle, savedWords, savedSentences, savedSentenceIds, selectedLineStart, onSelectLine, onAddVocabulary, onAddSentence, onRemoveSentence, onSeekTo }) => {
+}> = ({ lines, activeLineIndex, videoId, videoTitle, savedWords, savedSentences, savedSentenceIds, selectedLineStart, onSelectLine, onLookupStateChange, onAddVocabulary, onAddSentence, onRemoveSentence, onSeekTo }) => {
   const { t, lang } = useI18n();
   const containerRef = useRef<HTMLDivElement>(null);
   const activeRef = useRef<HTMLDivElement>(null);
@@ -87,7 +88,8 @@ const MobileTranscriptPanel: React.FC<{
       rowBottom: rowRect?.bottom ?? rect.bottom,
     });
     onSelectLine?.(line);
-  }, [onSelectLine]);
+    onLookupStateChange?.(true);
+  }, [onLookupStateChange, onSelectLine]);
 
   // Re-measure the source row after the context bar shifts the layout, so the
   // popup anchors to where the row actually is.
@@ -136,7 +138,8 @@ const MobileTranscriptPanel: React.FC<{
     onAddVocabulary(item);
     setPopup(null);
     setDictionaryData(null);
-  }, [popup, dictionaryData, showChinese, videoId, videoTitle, onAddVocabulary]);
+    onLookupStateChange?.(false);
+  }, [popup, dictionaryData, showChinese, videoId, videoTitle, onAddVocabulary, onLookupStateChange]);
 
   const handleAddSentence = useCallback((line: TranscriptLine) => {
     const item: SentenceItem = {
@@ -181,7 +184,7 @@ const MobileTranscriptPanel: React.FC<{
           sourceRowTop={popup.rowTop}
           sourceRowBottom={popup.rowBottom}
           videoId={videoId}
-          onClose={() => { setPopup(null); setDictionaryData(null); }}
+          onClose={() => { setPopup(null); setDictionaryData(null); onLookupStateChange?.(false); }}
           onDataChange={setDictionaryData}
           actions={
             isWordSaved(dictionaryData?.word || popup.word) ? (

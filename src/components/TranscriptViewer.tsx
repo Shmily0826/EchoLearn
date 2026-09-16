@@ -22,6 +22,7 @@ interface TranscriptViewerProps {
   activeLineIndex: number;
   selectedLineStart?: number;
   onSelectLine?: (line: TranscriptLine) => void;
+  onLookupStateChange?: (active: boolean) => void;
   onSeekTo: (seconds: number) => void;
 }
 
@@ -48,6 +49,7 @@ const TranscriptViewer: React.FC<TranscriptViewerProps> = ({
   activeLineIndex,
   selectedLineStart,
   onSelectLine,
+  onLookupStateChange,
   onSeekTo,
 }) => {
   const { t, lang } = useI18n();
@@ -116,6 +118,7 @@ const TranscriptViewer: React.FC<TranscriptViewerProps> = ({
       rowBottom: rowRect?.bottom ?? rect.bottom,
     });
     onSelectLine?.(line);
+    onLookupStateChange?.(true);
   };
 
   // Re-measure the source row once the context bar (mounted by this same
@@ -166,6 +169,7 @@ const TranscriptViewer: React.FC<TranscriptViewerProps> = ({
     onAddVocabulary(item);
     setPopup(null);
     setDictionaryData(null);
+    onLookupStateChange?.(false);
   };
 
   const handleAddSentence = (line: TranscriptLine) => {
@@ -203,7 +207,7 @@ const TranscriptViewer: React.FC<TranscriptViewerProps> = ({
           sourceRowTop={popup.rowTop}
           sourceRowBottom={popup.rowBottom}
           videoId={videoId}
-          onClose={() => { setPopup(null); setDictionaryData(null); }}
+          onClose={() => { setPopup(null); setDictionaryData(null); onLookupStateChange?.(false); }}
           onDataChange={setDictionaryData}
           actions={
             isWordSaved(dictionaryData?.word || popup.word) ? (
