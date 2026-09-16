@@ -11,7 +11,61 @@ const routes = [
   { path: '/settings', label: 'Settings' },
 ] as const;
 
+/**
+ * Keep this suite away from third-party video hosts.
+ *
+ * The Study page embeds the YouTube player, which pulls the iframe API, the
+ * player bundle and ad endpoints. Some of those (notably the Waa/ads calls)
+ * answer datacenter egress IPs with 403, which surfaced here as an
+ * unexplained "403 (Forbidden)" console error (CI runs 35158633844 and
+ * 35159726225) while the same spec passed locally. Stub only those hosts so
+ * the assertion measures the app, not a third party's IP policy.
+ *
+ * Everything else must keep flowing: Firebase resolves the auth state through
+ * the auth.echo-learn.uk helper iframe, and stubbing that document left
+ * AuthGate on "Loading…" forever.
+ */
+const THIRD_PARTY_HOSTS = [
+  'youtube.com',
+  'youtube-nocookie.com',
+  'ytimg.com',
+  'ggpht.com',
+  'doubleclick.net',
+  'www.google.com',
+  'jnn-pa.googleapis.com',
+];
+
+function isThirdPartyHost(hostname: string) {
+  return THIRD_PARTY_HOSTS.some(
+    (host) => hostname === host || hostname.endsWith(`.${host}`),
+  );
+}
+
+async function stubYouTubeRequests(page: Page) {
+  const ONE_PIXEL_GIF = Buffer.from(
+    'R0lGODlhAQABAIAAAAAAAP///yH5BAEAAAAALAAAAAABAAEAAAIBRAA7',
+    'base64',
+  );
+  await page.route('**/*', async (route) => {
+    const url = route.request().url();
+    if (!/^https?:/.test(url)) return route.continue();
+    if (!isThirdPartyHost(new URL(url).hostname)) return route.continue();
+    const type = route.request().resourceType();
+    if (type === 'document' || type === 'iframe') {
+      return route.fulfill({ status: 200, contentType: 'text/html', body: '' });
+    }
+    if (type === 'script') {
+      return route.fulfill({ status: 200, contentType: 'application/javascript', body: '' });
+    }
+    if (type === 'image') {
+      return route.fulfill({ status: 200, contentType: 'image/gif', body: ONE_PIXEL_GIF });
+    }
+    return route.fulfill({ status: 200, contentType: 'application/json', body: '{}' });
+  });
+}
+
 async function startGuest(page: Page) {
+  await stubYouTubeRequests(page);
   await page.route('**/health', (route) => route.fulfill({
     status: 200,
     contentType: 'application/json',
@@ -57,10 +111,16 @@ test.describe('Batch 11 — mobile/PWA lifecycle', () => {
 
   test('mobile navigation and major pages fit without horizontal overflow', async ({ page }) => {
     const consoleErrors: string[] = [];
+    // Keep the failing URL in the report: a bare "403 (Forbidden)" console
+    // message does not say which resource was refused.
+    const failedResponses: string[] = [];
     page.on('console', (message) => {
       if (message.type() === 'error') consoleErrors.push(message.text());
     });
     page.on('pageerror', (error) => consoleErrors.push(error.message));
+    page.on('response', (response) => {
+      if (response.status() >= 400) failedResponses.push(`${response.status()} ${response.url()}`);
+    });
 
     await startGuest(page);
     await expect(page.locator('nav.md\\:hidden.fixed.bottom-0')).toBeVisible();
@@ -77,7 +137,10 @@ test.describe('Batch 11 — mobile/PWA lifecycle', () => {
 
     await clickMobileNav(page, '/', 'Dashboard');
     await expectNoHorizontalOverflow(page);
-    expect(consoleErrors.filter((message) => !/favicon|service worker/i.test(message))).toEqual([]);
+    expect({
+      consoleErrors: consoleErrors.filter((message) => !/favicon|service worker/i.test(message)),
+      failedResponses,
+    }).toEqual({ consoleErrors: [], failedResponses: [] });
   });
 
   test('Vocabulary filter toolbar wraps within a narrow mobile viewport', async ({ page }) => {

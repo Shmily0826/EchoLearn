@@ -2892,3 +2892,53 @@ and reports `fresh generation (not the recorded fixture)` — PASS in every run.
 No Firestore write, no Production data mutation beyond the AI request itself; the throwaway account is
 used only to obtain an ID token. Deliberately **not** wired into CI — LLM output is non-deterministic
 (grounding 41%/47%/50% across runs), so it would be flaky as an assertion.
+
+## 2026-09-17 ECHO-20260917-1140-MOBILE-CI-403 — the CI-only mobile 403, and one AI-save flake
+
+### Symptom (real CI evidence)
+
+Two consecutive `main` runs were red **only on mobile-webkit** (runs 35158633844, 35159726225), always
+the same test: `mobile navigation and major pages fit without horizontal overflow`, always the same
+bare line — `Failed to load resource: the server responded with a status of 403 (Forbidden)`. Local
+runs were 58/58 green, so it looked like a ghost.
+
+### Cause
+
+That spec asserts **zero console errors** while letting the Study page load the real YouTube player.
+A probe of every off-origin request the page makes gave the suspect list: `www.youtube.com/iframe_api`,
+the `/embed/…` document, the player bundle, `googleads.g.doubleclick.net`, `static.doubleclick.net`,
+`jnn-pa.googleapis.com/$rpc/...Waa/GenerateIT`, plus `fonts.gstatic.com` and `va.vercel-scripts.com`.
+Several of those refuse datacenter egress IPs, so GitHub's runners get 403 where a home connection
+does not. The assertion was measuring a third party's IP policy, not the app.
+
+### First fix attempt — wrong, and instructive
+
+Stubbing *every* off-origin request broke 10 tests: every `startGuest` call hung until timeout with
+the page showing only `Loading…`, no console error, no failed request. Cause: **Firebase resolves the
+auth state through the `auth.echo-learn.uk/__/auth/iframe` helper document**; stubbing that document
+means `onAuthStateChanged` never fires and `AuthGate` never leaves `loading`. (It reproduced on
+mobile-chromium and mobile-webkit but not on desktop-chromium, which is what made it look random.)
+
+### Fix applied
+
+`e2e/mobile-pwa.spec.ts` now stubs **by host** — `youtube.com`, `youtube-nocookie.com`, `ytimg.com`,
+`ggpht.com`, `doubleclick.net`, `www.google.com`, `jnn-pa.googleapis.com` (documents/iframes → empty
+HTML, scripts → empty JS, images → 1×1 gif, everything else → `{}`). Firebase, fonts and Vercel keep
+flowing. The console-error assertion now also reports `failedResponses` (`status URL`), because a bare
+"403 (Forbidden)" names nothing; the next occurrence will say which URL.
+
+Result: **12/12** on mobile-chromium + mobile-webkit (5 tests each), full suite **58/58**.
+
+### One flake found in passing (not fully explained)
+
+In the first full run, `saves a suggested word into the vocabulary list` failed once: the card read
+`Saved` but `echolearn_vocabulary` was empty for the whole 5 s poll. Re-running it alone and again in a
+full suite both passed (2.9 s vs 8.0 s), and the storage write is synchronous inside the click handler,
+so the most likely explanation is a mid-test main-frame reload re-running `addInitScript`, which wiped
+the key the test had just written. Hardened rather than guessed: the seed script now runs **once per
+test** behind a `sessionStorage` sentinel, and a failure now reports the main-frame navigation list.
+
+### Not covered
+
+The exact host that returns 403 from CI is still unproven (the collector will name it if it recurs).
+Mobile Safari behaviour on a real device is not covered by any of this; this is emulation only.

@@ -141,6 +141,12 @@ async function analyze(page: Page) {
 /** Boot the signed-in app with an empty on-device library and fixed CEFR range. */
 async function bootSignedIn(page: Page, context: Parameters<typeof openSignedInApp>[0]) {
   await page.addInitScript(() => {
+    // Seed once per test, not once per document. An init script re-runs on
+    // every navigation, so an unguarded wipe would erase anything the test had
+    // already saved if the page reloaded mid-test (observed once as a flake:
+    // the card read "Saved" while storage was empty).
+    if (sessionStorage.getItem('e2e-seeded')) return;
+    sessionStorage.setItem('e2e-seeded', '1');
     localStorage.removeItem('echolearn_session');
     localStorage.removeItem('echolearn_current_session');
     localStorage.removeItem('echolearn_vocabulary');
@@ -199,6 +205,12 @@ test.describe('AI Analyze (authenticated)', () => {
   });
 
   test('saves a suggested word into the vocabulary list', async ({ context, page }) => {
+    // Kept for diagnosis only: a main-frame reload during the test would
+    // explain a save that reaches the UI but not storage.
+    const navigations: string[] = [];
+    page.on('framenavigated', (frame) => {
+      if (frame === page.mainFrame()) navigations.push(frame.url());
+    });
     await bootSignedIn(page, context);
     await installApiRoutes(page, { ai: [{ status: 200, body: sseBody(JSON.stringify(SAMPLE_ANALYSIS)) }] });
     await reachStudy(page);
@@ -210,11 +222,19 @@ test.describe('AI Analyze (authenticated)', () => {
 
     // The card flips to its saved state and the word lands in on-device storage.
     await expect(card.getByText('Saved', { exact: true })).toBeVisible({ timeout: 10_000 });
-    await expect
-      .poll(() => page.evaluate(() => localStorage.getItem('echolearn_vocabulary') ?? ''), {
-        message: 'the suggested word was not persisted to the vocabulary list',
-      })
-      .toContain(suggestedWord);
+    try {
+      await expect
+        .poll(() => page.evaluate(() => localStorage.getItem('echolearn_vocabulary') ?? ''), {
+          message: 'the suggested word was not persisted to the vocabulary list',
+        })
+        .toContain(suggestedWord);
+    } catch (error) {
+      throw new Error(
+        `the suggested word was not persisted to the vocabulary list `
+        + `(main-frame navigations: ${navigations.join(' -> ') || 'none'})`,
+        { cause: error },
+      );
+    }
   });
 
   test('a 500 from the AI proxy falls back to local analysis and says so', async ({ context, page }) => {
