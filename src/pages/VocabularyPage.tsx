@@ -167,7 +167,10 @@ const VocabularyPage: React.FC = () => {
       const translations = await translateWords(
         empty.map((v) => ({ id: v.id, word: v.word, context: v.context })),
       );
-      let updated = [...vocabulary];
+      // Mirror handleBackfillDefinitions: read the current list before
+      // committing, so a concurrent addition is kept and a concurrent deletion
+      // is not resurrected when the provider returns nothing usable.
+      let updated = loadVocabulary();
       for (const [id, meaningCn] of Object.entries(translations)) {
         updated = updateVocabularyItem(id, { meaningCn });
       }

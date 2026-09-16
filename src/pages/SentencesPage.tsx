@@ -171,7 +171,12 @@ const SentencesPage: React.FC = () => {
         empty.map((s) => ({ id: s.id, text: s.text })),
         translateLang,
       );
-      let updated = [...sentences];
+      // Each updateSentenceItem reads the list as it is now, so translated rows
+      // commit on top of any concurrent change. Reading the current list first
+      // also covers the case where the provider translated nothing: committing
+      // the pre-request snapshot there would drop sentences added and
+      // resurrect sentences deleted while the request was in flight.
+      let updated = loadSentences();
       for (const [id, meaningCn] of Object.entries(translations)) {
         updated = updateSentenceItem(id, { meaningCn });
       }
