@@ -2942,3 +2942,19 @@ test** behind a `sessionStorage` sentinel, and a failure now reports the main-fr
 
 The exact host that returns 403 from CI is still unproven (the collector will name it if it recurs).
 Mobile Safari behaviour on a real device is not covered by any of this; this is emulation only.
+
+### Addendum — the 403 is named (run 35162186590, same test, same project)
+
+The new `failedResponses` collector paid off on its first CI run:
+
+```
+"failedResponses": [ "403 https://va.vercel-scripts.com/v1/script.debug.js" ]
+```
+
+So it was **not** YouTube — it was Vercel's analytics loader, which loads fine from here and answers
+GitHub's egress with 403. Added `va.vercel-scripts.com` to the stubbed hosts (empty JS) and renamed the
+helper to `stubThirdPartyRequests`. Mobile 12/12 and full suite 58/58 locally after the change; CI
+result recorded below.
+
+Lesson worth keeping: a console assertion that can only say "403 (Forbidden)" is not diagnostic. Always
+collect the response alongside it.

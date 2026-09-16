@@ -12,14 +12,14 @@ const routes = [
 ] as const;
 
 /**
- * Keep this suite away from third-party video hosts.
+ * Keep this suite away from third-party hosts that fail outside a home network.
  *
- * The Study page embeds the YouTube player, which pulls the iframe API, the
- * player bundle and ad endpoints. Some of those (notably the Waa/ads calls)
- * answer datacenter egress IPs with 403, which surfaced here as an
- * unexplained "403 (Forbidden)" console error (CI runs 35158633844 and
- * 35159726225) while the same spec passed locally. Stub only those hosts so
- * the assertion measures the app, not a third party's IP policy.
+ * Stub two things:
+ *  - the YouTube player (iframe API, embed document, player bundle, ad and Waa
+ *    endpoints), which some networks refuse from datacenter egress IPs;
+ *  - `va.vercel-scripts.com`, Vercel's analytics loader. CI proved this one:
+ *    it answered GitHub's runners with `403` (run 35162186590) while loading
+ *    fine locally, and the bare console message named no URL.
  *
  * Everything else must keep flowing: Firebase resolves the auth state through
  * the auth.echo-learn.uk helper iframe, and stubbing that document left
@@ -33,6 +33,7 @@ const THIRD_PARTY_HOSTS = [
   'doubleclick.net',
   'www.google.com',
   'jnn-pa.googleapis.com',
+  'va.vercel-scripts.com',
 ];
 
 function isThirdPartyHost(hostname: string) {
@@ -41,7 +42,7 @@ function isThirdPartyHost(hostname: string) {
   );
 }
 
-async function stubYouTubeRequests(page: Page) {
+async function stubThirdPartyRequests(page: Page) {
   const ONE_PIXEL_GIF = Buffer.from(
     'R0lGODlhAQABAIAAAAAAAP///yH5BAEAAAAALAAAAAABAAEAAAIBRAA7',
     'base64',
@@ -65,7 +66,7 @@ async function stubYouTubeRequests(page: Page) {
 }
 
 async function startGuest(page: Page) {
-  await stubYouTubeRequests(page);
+  await stubThirdPartyRequests(page);
   await page.route('**/health', (route) => route.fulfill({
     status: 200,
     contentType: 'application/json',
