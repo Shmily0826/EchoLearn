@@ -2780,3 +2780,63 @@ Pre-existing unrelated local `TEST_REPORT.md` additions and all other dirty/untr
 - `/api/dictionary` fixtures were fulfilled locally in browser interception. External/provider and prohibited API attempts were blocked before network; actual paid/provider outbound traffic was `0`.
 - Git postflight proved the staged index clean with the correct `LASTEXITCODE` check; cached name-status/stat were empty. The earlier nonempty report was a PowerShell conditional-semantics false alarm.
 - The acceptance task changed no files, committed nothing, pushed nothing, and deployed nothing. This closeout changes documentation only; pre-existing unrelated dirty/untracked work remains preserved.
+
+## 2026-09-17 ECHO-20260917-1010 — Authenticated AI Analyze E2E (fake-login session)
+
+### Scope
+
+Closes the last authenticated gap in `REAL_LEARNING_JOURNEY_V1`: AI Analyze is gated behind
+`if (!user)` in `StudyPage` and `/api/ai` rejects unauthenticated callers with 401, so the
+existing guest suites could not reach it at all.
+
+- New spec `e2e/study-ai-authenticated.spec.ts` (8 tests) built on the fabricated signed-in
+  session from `e2e/helpers/sessionFixture.ts` (step 1, previous entry).
+- `/api/ai` is route-mocked from the recorded real response `e2e/fixtures/ai-analysis.sample.json`.
+  No credential, no provider call, no Production write, no spend.
+
+### Results actually run
+
+- `study-ai-authenticated.spec.ts` (desktop-chromium): **8/8 PASS**.
+- Full Playwright suite (3 projects): **58/58 PASS** (previous snapshot 48; +8 AI, +2 session fixture).
+- Vitest: **597/597 PASS** (54 files).
+- Typecheck/build/lint: not re-run in this step (no API-surface change); the two source edits are
+  behaviour-only and covered by the suites above.
+
+### Cases covered
+
+1. Panel renders all four sections with real fixture content (summary / takeaways / vocab / sentences).
+2. Exactly one authenticated request: `Authorization: Bearer …` (value never asserted or printed),
+   `stream: true`, `response_format: json_object`, transcript text and the selected CEFR range
+   (B2–C1, seeded through `localStorage`) present in the prompt.
+3. Saving an AI-suggested word: card flips to `Saved` and the word lands in `echolearn_vocabulary`.
+4. `/api/ai` 500 → local fallback rendered, banner shown, provider body not leaked into the UI.
+5. Network failure (abort) → fallback, Analyze button returns to enabled, transcript intact.
+6. 200 with unparseable content → fallback, neither the model text nor `Could not parse` is shown.
+7. Re-analyze after changing the CEFR minimum → new request (2 total), new level in the prompt,
+   panel replaced (takeaways 3 → 1), first run's content not stacked underneath.
+8. Close panel → analysis hidden, transcript still there.
+
+### Two real findings (both fixed)
+
+1. **AI-suggested inflected words never showed as saved.** `savedWords` was keyed only on the lemma
+   (`lemmatize('vested') === 'vest'`), so after clicking `+ Add` the card still offered `+ Add`.
+   Fixed in `src/pages/StudyPage.tsx`: the set now carries both the lemma and the saved surface form.
+   No duplicate risk — `addVocabularyItem` already dedupes on `(lemma || word) + sourceVideoId`.
+2. **Testability**: `AIAnalysisPanel` had no stable hook, and the panel is rendered per layout, so
+   text-based locators matched hidden copies (and transcript tokens). Added
+   `data-testid="ai-analysis-panel" | "ai-takeaway" | "ai-vocab-card" | "ai-sentence-card"` plus
+   `data-word`, all non-behavioural.
+
+### Behavioural note (not a bug)
+
+Results are cached in Firestore per (transcript + levels + lang + counts). A repeat click with the
+same settings is a **cache hit** and correctly returns the previous analysis without a new request —
+observed as `[aiAnalysis] cache HIT`. That is why case 7 changes the level range first.
+
+### Not covered
+
+- Streaming progress UI (`streamChars` counter) — asserted only that the request asks for SSE.
+- Concurrent out-of-order analyses: unreachable from the UI, the Analyze button is `disabled` while
+  `analyzing`, so no stale-response-overwrites-latest case exists for this flow.
+- Real-provider AI quality (summary/sentences actually match the video): manual Layer-2 rubric,
+  tracked separately; not part of CI.

@@ -603,11 +603,20 @@ const StudyPage: React.FC = () => {
     return session ? [] : sentences;
   }, [sentences, videoId, session]);
 
-  // Derived sets for quick lookup
-  const savedWords = useMemo(
-    () => new Set(filteredVocabulary.map((v) => (v.lemma || lemmatize(v.word)).toLowerCase())),
-    [filteredVocabulary],
-  );
+  // Derived sets for quick lookup.
+  //
+  // Both the lemma and the saved surface form are keys: AI suggestions and
+  // transcript clicks arrive as inflected words ("vested"), while storage
+  // dedupes on the lemma ("vest"). Matching on the lemma alone left a freshly
+  // saved suggestion still offering "+ Add".
+  const savedWords = useMemo(() => {
+    const keys = new Set<string>();
+    for (const v of filteredVocabulary) {
+      keys.add((v.lemma || lemmatize(v.word)).toLowerCase());
+      keys.add(v.word.toLowerCase().trim());
+    }
+    return keys;
+  }, [filteredVocabulary]);
   const savedSentencesSet = useMemo(
     () => new Set(filteredSentences.map((s) => s.text)),
     [filteredSentences],

@@ -1,0 +1,73 @@
+{
+  "summaryEn": "Sir Ken Robinson argues that modern education systems are outdated and fail to nurture the diverse creative capacities of children. He highlights how traditional schooling prioritizes academic and industrial needs, often marginalizing the arts and mislabeling physical or creative thinkers. Ultimately, he calls for a new conception of human ecology that values imagination and educates the whole child for an unpredictable future.",
+  "summaryCn": "肯·罗宾逊爵士在演讲中指出，现代教育体制已经过时，未能培养孩子多样化的创造力。他强调，传统学校教育优先满足学术和工业需求，往往边缘化艺术教育，并将好动或具创造力的思维误判为学习障碍。最终，他呼吁建立一种重视想象力、全面培养儿童以应对不可预测未来的全新人类生态观。",
+  "keyTakeaways": [
+    "Creativity is as important in education as literacy and should be given equal status.",
+    "Current education systems are built on an industrial hierarchy that prioritizes academic ability while stigmatizing the arts and physical expression.",
+    "We need to radically rethink human capacity and educate children in a holistic way to prepare them for an unpredictable future."
+  ],
+  "vocabularySuggestions": [
+    {
+      "word": "vested",
+      "context": "We have a huge vested interest in it, partly because it's education that's meant to take us into this future...",
+      "meaningCn": "既定的，合法的",
+      "reason": "B1 level adjective often used in formal contexts like 'vested interest' (既得利益)."
+    },
+    {
+      "word": "squander",
+      "context": "And my contention is, all kids have tremendous talents, and we squander them, pretty ruthlessly.",
+      "meaningCn": "浪费，挥霍",
+      "reason": "B2 level verb describing the careless waste of talents or opportunities."
+    },
+    {
+      "word": "protracted",
+      "context": "If you think of it, the whole system of public education around the world is a protracted process of university entrance.",
+      "meaningCn": "拖延的，持久的",
+      "reason": "C1 level adjective meaning lasting for a long time or longer than expected."
+    },
+    {
+      "word": "stigmatized",
+      "context": "...the thing they were good at at school wasn't valued, or was actually stigmatized.",
+      "meaningCn": "受污名化的，被鄙视的",
+      "reason": "C1 level past participle used to describe social disapproval or branding something as disgraceful."
+    },
+    {
+      "word": "fidgeting",
+      "context": "She couldn't concentrate; she was fidgeting.",
+      "meaningCn": "烦躁不安，坐立不安",
+      "reason": "B2 level verb describing small, nervous movements, highly relevant in discussions about classroom behavior."
+    },
+    {
+      "word": "predicated",
+      "context": "Our education system is predicated on the idea of academic ability.",
+      "meaningCn": "基于，建立在...基础之上",
+      "reason": "C2 level academic term meaning founded or based upon a particular set of assumptions."
+    }
+  ],
+  "sentenceSuggestions": [
+    {
+      "text": "There have been three themes running through the conference, which are relevant to what I want to talk about.",
+      "meaningCn": "贯穿本次会议的有三个主题，这与我想谈的内容息息相关。",
+      "reason": "句中使用了 'running through'（贯穿）这一生动的短语，以及非限制性定语从句，非常适合在学术或商务演讲的开场时自然引出主题。",
+      "grammarNotes": "本句包含一个由 'which' 引导的非限制性定语从句，修饰前面整个主句的内容。'running through' 是现在分词短语作后置定语，用来修饰 'three themes'，意为“贯穿于……的主题”。"
+    },
+    {
+      "text": "If you were to visit education as an alien and say 'What's it for, public education?' I think you'd have to conclude...",
+      "meaningCn": "如果你作为一个外星人来审视教育，并问‘公共教育到底是干什么的？’我想你不得不得出这样的结论……",
+      "reason": "运用了虚拟语气（If you were to...）来进行假设性的宏观观察，能有效增加演讲的幽默感和批判性思维的张力。",
+      "grammarNotes": "该句使用了虚拟语气（‘If + 主语 + were to do..., 主语 + would/could + do’），用来表达对不太可能发生或纯假设情况的推测。‘What's it for’ 是一个口语化且直接的疑问句结构。"
+    },
+    {
+      "text": "Our education system has mined our minds in the way that we strip-mine the earth for a particular commodity.",
+      "meaningCn": "我们的教育系统掠夺了我们的心灵，就像我们为了某种特定商品而对地球进行露天开采一样。",
+      "reason": "运用了强烈的比喻（mining minds 对应 strip-mining the earth），展现了高级演讲中批判性隐喻的构建技巧。",
+      "grammarNotes": "句中的 'in the way that...' 是一个连词性短语，意为“以……的方式”。'strip-mine'（露天开采/掠夺性开采）是一个高级复合动词，在此处作比喻修辞。"
+    },
+    {
+      "text": "And the only way we'll do it is by seeing our creative capacities for the richness they are and seeing our children for the hope that they are.",
+      "meaningCn": "我们做到这一点的唯一方法，就是认识到我们创造力的丰富本质，并看到孩子们所承载的希望。",
+      "reason": "句式结构工整（by seeing A for... and seeing B for...），排比感强，非常适合用于表达核心观点或演讲的结语部分。",
+      "grammarNotes": "主句采用了表语从句 ‘is by seeing... and seeing...’，其中的核心搭配是 ‘see sth. for what it is’（认清某物的本质）。两个 ‘for’ 分别表示原因或本质属性的确认。"
+    }
+  ]
+}
