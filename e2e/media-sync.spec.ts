@@ -122,7 +122,14 @@ test.describe('Batch 4 — media synchronization', () => {
     await setControlledMediaTime(page, 30.2);
     await expect(page.getByTestId('study-current-context')).toContainText(SAMPLE_SECOND);
 
-    await activeLine(page, SAMPLE_FIRST).click();
+    // Click the row itself, not a word token inside it. A default centre click
+    // lands on whatever happens to sit under that point, and the transcript
+    // words are individually clickable; font metrics differ between local and
+    // CI, so the centre can hit a word there. Hitting a word opens the
+    // dictionary popup and sets lookupActive, which deliberately suppresses the
+    // release this test asserts (see the next test). The row's leading edge
+    // cannot be a word token.
+    await activeLine(page, SAMPLE_FIRST).click({ position: { x: 2, y: 2 } });
     await expect(page.getByTestId('study-current-context')).toContainText(SAMPLE_FIRST);
 
     await setControlledMediaTime(page, 31.5);
