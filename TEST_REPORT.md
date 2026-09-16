@@ -2840,3 +2840,55 @@ observed as `[aiAnalysis] cache HIT`. That is why case 7 changes the level range
   `analyzing`, so no stale-response-overwrites-latest case exists for this flow.
 - Real-provider AI quality (summary/sentences actually match the video): manual Layer-2 rubric,
   tracked separately; not part of CI.
+
+## 2026-09-17 ECHO-20260917-1010 (part 2) — AI quality rubric (manual Layer 2, real calls)
+
+### What it is
+
+`scripts/ai-quality-rubric.mjs` — a **manual, opt-in** quality gate for the real `/api/ai`. CI can
+prove plumbing (see part 1) but never quality, so this is a human-run report: one real provider call
+per video, gated by `scripts/paid-provider-guard.mjs`
+(`ECHOLEARN_ALLOW_PAID_PROVIDER=1`, `ECHOLEARN_PAID_MAX_INVOCATIONS=n`) and refused under `sentences=4`
+so it cannot reuse an in-app cache key. Auth is a Firebase email/password exchange; the id token and
+password are never printed.
+
+Run: `npm run ai:rubric -- --out report.json` with `ECHOLEARN_RUBRIC_EMAIL` / `_PASSWORD` exported
+(kept in the gitignored `.env.local`, account `echolearn-rubric-01@agent.qq.com` created for this).
+
+### Real evidence (production `echo-learn.uk/api/ai`, bundled sample video, B1–C2, 8 vocab / 7 sentences)
+
+Final version, last run: **16 PASS / 1 WARN / 1 FAIL** — HTTP 200, 5568 bytes, 7500 ms.
+
+- PASS: JSON envelope + parse; **field names** (`text`, `meaningCn`, …); summary length (50 words);
+  takeaways present and grounded (weakest 55%); 8/8 vocabulary words occur in the transcript and all
+  classify inside B1–C2; no duplicates; 7/7 Chinese glosses; every suggested word inside the
+  model-visible window.
+- WARN: `summary is grounded` **47%** (PASS ≥50%, WARN ≥35%). Two earlier runs scored 41% and 50% on
+  the same transcript, so this is a paraphrase artefact of the metric, not an off-topic summary — the
+  summary text is unambiguously about this talk (Ken Robinson / creativity / education).
+- FAIL: **1 of 7 sentences is not verbatim** — the model stitched two separate utterances
+  ("And the second is that…" + "…put us in a place where we have no idea…") into one quote. The other
+  6 match the transcript exactly. This is the fabrication class the rubric exists to catch.
+
+### Cache-MISS
+
+The 30-day result cache lives in the browser client (`getCachedAnalysis`), so a direct REST call can
+never read it; the script also prints the client cache key (`be8c8645…`) and refuses the app-default
+`sentenceCount=4`. It additionally compares the result against `e2e/fixtures/ai-analysis.sample.json`
+and reports `fresh generation (not the recorded fixture)` — PASS in every run.
+
+### Two false-positive classes found and fixed while building it (worth knowing)
+
+1. Quotes: the transcript uses curly quotes and splits long sentences across subtitle lines; the model
+   returns straight quotes and rejoined text. The matcher now compares word streams with punctuation
+   dropped, otherwise real quotes were reported as fabricated.
+2. Truncation: the app sends `smartTruncate(12000)`. Judging against that window flagged `engulf` as
+   invented although it occurs later in the video. Judgement is now against the **full** transcript
+   (learner-visible truth), with a separate WARN for anything outside the model's window.
+
+### Cost / boundary
+
+6 real `/api/ai` calls were made while building and validating this (≈ $0.05 at the current model).
+No Firestore write, no Production data mutation beyond the AI request itself; the throwaway account is
+used only to obtain an ID token. Deliberately **not** wired into CI — LLM output is non-deterministic
+(grounding 41%/47%/50% across runs), so it would be flaky as an assertion.
