@@ -275,20 +275,28 @@ test.describe('AI Analyze (authenticated)', () => {
       })
       .toBeGreaterThan(before);
 
-    const rowInView = await page.evaluate(() => {
-      const rows = [...document.querySelectorAll('[data-transcript-line]')].filter((el) => {
-        const rect = el.getBoundingClientRect();
-        return rect.width > 0 && rect.height > 0;
-      });
-      const target = rows.find((el) => /the only way we'll do it/.test(el.innerText));
-      if (!target) return null;
-      const container = target.closest('.overflow-y-auto') as HTMLElement | null;
-      if (!container) return null;
-      const rowRect = target.getBoundingClientRect();
-      const containerRect = container.getBoundingClientRect();
-      return rowRect.top >= containerRect.top - 1 && rowRect.bottom <= containerRect.bottom + 1;
-    });
-    expect(rowInView, 'the matched row is not inside the visible transcript pane').toBe(true);
+    // Polled rather than read once: `scrollIntoView` animates, so the row can
+    // still be a few pixels outside the pane on the first frame after the
+    // offset settles.
+    await expect
+      .poll(
+        () =>
+          page.evaluate(() => {
+            const rows = [...document.querySelectorAll('[data-transcript-line]')].filter((el) => {
+              const rect = el.getBoundingClientRect();
+              return rect.width > 0 && rect.height > 0;
+            });
+            const target = rows.find((el) => /the only way we'll do it/.test(el.innerText));
+            if (!target) return null;
+            const container = target.closest('.overflow-y-auto') as HTMLElement | null;
+            if (!container) return null;
+            const rowRect = target.getBoundingClientRect();
+            const containerRect = container.getBoundingClientRect();
+            return rowRect.top >= containerRect.top - 4 && rowRect.bottom <= containerRect.bottom + 4;
+          }),
+        { message: 'the matched row is not inside the visible transcript pane', timeout: 10_000 },
+      )
+      .toBe(true);
   });
 
   test('saves a suggested word into the vocabulary list', async ({ context, page }) => {
