@@ -629,3 +629,22 @@ Browser-native fallback and managed alternate-provider/egress options have highe
 - Traffic boundary: `/api/dictionary` fixtures were fulfilled locally through browser interception; external/provider and prohibited API attempts were blocked before network. Actual paid/provider outbound traffic was `0`.
 - Git postflight ultimately proved the staged index clean using the correct `LASTEXITCODE` check; cached name-status/stat were empty. The earlier nonempty report was a PowerShell conditional-semantics false alarm.
 - The acceptance run changed no files, committed nothing, pushed nothing, and deployed nothing. This closeout is documentation-only; unrelated dirty/untracked work remains preserved.
+
+## 2026-09-17 - Local-audio MVP close-out
+
+- **Local verification:** the focused system-Chrome Playwright test `e2e/local-audio.spec.ts` passed 1/1 in about 4.9s. It verified one desktop Study `Import Audio` entry/input, filename and in-flight UI, exactly one mocked transcription request, returned transcript, one blob audio, timeupdate selection of the second line, reload re-import state, and no second request.
+- **Root cause/fix:** when desktop Study already had `displayLines > 0`, it rendered the bundled transcript without `LocalAudioImporter`, so the sample transcript hid the feature. The minimal fix renders the importer in that branch only when `session?.sourceType !== 'local_audio'`, avoiding a duplicate importer after local-audio session/reload; the existing no-video importer remains.
+- **VPS mocked contract:** **PASS** — read-only process inspection found the running service using `/opt/echolearn-ytdlp/venv/bin/python3` (PID 264224, Uvicorn). `vps-ytdlp/test_local_audio.py` then ran from isolated `/tmp/echolearn-local-audio-contract-20260917-2112-c29e6b4f` with that interpreter: **3/3 tests passed in 0.020s** (`OK`). The temp directory contained only the copied `main.py` and test file and was removed afterward. No package installation, service mutation, restart/reload, or provider call occurred.
+- **Remaining boundary:** real audio extraction and real Groq/Whisper ASR remain unvalidated; this closes only the mocked VPS contract gap.
+
+## 2026-09-17 - ECHO-20260917-2112 actual-runtime recheck
+
+- Read-only SSH confirmed `echolearn-ytdlp.service` runs `/opt/echolearn-ytdlp/venv/bin/uvicorn main:app --host 0.0.0.0 --port 80` from `/opt/echolearn-ytdlp` as `ubuntu`; the existing venv reports FastAPI `0.141.1`.
+- In a new isolated `/tmp/echolearn-local-audio-contract-*` directory, only `vps-ytdlp/main.py` and `vps-ytdlp/test_local_audio.py` were copied and the exact test passed **3/3 in 0.022s** (`OK`) with `/opt/echolearn-ytdlp/venv/bin/python3`. The directory was removed; no install, service restart/reload, production-file edit, or provider call occurred.
+
+## 2026-09-17 - ECHO-20260917-2112 pre-release adjudication
+
+- Live remote check: `origin` is `git@github.com:Shmily0826/EchoLearn.git`; `git ls-remote origin refs/heads/main` returned `e9c666c9bd1aaf2fee5d707a4dd4dff6cecba7c9`. Local `refs/remotes/origin/main` is absent, so `[gone]` is stale local tracking metadata, not proof that the remote branch was deleted.
+- Fixed the confirmed VPS contract mismatch: `/api/audio-transcribe` now accepts the same `audio/mp3`, `audio/x-m4a`, and WAV MIME aliases already accepted by the browser and Worker. The existing production venv lacks `python-multipart`; it must be installed from `vps-ytdlp/requirements.txt` before the service can parse real multipart uploads.
+- Required release order: update VPS `main.py` and `requirements.txt`, install dependencies and restart the systemd service; deploy `cf-worker` with its existing server-side `YTDLP_API_URL`/`YTDLP_API_KEY` secrets; then deploy the root frontend through Vercel. None was executed.
+- A real acceptance smoke would upload one short spoken WAV (under 25 MiB) through Worker → VPS → Groq and require HTTP 200 with non-empty timed lines and playable audio; it would create real Groq traffic and consume provider quota/cost, so it was not run.

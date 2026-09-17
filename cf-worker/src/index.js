@@ -430,6 +430,8 @@ export default {
         response = await handleBilibili(url, env);
       } else if (url.pathname === '/api/audio') {
         response = await handleAudio(request, env);
+      } else if (url.pathname === '/api/audio-transcribe' && request.method === 'POST') {
+        response = await handleAudioTranscribe(request, env);
       } else if (url.pathname === '/api/info') {
         response = await handleInfo(url, env);
       } else if (url.pathname === '/api/yt') {
@@ -941,6 +943,66 @@ async function fetchViaVpsAsr(
 // Bump AUDIO_CACHE_VER whenever the audio codec/bitrate changes so stale
 // edge-cached variants are never served (e.g. the 128k-stereo → 64k-mono cut).
 const AUDIO_CACHE_VER = '3';
+
+const LOCAL_AUDIO_MAX_BYTES = 25 * 1024 * 1024;
+const LOCAL_AUDIO_TYPES = {
+  '.mp3': new Set(['audio/mpeg', 'audio/mp3']),
+  '.m4a': new Set(['audio/mp4', 'audio/x-m4a']),
+  '.wav': new Set(['audio/wav', 'audio/x-wav', 'audio/wave']),
+};
+
+async function handleAudioTranscribe(request, env) {
+  if (!env.YTDLP_API_URL || !env.YTDLP_API_KEY) {
+    return jsonResponse({ error: 'Local audio service not configured' }, 503);
+  }
+
+  let form;
+  try {
+    form = await request.formData();
+  } catch {
+    return jsonResponse({ error: 'invalid_audio', message: 'Expected multipart audio upload' }, 400);
+  }
+  const file = form.get('file') || form.get('audio');
+  if (!(file instanceof File)) {
+    return jsonResponse({ error: 'invalid_audio', message: 'Audio file is required' }, 400);
+  }
+
+  const extension = `.${file.name.split('.').pop()?.toLowerCase() || ''}`;
+  const allowedTypes = LOCAL_AUDIO_TYPES[extension];
+  if (!allowedTypes || !allowedTypes.has((file.type || '').toLowerCase())) {
+    return jsonResponse({ error: 'invalid_audio', message: 'Use an mp3, m4a, or wav audio file' }, 415);
+  }
+  if (file.size > LOCAL_AUDIO_MAX_BYTES) {
+    return jsonResponse({ error: 'audio_too_large', message: 'Audio files must be 25 MiB or smaller' }, 413);
+  }
+
+  const forward = new FormData();
+  forward.append('file', file, file.name);
+  const endpoint = `${env.YTDLP_API_URL.replace(/\/+$/, '')}/api/audio-transcribe`;
+  try {
+    const response = await fetchWithTimeout(endpoint, {
+      method: 'POST',
+      headers: { 'X-Api-Key': env.YTDLP_API_KEY },
+      body: forward,
+    }, 120000);
+    const body = await response.text().catch(() => '');
+    let payload;
+    try { payload = body ? JSON.parse(body) : {}; } catch { payload = { error: 'transcription_failed', message: 'VPS returned invalid JSON' }; }
+    if (!response.ok) {
+      const detail = payload.detail && typeof payload.detail === 'object' ? payload.detail : {};
+      return jsonResponse({
+        error: payload.error || detail.code || 'transcription_failed',
+        message: payload.message || detail.message || detail || 'Audio transcription failed',
+      }, response.status >= 400 && response.status <= 599 ? response.status : 502);
+    }
+    if (!Array.isArray(payload?.lines) || payload.lines.length === 0) {
+      return jsonResponse({ error: 'no_speech', message: 'No timed speech segments were returned' }, 422);
+    }
+    return jsonResponse(payload, 200);
+  } catch (error) {
+    return jsonResponse({ error: error?.name === 'AbortError' ? 'timeout' : 'upload_failed', message: 'Audio transcription request failed' }, error?.name === 'AbortError' ? 504 : 502);
+  }
+}
 
 async function handleAudio(request, env) {
   if (!env.YTDLP_API_URL) {

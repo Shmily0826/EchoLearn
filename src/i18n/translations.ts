@@ -241,6 +241,8 @@ const translations: Record<string, Record<Lang, string>> = {
   'study.sourceYoutubeAuto': { en: 'YouTube auto-generated subtitles', zh: 'YouTube 自动字幕' },
   'study.sourceVpsDirect':  { en: 'VPS direct', zh: 'VPS 直连' },
   'study.sourceWhisper':    { en: 'AI transcription (Whisper)', zh: 'AI 转录 (Whisper)' },
+  'study.sourceLocalAudio': { en: 'Local audio (Whisper)', zh: '本地音频 (Whisper)' },
+  'study.localAudioMissing': { en: 'This local audio file is unavailable after reload. Re-import the file to continue.', zh: '刷新后本地音频文件不可用。请重新导入文件以继续。' },
   'study.sourceBiliOfficial': { en: 'Bilibili official subtitles', zh: 'B站官方字幕' },
   'study.sourceGeneric':    { en: 'Source: {source}', zh: '来源：{source}' },
   'study.captionDiagnostics': { en: 'Captions: {count} cues', zh: '字幕：{count} 条' },

@@ -3,6 +3,7 @@ import { useLocation, useNavigate } from 'react-router-dom';
 import YouTubeEmbed, { type PlayerHandle } from '../components/YouTubeEmbed';
 import BilibiliEmbed from '../components/BilibiliEmbed';
 import AudioPlayer from '../components/AudioPlayer';
+import LocalAudioImporter from '../components/LocalAudioImporter';
 import TranscriptViewer from '../components/TranscriptViewer';
 import TranscriptImporter from '../components/TranscriptImporter';
 import AIAnalysisPanel from '../components/AIAnalysisPanel';
@@ -43,6 +44,7 @@ import { usePlaybackPosition } from '../hooks/usePlaybackPosition';
 import { useTranscriptSeek } from '../hooks/useTranscriptSeek';
 import { getVideoTitle } from '../services/youtubeApi';
 import { shouldOfferAsrRecovery } from './studyAsrRecovery';
+import { getLocalAudioUrl, registerLocalAudio } from '../services/localAudio';
 import { isNoCaptionsError } from './studyCaptionError';
 import sampleTranscript from '../data/sample-transcript.json';
 import {
@@ -145,6 +147,9 @@ const StudyPage: React.FC = () => {
   // extracted audio because its iframe cannot provide reliable sync control.
   const { audioMode, setAudioMode, audioSrc, audioFallbackSrc } =
     useAudioMode({ session, platform, videoId, biliPage });
+  const localAudioUrl = session?.sourceType === 'local_audio'
+    ? getLocalAudioUrl(videoId || '')
+    : null;
 
   // Transcript state — raw caption blocks + sentence-level lines
   const [rawBlocks, setRawBlocks] = useState<TranscriptLine[]>([]);
@@ -428,7 +433,9 @@ const StudyPage: React.FC = () => {
       // Auto-fetch captions if no transcript exists for this video
       const hasTranscript =
         hasTranscriptData || (saved.transcriptLines?.length ?? 0) > 0;
-      if (saved.youtubeId && !hasTranscript) {
+      if (saved.sourceType === 'local_audio') {
+        if (!getLocalAudioUrl(saved.youtubeId)) failCaptionRequest(t('study.localAudioMissing'));
+      } else if (saved.youtubeId && !hasTranscript) {
         runCaptionRequest(
           () =>
             saved.platform === 'bilibili'
@@ -895,6 +902,40 @@ const StudyPage: React.FC = () => {
     [importTranscript],
   );
 
+  const handleImportLocalAudio = useCallback((file: File, lines: TranscriptLine[]) => {
+    const now = Date.now();
+    const id = `local_${now}_${Math.random().toString(36).slice(2, 8)}`;
+    registerLocalAudio(id, file);
+    const sentenceLines = normalizeTranscriptToSentences(lines);
+    const fresh: VideoStudySession = {
+      id: `session_${now}_${Math.random().toString(36).slice(2, 8)}`,
+      youtubeUrl: `local_audio:${file.name}`,
+      youtubeId: id,
+      platform: 'youtube',
+      sourceType: 'local_audio',
+      title: file.name,
+      transcriptLines: lines,
+      transcriptData: { rawBlocks: lines, sentenceLines },
+      captionSource: 'local_audio',
+      createdAt: now,
+      updatedAt: now,
+      status: 'studying',
+      lastPosition: 0,
+    };
+    saveCurrentSession(fresh);
+    setSession(fresh);
+    setVideoId(id);
+    setPlatform('youtube');
+    setUrlInput('');
+    setSessionTitle(file.name);
+    setStartTime(undefined);
+    setRawBlocks(lines);
+    setSentenceLines(sentenceLines);
+    setAnalysis(null);
+    clearCaptionError();
+    loadedSessionIdRef.current = fresh.id;
+  }, [clearCaptionError]);
+
   // ── Clear current session ──────────────────────────────────
   const handleClearSession = useCallback(() => {
     // Invalidate any in-flight caption request so it cannot repopulate the
@@ -1310,6 +1351,7 @@ const StudyPage: React.FC = () => {
                         ? 'bg-indigo-600 text-white border-indigo-600'
                         : 'bg-white dark:bg-slate-800 border border-gray-200 dark:border-slate-700 text-gray-600 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-slate-700'
                     }`}
+                    hidden={session?.sourceType === 'local_audio'}
                     title={platform === 'youtube' ? t('study.youtubeFocusModeHint') : t('study.audioModeHint')}
                   >
                     <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.8}>
@@ -1324,7 +1366,18 @@ const StudyPage: React.FC = () => {
                   )}
                 </div>
 
-                {audioMode && platform === 'bilibili' ? (
+                {session?.sourceType === 'local_audio' ? (
+                  localAudioUrl ? (
+                    <AudioPlayer key={localAudioUrl} ref={playerRef} src={localAudioUrl} startTime={startTime} playbackRate={playbackRate} />
+                  ) : (
+                    <>
+                      <div className="rounded-xl border border-amber-200 bg-amber-50 px-4 py-6 text-center text-sm text-amber-700 dark:border-amber-800 dark:bg-amber-950/30 dark:text-amber-300">
+                        {t('study.localAudioMissing')}
+                      </div>
+                      <LocalAudioImporter onSuccess={handleImportLocalAudio} />
+                    </>
+                  )
+                ) : audioMode && platform === 'bilibili' ? (
                   <AudioPlayer key={audioSrc ?? 'audio'} ref={playerRef} src={audioSrc ?? ''} fallbackSrc={audioFallbackSrc ?? undefined} bilibili={platform === 'bilibili'} startTime={startTime} playbackRate={playbackRate} />
                 ) : platform === 'bilibili' ? (
                   <>
@@ -1742,6 +1795,7 @@ const StudyPage: React.FC = () => {
             {videoId && !displayLines.length && !fetchingCaption && !captionError && (
               <div className="lg:hidden mt-2">
                 <TranscriptImporter onImport={handleImportTranscript} />
+                <LocalAudioImporter onSuccess={handleImportLocalAudio} />
               </div>
             )}
           </div>
@@ -1828,6 +1882,9 @@ const StudyPage: React.FC = () => {
                 onLookupStateChange={setLookupActive}
                 onSeekTo={handleSeekTo}
                 />
+                {session?.sourceType !== 'local_audio' && (
+                  <LocalAudioImporter onSuccess={handleImportLocalAudio} />
+                )}
               </>
             ) : fetchingCaption ? (
               <div className="flex flex-col items-center justify-center py-16 text-gray-400 dark:text-gray-500">
@@ -1885,12 +1942,18 @@ const StudyPage: React.FC = () => {
                 </div>
               </div>
             ) : videoId ? (
-              <TranscriptImporter onImport={handleImportTranscript} />
+              <>
+                <TranscriptImporter onImport={handleImportTranscript} />
+                <LocalAudioImporter onSuccess={handleImportLocalAudio} />
+              </>
             ) : (
-              <div className="text-center py-12 text-gray-400 dark:text-gray-500 text-sm">
-                <p>{t('study.noVideo')}</p>
-                <p className="mt-1">{t('study.loadToStart')}</p>
-              </div>
+              <>
+                <div className="text-center py-12 text-gray-400 dark:text-gray-500 text-sm">
+                  <p>{t('study.noVideo')}</p>
+                  <p className="mt-1">{t('study.loadToStart')}</p>
+                </div>
+                <LocalAudioImporter onSuccess={handleImportLocalAudio} />
+              </>
             )}
             </div>
           </div>

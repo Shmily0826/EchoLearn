@@ -3036,3 +3036,23 @@ Playwright 58/58, Vitest 597/597 (54 files), `tsc --noEmit` clean.
 - **Validation:** `tsc --noEmit` clean; Vitest **607/607** (55 files); eslint **0 errors** / 12 pre-existing warnings; `vite build --outDir dist_verify` ok (34 precache entries); CI `35186339889` green on both jobs (60 tests across 3 browser projects).
 - **Not covered / limits:** the player-side jump is asserted on Production only (this suite has no real media); mobile-webkit runs the same assertions via CI; the `@0:37` tolerance was not re-derived on a second transcript; the unexplained smooth-scroll failure of `TranscriptViewer`'s own auto-follow (previous entry) is still open — this fix makes the seek's own scroll correct, so the feature no longer depends on it.
 - **Traffic boundary:** zero `/api/ai` calls in this cycle (the E2E route-mocks it; nothing touched Production).
+
+## 2026-09-17 - Local-audio MVP close-out
+
+- **Focused browser validation:** `e2e/local-audio.spec.ts` passed **1/1** in about **4.9s** using the system-Chrome Playwright fallback. Coverage was exactly one desktop Study `Import Audio` entry/input; filename and in-flight UI; exactly one mocked transcription request; returned transcript; one blob audio; a `timeupdate` selecting the second line; reload re-import state; and no second request.
+- **Automated validation:** `npx tsc --noEmit` **PASS**; `node --test cf-worker/test/audioTranscribe.test.mjs` **PASS 2/2** (multipart forwarding with server key; unsupported file rejected before VPS); `npm run build` **PASS**.
+- **Python/VPS contract:** **PASS** — the initial `/usr/bin/python3` lacked FastAPI, so no installation was attempted. Read-only process inspection found the running Uvicorn service (PID 264224) using `/opt/echolearn-ytdlp/venv/bin/python3`. From isolated `/tmp/echolearn-local-audio-contract-20260917-2112-c29e6b4f`, containing only the copied `vps-ytdlp/main.py` and `vps-ytdlp/test_local_audio.py`, that interpreter ran the exact test: **3/3 passed in 0.020s** (`OK`). The temp directory was removed; no service restart/reload, production checkout mutation, package installation, or provider call occurred.
+- **Root cause:** desktop Study with existing `displayLines > 0` rendered the transcript but no `LocalAudioImporter`, allowing the bundled sample transcript to hide the feature. The fix renders the importer there only when `session?.sourceType !== 'local_audio'`, preventing a duplicate after local-audio session/reload; the existing no-video importer remains.
+- **Boundary:** no real provider/Supadata/paid call; no commit, push, or deploy. The browser and VPS runs used mocked transcription; real audio extraction and real Groq/Whisper ASR remain unvalidated.
+
+## 2026-09-17 - ECHO-20260917-2112 actual-runtime recheck
+
+- Read-only SSH identified `echolearn-ytdlp.service` using `/opt/echolearn-ytdlp/venv/bin/python3` and FastAPI `0.141.1` in the existing venv.
+- The exact mocked `vps-ytdlp/test_local_audio.py` run from a new isolated `/tmp/echolearn-local-audio-contract-*` directory passed **3/3 in 0.022s** (`OK`); the directory was removed. No installation, service restart/reload, production-file edit, or provider call occurred.
+
+## 2026-09-17 - ECHO-20260917-2112 pre-release adjudication
+
+- Remote reality: `git ls-remote origin refs/heads/main` returned `e9c666c9bd1aaf2fee5d707a4dd4dff6cecba7c9`; local `origin/main [gone]` is because the local remote-tracking ref is absent, not because the live branch is absent.
+- VPS MIME compatibility fixed and covered by the mocked contract test. The existing production venv has no `python-multipart`; installing the requirements before service restart is a hard deployment prerequisite for real multipart parsing.
+- Deployment order is VPS dependency/code update and restart, then CF Worker deploy with server-side YTDLP secrets, then Vercel frontend deploy. No deployment action occurred.
+- Real-ASR gate remains intentionally unrun: one short spoken WAV under 25 MiB would validate Worker → VPS → Groq timed output and playback, but would incur real provider traffic/quota/cost.
