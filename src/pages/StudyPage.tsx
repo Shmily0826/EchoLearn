@@ -12,6 +12,7 @@ import StudySettingsMenu from '../components/study/StudySettingsMenu';
 import { parseYouTubeId, parseStartTime } from '../utils/youtube';
 import { detectPlatform, parseBilibiliId, parseBilibiliStartTime, parseBilibiliPage, hasInvalidBilibiliPage } from '../utils/bilibili';
 import { normalizeTranscriptToSentences } from '../utils/transcriptNormalizer';
+import { matchSuggestionToLineStart } from '../utils/matchTranscriptLine';
 import { transcriptSourceLabel } from '../utils/captionSource';
 import {
   attachTranscriptToSession,
@@ -625,6 +626,20 @@ const StudyPage: React.FC = () => {
     () => new Map(filteredSentences.map((s) => [s.text, s.id])),
     [filteredSentences],
   );
+
+  // Where each AI-suggested sentence actually sits in the video. The model only
+  // returns text, so aligning it back to a transcript line is what makes "jump
+  // back to this moment" honest — see utils/matchTranscriptLine.ts. Unmatched
+  // suggestions are simply absent, and the panel then offers no timestamp.
+  const suggestionStarts = useMemo(() => {
+    const map = new Map<string, number>();
+    if (!analysis) return map;
+    for (const sug of analysis.sentenceSuggestions) {
+      const start = matchSuggestionToLineStart(sug.text, sentenceLines);
+      if (typeof start === 'number') map.set(sug.text, start);
+    }
+    return map;
+  }, [analysis, sentenceLines]);
 
   // ── Persist session helper ─────────────────────────────────
   const persistSession = useCallback(
@@ -1907,6 +1922,10 @@ const StudyPage: React.FC = () => {
               onAddSentence={handleAddSentence}
               savedWords={savedWords}
               savedSentences={savedSentencesSet}
+              suggestionStarts={suggestionStarts}
+              savedSentenceIds={savedSentenceIds}
+              onSeekTo={(seconds) => handleSeekTo(seconds, true)}
+              onRemoveSentence={handleRemoveSentence}
               onClose={() => setAnalysis(null)}
             />
           </div>

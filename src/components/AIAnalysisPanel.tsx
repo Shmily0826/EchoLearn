@@ -10,6 +10,7 @@ import type {
 import { tomorrowMs } from '../utils/storage';
 import { createItemId, currentTimeMs } from '../utils/id';
 import { prepareVocabularyItem } from '../services/vocabularyEnrichment';
+import { formatTime } from './study/formatTime';
 import ClickableRichText from './ClickableRichText';
 import WordDictionaryPopup, { type WordDictionaryPopupData } from './WordDictionaryPopup';
 
@@ -21,6 +22,11 @@ interface AIAnalysisPanelProps {
   onAddSentence: (item: SentenceItem) => void;
   savedWords: Set<string>;
   savedSentences: Set<string>;
+  /** `start` of the transcript line each suggestion came from, keyed by text. */
+  suggestionStarts?: Map<string, number>;
+  savedSentenceIds?: Map<string, string>;
+  onSeekTo?: (seconds: number) => void;
+  onRemoveSentence?: (id: string) => void;
   onClose: () => void;
 }
 
@@ -32,6 +38,10 @@ const AIAnalysisPanel: React.FC<AIAnalysisPanelProps> = ({
   onAddSentence,
   savedWords,
   savedSentences,
+  suggestionStarts,
+  savedSentenceIds,
+  onSeekTo,
+  onRemoveSentence,
   onClose,
 }) => {
   const [collapsed, setCollapsed] = useState(false);
@@ -69,7 +79,10 @@ const AIAnalysisPanel: React.FC<AIAnalysisPanelProps> = ({
       text: sug.text,
       meaningCn: sug.meaningCn,
       sourceVideoId: videoId,
-      startTime: 0,
+      // The real transcript moment when we could align the text, so the saved
+      // sentence jumps back to the video; 0 keeps the old "no timestamp" state
+      // rather than inventing one.
+      startTime: suggestionStarts?.get(sug.text) ?? 0,
       addedAt: currentTimeMs(),
       myOwnSentence: '',
       mastered: false,
@@ -302,6 +315,11 @@ const AIAnalysisPanel: React.FC<AIAnalysisPanelProps> = ({
             <div className="space-y-3">
               {analysis.sentenceSuggestions.map((sug) => {
                 const saved = savedSentences.has(sug.text);
+                // Where this sentence sits in the video. Absent when the text
+                // could not be aligned to a transcript line, in which case we
+                // offer the add action only — never a fabricated timestamp.
+                const atSeconds = suggestionStarts?.get(sug.text);
+                const canSeek = typeof atSeconds === 'number';
                 return (
                   <div key={sug.text} data-testid="ai-sentence-card" className="bg-violet-50 dark:bg-indigo-950/40 border border-violet-200 dark:border-indigo-700 rounded-lg p-3">
                     <div className="flex items-start justify-between gap-3">
@@ -315,7 +333,21 @@ const AIAnalysisPanel: React.FC<AIAnalysisPanelProps> = ({
                         />
                       </p>
                       {saved ? (
-                        <span className="text-[10px] text-violet-600 dark:text-indigo-400 font-medium whitespace-nowrap">{t('ai.saved')}</span>
+                        <span
+                          data-testid="ai-sentence-saved"
+                          className="text-[10px] text-violet-600 dark:text-indigo-400 font-medium whitespace-nowrap"
+                        >
+                          {t('ai.saved')}
+                          {onRemoveSentence && savedSentenceIds?.get(sug.text) && (
+                            <button
+                              onClick={() => onRemoveSentence(savedSentenceIds.get(sug.text) as string)}
+                              className="ml-1.5 text-gray-400 dark:text-gray-500 hover:text-red-500 dark:hover:text-red-400 cursor-pointer"
+                              title={t('study.remove')}
+                            >
+                              ×
+                            </button>
+                          )}
+                        </span>
                       ) : (
                         <button
                           onClick={() => handleAddSentence(sug)}
@@ -325,6 +357,16 @@ const AIAnalysisPanel: React.FC<AIAnalysisPanelProps> = ({
                         </button>
                       )}
                     </div>
+                    {canSeek && (
+                      <button
+                        data-testid="ai-sentence-seek"
+                        onClick={() => onSeekTo?.(atSeconds as number)}
+                        className="mt-2 text-[10px] font-mono text-indigo-500 hover:text-indigo-700 hover:underline cursor-pointer"
+                        title="Jump to this point in the video"
+                      >
+                        @{formatTime(atSeconds as number)}
+                      </button>
+                    )}
                     {lang === 'zh' && <p className="text-[10px] text-gray-400 dark:text-gray-400 mt-1">{sug.reason}</p>}
                     {lang === 'zh' && sug.grammarNotes && (
                       <div className="mt-2 pt-2 border-t border-violet-100 dark:border-slate-700">
