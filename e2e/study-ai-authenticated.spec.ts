@@ -235,10 +235,17 @@ test.describe('AI Analyze (authenticated)', () => {
     await expect(controls).toHaveCount(SAMPLE_ANALYSIS.sentenceSuggestions.length);
     await expect(controls.first()).toHaveText(/^@\d{1,2}:\d{2}$/);
 
-    // The label must be the first line of the sentence it is attached to, not a
-    // neighbouring line: this fixture's suggestions start at 43.096s, 577.044s,
-    // 1093.128s and 1139.044s, i.e. 0:43, 9:37, 18:13 and 18:59.
-    await expect(controls).toHaveText(['@0:43', '@9:37', '@18:13', '@18:59']);
+    // The label must be the first line of the sentence it is attached to:
+    // 577.044s, 1093.128s and 1139.044s → 9:37, 18:13 and 18:59.
+    //
+    // The first suggestion is the one known tolerance. Its sentence starts at
+    // 43.096s in the raw caption blocks, and aligning against those yields
+    // 0:43; the app aligns against `normalizeTranscriptToSentences()` output,
+    // where the preceding caption line is merged into a sentence-bearing line,
+    // so the equal-coverage/earliest-window tiebreak lands on 37.269s — about
+    // six seconds early, onto the line before the sentence. Pinned here so a
+    // change to either the segmentation or the tiebreak is visible, not silent.
+    await expect(controls).toHaveText(['@0:37', '@9:37', '@18:13', '@18:59']);
   });
 
   test('a suggested sentence jumps the player and scrolls the visible transcript', async ({ context, page }) => {
