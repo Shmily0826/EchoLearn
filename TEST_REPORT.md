@@ -3056,3 +3056,11 @@ Playwright 58/58, Vitest 597/597 (54 files), `tsc --noEmit` clean.
 - VPS MIME compatibility fixed and covered by the mocked contract test. The existing production venv has no `python-multipart`; installing the requirements before service restart is a hard deployment prerequisite for real multipart parsing.
 - Deployment order is VPS dependency/code update and restart, then CF Worker deploy with server-side YTDLP secrets, then Vercel frontend deploy. No deployment action occurred.
 - Real-ASR gate remains intentionally unrun: one short spoken WAV under 25 MiB would validate Worker → VPS → Groq timed output and playback, but would incur real provider traffic/quota/cost.
+
+## 2026-09-17 - ECHO-20260917-2154 release acceptance
+
+- Commit/push: `858461dbc71f18240cee9e05e4af410e99b4879d` pushed to remote `main` and verified with `git ls-remote`.
+- VPS: installed `python-multipart 0.0.32`, restarted `echolearn-ytdlp.service`, confirmed `ActiveState=active`, `SubState=running`, `ExecMainStatus=0`; `/api/health` returned `{"status":"ok","asr":true,"asrMaxDuration":1800}`.
+- Worker: deployment version `48c94490-5345-44f8-9f91-c409c4edc49c`; production health route responded. Vercel: deployment `dpl_CzFnSNpPviCKHActMpVM9YMzp2gz` READY on `echo-learn.uk` and `app.echo-learn.uk`, metadata matched the release SHA.
+- Real provider acceptance: exactly one production browser upload of a short generated spoken WAV completed Worker → VPS → Groq with HTTP 200 and non-empty timed `start/end/text` lines. No second provider request and no Supadata traffic occurred.
+- Browser acceptance: production dogfood preflight showed exactly one Import Audio control/input. A post-provider mocked replay with the same file verified visible upload/transcribe state, transcript rendering, playback, current-line sync, and reload re-import with one intercepted transcription request. The real response run rendered transcript DOM but stopped on a hidden mobile-copy selector before those later assertions; no second real call was permitted.
