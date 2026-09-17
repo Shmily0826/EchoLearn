@@ -154,7 +154,8 @@ export interface VideoStudySession {
   youtubeUrl: string;                // the original URL the user pasted (also used for bilibili)
   youtubeId: string;                 // extracted video ID (11-char for YT, BV ID for Bilibili)
   platform?: VideoPlatform;          // defaults to 'youtube' if undefined (backward compat)
-  sourceType?: 'local_audio';         // browser-local audio; the File is tab-scoped
+  sourceType?: 'local_audio';         // legacy ASR or V2 subtitle-backed browser-local audio
+  localMediaId?: string;              // V2 audio Blob key in IndexedDB
   biliPage?: number;                 // Bilibili multi-part (分p) selector, when the video is multi-part
   title: string;                     // user-editable title (defaults to URL)
   transcriptLines: TranscriptLine[]; // the parsed transcript for this video (legacy)

@@ -44,7 +44,7 @@ import { usePlaybackPosition } from '../hooks/usePlaybackPosition';
 import { useTranscriptSeek } from '../hooks/useTranscriptSeek';
 import { getVideoTitle } from '../services/youtubeApi';
 import { shouldOfferAsrRecovery } from './studyAsrRecovery';
-import { getLocalAudioUrl, registerLocalAudio } from '../services/localAudio';
+import { deleteLocalAudioMedia, getLocalAudioUrl, registerLocalAudio, restoreLocalAudioMedia, saveLocalAudioMedia } from '../services/localAudio';
 import { isNoCaptionsError } from './studyCaptionError';
 import sampleTranscript from '../data/sample-transcript.json';
 import {
@@ -147,9 +147,7 @@ const StudyPage: React.FC = () => {
   // extracted audio because its iframe cannot provide reliable sync control.
   const { audioMode, setAudioMode, audioSrc, audioFallbackSrc } =
     useAudioMode({ session, platform, videoId, biliPage });
-  const localAudioUrl = session?.sourceType === 'local_audio'
-    ? getLocalAudioUrl(videoId || '')
-    : null;
+  const [localAudioUrl, setLocalAudioUrl] = useState<string | null>(null);
 
   // Transcript state — raw caption blocks + sentence-level lines
   const [rawBlocks, setRawBlocks] = useState<TranscriptLine[]>([]);
@@ -223,6 +221,7 @@ const StudyPage: React.FC = () => {
 
   // Ref to track if we've done the initial restore
   const restoredRef = useRef(false);
+  const localAudioRestoreTokenRef = useRef(0);
   // Track which session ID we've loaded, so we can detect new sessions from Dashboard
   const loadedSessionIdRef = useRef<string | null>(null);
   const { pathname } = useLocation();
@@ -403,14 +402,16 @@ const StudyPage: React.FC = () => {
       // stale title left from a previously-viewed video (root cause of a
       // Chinese title showing on an English video on mobile) while keeping a
       // user-edited title for the same video.
-      refreshTitleForVideo(
-        saved.youtubeUrl,
-        saved.id,
-        saved.youtubeId,
-        saved.platform === 'bilibili'
-          ? () => getBilibiliVideoTitle(saved.youtubeId, saved.biliPage)
-          : getVideoTitle,
-      );
+      if (saved.sourceType !== 'local_audio') {
+        refreshTitleForVideo(
+          saved.youtubeUrl,
+          saved.id,
+          saved.youtubeId,
+          saved.platform === 'bilibili'
+            ? () => getBilibiliVideoTitle(saved.youtubeId, saved.biliPage)
+            : getVideoTitle,
+        );
+      }
 
       // Migrate: use transcriptData if available, else treat legacy transcriptLines as rawBlocks
       const transcriptData = saved.transcriptData;
@@ -434,7 +435,18 @@ const StudyPage: React.FC = () => {
       const hasTranscript =
         hasTranscriptData || (saved.transcriptLines?.length ?? 0) > 0;
       if (saved.sourceType === 'local_audio') {
-        if (!getLocalAudioUrl(saved.youtubeId)) failCaptionRequest(t('study.localAudioMissing'));
+        const token = ++localAudioRestoreTokenRef.current;
+        if (saved.localMediaId) {
+          void restoreLocalAudioMedia(saved.localMediaId).then((url) => {
+            if (token !== localAudioRestoreTokenRef.current) return;
+            if (url) setLocalAudioUrl(url);
+            else failCaptionRequest(t('study.localAudioMissing'));
+          }).catch(() => {
+            if (token === localAudioRestoreTokenRef.current) failCaptionRequest(t('study.localAudioMissing'));
+          });
+        } else if (!getLocalAudioUrl(saved.youtubeId)) {
+          failCaptionRequest(t('study.localAudioMissing'));
+        }
       } else if (saved.youtubeId && !hasTranscript) {
         runCaptionRequest(
           () =>
@@ -504,6 +516,8 @@ const StudyPage: React.FC = () => {
 
     // New session detected — reload everything
     loadedSessionIdRef.current = saved.id;
+    const localAudioRestoreToken = ++localAudioRestoreTokenRef.current;
+    setLocalAudioUrl(null);
     setSession(saved);
     setVideoId(saved.youtubeId);
     setPlatform(saved.platform || 'youtube');
@@ -524,14 +538,16 @@ const StudyPage: React.FC = () => {
     setStreamChars(0);
     clearCaptionError();
 
-    refreshTitleForVideo(
-      saved.youtubeUrl,
-      saved.id,
-      saved.youtubeId,
-      saved.platform === 'bilibili'
-        ? () => getBilibiliVideoTitle(saved.youtubeId, saved.biliPage)
-        : getVideoTitle,
-    );
+    if (saved.sourceType !== 'local_audio') {
+      refreshTitleForVideo(
+        saved.youtubeUrl,
+        saved.id,
+        saved.youtubeId,
+        saved.platform === 'bilibili'
+          ? () => getBilibiliVideoTitle(saved.youtubeId, saved.biliPage)
+          : getVideoTitle,
+      );
+    }
 
     const transcriptData = saved.transcriptData;
     const hasTranscriptData = hasUsableTranscriptData(transcriptData);
@@ -556,7 +572,19 @@ const StudyPage: React.FC = () => {
     // Auto-fetch captions if no transcript exists
     const hasTranscript =
       hasTranscriptData || (saved.transcriptLines?.length ?? 0) > 0;
-    if (saved.youtubeId && !hasTranscript) {
+    if (saved.sourceType === 'local_audio') {
+      if (saved.localMediaId) {
+        void restoreLocalAudioMedia(saved.localMediaId).then((url) => {
+          if (localAudioRestoreToken !== localAudioRestoreTokenRef.current) return;
+          if (url) setLocalAudioUrl(url);
+          else failCaptionRequest(t('study.localAudioMissing'));
+        }).catch(() => {
+          if (localAudioRestoreToken === localAudioRestoreTokenRef.current) failCaptionRequest(t('study.localAudioMissing'));
+        });
+      } else if (!getLocalAudioUrl(saved.youtubeId)) {
+        failCaptionRequest(t('study.localAudioMissing'));
+      }
+    } else if (saved.youtubeId && !hasTranscript) {
       runCaptionRequest(
         () =>
           saved.platform === 'bilibili'
@@ -669,6 +697,7 @@ const StudyPage: React.FC = () => {
         title,
         transcriptLines: raw, // legacy compat
         transcriptData: { rawBlocks: raw, sentenceLines: sLines },
+        ...(session?.sourceType === 'local_audio' ? { sourceType: session.sourceType, localMediaId: session.localMediaId } : {}),
         captionSource: session?.captionSource,
         captionDiagnostics: session?.captionDiagnostics,
         createdAt: session?.createdAt || now,
@@ -718,6 +747,8 @@ const StudyPage: React.FC = () => {
     }
 
     setAsrRecoveryRequested(false);
+    localAudioRestoreTokenRef.current += 1;
+    setLocalAudioUrl(null);
     setPlatform(detected);
 
     const persistTranscriptInto = (
@@ -902,10 +933,12 @@ const StudyPage: React.FC = () => {
     [importTranscript],
   );
 
-  const handleImportLocalAudio = useCallback((file: File, lines: TranscriptLine[]) => {
+  const handleImportLocalAudio = useCallback(async (file: File, lines: TranscriptLine[]) => {
     const now = Date.now();
     const id = `local_${now}_${Math.random().toString(36).slice(2, 8)}`;
-    registerLocalAudio(id, file);
+    const previousLocalMediaId = session?.localMediaId;
+    await saveLocalAudioMedia(id, file);
+    const localUrl = registerLocalAudio(id, file);
     const sentenceLines = normalizeTranscriptToSentences(lines);
     const fresh: VideoStudySession = {
       id: `session_${now}_${Math.random().toString(36).slice(2, 8)}`,
@@ -913,6 +946,7 @@ const StudyPage: React.FC = () => {
       youtubeId: id,
       platform: 'youtube',
       sourceType: 'local_audio',
+      localMediaId: id,
       title: file.name,
       transcriptLines: lines,
       transcriptData: { rawBlocks: lines, sentenceLines },
@@ -923,25 +957,31 @@ const StudyPage: React.FC = () => {
       lastPosition: 0,
     };
     saveCurrentSession(fresh);
+    if (previousLocalMediaId) void deleteLocalAudioMedia(previousLocalMediaId);
     setSession(fresh);
     setVideoId(id);
     setPlatform('youtube');
     setUrlInput('');
     setSessionTitle(file.name);
+    setLocalAudioUrl(localUrl);
     setStartTime(undefined);
     setRawBlocks(lines);
     setSentenceLines(sentenceLines);
     setAnalysis(null);
     clearCaptionError();
     loadedSessionIdRef.current = fresh.id;
-  }, [clearCaptionError]);
+  }, [clearCaptionError, session]);
 
   // ── Clear current session ──────────────────────────────────
   const handleClearSession = useCallback(() => {
     // Invalidate any in-flight caption request so it cannot repopulate the
     // cleared session when it eventually resolves.
     invalidateCaptionRequests();
+    const localMediaId = session?.localMediaId;
     clearCurrentSession();
+    if (localMediaId) void deleteLocalAudioMedia(localMediaId);
+    localAudioRestoreTokenRef.current += 1;
+    setLocalAudioUrl(null);
     setSession(null);
     setVideoId(null);
     setSelectedContext(null);
@@ -957,7 +997,7 @@ const StudyPage: React.FC = () => {
     setPlatform('youtube');
     setBiliPage(undefined);
     setBiliParts(undefined);
-  }, []);
+  }, [session]);
 
   // ── Reload transcript for the current video ────────────────
   const handleReloadTranscript = useCallback(() => {
@@ -1374,7 +1414,7 @@ const StudyPage: React.FC = () => {
                       <div className="rounded-xl border border-amber-200 bg-amber-50 px-4 py-6 text-center text-sm text-amber-700 dark:border-amber-800 dark:bg-amber-950/30 dark:text-amber-300">
                         {t('study.localAudioMissing')}
                       </div>
-                      <LocalAudioImporter onSuccess={handleImportLocalAudio} />
+                      <LocalAudioImporter mode="local-media" onSuccess={handleImportLocalAudio} />
                     </>
                   )
                 ) : audioMode && platform === 'bilibili' ? (
@@ -1795,7 +1835,7 @@ const StudyPage: React.FC = () => {
             {videoId && !displayLines.length && !fetchingCaption && !captionError && (
               <div className="lg:hidden mt-2">
                 <TranscriptImporter onImport={handleImportTranscript} />
-                <LocalAudioImporter onSuccess={handleImportLocalAudio} />
+                <LocalAudioImporter mode="local-media" onSuccess={handleImportLocalAudio} />
               </div>
             )}
           </div>
@@ -1883,7 +1923,7 @@ const StudyPage: React.FC = () => {
                 onSeekTo={handleSeekTo}
                 />
                 {session?.sourceType !== 'local_audio' && (
-                  <LocalAudioImporter onSuccess={handleImportLocalAudio} />
+                  <LocalAudioImporter mode="local-media" onSuccess={handleImportLocalAudio} />
                 )}
               </>
             ) : fetchingCaption ? (
@@ -1944,7 +1984,7 @@ const StudyPage: React.FC = () => {
             ) : videoId ? (
               <>
                 <TranscriptImporter onImport={handleImportTranscript} />
-                <LocalAudioImporter onSuccess={handleImportLocalAudio} />
+                <LocalAudioImporter mode="local-media" onSuccess={handleImportLocalAudio} />
               </>
             ) : (
               <>
@@ -1952,7 +1992,7 @@ const StudyPage: React.FC = () => {
                   <p>{t('study.noVideo')}</p>
                   <p className="mt-1">{t('study.loadToStart')}</p>
                 </div>
-                <LocalAudioImporter onSuccess={handleImportLocalAudio} />
+                <LocalAudioImporter mode="local-media" onSuccess={handleImportLocalAudio} />
               </>
             )}
             </div>

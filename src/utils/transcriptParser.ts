@@ -11,6 +11,9 @@ function nextId(): string {
 function parseHmsTimestamp(raw: string): number {
   const cleaned = raw.replace(',', '.');
   const parts = cleaned.split(':');
+  if (parts.length === 2) {
+    return (parseInt(parts[0], 10) || 0) * 60 + (parseFloat(parts[1]) || 0);
+  }
   const h = parseInt(parts[0], 10) || 0;
   const m = parseInt(parts[1], 10) || 0;
   const s = parseFloat(parts[2]) || 0;
@@ -63,7 +66,7 @@ export function parseSrtTranscript(rawText: string): TranscriptLine[] {
     if (tsLineIdx < 0) continue;
 
     const tsMatch = blockLines[tsLineIdx].match(
-      /(\d{1,2}:\d{2}:\d{2}[,.]\d{1,3})\s*-->\s*(\d{1,2}:\d{2}:\d{2}[,.]\d{1,3})/,
+      /(\d{1,2}:\d{2}(?::\d{2})?[,.]\d{1,3})\s*-->\s*(\d{1,2}:\d{2}(?::\d{2})?[,.]\d{1,3})/,
     );
     if (!tsMatch) continue;
 

@@ -1,4 +1,6 @@
 import { CF_WORKER_URL } from './youtubeTranscript';
+import type { TranscriptLine } from '../types';
+import { parseSrtTranscript, parseVttTranscript } from '../utils/transcriptParser';
 
 export const LOCAL_AUDIO_MAX_BYTES = 25 * 1024 * 1024;
 const AUDIO_TYPES: Record<string, Set<string>> = {
@@ -7,7 +9,7 @@ const AUDIO_TYPES: Record<string, Set<string>> = {
   wav: new Set(['audio/wav', 'audio/x-wav', 'audio/wave']),
 };
 
-export type LocalAudioErrorCode = 'unsupported' | 'too_large' | 'upload' | 'timeout' | 'transcription' | 'no_speech' | 'invalid_audio';
+export type LocalAudioErrorCode = 'unsupported' | 'too_large' | 'upload' | 'timeout' | 'transcription' | 'no_speech' | 'invalid_audio' | 'unsupported_subtitle' | 'invalid_subtitle' | 'persistence';
 
 export class LocalAudioError extends Error {
   code: LocalAudioErrorCode;
@@ -75,7 +77,7 @@ export function transcribeLocalAudio(
 
 const localAudioFiles = new Map<string, string>();
 
-export function registerLocalAudio(id: string, file: File): string {
+export function registerLocalAudio(id: string, file: Blob): string {
   const previous = localAudioFiles.get(id);
   if (previous) URL.revokeObjectURL(previous);
   const url = URL.createObjectURL(file);
@@ -85,4 +87,85 @@ export function registerLocalAudio(id: string, file: File): string {
 
 export function getLocalAudioUrl(id: string): string | null {
   return localAudioFiles.get(id) ?? null;
+}
+
+const LOCAL_MEDIA_DB = 'echolearn-local-media-v2';
+const LOCAL_MEDIA_STORE = 'media';
+
+interface LocalMediaRecord {
+  id: string;
+  blob: Blob;
+  name: string;
+  type: string;
+}
+
+function openLocalMediaDb(): Promise<IDBDatabase> {
+  if (typeof indexedDB === 'undefined') {
+    return Promise.reject(new LocalAudioError('persistence', 'This browser cannot persist local audio.'));
+  }
+  return new Promise((resolve, reject) => {
+    const request = indexedDB.open(LOCAL_MEDIA_DB, 1);
+    request.onupgradeneeded = () => {
+      request.result.createObjectStore(LOCAL_MEDIA_STORE, { keyPath: 'id' });
+    };
+    request.onsuccess = () => resolve(request.result);
+    request.onerror = () => reject(new LocalAudioError('persistence', 'Could not save local audio in this browser.'));
+  });
+}
+
+function runMediaRequest<T>(
+  mode: IDBTransactionMode,
+  action: (store: IDBObjectStore, resolve: (value: T) => void, reject: (reason?: unknown) => void) => void,
+): Promise<T> {
+  return openLocalMediaDb().then((db) => new Promise<T>((resolve, reject) => {
+    const transaction = db.transaction(LOCAL_MEDIA_STORE, mode);
+    transaction.onerror = () => reject(new LocalAudioError('persistence', 'Could not update local audio storage.'));
+    action(transaction.objectStore(LOCAL_MEDIA_STORE), resolve, reject);
+    transaction.oncomplete = () => db.close();
+  }));
+}
+
+/** Parse only the subtitle formats supported by the V2 local-media flow. */
+export async function parseLocalSubtitle(file: File): Promise<TranscriptLine[]> {
+  const extension = file.name.split('.').pop()?.toLowerCase() || '';
+  if (extension !== 'srt' && extension !== 'vtt') {
+    throw new LocalAudioError('unsupported_subtitle', 'Choose an SRT or VTT subtitle file.');
+  }
+  const text = await file.text();
+  const trimmed = text.trim();
+  if (!trimmed || !trimmed.includes('-->') || (extension === 'vtt' && !/^WEBVTT(?:\s|$)/i.test(trimmed))) {
+    throw new LocalAudioError('invalid_subtitle', 'This subtitle file is malformed or has no timed lines.');
+  }
+  const lines = extension === 'vtt' ? parseVttTranscript(trimmed) : parseSrtTranscript(trimmed);
+  if (!lines.length || lines.some((line) => !Number.isFinite(line.start) || !Number.isFinite(line.end) || line.end <= line.start || !line.text.trim())) {
+    throw new LocalAudioError('invalid_subtitle', 'This subtitle file is malformed or has no timed lines.');
+  }
+  return lines;
+}
+
+/** Persist a V2 audio Blob without putting binary data in localStorage. */
+export function saveLocalAudioMedia(id: string, file: File): Promise<void> {
+  return runMediaRequest<void>('readwrite', (store, resolve, reject) => {
+    const request = store.put({ id, blob: file, name: file.name, type: file.type } satisfies LocalMediaRecord);
+    request.onsuccess = () => resolve();
+    request.onerror = () => reject(new LocalAudioError('persistence', 'Could not save local audio in this browser.'));
+  });
+}
+
+/** Restore a persisted V2 audio Blob into the existing object-URL player path. */
+export function restoreLocalAudioMedia(id: string): Promise<string | null> {
+  return runMediaRequest<LocalMediaRecord | undefined>('readonly', (store, resolve, reject) => {
+    const request = store.get(id);
+    request.onsuccess = () => resolve(request.result as LocalMediaRecord | undefined);
+    request.onerror = () => reject(new LocalAudioError('persistence', 'Could not restore local audio.'));
+  }).then((record) => record?.blob ? registerLocalAudio(id, record.blob) : null);
+}
+
+/** Remove one persisted local-media item when its Study session is cleared. */
+export function deleteLocalAudioMedia(id: string): Promise<void> {
+  return runMediaRequest<void>('readwrite', (store, resolve, reject) => {
+    const request = store.delete(id);
+    request.onsuccess = () => resolve();
+    request.onerror = () => reject(new LocalAudioError('persistence', 'Could not clear local audio storage.'));
+  });
 }
