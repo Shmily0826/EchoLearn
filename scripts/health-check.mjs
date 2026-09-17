@@ -42,6 +42,23 @@ const YOUTUBE_CAPTION_CONTROLS = [
     timeoutMs: 45000,
     retries: 0,
     transcript: true,
+    // Known-degraded, so this reports as a warning instead of failing the run.
+    //
+    // Option B (docs/WORKER_FATE_DECISION.md, approved 2026-09-07) sends
+    // caption-only requests straight to the Vercel server API and keeps the
+    // Worker on the hot path only for explicit ASR (allowAsr=1) — see
+    // fetchYouTubeServerTranscript in src/services/youtubeTranscript.ts. This
+    // control therefore probes a capability the default learner flow no longer
+    // depends on, and it is bimodal: ~261ms when the Worker's own cascade
+    // succeeds, ~11.3s when it exhausts its deadline and returns
+    // 504 provider_timeout. As a hard failure it fired on roughly half of all
+    // scheduled runs while learners were unaffected, which is alert fatigue
+    // rather than protection. The result is still printed so a real change in
+    // the cascade stays visible.
+    //
+    // If the Worker-first endpoint ordering is ever restored, delete warnOnly
+    // so this goes back to failing the run.
+    warnOnly: true,
     validate: validateCaptionResponse,
   },
   {
@@ -61,6 +78,9 @@ const YOUTUBE_CAPTION_CONTROLS = [
  * @property {number} [timeoutMs]   per-attempt timeout (default 30s)
  * @property {number} [retries]     extra attempts after a failure (default 1)
  * @property {boolean} [transcript] whether to report cache/acquisition evidence
+ * @property {boolean} [warnOnly]   report a failure as WARN and never fail the
+ *          run. Use only for capabilities the learner flow has deliberately
+ *          routed around; the result is still printed for trend visibility.
  * @property {(bodyText: string) => string | null} [validate]
  *          returns null when OK, or a reason string when the response body
  *          is not what the app depends on.
@@ -197,6 +217,7 @@ try {
 }
 const paidProviderGuard = createPaidProviderGuard(policy);
 let failures = 0;
+let warnings = 0;
 for (const check of CHECKS) {
   if (check.paidProvider && !policy.enabled) {
     console.log(`BLOCKED  ${check.name} (paid provider opt-in/cap not configured)`);
@@ -208,6 +229,12 @@ for (const check of CHECKS) {
       ? ` [cache=${result.cacheState}; acquisition=${result.acquisitionEvidence}]`
       : '';
     console.log(`PASS  ${check.name} (${result.ms}ms)${evidence}`);
+  } else if (check.warnOnly) {
+    // Degraded but not user-affecting — printed for trend visibility, never
+    // counted as a failure (see the warnOnly note on the iG9 control).
+    warnings += 1;
+    console.log(`WARN  ${check.name} (known-degraded; not failing the run)`);
+    console.log(`      ↳ ${result.reason}`);
   } else {
     failures += 1;
     console.log(`FAIL  ${check.name}`);
@@ -220,7 +247,12 @@ if (failures > 0) {
   console.log(`${failures}/${CHECKS.length} checks FAILED`);
   return 1;
 }
-console.log(`All ${CHECKS.length} checks passed`);
+// Never claim a clean sweep while something degraded — the warning is the
+// whole reason this run is not red, so it belongs in the summary line.
+const warnNote = warnings > 0
+  ? ` (${warnings} known-degraded warning${warnings === 1 ? '' : 's'})`
+  : '';
+console.log(`All ${CHECKS.length} checks passed${warnNote}`);
 return 0;
 }
 
