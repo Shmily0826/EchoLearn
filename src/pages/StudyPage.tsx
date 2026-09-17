@@ -1792,7 +1792,7 @@ const StudyPage: React.FC = () => {
             )}
 
             {!displayLines.length && captionError && (
-              <div className="lg:hidden mt-2 bg-white dark:bg-slate-800 rounded-xl border border-red-200 dark:border-red-800 shadow-sm px-4 py-5">
+              <div data-testid="caption-error-card" className="lg:hidden mt-2 bg-white dark:bg-slate-800 rounded-xl border border-red-200 dark:border-red-800 shadow-sm px-4 py-5">
                 <div className="flex flex-col items-center text-center">
                   <svg className="w-7 h-7 text-red-400 mb-2" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.5}>
                     <path strokeLinecap="round" strokeLinejoin="round" d="M12 9v3.75m9-.75a9 9 0 11-18 0 9 9 0 0118 0zm-9 3.75h.008v.008H12v-.008z" />
@@ -1940,7 +1940,7 @@ const StudyPage: React.FC = () => {
               </div>
             ) : captionError ? (
               <div className="flex flex-col items-center justify-center py-12">
-                <div className="bg-red-50 dark:bg-red-950/30 border border-red-200 dark:border-red-800 rounded-xl p-5 max-w-md text-center">
+                <div data-testid="caption-error-card" className="bg-red-50 dark:bg-red-950/30 border border-red-200 dark:border-red-800 rounded-xl p-5 max-w-md text-center">
                   <svg className="w-8 h-8 text-red-400 mx-auto mb-2" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.5}>
                     <path strokeLinecap="round" strokeLinejoin="round" d="M12 9v3.75m9-.75a9 9 0 11-18 0 9 9 0 0118 0zm-9 3.75h.008v.008H12v-.008z" />
                   </svg>

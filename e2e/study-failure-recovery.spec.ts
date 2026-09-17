@@ -207,7 +207,12 @@ test.describe('Batch 3 — Study failure recovery', () => {
     await expect(page.getByText(/vercel recovered caption/i).filter({ visible: true }).first()).toBeVisible({
       timeout: 20_000,
     });
-    await expect(page.getByText(/unable to fetch captions|no subtitles|couldn't load/i).filter({ visible: true })).toHaveCount(0);
+    // Regression guard: the local-media importer renders next to a recovered
+    // transcript and its placeholder text ("No subtitles selected") once matched
+    // the error-card regex. Assert the importer is really on screen here, so a
+    // future text collision fails loudly instead of being silently tolerated.
+    await expect(page.getByTestId('local-media-importer').filter({ visible: true }).first()).toBeVisible();
+    await expect(page.getByTestId('caption-error-card').filter({ visible: true })).toHaveCount(0);
     expect(calls.vercel).toBe(1);
     expect(calls.asrOptIn).toBe(0);
     await expect(page.getByRole('button', { name: /generate transcript/i }).filter({ visible: true })).toHaveCount(0);
@@ -226,7 +231,7 @@ test.describe('Batch 3 — Study failure recovery', () => {
     await expect(page.getByText(/vercel recovered caption/i).filter({ visible: true }).first()).toBeVisible({
       timeout: 30_000,
     });
-    await expect(page.getByText(/unable to fetch captions|no subtitles|couldn't load/i).filter({ visible: true })).toHaveCount(0);
+    await expect(page.getByTestId('caption-error-card').filter({ visible: true })).toHaveCount(0);
     expect(calls.vercel).toBe(1);
     expect(calls.asrOptIn).toBe(0);
     await expect(page.getByRole('button', { name: /generate transcript/i }).filter({ visible: true })).toHaveCount(0);
@@ -245,7 +250,7 @@ test.describe('Batch 3 — Study failure recovery', () => {
     await expect(page.getByText(/vercel recovered caption/i).filter({ visible: true }).first()).toBeVisible({
       timeout: 20_000,
     });
-    await expect(page.getByText(/unable to fetch captions|no subtitles|couldn't load/i).filter({ visible: true })).toHaveCount(0);
+    await expect(page.getByTestId('caption-error-card').filter({ visible: true })).toHaveCount(0);
     expect(calls.vercel).toBe(1);
     expect(calls.asrOptIn).toBe(0);
     await expect(page.getByRole('button', { name: /generate transcript/i }).filter({ visible: true })).toHaveCount(0);
@@ -263,13 +268,13 @@ test.describe('Batch 3 — Study failure recovery', () => {
 
     const loadingButton = page.getByRole('button', { name: /loading/i });
     await expect(loadingButton).toBeVisible({ timeout: 5_000 });
-    await expect(page.getByText(/unable to fetch captions|no subtitles|couldn't load/i).filter({ visible: true })).toHaveCount(0);
+    await expect(page.getByTestId('caption-error-card').filter({ visible: true })).toHaveCount(0);
 
     await expect(page.getByText(/welcome/i).filter({ visible: true }).first()).toBeVisible({
       timeout: 20_000,
     });
     await expect(loadingButton).toBeHidden();
-    await expect(page.getByText(/unable to fetch captions|no subtitles|couldn't load/i).filter({ visible: true })).toHaveCount(0);
+    await expect(page.getByTestId('caption-error-card').filter({ visible: true })).toHaveCount(0);
   });
 
   test('Late failure clears loading and Retry recovers successfully', async ({ page }) => {
@@ -285,7 +290,7 @@ test.describe('Batch 3 — Study failure recovery', () => {
 
     const loadingButton = page.getByRole('button', { name: /loading/i });
     await expect(loadingButton).toBeVisible({ timeout: 5_000 });
-    const errorCard = page.getByText(/unable to fetch captions|no subtitles|couldn't load|try again/i).filter({ visible: true }).first();
+    const errorCard = page.getByTestId('caption-error-card').filter({ visible: true }).first();
     await expect(errorCard).toBeVisible({ timeout: 20_000 });
     await expect(loadingButton).toBeHidden();
 
@@ -294,7 +299,7 @@ test.describe('Batch 3 — Study failure recovery', () => {
     await expect(page.getByText(/welcome/i).filter({ visible: true }).first()).toBeVisible({
       timeout: 20_000,
     });
-    await expect(page.getByText(/unable to fetch captions|no subtitles|couldn't load/i).filter({ visible: true })).toHaveCount(0);
+    await expect(page.getByTestId('caption-error-card').filter({ visible: true })).toHaveCount(0);
   });
 
   test('Retry: first fetch 500 → error state → click Retry → second succeeds', async ({ page }) => {
@@ -313,7 +318,7 @@ test.describe('Batch 3 — Study failure recovery', () => {
     await loadYoutubeUrl(page);
 
     // First response is 500 → error state must appear (the friendly error card).
-    await expect(page.getByText(/unable to fetch captions|no subtitles|couldn't load|try again/i).filter({ visible: true }).first()).toBeVisible({
+    await expect(page.getByTestId('caption-error-card').filter({ visible: true }).first()).toBeVisible({
       timeout: 20_000,
     });
 
