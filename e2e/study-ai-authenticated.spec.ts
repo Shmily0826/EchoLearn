@@ -132,6 +132,23 @@ const vocabCard = (page: Page, word: string) =>
 const transcriptLine = (page: Page) =>
   page.locator('[data-transcript-line]').filter({ visible: true }).first();
 
+/**
+ * The scroll offset of the transcript pane the learner is actually looking at.
+ *
+ * The transcript is rendered twice (a `lg:hidden` mobile copy and a desktop
+ * copy), so an unscoped query can read the wrong one. Walk up from a *visible*
+ * row to its scroller, exactly as TranscriptViewer does.
+ */
+const visibleTranscriptScrollTop = (page: Page) =>
+  page.evaluate(() => {
+    const row = [...document.querySelectorAll('[data-transcript-line]')].find((el) => {
+      const rect = el.getBoundingClientRect();
+      return rect.width > 0 && rect.height > 0;
+    });
+    const container = row?.closest('.overflow-y-auto') as HTMLElement | null;
+    return container ? Math.round(container.scrollTop) : -1;
+  });
+
 /** Open the AI panel and wait until an analysis has rendered. */
 async function analyze(page: Page) {
   await analyzeButton(page).click();
@@ -202,6 +219,57 @@ test.describe('AI Analyze (authenticated)', () => {
     expect(prompt, 'the transcript did not reach the prompt').toContain('Good morning');
     expect(prompt, 'the selected CEFR minimum did not reach the prompt').toContain('B2');
     expect(prompt, 'the selected CEFR maximum did not reach the prompt').toContain('C1');
+  });
+
+  test('each suggested sentence carries the moment it came from', async ({ context, page }) => {
+    await bootSignedIn(page, context);
+    await installApiRoutes(page, { ai: [{ status: 200, body: sseBody(JSON.stringify(SAMPLE_ANALYSIS)) }] });
+    await reachStudy(page);
+    await analyze(page);
+
+    // Every suggestion in this recorded fixture is a verbatim transcript
+    // sentence, so alignment must resolve a timestamp for all of them. A
+    // suggestion the aligner cannot place stays timestamp-less by design, so
+    // "no seek control" is only correct for text that is not in the transcript.
+    const controls = aiPanel(page).locator('[data-testid="ai-sentence-seek"]');
+    await expect(controls).toHaveCount(SAMPLE_ANALYSIS.sentenceSuggestions.length);
+    await expect(controls.first()).toHaveText(/^@\d{1,2}:\d{2}$/);
+
+    // The label must be the first line of the sentence it is attached to, not a
+    // neighbouring line: this fixture's suggestions start at 43.096s, 577.044s,
+    // 1093.128s and 1139.044s, i.e. 0:43, 9:37, 18:13 and 18:59.
+    await expect(controls).toHaveText(['@0:43', '@9:37', '@18:13', '@18:59']);
+  });
+
+  test('a suggested sentence jumps the player and scrolls the visible transcript', async ({ context, page }) => {
+    await bootSignedIn(page, context);
+    await installApiRoutes(page, { ai: [{ status: 200, body: sseBody(JSON.stringify(SAMPLE_ANALYSIS)) }] });
+    await reachStudy(page);
+    await analyze(page);
+
+    // The last suggestion sits near the end of a 427-line transcript, so
+    // reaching it must move the transcript pane — the first one starts at 0:43
+    // and may already be on screen without any scrolling.
+    const seek = aiPanel(page).locator('[data-testid="ai-sentence-seek"]').last();
+    await expect(seek).toHaveText('@18:59');
+    const before = await visibleTranscriptScrollTop(page);
+
+    await seek.click();
+
+    // The player reached the suggested sentence: the playback-derived context
+    // bar now names it. A multi-line suggestion renders as its first line, so
+    // assert on a distinctive phrase rather than the whole sentence.
+    await expect(page.getByTestId('study-current-context'))
+      .toContainText("the only way we'll do it", { timeout: 15_000 });
+
+    // The pane the learner can see must follow the jump. A hidden twin copy
+    // would take the scroll silently, leaving this pane where it was.
+    await expect
+      .poll(() => visibleTranscriptScrollTop(page), {
+        message: 'the visible transcript pane did not scroll to the suggested sentence',
+        timeout: 10_000,
+      })
+      .toBeGreaterThan(before);
   });
 
   test('saves a suggested word into the vocabulary list', async ({ context, page }) => {

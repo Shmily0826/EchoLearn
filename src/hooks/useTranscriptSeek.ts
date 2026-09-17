@@ -12,6 +12,20 @@ interface TranscriptSeekOptions {
   displayLines: TranscriptLine[];
 }
 
+/**
+ * The transcript is rendered twice — a `lg:hidden` mobile copy and the desktop
+ * copy — and `document.querySelector` returns the first DOM match, which is the
+ * hidden one on desktop. Resolving the copy that is actually laid out keeps the
+ * scroll a no-op on the hidden twin instead of on the pane the learner sees.
+ */
+function findLaidOutLine(index: number): HTMLElement | null {
+  for (const el of document.querySelectorAll<HTMLElement>(`[data-transcript-line="${index}"]`)) {
+    const rect = el.getBoundingClientRect();
+    if (rect.width > 0 && rect.height > 0) return el;
+  }
+  return null;
+}
+
 /** Owns transcript line activation and cross-page/deep-link seeking. */
 export function useTranscriptSeek({
   playerRef,
@@ -69,8 +83,7 @@ export function useTranscriptSeek({
     const target = index >= 0 ? index : displayLines.findIndex((line) => line.start >= seconds);
     if (target < 0) return;
     window.setTimeout(() => {
-      document.querySelector<HTMLElement>(`[data-transcript-line="${target}"]`)
-        ?.scrollIntoView({ behavior: 'smooth', block: 'center' });
+      findLaidOutLine(target)?.scrollIntoView({ behavior: 'smooth', block: 'center' });
     }, 300);
   }, [displayLines, playerRef]);
 
