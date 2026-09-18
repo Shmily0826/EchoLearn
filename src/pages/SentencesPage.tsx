@@ -451,9 +451,14 @@ const SentencesPage: React.FC = () => {
               {/* Footer */}
               <div className="flex items-center justify-between gap-2">
                 <div className="flex items-center gap-2 sm:gap-3 min-w-0">
-                  <span className="shrink-0 text-[10px] font-mono text-gray-400">
-                    @{formatTime(item.startTime)}
-                  </span>
+                  {/* 0 is the sentinel for "no confirmed moment" (an AI suggestion
+                      the aligner could not place, or legacy data restored with a
+                      0 default), so it must never be shown as "@0:00". */}
+                  {item.startTime > 0 && (
+                    <span className="shrink-0 text-[10px] font-mono text-gray-400">
+                      @{formatTime(item.startTime)}
+                    </span>
+                  )}
                   <span className="text-[10px] font-mono text-gray-400 truncate max-w-[120px] sm:max-w-[200px]" title={getVideoTitle(item)}>
                     {getVideoTitle(item)}
                   </span>

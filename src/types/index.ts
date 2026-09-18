@@ -138,7 +138,7 @@ export interface SentenceItem {
   meaningCn: string;         // Chinese translation of the sentence
   sourceVideoId: string;     // YouTube video ID this sentence was saved from
   sourceVideoTitle?: string; // human-readable video title (optional)
-  startTime: number;         // start time of the sentence in the video (seconds)
+  startTime: number;         // seconds; 0 means "no confirmed moment" — never render or seek to it
   addedAt: number;           // when the sentence was saved (unix ms)
   updatedAt?: number;        // last local mutation (legacy items may omit it)
   myOwnSentence: string;     // user's own sentence using the same pattern / structure

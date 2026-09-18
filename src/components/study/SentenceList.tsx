@@ -37,13 +37,20 @@ const SentenceList: React.FC<{
             <p className="text-xs text-violet-500 dark:text-indigo-400 mt-1 leading-relaxed">{item.meaningCn}</p>
           )}
           <div className="flex items-center gap-2 mt-2">
-            <button
-              onClick={() => onSeek?.(item.startTime)}
-              className="text-[10px] font-mono text-indigo-500 hover:text-indigo-700 hover:underline cursor-pointer"
-              title="Jump to this point in the video"
-            >
-              @{formatTime(item.startTime)}
-            </button>
+            {/* A saved sentence can legitimately have no confirmed moment: an AI
+                suggestion the aligner could not place, or legacy data restored
+                with a 0 default. 0 is the sentinel for that, so never offer a
+                seek control for it — previously this rendered "@0:00" and
+                jumped the learner to the start of the video. */}
+            {item.startTime > 0 && (
+              <button
+                onClick={() => onSeek?.(item.startTime)}
+                className="text-[10px] font-mono text-indigo-500 hover:text-indigo-700 hover:underline cursor-pointer"
+                title="Jump to this point in the video"
+              >
+                @{formatTime(item.startTime)}
+              </button>
+            )}
             <span className="text-[10px] text-gray-400 dark:text-gray-500 truncate max-w-[200px]" title={item.sourceVideoTitle || item.sourceVideoId}>
               {item.sourceVideoTitle || item.sourceVideoId}
             </span>
