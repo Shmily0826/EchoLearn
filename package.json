@@ -18,6 +18,7 @@
     "health": "node scripts/health-check.mjs",
     "ai:rubric": "node --experimental-strip-types scripts/ai-quality-rubric.mjs",
     "ai:seek-smoke": "node scripts/ai-seek-smoke.mjs",
+    "deploy:check": "node scripts/prod-deploy-check.mjs",
     "dict:eval": "node scripts/dictionary-evaluation.ts",
     "dict:eval:synthetic": "node scripts/dictionary-evaluation.ts --csv scripts/fixtures/dictionary-eval.synthetic.ecdict.csv --synthetic-fixture --self-check",
     "dict:context": "node scripts/dictionary-context-poc.ts",

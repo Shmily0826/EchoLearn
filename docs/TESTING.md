@@ -29,14 +29,36 @@ assumed safe because the analytics marker is present.
 
 ## Verifying a deployment and its behaviour
 
-`npm run ai:seek-smoke` (`scripts/ai-seek-smoke.mjs`) answers two questions that
-CI cannot — *is the deployed build the one that contains this change*, and *does
-it behave as that change intends* — and it is the pattern to copy for other
-behaviour-level checks.
+Two different questions come up after a push, and they need two different tools.
+Neither answers the other.
 
-- It signs in on `?dogfood=1`, so the analytics rule above still applies, and the
-  paid-provider rule below still applies: the marker does not authorise provider
-  traffic.
+| Question | Tool |
+|---|---|
+| **Identity** — which commit is Production running? | `npm run deploy:check` (`scripts/prod-deploy-check.mjs`) |
+| **Behaviour** — does the running app act as that change intends? | `npm run ai:seek-smoke` (`scripts/ai-seek-smoke.mjs`) |
+
+### Identity: `npm run deploy:check`
+
+Read-only and credential-free. Vercel publishes every deployment back to GitHub
+as a repository deployment created by `vercel[bot]`, so the deployed commit and
+its build status can be read from the public GitHub API — no Vercel token and no
+`vercel login`. It compares the newest Production deployment against your local
+`HEAD` (override with `--expect <sha>`).
+
+Exit codes: `0` the expected commit is deployed and built, `1` it is not, `2`
+error (including a GitHub rate limit, which reports its reset time).
+
+**Identity only.** A successful deployment record proves a build exists and
+Vercel accepted it; it does not prove the running app behaves correctly. Note
+also that a failed deployment is never promoted to the Production alias, which
+is how a red commit can leave Production untouched.
+
+### Behaviour: `npm run ai:seek-smoke`
+
+It signs in on `?dogfood=1`, so the analytics rule above still applies, and the
+paid-provider rule below still applies: the marker does not authorise provider
+traffic.
+
 - It reads the labels the live page actually rendered and compares them against
   an offline re-alignment computed by the app's own matcher. Only suggestions
   where the **raw caption blocks** and the **rendered sentence lines** disagree
