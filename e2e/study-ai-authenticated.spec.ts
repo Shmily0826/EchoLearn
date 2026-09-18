@@ -238,13 +238,17 @@ test.describe('AI Analyze (authenticated)', () => {
     // The label must be the first line of the sentence it is attached to:
     // 577.044s, 1093.128s and 1139.044s → 9:37, 18:13 and 18:59.
     //
-    // The first suggestion is the one known tolerance. Its sentence starts at
-    // 43.096s in the raw caption blocks, and aligning against those yields
-    // 0:43; the app aligns against `normalizeTranscriptToSentences()` output,
-    // where the preceding caption line is merged into a sentence-bearing line,
-    // so the equal-coverage/earliest-window tiebreak lands on 37.269s — about
-    // six seconds early, onto the line before the sentence. Pinned here so a
-    // change to either the segmentation or the tiebreak is visible, not silent.
+    // The first suggestion is the one known tolerance, and its cause is the
+    // segmentation, not the ranking — measured on this fixture, not inferred.
+    // Its sentence starts at 43.096s in the raw caption blocks (aligning against
+    // those yields 0:43), but `normalizeTranscriptToSentences()` merges the
+    // standalone "(Laughter)" block into it, so the sentence-bearing line starts
+    // at the laugh's 37.269s and 43.096s never exists as a line start at all.
+    // The match is then a single-line window at 37.269s — the tightest possible
+    // — so no tiebreak can reach 0:43. Preferring a content-started line instead
+    // picks 35.753s ("In fact, I'm leaving."), which is worse, and dropping
+    // noise-only blocks before normalizing restores 43.096s and makes all four
+    // exact. Pinned here so a segmentation change is visible, not silent.
     await expect(controls).toHaveText(['@0:37', '@9:37', '@18:13', '@18:59']);
   });
 
