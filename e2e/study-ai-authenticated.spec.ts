@@ -299,6 +299,79 @@ test.describe('AI Analyze (authenticated)', () => {
       .toBe(true);
   });
 
+  /**
+   * The `startTime: 0` sentinel, end to end.
+   *
+   * `1e63804` and `f49afed` guarded the two render sites separately at unit
+   * level; nothing joined them up. This is the real path: a suggestion the
+   * aligner cannot place has to travel AIAnalysisPanel → storage → SentenceList
+   * → SentencesPage without ever becoming a clickable `@0:00` that jumps the
+   * learner to the start of the video.
+   *
+   * The page-level assertions are deliberately unscoped-but-visible rather than
+   * component-scoped: `src/App.tsx` keeps visited routes mounted under
+   * `display:none`, so a query without `filter({ visible: true })` can read a
+   * hidden copy and pass while the learner sees the chip.
+   */
+  test('a suggestion the aligner cannot place never becomes a @0:00 the learner can click', async ({ context, page }) => {
+    const unplaceable = {
+      text: 'This suggested sentence is invented for the test and appears nowhere in the recorded transcript.',
+      meaningCn: '一句为测试编造、字幕里并不存在的句子。',
+      reason: 'Deliberately absent so the aligner returns null.',
+    };
+    const grounded = SAMPLE_ANALYSIS.sentenceSuggestions[0];
+    const mixed = { ...SAMPLE_ANALYSIS, sentenceSuggestions: [grounded, unplaceable] };
+
+    await bootSignedIn(page, context);
+    await installApiRoutes(page, { ai: [{ status: 200, body: sseBody(JSON.stringify(mixed)) }] });
+    await reachStudy(page);
+    await analyze(page);
+
+    // 1. The panel offers a seek control only for the text it could align.
+    await expect(aiPanel(page).locator('[data-testid="ai-sentence-seek"]')).toHaveText(['@0:43']);
+
+    // 2. Save both, then prove the stored moments are what the assertion below
+    //    depends on. Without this the render checks could pass vacuously — an
+    //    empty list shows no `@0:00` either.
+    const cards = aiPanel(page).locator('[data-testid="ai-sentence-card"]');
+    await expect(cards).toHaveCount(2);
+    for (const index of [0, 1]) {
+      await cards.nth(index).getByRole('button', { name: '+ Add', exact: true }).click();
+      await expect(cards.nth(index).locator('[data-testid="ai-sentence-saved"]')).toBeVisible({ timeout: 10_000 });
+    }
+    await expect
+      .poll(() => page.evaluate(() => JSON.parse(localStorage.getItem('echolearn_sentences') ?? '[]').length), {
+        message: 'neither saved sentence reached storage',
+        timeout: 10_000,
+      })
+      .toBe(2);
+    const stored: Array<{ text: string; startTime: number }> = await page.evaluate(
+      () => JSON.parse(localStorage.getItem('echolearn_sentences') ?? '[]'),
+    );
+    const moments = Object.fromEntries(stored.map((item) => [item.text, item.startTime]));
+    expect(moments[unplaceable.text], 'an unplaced suggestion must store the 0 sentinel').toBe(0);
+    expect(moments[grounded.text], 'the placed suggestion lost its aligned moment').toBeGreaterThan(40);
+
+    await page.getByRole('button', { name: 'Close panel', exact: true }).click();
+    await expect(aiPanel(page)).toBeHidden({ timeout: 10_000 });
+
+    // 3. The Sentences page: its own chip, not a copy of the Study list.
+    await page.locator('a[href="/sentences"]').filter({ visible: true }).first().click();
+    await page.waitForURL(/\/sentences$/, { timeout: 20_000 });
+    await expect(page.getByText(unplaceable.text).filter({ visible: true }).first()).toBeVisible({ timeout: 10_000 });
+    await expect(page.getByText(/^@\d{1,2}:\d{2}$/).filter({ visible: true })).toHaveText(['@0:43']);
+
+    // 4. Study's saved-sentence list, where `@0:00` used to be clickable.
+    await page.locator('a[href="/study"]').filter({ visible: true }).first().click();
+    await page.waitForURL(/\/study$/, { timeout: 20_000 });
+    // The save toast overlays the lower left for 4.5 s; wait it out rather than
+    // racing the tab button underneath it.
+    await expect(page.getByText(/Saved to Sentences|已保存到句子/).filter({ visible: true })).toBeHidden({ timeout: 15_000 });
+    await page.getByRole('button', { name: /Key Sentences|重点句子/ }).filter({ visible: true }).first().click();
+    await expect(page.getByText(unplaceable.text).filter({ visible: true }).first()).toBeVisible({ timeout: 10_000 });
+    await expect(page.getByText(/^@\d{1,2}:\d{2}$/).filter({ visible: true })).toHaveText(['@0:43']);
+  });
+
   test('saves a suggested word into the vocabulary list', async ({ context, page }) => {
     // Kept for diagnosis only: a main-frame reload during the test would
     // explain a save that reaches the UI but not storage.

@@ -272,3 +272,13 @@ Once the active goal, root cause, and acceptance criteria are sufficiently speci
 - In this Windows/Codex environment, do not use git stash for temporary regression verification. Prefer file copies or git show HEAD:<path> with guaranteed restoration.
 - If rename/delete unexpectedly fails, check open handles before assuming ACL/permission failure. In this incident WorkBuddy.exe PID 25992 held D:\CODE\project\EchoLearn\src\services\__tests__.
 - Keep the damaged checkout backup until the user later decides whether the three local-only branch SHAs (8a607c6, 4dfc720, b5cf7bd) are worth attempting to recover from non-Git sources.
+
+## ECHO-20260918-E2E-VISIBILITY-AND-FALSIFICATION - Two durable E2E rules
+- Date: 2026-09-18
+- Status: ACTIVE
+- Decision 1 — every page-wide Playwright assertion in this app must be visibility-scoped. `src/App.tsx` keeps each visited route mounted under `display:none` so returning to a page preserves its state, which means an unscoped query can match a copy the learner cannot see. The failure direction is a **false PASS**, not a flake: the buggy element is real, present, and hidden. Use `.filter({ visible: true })` (or a component-scoped test id) on any `getByText` / `locator` that could exist in more than one mounted route or in both the `lg:hidden` and desktop transcript copies.
+- Decision 2 — falsify per guard, not per test. When one fix has several render sites, a single "revert everything and watch it go red" run does not prove each site is protected; one guard can be carrying the other. Restore each pre-fix condition individually and require a distinct failing assertion line every time.
+- Evidence: `e2e/study-ai-authenticated.spec.ts` — "a suggestion the aligner cannot place never becomes a @0:00 the learner can click" (spec 11/11 desktop-chromium, `npm test` 648/648, `tsc -b` clean, `eslint` 0 errors / 12 warnings). Reverting only `src/pages/SentencesPage.tsx:457` reddened spec line 362; reverting only `src/components/study/SentenceList.tsx:45` reddened spec line 372. Detail in `TEST_REPORT.md` under 2026-09-18.
+- Boundary: Decision 1 is a rule about assertions, not about the mounting strategy — keeping routes mounted is unchanged and still deliberate. The player-side seek jump remains outside these rules (no real media in this suite; it stays verified on Production by `npm run ai:seek-smoke`).
+- Supersedes: Nothing. The visibility requirement was already practiced in `295cea3` (caption error card) and in `e2e/study-ai-authenticated.spec.ts`'s `visibleTranscriptScrollTop` helper; this is the first time it is written down as a rule after two near-misses.
+- Superseded by: None recorded.
