@@ -235,21 +235,17 @@ test.describe('AI Analyze (authenticated)', () => {
     await expect(controls).toHaveCount(SAMPLE_ANALYSIS.sentenceSuggestions.length);
     await expect(controls.first()).toHaveText(/^@\d{1,2}:\d{2}$/);
 
-    // The label must be the first line of the sentence it is attached to:
-    // 577.044s, 1093.128s and 1139.044s → 9:37, 18:13 and 18:59.
+    // All four labels are the sentence's real start, taken from the raw caption
+    // blocks: 43.096s, 577.044s, 1093.128s, 1139.044s → 0:43, 9:37, 18:13, 18:59.
     //
-    // The first suggestion is the one known tolerance, and its cause is the
-    // segmentation, not the ranking — measured on this fixture, not inferred.
-    // Its sentence starts at 43.096s in the raw caption blocks (aligning against
-    // those yields 0:43), but `normalizeTranscriptToSentences()` merges the
-    // standalone "(Laughter)" block into it, so the sentence-bearing line starts
-    // at the laugh's 37.269s and 43.096s never exists as a line start at all.
-    // The match is then a single-line window at 37.269s — the tightest possible
-    // — so no tiebreak can reach 0:43. Preferring a content-started line instead
-    // picks 35.753s ("In fact, I'm leaving."), which is worse, and dropping
-    // noise-only blocks before normalizing restores 43.096s and makes all four
-    // exact. Pinned here so a segmentation change is visible, not silent.
-    await expect(controls).toHaveText(['@0:37', '@9:37', '@18:13', '@18:59']);
+    // 0:43 is the regression this pins. Aligning against the *rendered* sentence
+    // rows reported 0:37 for this one, because `normalizeTranscriptToSentences()`
+    // merges the standalone "(Laughter)" block into the sentence, so that row
+    // starts at the laugh's 37.269s and 43.096s is not any row's start at all —
+    // no ranking rule can reach it. StudyPage therefore aligns the timestamp
+    // against `rawBlocks`. The scroll target is unaffected: rows resolve by
+    // [start, end) and the merged row [37.269s, 48.973s] still contains 43.096s.
+    await expect(controls).toHaveText(['@0:43', '@9:37', '@18:13', '@18:59']);
   });
 
   test('a suggested sentence scrolls the visible transcript to its row', async ({ context, page }) => {
@@ -259,7 +255,7 @@ test.describe('AI Analyze (authenticated)', () => {
     await analyze(page);
 
     // The last suggestion sits near the end of a 427-line transcript, so
-    // reaching it must move the transcript pane — the first one starts at 0:37
+    // reaching it must move the transcript pane — the first one starts at 0:43
     // and may already be on screen without any scrolling.
     const seek = aiPanel(page).locator('[data-testid="ai-sentence-seek"]').last();
     await expect(seek).toHaveText('@18:59');

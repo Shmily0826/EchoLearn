@@ -666,15 +666,27 @@ const StudyPage: React.FC = () => {
   // returns text, so aligning it back to a transcript line is what makes "jump
   // back to this moment" honest — see utils/matchTranscriptLine.ts. Unmatched
   // suggestions are simply absent, and the panel then offers no timestamp.
+  //
+  // Align against the RAW caption blocks, not the sentence lines the transcript
+  // renders. `normalizeTranscriptToSentences` merges a standalone "(Laughter)"
+  // block into the following sentence, so that row starts at the laugh's
+  // timestamp and the sentence's real start is not any row's start at all —
+  // aligning against the rendered rows reports a moment ~6 s early (43.096 s
+  // arrives as 37.269 s in the real sample). The raw blocks keep the true
+  // sentence start. This only moves the timestamp: `useTranscriptSeek.seekTo`
+  // resolves the scroll row from `displayLines` by [start, end), and the merged
+  // row [37.269 s, 48.973 s] still contains 43.096 s, so the row scrolled to is
+  // unchanged. Fall back to the sentence lines if no raw blocks are present.
   const suggestionStarts = useMemo(() => {
     const map = new Map<string, number>();
     if (!analysis) return map;
+    const alignmentLines = rawBlocks.length > 0 ? rawBlocks : sentenceLines;
     for (const sug of analysis.sentenceSuggestions) {
-      const start = matchSuggestionToLineStart(sug.text, sentenceLines);
+      const start = matchSuggestionToLineStart(sug.text, alignmentLines);
       if (typeof start === 'number') map.set(sug.text, start);
     }
     return map;
-  }, [analysis, sentenceLines]);
+  }, [analysis, rawBlocks, sentenceLines]);
 
   // ── Persist session helper ─────────────────────────────────
   const persistSession = useCallback(

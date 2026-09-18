@@ -98,4 +98,29 @@ describe('matchSuggestionToLineStart', () => {
   it('does not match a line that only shares stopwords', () => {
     expect(matchSuggestionToLineStart('and the it is that', lines, 0.9)).toBeNull();
   });
+
+  it('reports the sentence start, not a merged noise prefix, when given the raw blocks', () => {
+    // The transcript renders *sentence* lines, and normalizeTranscriptToSentences
+    // merges a standalone "(Laughter)" block into the following sentence — so that
+    // rendered row starts at the laugh, and the sentence's real start is not any
+    // row's start at all. StudyPage therefore aligns the timestamp against the raw
+    // caption blocks; this pins why, using the real sample's timings.
+    const suggestion =
+      'There have been three themes running through the conference, which are relevant to what I want to talk about.';
+    const renderedRows = [
+      { start: 35.753, text: "In fact, I'm leaving." },
+      {
+        start: 37.269,
+        text: `(Laughter) ${suggestion}`,
+      },
+    ];
+    const rawBlocks = [
+      { start: 35.753, text: "In fact, I'm leaving." },
+      { start: 37.269, text: '(Laughter)' },
+      { start: 43.096, text: suggestion },
+    ];
+
+    expect(matchSuggestionToLineStart(suggestion, renderedRows)).toBe(37.269);
+    expect(matchSuggestionToLineStart(suggestion, rawBlocks)).toBe(43.096);
+  });
 });
