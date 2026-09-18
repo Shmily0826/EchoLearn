@@ -1,4 +1,15 @@
 # Current Validation Index
+## 2026-09-18 — Local test coverage completion (SentencesPage chip + first transcript-viewer suites)
+- **Result: PASS (local, uncommitted).** Three new Vitest files on top of `1e63804`: `src/pages/__tests__/SentencesPageTimestamp.test.tsx` (3), `src/components/__tests__/TranscriptViewer.test.tsx` (6), `src/components/study/__tests__/MobileTranscriptPanel.test.tsx` (7).
+- **SentencesPage `@0:00` pin:** the pre-fix falsification was re-run for the page — temporarily setting the chip condition back to `startTime >= 0` (direct edit + guaranteed restore, no stash) made **2 of 3 fail**, restoring `> 0` made 3/3 pass. This closes the "other half had no regression guard" gap left by the `SentenceList` test in commit `1e63804`.
+- **TranscriptViewer / MobileTranscriptPanel:** first-ever tests for both components. Pinned behaviors: row/timestamp click selects the line and seeks with `line.start`; bookmark adds a `SentenceItem` carrying the line's moment or removes the saved one through `savedSentenceIds`; word tap opens the lookup popup and toggles `onLookupStateChange` true→false; add-word commits a vocabulary item with `sourceTimestamp` from its line; saved-lemma suppresses the duplicate add button; empty-lines hint; active-line highlight. Mocks follow the existing `TranslationFailureUx.test.tsx` conventions.
+- **Gates:** focused runs 16/16; full `npm test` **648 passed / 62 files**; `npx tsc -b --pretty false` clean; `eslint` clean on all three files. Not executed this cycle: build, emulator suite, e2e, CI, Production.
+- **Method notes:** RTL `getByText` matches only an element's own direct text nodes, so tokenized sentences must be asserted per word-token span; jsdom lacks `Element.scrollTo`, stubbed for the active-line auto-scroll effect.
+## 2026-09-18 — ECHO-20260918-GIT-RECOVERY-P0
+- **Result: PASS / COMPLETE.** Live GitHub main was independently confirmed at 1e638049a862801e486e083d3a46b3fab10a5aee. The fresh clone passed git fsck --full, npm ci, npx tsc -b --pretty false, npm run build, focused SentenceList.test.tsx 3/3, and git diff --check.
+- Old-vs-fresh raw SHA mismatches were explained by LF/CRLF checkout normalization; canonical Git hashes matched and both working trees had git diff HEAD == 0 during comparison.
+- Final canonical acceptance at D:\CODE\project\EchoLearn: status clean, main...origin/main, HEAD == origin/main == 1e638049a862801e486e083d3a46b3fab10a5aee, git fsck --full clean, repo root and .git owner LAPTOP-E7NSATKD\Shmily, remote https://github.com/Shmily0826/EchoLearn.git. Backup retained at D:\CODE\project\EchoLearn-git-damaged-backup; EchoLearn-clean-check absent.
+- Production was not revalidated in this recovery cycle.
 
 > INDEX OF LATEST RECORDED EVIDENCE — not live/current source of truth. Re-verify Git/source/Production whenever a decision depends on them.
 > Older FAIL/BLOCKED/PARTIAL/NOT EXECUTED entries are historical evidence. Before acting, check for a later superseding/resolving entry.

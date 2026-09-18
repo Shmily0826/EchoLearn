@@ -267,3 +267,8 @@ Once the active goal, root cause, and acceptance criteria are sufficiently speci
 - Boundary: Vercel function logs were not read (no safe sanitized access this cycle); provider billing truth remains out of scope. No source changes were made in this acceptance cycle.
 - Supersedes: None recorded.
 - Superseded by: None recorded.
+## 2026-09-18 — Local Git corruption recovery rule
+- For a corrupted local .git when remote main is independently trusted, prefer fresh clone → integrity/build validation → reversible path swap over increasingly destructive in-place repair.
+- In this Windows/Codex environment, do not use git stash for temporary regression verification. Prefer file copies or git show HEAD:<path> with guaranteed restoration.
+- If rename/delete unexpectedly fails, check open handles before assuming ACL/permission failure. In this incident WorkBuddy.exe PID 25992 held D:\CODE\project\EchoLearn\src\services\__tests__.
+- Keep the damaged checkout backup until the user later decides whether the three local-only branch SHAs (8a607c6, 4dfc720, b5cf7bd) are worth attempting to recover from non-Git sources.
