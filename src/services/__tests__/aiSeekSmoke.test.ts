@@ -117,29 +117,21 @@ describe('ai-seek-smoke verdict classifier', () => {
 });
 
 describe('ai-seek-smoke env file reader', () => {
-  it('reads only the two smoke credentials and exports nothing else', async () => {
-    const fs = await import('node:fs');
-    const os = await import('node:os');
-    const path = await import('node:path');
-    const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'ai-seek-smoke-test-'));
-    const file = path.join(dir, '.env.local');
-    fs.writeFileSync(
-      file,
-      [
-        '# a comment',
-        'ECHOLEARN_SMOKE_EMAIL=smoke@example.invalid',
-        'ECHOLEARN_SMOKE_PASSWORD="quoted secret"',
-        'GEMINI_API_KEY=must-not-be-read',
-        'ECHOLEARN_SMOKE_EMAIL_EXTRA=also-not-read',
-      ].join('\n'),
-    );
-    try {
-      const parsed = readSmokeEnvFile(file);
-      expect(parsed).toEqual({ email: 'smoke@example.invalid', password: 'quoted secret' });
-      expect(JSON.stringify(parsed)).not.toContain('must-not-be-read');
-    } finally {
-      fs.rmSync(dir, { recursive: true, force: true });
-    }
+  // A committed fixture rather than a temp file: `tsconfig.app.json` deliberately
+  // ships only `vite/client` types for src/**, so importing node:fs here would
+  // break `tsc -b` in CI. The path is repo-root-relative because vitest runs
+  // with the repository as its working directory.
+  const FIXTURE = 'src/services/__tests__/fixtures/smoke-env.fixture.txt';
+
+  it('reads only the two smoke credentials and returns nothing else', () => {
+    const parsed = readSmokeEnvFile(FIXTURE);
+    expect(parsed).toEqual({ email: 'smoke@example.invalid', password: 'quoted secret' });
+  });
+
+  it('never carries a neighbouring key out of the file', () => {
+    const serialized = JSON.stringify(readSmokeEnvFile(FIXTURE));
+    expect(serialized).not.toContain('must-not-be-read');
+    expect(serialized).not.toContain('also-not-read');
   });
 
   it('returns nulls when no file is named', () => {
@@ -147,6 +139,6 @@ describe('ai-seek-smoke env file reader', () => {
   });
 
   it('refuses a named file that does not exist instead of silently continuing', () => {
-    expect(() => readSmokeEnvFile('C:/definitely/not/here/.env.local')).toThrow(/not found/);
+    expect(() => readSmokeEnvFile('definitely/not/here/.env.local')).toThrow(/not found/);
   });
 });

@@ -1,0 +1,6 @@
+# Fixture for the ai-seek-smoke env-file reader test. Fake values only.
+ECHOLEARN_SMOKE_EMAIL=smoke@example.invalid
+ECHOLEARN_SMOKE_PASSWORD="quoted secret"
+# The reader must ignore everything that is not one of the two smoke keys.
+GEMINI_API_KEY=must-not-be-read
+ECHOLEARN_SMOKE_EMAIL_EXTRA=also-not-read
