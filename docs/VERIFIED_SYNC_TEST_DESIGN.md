@@ -1,8 +1,13 @@
 # F1 — Verified-Account Sync Test Design
 
-Status: DESIGN (awaiting a verified QA account; no test infrastructure created yet).
-Origin: 2026-09-19 V2 closure follow-up F1. Cost boundary: only small normal-learner
-Firestore mutations on the dedicated QA account; zero provider calls.
+Status: **EXECUTED — T1–T4 PASS on live Production (2026-09-19).** Verified QA
+accounts A/B were created (see docs/QA_ACCOUNTS.md) and the user completed email
+verification. Live journey (campaign/t1t4-sync.mjs, dogfood session): guest-saved
+word merged into verified A on login (T1), survived refresh (T2), A's verified
+logout cleared the device and the word returned from A's cloud on re-login (T3),
+and verified B on the same device saw an empty vocabulary — no cross-account leak
+(T4). Cost boundary: only small normal-learner Firestore mutations on the dedicated
+QA accounts; zero provider calls.
 
 ## Why
 
