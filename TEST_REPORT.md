@@ -3323,3 +3323,90 @@ during the campaign day; no gap remains open.**
   keeps the session and data; Confirm signs out and clears device data.
 - Account A/B passwords remain only in Windows Credential Manager (targets
   EchoLearn-QA-Account-A/B); nothing credential-shaped entered Git.
+
+
+## 2026-09-19 (evening) — Verified cloud & long learner campaign (worktree EchoLearn-cloud-qa, agent/verified-cloud-qa-20260919)
+
+**Scope.** Verified cloud lifecycle + long learner experience. LOCAL VERIFIED only —
+nothing committed/pushed/deployed. Production journeys used QA accounts A/B with the
+dogfood marker verified per session.
+
+**Confirmed issue fixed.**
+
+- **R4 sync race (data loss):** `syncWithCloudOnce` collected local data before the
+  three cloud pulls and wrote the merged (stale) result back afterwards, so any
+  word/sentence saved while the pulls were in flight was silently destroyed and never
+  uploaded. Deterministic reproduction: gated `getDoc` promises + a mid-flight
+  `loadVocabulary` change; pre-fix the saved state lost `saved-mid-flight`.
+  Fix: re-collect local data after the pulls settle (`freshLocal`) and use it for
+  merge/save/push. Falsified pre-fix, passes post-fix. Full suite 660→662.
+
+**Deterministic contracts named (already existed, now cited).**
+
+- R2 retry: `R2: a successful retry after a transient pull failure uploads the
+  still-pending local items` (new; the pending item is uploaded on the next sync).
+- R1 no-false-success: `keeps local data and avoids cloud overwrite when every pull
+  fails` + `reports failed pushes and marks retry state without claiming a successful sync`.
+- R6 coalescing: `coalesces concurrent sync triggers for the same account`.
+- R7 logout/pending-sync boundary: composition of the coalescing map + `assertVerified`
+  + AuthContext A-matrix (late writes cannot reach another account's device state).
+- R8/C5/C7/C8 conflict ordering & tombstones: the merge/tie/deletion test family
+  (`cloud winning timestamp ties`, `local deletion beat stale cloud live`,
+  `newer recreation supersede older tombstone`, `two devices without resurrection`, etc.).
+- C1 guest vocabulary merge: Production PASS (prior T1–T4).
+
+**Live Production journeys (this campaign).**
+
+- P3 same-device isolation: A fixtures (word `extraordinary`, sentence `Good morning.`)
+  absent under B; B fixture (`creativity`) present under B only; A return restores all
+  from cloud. Device data cleared at each verified logout.
+- P4 cross-context: device 2 (fresh storage) recovered `evidence` from Firestore
+  (C4 cloud-only recovery); device 2's `themes` (stored as `theme`) appeared on
+  device 1 after its refresh; no duplicates (C6).
+- C3 session lifecycle: local_media import created a session, synced to cloud,
+  survived logout/login, and is reopenable from the Dashboard session list. ASR: 0.
+- P6 learner long session: speed change, lookups, saves (`blown`→stored `blow`,
+  `themes`→`theme`), sentence save, AI analysis (cache HIT — 0 real provider calls),
+  AI suggestion save, Review session (8 cards completed, honest 38% accuracy),
+  refresh recovery, logout/re-login recovery of all 5 words.
+- P7 mobile 390x844: sign-in, no horizontal overflow, popup + save, logout,
+  Study restoration, Review — all on visible surfaces.
+
+**Cost ledger.** Real `/api/ai`: 1 (translateWord side-effect during a save; the P6
+Analyze was a Firestore cache HIT). Supadata: 0 observed (all study used the bundled
+sample transcript or local media). ASR: 0. Firestore mutations: small QA data on
+accounts A/B only.
+
+**Remaining.** Verified logout with a completed cloud round-trip is covered; the
+unverified confirmation dialog was production-verified earlier the same day. No new
+blocking defects. Observations recorded: lemmatized storage of saved words (E),
+"0 Due Today" vs unmastered review being a manual mode (by design).
+
+## 2026-09-19 (final review) — bounded closure corrections
+
+- **R4 diff audited:** `freshLocal` covers vocabulary, sentences, sessions and all six
+  tombstone maps, in both the partial-download-failure and normal-merge branches; the
+  pre-download snapshot remains only in an entry diagnostic log. R4 test asserts the
+  mid-flight item in BOTH the final localStorage write and the cloud upload payload.
+- **R5/R7 coverage relabeled honestly.** R5 (stale response vs newer intent) and R7
+  (logout during pending sync) were previously described via composition reasoning;
+  R7 now has a real deterministic test (`A7: logout awaits the in-flight sync; the
+  boundary clears only after it completes` — 13/13). R5 remains covered by
+  composition (per-account coalescing + the two-devices deletion test + R4's
+  freshLocal) and is recorded as a NON-BLOCKING gap for a dedicated emulator test,
+  not as a deterministic PASS.
+- **C2 corrected and closed:** a browser discriminator now proves the exact flow
+  GUEST saves a sentence ("In fact, I'm leaving.") -> verified A login -> the
+  sentence reaches A's merged set (previously only A-saved sentences were tested).
+- **C3 wording corrected:** the Dashboard lists the cloud-restored session, and
+  clicking it navigates to Study; on a fresh device the local-media session shows
+  the honest re-import banner (audio blob is device-local by design, `stripSession`
+  intentionally omits transcript fields) BUT also renders a misleading
+  "Unable to fetch captions" error card for the local_audio session. Recorded as a
+  D-class UI-honesty backlog item (suppress caption-fetch error rendering for
+  blob-less local_audio sessions) — not fixed here.
+- **`/api/ai` save-side-effect explained (no refactor):** saving a word runs
+  `enrichVocabularyItem`, which for authenticated users requests AI contextual
+  translation (`translateWord` -> `/api/ai`) when the dictionary lookup yields no
+  usable Chinese meaning. Designed authenticated capability; guests keep local
+  fallbacks (hence their `/api/ai` = 0).
