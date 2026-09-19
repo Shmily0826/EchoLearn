@@ -482,6 +482,7 @@ const translations: Record<string, Record<Lang, string>> = {
 
   // ── AI Analysis Panel ────────────────────────────────────
   'ai.title':            { en: 'AI Analysis', zh: 'AI 分析' },
+  'ai.providerBadge':    { en: 'AI', zh: 'AI' },
   'ai.closePanel':       { en: 'Close panel', zh: '关闭面板' },
   'ai.summaryEn':        { en: 'English Summary', zh: 'English Summary' },
   'ai.summaryCn':        { en: '中文摘要', zh: '中文摘要' },

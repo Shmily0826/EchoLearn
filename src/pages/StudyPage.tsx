@@ -1803,7 +1803,7 @@ const StudyPage: React.FC = () => {
               </div>
             )}
 
-            {!displayLines.length && captionError && (
+            {!displayLines.length && captionError && session?.sourceType !== 'local_audio' && (
               <div data-testid="caption-error-card" className="lg:hidden mt-2 bg-white dark:bg-slate-800 rounded-xl border border-red-200 dark:border-red-800 shadow-sm px-4 py-5">
                 <div className="flex flex-col items-center text-center">
                   <svg className="w-7 h-7 text-red-400 mb-2" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.5}>
@@ -1950,7 +1950,7 @@ const StudyPage: React.FC = () => {
                   {' · '}{t('study.fetchElapsed', { sec: fetchElapsed })}
                 </p>
               </div>
-            ) : captionError ? (
+            ) : captionError && session?.sourceType !== 'local_audio' ? (
               <div className="flex flex-col items-center justify-center py-12">
                 <div data-testid="caption-error-card" className="bg-red-50 dark:bg-red-950/30 border border-red-200 dark:border-red-800 rounded-xl p-5 max-w-md text-center">
                   <svg className="w-8 h-8 text-red-400 mx-auto mb-2" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.5}>

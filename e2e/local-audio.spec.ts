@@ -115,3 +115,42 @@ test('V2 rejects unsupported subtitle files without leaving the importer', async
   await expect(importer.getByRole('alert')).toContainText('SRT or VTT');
   await expect(page.locator('audio')).toHaveCount(0);
 });
+
+
+test('a restored local_audio session without its blob shows the re-import state, not a caption error', async ({ page }) => {
+  // Simulates the cross-device case: the session record synced from the cloud
+  // but the audio Blob lives in the original device's IndexedDB only.
+  // ECHO_LOGOUT_SAFETY_UX follow-up: the generic "Unable to fetch captions"
+  // error card must not render for a local_audio session — the honest
+  // re-import banner and importer are the correct surface.
+  let captionFetches = 0;
+  await page.route('**/api/transcript**', async (route) => {
+    captionFetches += 1;
+    await route.fulfill({ status: 404, contentType: 'application/json', body: '{}' });
+  });
+
+  await page.goto('/');
+  await enterGuestMode(page);
+  await page.evaluate(() => {
+    localStorage.setItem('echolearn_session', JSON.stringify({
+      id: 'session_stale_blob',
+      youtubeUrl: 'local_audio:lesson.wav',
+      youtubeId: 'local_1700000000000_test',
+      platform: 'youtube',
+      sourceType: 'local_audio',
+      localMediaId: 'local_1700000000000_test',
+      title: 'lesson.wav',
+      createdAt: 1700000000000,
+      updatedAt: 1700000000000,
+      status: 'studying',
+      lastPosition: 0,
+    }));
+  });
+  await page.getByRole('link', { name: 'Study', exact: true }).click();
+  await page.waitForTimeout(3000);
+
+  await expect(page.getByText(/This local audio file is unavailable after reload/i)).toBeVisible();
+  await expect(page.getByTestId('local-media-importer').first()).toBeVisible();
+  await expect(page.getByTestId('caption-error-card')).toHaveCount(0);
+  expect(captionFetches).toBe(0);
+});
