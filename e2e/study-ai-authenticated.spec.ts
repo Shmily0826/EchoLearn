@@ -33,7 +33,7 @@ const SAMPLE_ANALYSIS = JSON.parse(
 
 /** The fallback path is taken when the live call fails; these are its tells. */
 const LOCAL_FALLBACK_BANNER = /AI service unavailable — showing local transcript-based analysis/;
-const LOCAL_SUMMARY_MARKER = /AI API unavailable/;
+const LOCAL_SUMMARY_MARKER = /AI analysis is temporarily unavailable/;
 
 /**
  * Wrap a result in the SSE frame sequence the client's streaming reader
