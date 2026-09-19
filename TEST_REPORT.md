@@ -3432,3 +3432,243 @@ blocking defects. Observations recorded: lemmatized storage of saved words (E),
   i18n label `ai.providerBadge` ("AI") — it no longer claims a provider that depends
   on the deployment's `AI_PROVIDER` env.
 - Suite 664/664 (65 files); tsc/lint/build clean.
+
+## 2026-09-19 (evening) — Real-learner interaction & recovery campaign (worktree EchoLearn-learner-qa, agent/real-learner-qa-20260919)
+
+Scope: feature-INTERACTION continuity under rapid realistic learner behavior, per
+ECHO_REAL_LEARNER_INTERACTION_AND_RECOVERY_V1. Baseline f80a2ad (== GitHub main ==
+Production). No commit/push/deploy. Evidence in `.workbuddy/p4-evidence.json`,
+`p5-evidence.json`, `p5-repro-evidence.json`, and `D:/tmp/learner-qa-p7/*.png`.
+
+### P0 Preflight — PASS
+Git clean; worktree off origin/main f80a2ad; CI green; Production deploy verified
+newest = f80a2ad (prod-deploy-check PASS); QA A/B credentials recoverable from
+Credential Manager (never printed); local dev 5277 (dev) + 5278 (vite preview,
+production build, SW precache 34 entries); Android emulator-5554 running (API 34,
+Android 14, 1080x2340, Chrome installed).
+
+### P1 Rapid video/playback — PASS (state machine at browser level)
+Guest, sample video (iG9CE55wbtY). Rapid consecutive sentence jumps: last-click-wins,
+no stale overwrite (current sentence correct after 0:29→0:35 rapid clicks). Replay
+sentence button present and wired; speed 1.25x applied and displayed consistently
+(pressed state + display). Return to Study preserves session label, transcript,
+current-sentence context. Harness note: live playback advancement unobservable in the
+embedded automation browser (media-time → active-line sync remains covered by the
+deterministic fake-timer E2E in youtube-route-lifecycle).
+
+### P2 Rapid lookup/save/navigation — PASS
+Guest saves: word "good" (context "Good morning." @0:27), word "blown" (@0:33),
+sentence @0:33 — each followed by IMMEDIATE route switches. Counts honest, no
+duplicates, no lost items, hover-reveal bookmark works, honest toasts. Re-opening an
+already-saved word shows the popup WITHOUT the Add button (no accidental re-save).
+
+### P3 AI pending/stale response — PASS (zero provider spend)
+`e2e/ai-stale-response-campaign.spec.ts` (untracked), synthetic signed-in session,
+held/out-of-order /api/ai SSE fulfillments. A1: a HELD session-1 analysis released
+AFTER session 2's analysis completed never attaches to session 2 (panel keeps
+SESSION2 marker; no HELD marker leak). A2/A3: suggestion content belongs to session
+2's transcript. A4: no stuck loading. A6: in-session concurrency is impossible by
+design (`disabled={analyzing}`), so latest-wins is guaranteed by serialization.
+
+### P4 Local Audio cross-device re-import — PASS (with L9 design documentation)
+Two REAL browser contexts. C1: guest imports generated WAV (6 s tone) + SRT → blob
+audio, IndexedDB media=1, word "final" saved with correct context; sign-in as QA A
+(merge). C2: fresh context, sign-in as A → dashboard card → open session →
+missing-blob banner is TRUTHFUL ("This local audio file is unavailable after reload.
+Re-import the file to continue."), NO generic caption-error card (033baaa fix holds);
+re-import via visible importer → playable study state, transcript timing correct
+(sentence select → current sentence OK), existing learning records present via cloud
+sync ("final" in vocabulary). Zero ASR / zero /api/ai / zero caption requests across
+BOTH contexts. No console errors.
+- L9 (documented, not redesigned): re-import creates a NEW session id
+  (before: session_…elqvzr → after: session_…74ooaw); the original record remains on
+  the dashboard. Resumes-vs-new is a product decision point.
+- Observation (E): dashboard cards for synced local_audio sessions show "0 lines"
+  even though the import produced 3 lines (lines are not part of the synced session
+  record's counted field).
+
+### P5 Offline → continue → reconnect — PASS (with D-class finding)
+Signed-in QA A on the production build. Baseline online save ("preamble") verified to
+appear in localStorage within 300 ms and stay (an earlier "lost save" was a script
+race against the popup mount, NOT an app bug — retracted). Offline: word "follows"
+saved, sentence saved, Vocabulary navigable offline (SW precache), honest state.
+Reconnect: independent fresh context signed in as A sees "preamble" AND "follows"
+(N5/N6 PASS, N7 no retry-duplicates). N8: B untouched.
+- D-class finding (decision point): "preamble"/"follows" each appear TWICE in cloud
+  and UI — two items, same word, same file title, different `sourceVideoId` (one per
+  re-import session). Root cause chain: re-import creates a new session id (L9) ×
+  `addVocabularyItem` dedupe key `(lemma|word).toLowerCase() + sourceVideoId`
+  (src/utils/storage.ts ~270). A learner re-saving after cross-device re-import
+  accumulates duplicate cards. NOT fixed autonomously (product decision required).
+
+### P6 Review → return to Study — PASS
+`e2e/review-study-continuity-campaign.spec.ts` (untracked). Save 2 words + enter
+Review → complete "Remember" session → reviewCount incremented honestly → Vocabulary
+honest → reopen Study: sample session restored, Replay targets the saved sentence
+context ("It's been great, hasn't it?") → away/back → reload → records + progress
+survive. R1–R6 verified. (Lemmatizer note: "leaving" saves as "leave" — known
+accepted behavior.)
+
+### P7 Android Emulator Chrome — Level 2 achieved (production build), parts harness-blocked
+REAL Android 14 emulator Chrome (1080x2340), production bundle via
+http://10.0.2.2:5278. Verified by touch: guest entry, mobile bottom nav, NO
+horizontal overflow, word popup fully usable with touch (dictionary resolved through
+the host proxy), word save, Android Home → reopen → same session + saved-highlight
+state intact, Vocabulary shows "1 words", Android Back sensible (in-app history;
+consuming it exits to launcher — standard browser behavior).
+- BLOCKED (harness, disclosed): production dogfood echo-learn.uk from the emulator —
+  emulator DNS resolution is broken (10.0.2.3 forwards to a host resolver that fails;
+  IP connectivity fine). No global Android settings were modified.
+- BLOCKED (harness): offline chunk-fetch error boundary appears on the emulator
+  because http://10.0.2.2 is an INSECURE origin → no service worker registration →
+  no precache. 127.0.0.1 (secure context) proves the same build handles offline
+  navigation; production HTTPS is unaffected. Not an app bug.
+- D-class observation: the error boundary pairs "Reload Page" with a red destructive
+  "Clear Data & Reload" — a learner hitting a mere network hiccup could destroy local
+  data. Product decision; recorded, not changed.
+- Level 3 (installed PWA) skipped: impossible on the insecure harness origin;
+  manifest/standalone metadata already covered by mobile-pwa.spec.ts.
+- Level 4 (Capacitor APK) not attempted (optional per goal).
+- M4 (keyboard obscuring input) not exercised: no text-entry scenario was reachable
+  without sign-in (DNS-blocked) — recorded gap.
+
+### P8 Integrated learner interruption journey — PASS
+`e2e/integrated-journey-campaign.spec.ts` (untracked) on the production build:
+import → speed 1.25x → word save → leave Study before settling → return coherent →
+OFFLINE navigation (Vocabulary, Review) via SW precache → reconnect → reload → every
+learning record intact with correct source context. The learner experience stays one
+continuous session across the interruption.
+
+### Validation summary
+- No product code changed → no regression additions REQUIRED; three untracked
+  campaign specs add deterministic coverage for P3/P6/P8 discriminators.
+- Suite NOT re-run in full (no code change; CI green on f80a2ad remains the baseline).
+- tsc/build ran as part of producing the preview bundle (build PASS).
+
+### Data-state & cost ledger
+- QA Account A: +1 session records family (local-audio fixtures), words "preamble"/
+  "follows" duplicated (the D-class evidence itself), "final" ×1. Small learner-style
+  mutations only; no deletions performed.
+- Provider spend: 0 (AI blocked by route guard where signed-in saves would have called
+  translateWord; no Supadata; no ASR; no real
+  YouTube caption acquisition).
+
+
+## 2026-09-20 — Local-audio recovery & data-loss UX campaign (worktree EchoLearn-learner-qa, agent/real-learner-qa-20260919)
+
+Scope: ECHO_LOCAL_AUDIO_RECOVERY_AND_DATA_LOSS_UX_V1 — two bounded product
+improvements plus previous-asset review. Baseline f80a2ad. LOCAL VERIFIED only;
+no commit/push/deploy.
+
+### P0 ErrorBoundary destructive-action contract — FIXED + PASS
+- `src/components/ErrorBoundary.tsx`: Clear Data & Reload now sets
+  `confirmingClear` and renders an alertdialog confirmation (Cancel / Clear local
+  data and reload). Cancel default-focused; Escape cancels; `clearingRef` makes
+  repeated confirm clicks idempotent (EB8). Clear enumerates via
+  `localStorage.key(i)` descending (robust where `Object.keys(localStorage)` is
+  not — jsdom proved the old loop silently removed nothing there).
+- Copy (en+zh) claims ONLY localStorage `echolearn_*` removal; no cloud or
+  IndexedDB claims (EB9/EB10/EB11). Cleanup semantics unchanged (EB11).
+- Tests: `src/components/__tests__/ErrorBoundary.clear-confirm.test.tsx` — 6/6
+  (open-confirm, cancel-preserves-all+no-reload, confirm-clears-only-echolearn+reload,
+  triple-click idempotent, Reload-Page-never-clears, guest-data-survives-cancel).
+
+### P1 root cause + P2 same-device discriminator — CONFIRMED, then FIXED + PASS
+Code path confirmed: `handleImportLocalAudio` minted a NEW session id + new
+`youtubeId`/`localMediaId` for EVERY import, including the missing-blob restore
+entry, and deleted the previous Blob unconditionally. Execution evidence
+(`.workbuddy/p2-discriminator-evidence.json`, current code BEFORE fix):
+import A -> save word+sentence -> blob-loss -> re-import via restore entry ->
+NEW session (session_...1y4qfu / local_...0d1ud3, title discriminator-B.wav) while
+session A remained in history permanently unplayable; vocabulary stayed tied to
+A's id, so re-saving would duplicate (the 2026-09-19 D-class finding mechanism).
+
+After fix (same script): session id AND youtubeId preserved
+(session_...makcpv / local_...2gpr80 before and after), new localMediaId only,
+single history entry, reopen A fully playable with no banner.
+
+### P3 implementation (accepted product decision A vs B)
+- Import New Lesson path unchanged (new session id, new identity) — LA10.
+- Restore path `handleRestoreLocalAudio` (StudyPage): spreads the EXISTING
+  session (id, youtubeId, title, createdAt, lastPosition, status, aiAnalysis
+  preserved), saves the NEW Blob first, updates transcript fields from the
+  learner-supplied subtitle (cloud sync intentionally strips them), then deletes
+  the old Blob only when no other session references it. Importer `variant="restore"`
+  renders "Restore Audio for This Lesson" + an explicit note that the selected
+  files reattach to THIS lesson (honest user pairing confirmation; LA11: filename
+  is never treated as identity — see P5 same-filename test).
+
+### P4 cross-device acceptance — PASS (CA1-CA12 all true)
+Two INDEPENDENT browser contexts + real Firebase (QA Account A), synthetic
+WAV/SRT fixtures (`recovery-lesson-A.*`). Device 1: guest import, word
+"recovery" (reviewCount 1 via a Remember review interaction) + sentence, sign-in
+sync. Device 2 (fresh storage): sign-in -> Dashboard -> open lesson ->
+truthful missing-blob banner + "Restore Audio for This Lesson" -> restore ->
+CA1 id preserved; CA2 youtubeId preserved; CA3 audio plays; CA4 transcript
+timing correct; CA5 word still tied to original id; CA6 sentence too; CA7
+reviewCount intact; CA8 exactly one lesson card (the other same-titled cards are
+previous campaigns' historical records); CA9 re-saving "recovery" shows
+already-saved state (no third item); CA10 zero /api/ai, zero ASR, zero Supadata
+across both contexts; CA11 reload keeps the recovered session usable; CA12
+device 1's original Blob id still present and session intact after device 2's
+restore. Evidence: `.workbuddy/p4-acceptance-evidence.json`.
+
+### P5 new-lesson regression — PASS
+`e2e/local-audio-new-lesson-regression-campaign.spec.ts` (2 tests): distinct
+sessions/identities for new imports; explicit Clear -> import B -> reopen A ->
+restore -> A and B coexist (no duplicate, B untouched, vocab tied to A's id);
+two unrelated files with the SAME filename stay two distinct lessons with
+independent vocab association.
+
+### P6 dashboard "0 lines" honesty — FIXED
+DashboardPage renders `{n} lines` only when `transcriptLines.length > 0`; the
+three card variants no longer show a misleading "0 lines" for cloud-restored
+local_audio sessions (transcript fields are intentionally stripped from sync).
+
+### Previous campaign assets review — accounted for
+- 3 untracked specs kept; `integrated-journey-campaign.spec.ts` made
+  self-contained (inline synthetic WAV/SRT instead of gitignored `.workbuddy`
+  fixtures — would otherwise break once committed); all four campaign specs
+  cleaned to lint 0 errors (typed localStorage parses instead of `any`, unused
+  imports removed). No credential, Production-access, provider-call, or
+  hidden-DOM false-PASS risks found on review; no fixed sleeps as source of
+  truth (readiness-based waits).
+- Previous docs/evidence preserved; historical duplicate QA records remain
+  (intentionally not repaired — no bulk dedupe in this Goal).
+
+### Validation ledger
+- vitest 673/673 (65 files) — includes new ErrorBoundary (6) and storage (3) tests.
+- `tsc -b` clean; ESLint 0 errors (12 pre-existing warnings in src, unchanged);
+  `npm run build` PASS; `git diff --check` clean.
+- Firestore emulator rules suite PASS (campaign port 8099 via temp config;
+  default 8080 is occupied by the user's tunnel-client.exe — left untouched).
+- Affected E2E: local-audio.spec.ts 4/4, first-run-journey 2/2, campaign specs
+  (ai-stale, integrated-journey, review-study, new-lesson-regression) 6/6.
+
+### Cost ledger
+Real /api/ai: 0 (route-guarded in the signed-in acceptance run: 0 requests
+attempted). Supadata: 0. Groq/Whisper/ASR: 0 (guarded and counted). QA-account
+mutations: one new fixture session + word/sentence on Account A (learner-style,
+small); no deletions.
+
+
+### 2026-09-20 (bounded release review append) — long-term regression coverage
+
+- Coverage audit: the restore-identity journey was already deterministic E2E-covered
+  (missing Blob -> Restore -> session id/youtubeId preserved -> playable -> no
+  duplicate), but no test asserted PRE-RESTORE learning records survive. Added
+  `pre-restore learning record survives audio restoration (CA1/CA2/CA5/CA6/CA8/CA9)`
+  to `local-audio-new-lesson-regression-campaign.spec.ts`; the spec now runs against
+  the standard dev server (baseURL) so CI needs no preview server. The real-Firebase
+  CA1-CA12 evidence remains local (.workbuddy, gitignored) — CI stays synthetic.
+- Added `e2e/error-boundary-destructive-confirm-campaign.spec.ts`: browser-level
+  destructive-confirmation regression (boundary triggered deterministically by
+  aborting an unvisited route chunk; Cancel preserves every key and does not reload;
+  explicit confirm clears only echolearn_ keys and reloads; unrelated keys survive).
+- Flake hardening only: review-study spec now accepts either the raw or lemmatized
+  saved word form (dictionary enrichment timing); no product claim changed. The
+  batch-run failure of local-audio.spec.ts "rejects unsupported subtitle files"
+  did not reproduce in isolation (4/4 PASS) — flake, no product change.
+- Final validation after additions: vitest 673/673, tsc clean, lint 0 errors
+  (12 pre-existing warnings), build PASS, git diff --check clean, all 8 affected
+  E2E suites PASS (19 tests).

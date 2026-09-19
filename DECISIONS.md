@@ -321,3 +321,61 @@ Once the active goal, root cause, and acceptance criteria are sufficiently speci
 - **Deterministic tests over flaky browser loops for the subtitle-recovery matrix.**
   The browser E2E already pins the alert path; empty-VTT / partial-SRT semantics are
   pinned in vitest where they cannot flake.
+
+## 2026-09-19 — Real-learner interaction & recovery campaign decisions (worktree agent/real-learner-qa-20260919)
+
+- **Cross-device local-audio re-import word duplication: DECISION POINT RECORDED, not fixed.**
+  Reproduced live on QA Account A: the same word saved from two different re-import
+  sessions of the same file yields two vocabulary items (dedupe key
+  `(lemma|word)+sourceVideoId`; re-import mints a new session id each time). Two
+  candidate fixes — (a) re-import resumes the original session id, (b) dedupe local-
+  audio items by word + file title — both change accepted behavior (L9 resumed-vs-new
+  and the meaning of `sourceVideoId`), so the campaign recorded the evidence and left
+  the design choice to the owner.
+- **Offline lazy-route crash classified dev-only after a layer check.** The route
+  error boundary ("Something went wrong") fires in `vite dev` because dev has no
+  service worker; the production build's precache serves unvisited lazy routes
+  offline (proven on 127.0.0.1 preview and desktop headless). Deliberately NOT filed
+  as a product bug; production HTTPS behaves like the preview.
+- **Destructive-affordance adjacency recorded (D).** The route error boundary offers
+  "Reload Page" next to a red "Clear Data & Reload"; a learner hitting a network
+  hiccup could plausibly destroy local data. Changing the error-boundary affordance
+  hierarchy is a product decision, so it was recorded, not patched.
+- **Honest retraction.** An early P5 observation ("online save of 'preamble' was
+  lost") was retracted after instrumentation showed the save landed within 300 ms;
+  the loss was the campaign script racing the popup mount, not the sync path.
+- **Emulator DNS left untouched.** Production dogfood from Android Chrome was
+  harness-blocked (broken DNS via 10.0.2.3); fixing it would require modifying global
+  Android network settings, which the goal forbids without necessity. Level 2 was
+  achieved against the host production build instead.
+
+
+## 2026-09-20 — Local-audio recovery & data-loss UX decisions (same worktree)
+
+- **Restoring audio is not a new course (accepted decision implemented).** The
+  missing-blob re-import entry now REATTACHES to the existing session. Identity
+  boundary: `session.id` + `youtubeId` are the logical lesson identity;
+  `localMediaId` is device-local Blob identity and MAY change on restore. The
+  replacement Blob gets a fresh id; the old Blob is deleted only when
+  unreferenced (`isLocalMediaReferencedByOtherSession`), so a same-device
+  import can no longer strand another session's audio.
+- **Filename-based dedupe REJECTED (deliberately, again).** Vocabulary dedupe
+  stays `(lemma|word) + sourceVideoId`. Filename is not identity — the P5
+  same-filename test proves two distinct lessons with one filename stay
+  distinct. With restore preserving `youtubeId`, the duplicate-word mechanism
+  from 2026-09-19 is closed at the identity boundary; historical duplicate
+  records ("preamble"/"follows" x2 on QA Account A) remain as evidence and are
+  NOT migrated.
+- **Cloud-stripped transcript handling.** `stripSession` intentionally omits
+  transcript fields from Firestore. Restore therefore lets the learner-supplied
+  subtitle restore those fields, with an explicit UI note that the selected
+  files reattach to THIS lesson. No content fingerprinting, no fabricated
+  matching, no transcript sync expansion.
+- **ErrorBoundary destructive contract.** Confirmation is rendered by the
+  boundary itself (works while any route is broken), claims ONLY localStorage
+  `echolearn_*` cleanup, and enumerates keys via `localStorage.key(i)` — the
+  previous `Object.keys(localStorage)` idiom silently removed nothing in jsdom
+  and was replaced during P0 (found by the new tests).
+- **Firestore emulator on a campaign port.** Default port 8080 is occupied by
+  the user's unrelated tunnel-client.exe (not killed); the rules suite ran via a
+  temporary `--config` with port 8099. Default config untouched.
