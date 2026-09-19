@@ -282,3 +282,42 @@ Once the active goal, root cause, and acceptance criteria are sufficiently speci
 - Boundary: Decision 1 is a rule about assertions, not about the mounting strategy — keeping routes mounted is unchanged and still deliberate. The player-side seek jump remains outside these rules (no real media in this suite; it stays verified on Production by `npm run ai:seek-smoke`).
 - Supersedes: Nothing. The visibility requirement was already practiced in `295cea3` (caption error card) and in `e2e/study-ai-authenticated.spec.ts`'s `visibleTranscriptScrollTop` helper; this is the first time it is written down as a rule after two near-misses.
 - Superseded by: None recorded.
+
+## 2026-09-19 — Campaign decisions (worktree agent/overnight-20260919)
+
+- **YouTubeEmbed fix = dependency-array change, not a remount.** Alternatives were
+  keying the embed by videoId (tears down the keep-alive player on every video switch,
+  regressing context continuity) or cueing from onReady via a mutable ref (more moving
+  parts). Adding `status` to the effect deps is the minimal change that re-applies a
+  pending switch exactly once, when ready.
+- **Unverified logout = guest-equivalent, data kept.** Wiping local data on unverified
+  sign-out would be silent data loss; blocking (status quo) deadlocks. `assertVerified`
+  guarantees an unverified account has zero cloud data, so keeping device-scoped data
+  cannot contaminate any cloud account, and it matches the landing page's promise.
+- **Self-registered QA account used `@example.invalid`.** RFC-reserved, never
+  deliverable, permanently unverified — exactly the state whose UX honesty the
+  campaign needed to assert (and it exposed bug #2).
+- **Did NOT spend the 3rd real-AI call.** The only uncached Analyze path required
+  loading another uncached video (likely Supadata burn) for information that would not
+  change the release decision (provider routing already flagged for user adjudication).
+- **Bilibili scoped out of Journey A, then run as an honest-failure probe.** The spec
+  listed Bilibili under permissions, not as a mandated journey; bilibili flow is
+  mock-E2E-covered. The control-video probe still yielded evidence: the honest error
+  card, zero `/api/ai`, and the ASR affordance left unclicked.
+- **Unverified logout CORRECTED during closure review: clear at the boundary, not
+  keep.** The follow-up Goal's A2 invariant (next verified login's auto-sync must not
+  merge the previous account's data) exposed the keep-data variant as a C-class leak:
+  the post-login sync reads localStorage, so A's items would reach B's cloud. Final
+  behavior: the sync-before-logout guard stays gated on emailVerified (deadlock fixed),
+  and `clearAllLocalData` is unconditional after a confirmed sign-out — restoring the
+  documented account-boundary invariant. Trade-off: data created under an unverified
+  session is lost at logout (no cloud copy can exist); accepted as consistent with
+  existing verified-account semantics. A2 test falsified against the unsafe variant.
+- **Supadata repeated-burn claim withdrawn.** Closure review of the cache headers
+  (browser max-age=0 vs CDN s-maxage=3600 + SWR 86400) showed the "every load re-burns"
+  statement conflated a browser revalidation with an origin acquisition; stale-while-
+  revalidate serves the previous supadata payload under the same UI label. Proven
+  credits: 2. Follow-up, not a release blocker.
+- **Deterministic tests over flaky browser loops for the subtitle-recovery matrix.**
+  The browser E2E already pins the alert path; empty-VTT / partial-SRT semantics are
+  pinned in vitest where they cannot flake.

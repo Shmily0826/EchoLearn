@@ -181,8 +181,14 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   }, []);
 
   const logOut = useCallback(async () => {
-    if (hasLocalSyncableData() || isSyncPending()) {
-      const syncResult = await syncWithCloud(auth.currentUser?.uid ?? '');
+    // Cloud sync only exists for email-verified accounts: assertVerified gates
+    // every cloud write, so an unverified account has nothing in the cloud and
+    // can never satisfy the sync-before-logout guard. Requiring it would trap
+    // the user forever behind "Reconnect and try again."
+    const currentUser = auth.currentUser;
+    const canSyncToCloud = !!currentUser?.emailVerified;
+    if (canSyncToCloud && (hasLocalSyncableData() || isSyncPending())) {
+      const syncResult = await syncWithCloud(currentUser!.uid);
       if (!syncResult.ok || syncResult.error || isSyncPending()) {
         throw new Error('auth/logout-sync-incomplete');
       }
@@ -204,7 +210,10 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       throw new Error('auth/sign-out-incomplete');
     }
     // Local storage is device-scoped, not account-scoped. Clear it at the
-    // account boundary so Account A data cannot be shown or pushed as B.
+    // account boundary so Account A data cannot be shown or synced as Account
+    // B. This must hold for unverified accounts too: keeping their data would
+    // let the next verified login's auto-sync merge it into a stranger's
+    // cloud, and no cloud copy of an unverified account exists to protect.
     clearAllLocalData();
     clearSyncMetadata();
   }, []);

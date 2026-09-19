@@ -255,6 +255,7 @@ const MobileTranscriptPanel: React.FC<{
                   })}
                 </div>
                 <button
+                  aria-label={sentenceSaved ? t('study.removeSentenceBookmark') : t('study.saveSentenceBookmark')}
                   onClick={(e) => {
                     e.stopPropagation();
                     if (sentenceSaved) {

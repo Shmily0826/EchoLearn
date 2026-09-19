@@ -252,7 +252,10 @@ const YouTubeEmbed = forwardRef<PlayerHandle, YouTubeEmbedProps>(
       return () => document.removeEventListener('visibilitychange', handleVisibilityChange);
     }, [status, initPlayer]);
 
-    // Load different video when youtubeId changes (player already created)
+    // Load different video when youtubeId changes (player already created).
+    // `status` is a dependency on purpose: a video switch that lands while the
+    // player is still initializing must be re-applied once onReady fires, or
+    // the player keeps playing the initially mounted video forever.
     useEffect(() => {
       if (status !== 'ready' || !playerRef.current) return;
       if (typeof playerRef.current.cueVideoById !== 'function') return;
@@ -276,7 +279,7 @@ const YouTubeEmbed = forwardRef<PlayerHandle, YouTubeEmbedProps>(
         } catch { /* noop */ }
       }, 300);
     // eslint-disable-next-line react-hooks/exhaustive-deps
-    }, [youtubeId]);
+    }, [youtubeId, status]);
 
     // Cleanup on unmount
     useEffect(() => {

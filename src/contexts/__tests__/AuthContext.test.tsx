@@ -130,6 +130,79 @@ describe('AuthProvider account boundary', () => {
     expect(mocks.clearSyncMetadata).toHaveBeenCalledTimes(1);
   });
 
+
+  it('A1: unverified account with local data logs out without cloud sync (no deadlock)', async () => {
+    // The production deadlock: an unverified account can never sync
+    // (assertVerified gates every cloud write), so requiring the
+    // sync-before-logout guard would block sign-out forever.
+    mocks.auth.currentUser = { uid: 'user-u', emailVerified: false, getIdToken: vi.fn() };
+    mocks.syncWithCloud.mockResolvedValue({ ok: false, error: 'auth/email-not-verified' });
+    localStorage.setItem('echolearn_vocabulary', JSON.stringify([{ id: 'u-only' }]));
+    const onError = vi.fn();
+    render(
+      <AuthProvider>
+        <LogoutButton onError={onError} />
+      </AuthProvider>,
+    );
+    screen.getByRole('button', { name: 'Log out' }).click();
+
+    await vi.waitFor(() => expect(mocks.signOut).toHaveBeenCalledTimes(1));
+    expect(mocks.syncWithCloud).not.toHaveBeenCalled();
+    expect(onError).not.toHaveBeenCalled();
+  });
+
+  it('A2: unverified account data is cleared at logout so the next verified login cannot merge it', async () => {
+    // Cross-account isolation invariant (C-class): unverified Account A saves
+    // local data, logs out; Verified Account B then signs in and the post-login
+    // auto-sync reads localStorage. If A's data survived the boundary, B's sync
+    // would merge a stranger's items into B's cloud. FALSIFIED under the
+    // earlier keep-data variant of the fix.
+    mocks.auth.currentUser = { uid: 'user-a-unverified', emailVerified: false, getIdToken: vi.fn() };
+    mocks.syncWithCloud.mockResolvedValue({ ok: false, error: 'auth/email-not-verified' });
+    localStorage.setItem('echolearn_vocabulary', JSON.stringify([{ id: 'a-secret-item' }]));
+    localStorage.setItem('echolearn_sentences', JSON.stringify([{ id: 'a-secret-sentence' }]));
+    render(
+      <AuthProvider>
+        <LogoutButton />
+      </AuthProvider>,
+    );
+    screen.getByRole('button', { name: 'Log out' }).click();
+    await vi.waitFor(() => expect(mocks.signOut).toHaveBeenCalledTimes(1));
+
+    // The boundary must leave nothing for the next account's auto-sync.
+    expect(localStorage.getItem('echolearn_vocabulary')).toBeNull();
+    expect(localStorage.getItem('echolearn_sentences')).toBeNull();
+
+    // Verified Account B signs in on the same device.
+    mocks.auth.currentUser = { uid: 'user-b-verified', emailVerified: true, getIdToken: vi.fn().mockResolvedValue('b-token') };
+    mocks.hasLocalSyncableData.mockReturnValue(false);
+    const { rerender } = render(
+      <AuthProvider>
+        <LogoutButton />
+      </AuthProvider>,
+    );
+    rerender(<AuthProvider><LogoutButton /></AuthProvider>);
+    await vi.waitFor(() => expect(mocks.syncWithCloud).toHaveBeenCalledWith('user-b-verified'));
+    // syncWithCloud reads localStorage at call time; it is empty, so nothing
+    // of Account A's could reach B's cloud.
+    expect(localStorage.getItem('echolearn_vocabulary')).toBeNull();
+  });
+
+  it('A5 (unverified): a failed sign-out keeps local data and propagates the error', async () => {
+    mocks.auth.currentUser = { uid: 'user-u', emailVerified: false, getIdToken: vi.fn() };
+    mocks.signOut.mockRejectedValue(new Error('network unavailable'));
+    localStorage.setItem('echolearn_vocabulary', JSON.stringify([{ id: 'u-only' }]));
+    const onError = vi.fn();
+    render(
+      <AuthProvider>
+        <LogoutButton onError={onError} />
+      </AuthProvider>,
+    );
+    screen.getByRole('button', { name: 'Log out' }).click();
+    await vi.waitFor(() => expect(onError).toHaveBeenCalledWith(expect.objectContaining({ message: 'network unavailable' })));
+    expect(localStorage.getItem('echolearn_vocabulary')).not.toBeNull();
+  });
+
   it('preserves local data and propagates a failed sign-out while auth remains active', async () => {
     mocks.signOut.mockRejectedValue(new Error('network unavailable'));
     localStorage.setItem('echolearn_vocabulary', JSON.stringify([{ id: 'a-only' }]));
