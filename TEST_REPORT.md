@@ -3280,3 +3280,32 @@ request are backlog.
 
 **Validation.** vitest 656/656 (64 files); tsc clean; eslint 0 errors; build OK.
 Screenshots and journey scripts: `campaign/` in the worktree.
+
+
+## 2026-09-19 (V2 closure append) — findings ledger + completion matrix
+
+**Findings ledger (final).**
+
+| # | Class | Summary | Status |
+|---|---|---|---|
+| 1 | A+C | Player kept playing the sample video when a new video was loaded during YT-iframe-API init. | FIXED (YouTubeEmbed deps; falsified regression; CI green) |
+| 2 | A+C | Unverified account could never sign out (sync-before-logout guard unsatisfiable). | FIXED (guard gated on emailVerified; boundary wipe unconditional; A2 falsified against the keep-data variant; browser re-verified) |
+| 3 | B/D | One lookup+save can issue 2 identical /api/dictionary GETs (save path races the popup's in-flight request). | Backlog: share one in-flight promise per cache key |
+| 4 | C-cost | Supadata fallback reached for probe videos (VPS failing; cause unknown). 2 credits proven; the later "Source: supadata" label is not proof of a new charge (CDN SWR serves the previous payload). | FOLLOW-UP: verify Vercel edge caching of /api/transcript; fix VPS; check quota |
+| 5 | adjudicate | Analyze panel "DeepSeek" badge is hardcoded (AIAnalysisPanel.tsx:143); actual provider is env-selected (api/ai.ts:462 AI_PROVIDER, default deepseek). | INCONCLUSIVE (partial): what Production runs needs one Vercel-env glance |
+| 6 | E | Seek-settle ~1-2s window with no active line. | Backlog |
+| 7 | D | Mobile bookmark a11y + hardcoded-English labels + transient-Analyze copy. | FIXED |
+
+**Completion matrix (both campaign Goals; compact — full narratives above).**
+Preflight PASS / isolation+canonical-untouched PASS / dogfood marker per session PASS /
+Journey A PASS (incl. AI key-sentence saves, zero @0:00) / B PASS / C FIXED+PASS /
+D PASS / E PASS / error-recovery discriminators PASS / startTime:0 player jump PASS /
+hidden-DOM audit PASS (all spec sites guarded) / async-race review PASS (findings 1,3) /
+real-AI budget 2-of-3 with semantic judgment PASS / paid latch (V2) PASS (0 calls) /
+D1-D3 bounded fixes ACCEPT / provider identity INCONCLUSIVE(partial) / Supadata FOLLOW-UP /
+every production diff verdicted ACCEPT / self-audit closed (one substitution — browser
+re-verify of corrected logout — was found and RUN).
+
+**Self-audit (8 questions): answered in the worktree PROGRESS.md V2 section; one
+premature-completion and one evidence-substitution gap were both found and closed
+during the campaign day; no gap remains open.**
