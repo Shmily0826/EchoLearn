@@ -358,6 +358,30 @@ describe('Firestore lifecycle sync', () => {
     expect(uploaded).toContain('saved-mid-flight');
   });
 
+
+  it('R5: a device whose push missed another device\'s newer item recovers it on its next pull', async () => {
+    // Cross-device single-document window: device 1 pushes a merge that predates
+    // device 2's newer upload, temporarily regressing the cloud doc. The next
+    // pull on device 1 must union device 2's item back (no permanent loss).
+    mocks.loadVocabulary.mockReturnValue([item('d1-word', 100)]);
+    // device 1 pull: cloud still holds only its own older item
+    mocks.getDoc.mockResolvedValueOnce(cloudSnapshot([item('d1-word', 100)]));
+    await syncWithCloud('user-a');
+
+    // device 2 uploads its own newer item to the shared document
+    mocks.getDoc.mockResolvedValueOnce(cloudSnapshot([item('d1-word', 100), item('d2-newer', 500)]));
+    mocks.loadVocabulary.mockReturnValue([item('d1-word', 100), item('d2-newer', 500)]);
+    await syncWithCloud('user-a');
+
+    // device 1 pulls again AFTER device 2's upload: the union restores d2-newer
+    mocks.loadVocabulary.mockReturnValue([item('d1-word', 100)]);
+    mocks.getDoc.mockResolvedValueOnce(cloudSnapshot([item('d1-word', 100), item('d2-newer', 500)]));
+    const result = await syncWithCloud('user-a');
+    expect(result.ok).toBe(true);
+    const savedLast = mocks.saveVocabulary.mock.calls.at(-1)![0] as Array<{ id: string }>;
+    expect(savedLast.map((i) => i.id)).toContain('d2-newer');
+  });
+
   it('does not push unverified account data', async () => {
     mocks.auth.currentUser = { uid: 'user-a', emailVerified: false };
 

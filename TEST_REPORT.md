@@ -3410,3 +3410,21 @@ blocking defects. Observations recorded: lemmatized storage of saved words (E),
   translation (`translateWord` -> `/api/ai`) when the dictionary lookup yields no
   usable Chinese meaning. Designed authenticated capability; guests keep local
   fallbacks (hence their `/api/ai` = 0).
+
+## 2026-09-19 (backlog cleanup) — R5 pinned, misleading caption error fixed, badge neutralized
+
+- **R5 coverage closed deterministically:** `R5: a device whose push missed another
+  device's newer item recovers it on its next pull` pins the cross-device
+  single-document window — a stale push temporarily regresses the cloud doc, and the
+  next pull unions the other device's item back (no permanent loss). R5 is no longer
+  composition-only.
+- **D-class fix:** a restored local_audio session without its device-local Blob no
+  longer renders the misleading generic "Unable to fetch captions" error card; the
+  precise re-import banner and importer are the only surfaces (both generic
+  caption-error cards are gated on `session?.sourceType !== 'local_audio'`).
+  E2E: `a restored local_audio session without its blob shows the re-import state,
+  not a caption error` (also asserts zero caption fetches for the stale session).
+- **Badge honesty:** the AI panel's hardcoded "DeepSeek" badge is now the neutral
+  i18n label `ai.providerBadge` ("AI") — it no longer claims a provider that depends
+  on the deployment's `AI_PROVIDER` env.
+- Suite 664/664 (65 files); tsc/lint/build clean.
