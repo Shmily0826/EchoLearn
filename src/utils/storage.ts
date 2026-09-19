@@ -223,6 +223,11 @@ export function loadAllSessions(): VideoStudySession[] {
   }
 }
 
+/** True when any session other than `excludeSessionId` still references the media id. */
+export function isLocalMediaReferencedByOtherSession(mediaId: string, excludeSessionId?: string): boolean {
+  return loadAllSessions().some((s) => s.localMediaId === mediaId && s.id !== excludeSessionId);
+}
+
 /** Delete a session from the history list by id. */
 export function deleteSession(id: string): void {
   const list = loadAllSessions().filter((s) => s.id !== id);

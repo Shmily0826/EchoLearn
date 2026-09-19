@@ -243,6 +243,8 @@ const translations: Record<string, Record<Lang, string>> = {
   'study.sourceWhisper':    { en: 'AI transcription (Whisper)', zh: 'AI 转录 (Whisper)' },
   'study.sourceLocalAudio': { en: 'Local audio (Whisper)', zh: '本地音频 (Whisper)' },
   'study.localAudioMissing': { en: 'This local audio file is unavailable after reload. Re-import the file to continue.', zh: '刷新后本地音频文件不可用。请重新导入文件以继续。' },
+  'study.restoreAudioCta': { en: 'Restore Audio for This Lesson', zh: '恢复本课的音频' },
+  'study.restoreAudioNote': { en: 'The audio and subtitle files you select will be reattached to this existing lesson. Its saved words, sentences, and progress stay connected.', zh: '所选的音频和字幕将重新附加到本课。本课已保存的生词、句子和学习进度保持关联。' },
   'study.sourceBiliOfficial': { en: 'Bilibili official subtitles', zh: 'B站官方字幕' },
   'study.sourceGeneric':    { en: 'Source: {source}', zh: '来源：{source}' },
   'study.captionDiagnostics': { en: 'Captions: {count} cues', zh: '字幕：{count} 条' },
@@ -475,6 +477,10 @@ const translations: Record<string, Record<Lang, string>> = {
   'error.fixReload':     { en: 'Then tap Reload Page below', zh: '然后点击下方的"刷新页面"' },
   'error.reload':        { en: 'Reload Page', zh: '刷新页面' },
   'error.clearReload':   { en: 'Clear Data & Reload', zh: '清除数据并刷新' },
+  'error.clearConfirmTitle': { en: 'Clear local learning data?', zh: '清除本地学习数据？' },
+  'error.clearConfirmBody': { en: 'This will remove EchoLearn learning data stored in this browser: saved words, sentences, study sessions, and settings. Progress that has not been synced to your account may be permanently lost. Data already synced to the cloud is not affected. If you are unsure, choose Cancel and try Reload Page first.', zh: '这将删除本浏览器中保存的 EchoLearn 学习数据：生词、句子、学习会话和设置。尚未同步到账户的进度可能会永久丢失。已同步到云端的数据不受影响。如果不确定，请选择"取消"，先尝试"刷新页面"。' },
+  'error.clearConfirmCancel': { en: 'Cancel', zh: '取消' },
+  'error.clearConfirmConfirm': { en: 'Clear local data and reload', zh: '清除本地数据并刷新' },
 
   // ── Anti-translate banner ────────────────────────────────
   'banner.translateWarn':{ en: 'Auto-translate detected \u2014 this may break the app. Please disable it in your browser settings.', zh: '检测到自动翻译 \u2014 可能导致应用异常。请在浏览器设置中关闭。' },

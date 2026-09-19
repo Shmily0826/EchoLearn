@@ -1,4 +1,4 @@
-import { Component } from 'react';
+import { Component, createRef } from 'react';
 import type { ReactNode, ErrorInfo } from 'react';
 import { useI18n } from '../i18n/I18nContext';
 
@@ -10,6 +10,7 @@ interface Props {
 interface State {
   hasError: boolean;
   error: Error | null;
+  confirmingClear: boolean;
 }
 
 /**
@@ -31,13 +32,16 @@ function isTranslateError(error: Error | null): boolean {
 }
 
 class ErrorBoundary extends Component<Props, State> {
+  private clearingRef = false;
+  private cancelButtonRef = createRef<HTMLButtonElement>();
+
   constructor(props: Props) {
     super(props);
-    this.state = { hasError: false, error: null };
+    this.state = { hasError: false, error: null, confirmingClear: false };
   }
 
   static getDerivedStateFromError(error: Error): State {
-    return { hasError: true, error };
+    return { hasError: true, error, confirmingClear: false };
   }
 
   componentDidCatch(error: Error, info: ErrorInfo) {
@@ -120,24 +124,66 @@ class ErrorBoundary extends Component<Props, State> {
             </>
           )}
 
-          <div className="flex flex-col gap-2">
-            <button
-              onClick={() => window.location.reload()}
-              className="px-6 py-2.5 text-sm font-semibold text-white bg-indigo-500 hover:bg-indigo-600 rounded-xl transition-colors cursor-pointer"
-            >
-              {t('error.reload')}
-            </button>
-            <button
-              onClick={() => {
-                const keys = Object.keys(localStorage).filter((k) => k.startsWith('echolearn_'));
-                keys.forEach((k) => localStorage.removeItem(k));
-                window.location.reload();
+          {this.state.confirmingClear ? (
+            <div
+              role="alertdialog"
+              aria-modal="false"
+              aria-label={t('error.clearConfirmTitle')}
+              className="mt-2 text-left rounded-xl border border-red-200 dark:border-red-800 bg-red-50 dark:bg-red-950/40 p-4"
+              onKeyDown={(e) => {
+                if (e.key === 'Escape') this.setState({ confirmingClear: false });
               }}
-              className="px-6 py-2.5 text-sm text-red-500 border border-red-200 dark:border-red-800 rounded-xl hover:bg-red-50 dark:hover:bg-red-950 transition-colors cursor-pointer"
             >
-              {t('error.clearReload')}
-            </button>
-          </div>
+              <h2 className="text-sm font-bold text-red-700 dark:text-red-300 mb-2">
+                {t('error.clearConfirmTitle')}
+              </h2>
+              <p className="text-xs text-red-600 dark:text-red-300 mb-3 whitespace-pre-line">
+                {t('error.clearConfirmBody')}
+              </p>
+              <div className="flex flex-col sm:flex-row gap-2">
+                <button
+                  ref={this.cancelButtonRef}
+                  autoFocus
+                  onClick={() => this.setState({ confirmingClear: false })}
+                  className="px-4 py-2 text-sm font-medium text-gray-700 dark:text-gray-200 bg-white dark:bg-slate-800 border border-gray-300 dark:border-slate-600 rounded-lg hover:bg-gray-50 dark:hover:bg-slate-700 transition-colors cursor-pointer"
+                >
+                  {t('error.clearConfirmCancel')}
+                </button>
+                <button
+                  onClick={() => {
+                    // Guard against duplicate destructive execution through repeated clicks.
+                    if (this.clearingRef) return;
+                    this.clearingRef = true;
+                    for (let i = localStorage.length - 1; i >= 0; i--) {
+                      const key = localStorage.key(i);
+                      if (key && key.startsWith('echolearn_')) localStorage.removeItem(key);
+                    }
+                    window.location.reload();
+                  }}
+                  data-testid="error-confirm-clear"
+                  className="px-4 py-2 text-sm font-semibold text-white bg-red-600 hover:bg-red-700 rounded-lg transition-colors cursor-pointer"
+                >
+                  {t('error.clearConfirmConfirm')}
+                </button>
+              </div>
+            </div>
+          ) : (
+            <div className="flex flex-col gap-2">
+              <button
+                onClick={() => window.location.reload()}
+                className="px-6 py-2.5 text-sm font-semibold text-white bg-indigo-500 hover:bg-indigo-600 rounded-xl transition-colors cursor-pointer"
+              >
+                {t('error.reload')}
+              </button>
+              <button
+                onClick={() => this.setState({ confirmingClear: true })}
+                data-testid="error-clear-reload"
+                className="px-6 py-2.5 text-sm text-red-500 border border-red-200 dark:border-red-800 rounded-xl hover:bg-red-50 dark:hover:bg-red-950 transition-colors cursor-pointer"
+              >
+                {t('error.clearReload')}
+              </button>
+            </div>
+          )}
           <p className="text-xs text-gray-400 dark:text-gray-500 mt-6 break-all">
             {this.state.error?.stack?.slice(0, 300)}
           </p>

@@ -62,6 +62,7 @@ import {
   removeCompletedVideoId,
   loadDailyPlan,
   updateDailyPlanItem,
+  isLocalMediaReferencedByOtherSession,
 } from '../utils/storage';
 import type {
   CaptionDiagnostics,
@@ -969,7 +970,11 @@ const StudyPage: React.FC = () => {
       lastPosition: 0,
     };
     saveCurrentSession(fresh);
-    if (previousLocalMediaId) void deleteLocalAudioMedia(previousLocalMediaId);
+    // Only drop the previous Blob when no other session still references it:
+    // starting a NEW lesson must not destroy the previous lesson's audio.
+    if (previousLocalMediaId && !isLocalMediaReferencedByOtherSession(previousLocalMediaId, fresh.id)) {
+      void deleteLocalAudioMedia(previousLocalMediaId);
+    }
     setSession(fresh);
     setVideoId(id);
     setPlatform('youtube');
@@ -982,6 +987,43 @@ const StudyPage: React.FC = () => {
     setAnalysis(null);
     clearCaptionError();
     loadedSessionIdRef.current = fresh.id;
+  }, [clearCaptionError, session]);
+
+  // ── Restore audio for an EXISTING local-audio session ──────
+  // Reattaching a missing Blob must not change the session's logical identity:
+  // session id and youtubeId stay, so vocabulary/sentence associations, review
+  // history and the Dashboard entry keep pointing at the same lesson.
+  const handleRestoreLocalAudio = useCallback(async (file: File, lines: TranscriptLine[]) => {
+    if (!session || session.sourceType !== 'local_audio') return;
+    const now = Date.now();
+    const previousLocalMediaId = session.localMediaId;
+    const newMediaId = `local_${now}_${Math.random().toString(36).slice(2, 8)}`;
+    // Save the new Blob BEFORE any removal: a failed/invalid import leaves the
+    // existing session and its data untouched (the importer validates first).
+    await saveLocalAudioMedia(newMediaId, file);
+    const localUrl = registerLocalAudio(newMediaId, file);
+    const restoredSentenceLines = normalizeTranscriptToSentences(lines);
+    const restored: VideoStudySession = {
+      ...session,
+      localMediaId: newMediaId,
+      // The supplied subtitle restores the transcript fields that cloud sync
+      // intentionally omits; the learner explicitly pairs them via this flow.
+      transcriptLines: lines,
+      transcriptData: { rawBlocks: lines, sentenceLines: restoredSentenceLines },
+      captionSource: 'local_audio',
+      updatedAt: now,
+    };
+    saveCurrentSession(restored);
+    if (previousLocalMediaId && previousLocalMediaId !== newMediaId && !isLocalMediaReferencedByOtherSession(previousLocalMediaId, restored.id)) {
+      void deleteLocalAudioMedia(previousLocalMediaId);
+    }
+    setSession(restored);
+    setLocalAudioUrl(localUrl);
+    setRawBlocks(lines);
+    setSentenceLines(restoredSentenceLines);
+    if (restored.aiAnalysis) setAnalysis(restored.aiAnalysis);
+    setStartTime(restored.lastPosition && restored.lastPosition > 10 ? restored.lastPosition : undefined);
+    clearCaptionError();
   }, [clearCaptionError, session]);
 
   // ── Clear current session ──────────────────────────────────
@@ -1426,7 +1468,7 @@ const StudyPage: React.FC = () => {
                       <div className="rounded-xl border border-amber-200 bg-amber-50 px-4 py-6 text-center text-sm text-amber-700 dark:border-amber-800 dark:bg-amber-950/30 dark:text-amber-300">
                         {t('study.localAudioMissing')}
                       </div>
-                      <LocalAudioImporter mode="local-media" onSuccess={handleImportLocalAudio} />
+                      <LocalAudioImporter mode="local-media" variant="restore" onSuccess={handleRestoreLocalAudio} />
                     </>
                   )
                 ) : audioMode && platform === 'bilibili' ? (
