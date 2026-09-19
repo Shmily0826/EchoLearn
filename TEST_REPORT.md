@@ -3309,3 +3309,17 @@ re-verify of corrected logout — was found and RUN).
 **Self-audit (8 questions): answered in the worktree PROGRESS.md V2 section; one
 premature-completion and one evidence-substitution gap were both found and closed
 during the campaign day; no gap remains open.**
+
+## 2026-09-19 (post-merge) — verified-account sync path executed live; logout dialog production-verified
+
+- **T1-T4 PASS on live Production** (docs/VERIFIED_SYNC_TEST_DESIGN.md): guest-saved
+  word merged into verified Account A on login and survived refresh; A's verified
+  logout cleared the device while the word returned from A's cloud on re-login
+  (sync-before-logout protection proven end-to-end); verified B on the same device
+  saw an empty vocabulary (cross-account isolation holds on the live path).
+  Account A confirmed `Email verified` in Settings (user completed verification).
+- **Logout confirmation dialog production-verified** with the disposable unverified
+  account: unverified + data at risk renders the exact confirmation copy; Cancel
+  keeps the session and data; Confirm signs out and clears device data.
+- Account A/B passwords remain only in Windows Credential Manager (targets
+  EchoLearn-QA-Account-A/B); nothing credential-shaped entered Git.
