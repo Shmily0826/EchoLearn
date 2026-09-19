@@ -3413,11 +3413,15 @@ blocking defects. Observations recorded: lemmatized storage of saved words (E),
 
 ## 2026-09-19 (backlog cleanup) — R5 pinned, misleading caption error fixed, badge neutralized
 
-- **R5 coverage closed deterministically:** `R5: a device whose push missed another
-  device's newer item recovers it on its next pull` pins the cross-device
-  single-document window — a stale push temporarily regresses the cloud doc, and the
-  next pull unions the other device's item back (no permanent loss). R5 is no longer
-  composition-only.
+- **R5 evidence scope CORRECTED (2026-09-19 review):** the R5 test proves a NARROWER
+  claim than its title suggested — when the shared cloud document still contains the
+  other device's newer item, a later pull unions it back (the union/dedupe contract).
+  It does NOT exercise the true stale-overwrite window (device 1's push landing AFTER
+  device 2's newer upload and temporarily masking it while device 1 is offline).
+  That window is bounded by the single-document last-writer-wins design and
+  self-heals on device 2's next sync (its local copy re-uploads), but the interim
+  masking and its duration are UNVERIFIED. R5's full coverage needs an
+  emulator-level two-device interleaving test; recorded as a non-blocking gap.
 - **D-class fix:** a restored local_audio session without its device-local Blob no
   longer renders the misleading generic "Unable to fetch captions" error card; the
   precise re-import banner and importer are the only surfaces (both generic
