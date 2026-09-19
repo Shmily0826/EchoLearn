@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback } from 'react';
+import { useState, useEffect, useCallback, useRef } from 'react';
 import { useAuth } from '../contexts/AuthContext';
 import { useI18n } from '../i18n/I18nContext';
 import { TOUR_START_EVENT } from '../components/tourEvents';
@@ -7,6 +7,8 @@ import {
   uploadToCloud,
   getLastSyncTime,
   formatLastSync,
+  hasLocalSyncableData,
+  isSyncPending,
 } from '../services/firestoreSync';
 import {
   savePat,
@@ -34,7 +36,7 @@ import {
   exportSentencesCSV,
   exportAllDataJSON,
 } from '../services/exportService';
-import { shouldAutoSyncUser } from '../utils/authPolicy';
+import { shouldAutoSyncUser, shouldWarnOnLogout } from '../utils/authPolicy';
 
 // ── Local data size helper ────────────────────────────────────
 
@@ -100,6 +102,8 @@ const SettingsPage: React.FC<{ onLoginRequest?: () => void }> = ({ onLoginReques
 
   // ── Feedback modal state ─────────────────────────────────
   const [showFeedback, setShowFeedback] = useState(false);
+  const [showLogoutConfirm, setShowLogoutConfirm] = useState(false);
+  const [logoutPending, setLogoutPending] = useState(false);
   const [resending, setResending] = useState(false);
   const [feedbackText, setFeedbackText] = useState('');
   const [includeEmail, setIncludeEmail] = useState(true);
@@ -209,6 +213,46 @@ const SettingsPage: React.FC<{ onLoginRequest?: () => void }> = ({ onLoginReques
       });
     }
   }, [logOut]);
+
+  // Destructive logout for an unverified account (device data will be cleared)
+  // must be confirmed first. Verified accounts and unverified accounts with
+  // nothing at risk sign out directly, unchanged.
+  const handleSignOutClick = useCallback(() => {
+    if (shouldWarnOnLogout(user, hasLocalSyncableData(), isSyncPending())) {
+      setShowLogoutConfirm(true);
+      return;
+    }
+    void handleSignOut();
+  }, [user, handleSignOut]);
+
+  const confirmSignOut = useCallback(async () => {
+    if (logoutPending) return; // double-click guard: logOut runs at most once
+    setLogoutPending(true);
+    try {
+      await handleSignOut();
+    } finally {
+      setLogoutPending(false);
+      setShowLogoutConfirm(false);
+    }
+  }, [logoutPending, handleSignOut]);
+
+  const cancelSignOut = useCallback(() => {
+    if (logoutPending) return; // a pending destructive boundary cannot be cancelled
+    setShowLogoutConfirm(false);
+  }, [logoutPending]);
+
+  const logoutCancelBtnRef = useRef<HTMLButtonElement | null>(null);
+  useEffect(() => {
+    if (!showLogoutConfirm) return;
+    // Focus the safe action first: the destructive one needs two deliberate
+    // clicks (focus is NOT pre-placed on it).
+    logoutCancelBtnRef.current?.focus();
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') { e.preventDefault(); cancelSignOut(); }
+    };
+    window.addEventListener('keydown', onKey);
+    return () => window.removeEventListener('keydown', onKey);
+  }, [showLogoutConfirm, cancelSignOut]);
 
   // ── Check proxy status ────────────────────────────────────
   const handleCheckProxy = useCallback(async () => {
@@ -476,7 +520,7 @@ const SettingsPage: React.FC<{ onLoginRequest?: () => void }> = ({ onLoginReques
               </p>
             </div>
             <button
-              onClick={handleSignOut}
+              onClick={handleSignOutClick}
               className="ml-auto px-3 py-1.5 text-xs text-red-500 border border-red-200 dark:border-red-800 rounded-lg hover:bg-red-50 dark:hover:bg-red-950 transition-colors cursor-pointer whitespace-nowrap"
             >
               {t('settings.signOut')}
@@ -1063,6 +1107,48 @@ const SettingsPage: React.FC<{ onLoginRequest?: () => void }> = ({ onLoginReques
           </div>
         )}
       </section>
+      )}
+
+      {/* ── Logout confirmation modal (unverified + data at risk) ── */}
+      {showLogoutConfirm && (
+        <div
+          className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/40"
+          onClick={cancelSignOut}
+          role="presentation"
+        >
+          <div
+            className="w-full max-w-md bg-white dark:bg-slate-800 rounded-2xl border border-gray-200 dark:border-slate-700 shadow-xl p-5 sm:p-6"
+            onClick={(e) => e.stopPropagation()}
+            role="dialog"
+            aria-modal="true"
+            aria-labelledby="logout-confirm-title"
+          >
+            <h3 id="logout-confirm-title" className="text-lg font-semibold text-gray-900 dark:text-gray-100">
+              {t('settings.logoutConfirmTitle')}
+            </h3>
+            <p className="mt-2 text-sm text-gray-600 dark:text-gray-300 leading-relaxed whitespace-pre-line">
+              {t('settings.logoutConfirmBody')}
+            </p>
+            <div className="mt-5 flex flex-col-reverse sm:flex-row sm:justify-end gap-2">
+              <button
+                ref={logoutCancelBtnRef}
+                onClick={cancelSignOut}
+                disabled={logoutPending}
+                className="px-3 py-2 text-sm rounded-lg border border-gray-300 dark:border-slate-600 text-gray-700 dark:text-gray-200 hover:bg-gray-50 dark:hover:bg-slate-700 disabled:opacity-50 cursor-pointer disabled:cursor-not-allowed"
+              >
+                {t('settings.logoutConfirmCancel')}
+              </button>
+              <button
+                onClick={confirmSignOut}
+                disabled={logoutPending}
+                aria-busy={logoutPending}
+                className="px-3 py-2 text-sm rounded-lg bg-red-500 text-white hover:bg-red-600 disabled:opacity-50 cursor-pointer disabled:cursor-not-allowed"
+              >
+                {logoutPending ? t('settings.signingOut') : t('settings.logoutConfirmProceed')}
+              </button>
+            </div>
+          </div>
+        </div>
       )}
 
       {/* ── Feedback modal ──────────────────────────────────── */}

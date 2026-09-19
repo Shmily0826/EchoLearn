@@ -36,12 +36,21 @@ const APP_BASE = 'http://localhost:5173';
 export interface SyntheticIdentity {
   uid: string;
   email: string;
+  /** Defaults to true; set false to fabricate an unverified signed-in user. */
+  emailVerified?: boolean;
 }
 
 /** A fabricated identity that corresponds to no real account. */
 export const SYNTHETIC_IDENTITY: SyntheticIdentity = {
   uid: 'e2e-synthetic-user',
   email: 'e2e-synthetic@example.invalid',
+};
+
+/** A fabricated signed-in user whose email is NOT verified (sync impossible). */
+export const SYNTHETIC_IDENTITY_UNVERIFIED: SyntheticIdentity = {
+  uid: 'e2e-synthetic-unverified',
+  email: 'e2e-synthetic-unverified@example.invalid',
+  emailVerified: false,
 };
 
 export interface FirebaseRouteLog {
@@ -98,7 +107,7 @@ export async function armFirebaseRoutes(
             users: [{
               localId: identity.uid,
               email: identity.email,
-              emailVerified: true,
+              emailVerified: identity.emailVerified ?? true,
               providerUserInfo: [{
                 providerId: 'password',
                 federatedId: identity.email,
@@ -193,7 +202,7 @@ export async function seedSignedInSession(
       const value = {
         uid: identity.uid,
         email: identity.email,
-        emailVerified: true,
+        emailVerified: identity.emailVerified ?? true,
         displayName: 'E2E Synthetic',
         isAnonymous: false,
         photoURL: null,
