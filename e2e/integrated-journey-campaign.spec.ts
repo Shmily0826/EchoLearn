@@ -33,6 +33,17 @@ const journeySrt = [
 
 const BASE = 'http://127.0.0.1:5278';
 
+// This suite exercises the production service-worker precache (offline route
+// navigation), so it needs the production-build preview server, which standard
+// dev-only CI runs do not start. Skip honestly when it is unreachable.
+let previewAvailable = false;
+test.beforeAll(async () => {
+  previewAvailable = await fetch('http://127.0.0.1:5278/', { signal: AbortSignal.timeout(2000) })
+    .then((r) => r.ok)
+    .catch(() => false);
+  test.skip(!previewAvailable, 'INTEGRATED_JOURNEY: requires the production-build preview (npx vite preview --port 5278); offline navigation is asserted against the SW precache and cannot run on the dev server.');
+});
+
 async function enterGuest(page: Page) {
   await page.addInitScript(() => {
     localStorage.setItem('echolearn_lang', 'en');
