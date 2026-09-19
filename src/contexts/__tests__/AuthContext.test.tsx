@@ -203,6 +203,33 @@ describe('AuthProvider account boundary', () => {
     expect(localStorage.getItem('echolearn_vocabulary')).not.toBeNull();
   });
 
+
+  it('A7 (R7): logout awaits the in-flight sync; the boundary clears only after it completes', async () => {
+    // Serialization proof for the logout-during-pending-sync scenario: the
+    // device wipe must not land while a cloud sync for the same account is
+    // still writing, and sign-out must not complete before the sync does.
+    let releaseSync: () => void = () => {};
+    const gate = new Promise<void>((resolve) => { releaseSync = resolve; });
+    mocks.syncWithCloud.mockReturnValue(gate.then(() => ({ ok: true })));
+    localStorage.setItem('echolearn_vocabulary', JSON.stringify([{ id: 'a1' }]));
+    render(
+      <AuthProvider>
+        <LogoutButton />
+      </AuthProvider>,
+    );
+    screen.getByRole('button', { name: 'Log out' }).click();
+
+    // while the sync is in flight: no sign-out, no wipe
+    await new Promise((r) => setTimeout(r, 50));
+    expect(mocks.signOut).not.toHaveBeenCalled();
+    expect(localStorage.getItem('echolearn_vocabulary')).not.toBeNull();
+
+    releaseSync();
+    await vi.waitFor(() => expect(mocks.signOut).toHaveBeenCalledTimes(1));
+    await vi.waitFor(() => expect(localStorage.getItem('echolearn_vocabulary')).toBeNull());
+    expect(mocks.clearSyncMetadata).toHaveBeenCalledTimes(1);
+  });
+
   it('preserves local data and propagates a failed sign-out while auth remains active', async () => {
     mocks.signOut.mockRejectedValue(new Error('network unavailable'));
     localStorage.setItem('echolearn_vocabulary', JSON.stringify([{ id: 'a-only' }]));

@@ -302,6 +302,62 @@ describe('Firestore lifecycle sync', () => {
     expect(localStorage.getItem('echolearn_firebase_last_sync')).toBeNull();
   });
 
+
+  it('R2: a successful retry after a transient pull failure uploads the still-pending local items', async () => {
+    mocks.loadVocabulary.mockReturnValue([item('pending-1', 100)]);
+    let pullsFailing = true;
+    mocks.getDoc.mockImplementation(async () => {
+      if (pullsFailing) throw new Error('offline');
+      return { exists: () => false };
+    });
+
+    const first = await syncWithCloud('user-a');
+    expect(first.ok).toBe(false);
+    pullsFailing = false;
+    // the pending item survives the failed attempt
+    expect(mocks.saveVocabulary.mock.calls.length).toBe(0);
+
+    mocks.getDoc.mockImplementation(async () => ({ exists: () => false }));
+    const second = await syncWithCloud('user-a');
+    expect(second.ok).toBe(true);
+    const vocabPushes = mocks.setDoc.mock.calls.filter((c) => String(c[0].path).endsWith('/vocabulary'));
+    expect(vocabPushes.length).toBeGreaterThan(0);
+    const uploaded = (vocabPushes.at(-1)![1] as { items: Array<{ id: string }> }).items.map((i) => i.id);
+    expect(uploaded).toContain('pending-1');
+  });
+
+  it('R4: an item saved while a sync is in flight survives the sync', async () => {
+    // collectLocalData snapshots at sync start; the learner saves a new item
+    // while the (slow) cloud pulls are in flight. The post-download merge and
+    // push must include it, and the saved local state must not lose it.
+    mocks.loadVocabulary.mockReturnValue([item('existing-1', 100)]);
+    let releaseDownloads: () => void = () => {};
+    const gate = new Promise<void>((resolve) => { releaseDownloads = resolve; });
+    mocks.getDoc.mockImplementation(async () => {
+      await gate;
+      return { exists: () => false };
+    });
+
+    const syncPromise = syncWithCloud('user-a');
+    await new Promise((r) => setTimeout(r, 0));
+    // learner saves a new word while the pulls are in flight
+    const liveVocab = [item('existing-1', 100), item('saved-mid-flight', 200)];
+    mocks.loadVocabulary.mockReturnValue(liveVocab);
+    releaseDownloads();
+
+    const result = await syncPromise;
+    expect(result.ok).toBe(true);
+
+    // saved local state keeps the mid-flight item
+    const savedLast = mocks.saveVocabulary.mock.calls.at(-1)![0] as Array<{ id: string }>;
+    expect(savedLast.map((i) => i.id)).toContain('saved-mid-flight');
+    // and the cloud push includes it too
+    const vocabPushes = mocks.setDoc.mock.calls.filter((c) => String(c[0].path).endsWith('/vocabulary'));
+    expect(vocabPushes.length).toBeGreaterThan(0);
+    const uploaded = (vocabPushes.at(-1)![1] as { items: Array<{ id: string }> }).items.map((i) => i.id);
+    expect(uploaded).toContain('saved-mid-flight');
+  });
+
   it('does not push unverified account data', async () => {
     mocks.auth.currentUser = { uid: 'user-a', emailVerified: false };
 

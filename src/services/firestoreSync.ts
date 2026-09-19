@@ -386,17 +386,22 @@ async function syncWithCloudOnce(uid: string): Promise<SyncResult> {
       return { ok: false, error };
     }
 
+    // Re-collect local data AFTER the pulls settle: items saved or deleted while
+    // the downloads were in flight must not be clobbered by writing back the
+    // stale pre-download snapshot (R4).
+    const freshLocal = collectLocalData();
+
     // Merge each collection. A failed download is not treated as an empty
     // collection: doing so could overwrite valid cloud data on the next push.
     const mergedVocabData = downloadFailed[0]
-      ? { items: local.vocabulary, tombstones: local.vocabularyTombstones }
-      : mergeCollection(local.vocabulary, cloudVocab.items, local.vocabularyTombstones, cloudVocab.tombstones, (item) => item.updatedAt ?? item.addedAt ?? 0);
+      ? { items: freshLocal.vocabulary, tombstones: freshLocal.vocabularyTombstones }
+      : mergeCollection(freshLocal.vocabulary, cloudVocab.items, freshLocal.vocabularyTombstones, cloudVocab.tombstones, (item) => item.updatedAt ?? item.addedAt ?? 0);
     const mergedSentencesData = downloadFailed[1]
-      ? { items: local.sentences, tombstones: local.sentenceTombstones }
-      : mergeCollection(local.sentences, cloudSentences.items, local.sentenceTombstones, cloudSentences.tombstones, (item) => item.updatedAt ?? item.addedAt ?? 0);
+      ? { items: freshLocal.sentences, tombstones: freshLocal.sentenceTombstones }
+      : mergeCollection(freshLocal.sentences, cloudSentences.items, freshLocal.sentenceTombstones, cloudSentences.tombstones, (item) => item.updatedAt ?? item.addedAt ?? 0);
     const mergedSessionsData = downloadFailed[2]
-      ? { items: local.sessions, tombstones: local.sessionTombstones }
-      : mergeSessions(local.sessions, cloudSessions.items, local.sessionTombstones, cloudSessions.tombstones);
+      ? { items: freshLocal.sessions, tombstones: freshLocal.sessionTombstones }
+      : mergeSessions(freshLocal.sessions, cloudSessions.items, freshLocal.sessionTombstones, cloudSessions.tombstones);
     const mergedVocab = mergedVocabData.items;
     const mergedSentences = mergedSentencesData.items;
     const mergedSessions = mergedSessionsData.items;
