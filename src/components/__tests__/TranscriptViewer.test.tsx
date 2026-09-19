@@ -75,7 +75,7 @@ describe('TranscriptViewer line interactions', () => {
 
   it('saves the clicked line as a sentence carrying its confirmed moment', () => {
     const { onAddSentence } = renderViewer();
-    fireEvent.click(screen.getAllByLabelText('Save sentence')[1]); // second line, start=90
+    fireEvent.click(screen.getAllByLabelText('study.saveSentenceBookmark')[1]); // second line, start=90
     expect(onAddSentence).toHaveBeenCalledTimes(1);
     const item = onAddSentence.mock.calls[0][0] as { text: string; startTime: number };
     expect(item.text).toBe('And here is a placed sentence.');
@@ -87,11 +87,11 @@ describe('TranscriptViewer line interactions', () => {
       savedSentences: new Set([lines[1].text]),
       savedSentenceIds: new Map([[lines[1].text, 'sent-42']]),
     });
-    fireEvent.click(screen.getByLabelText('Remove bookmark'));
+    fireEvent.click(screen.getByLabelText('study.removeSentenceBookmark'));
     expect(onRemoveSentence).toHaveBeenCalledWith('sent-42');
     expect(onAddSentence).not.toHaveBeenCalled();
     // the other two lines keep their unsaved bookmark buttons
-    expect(screen.getAllByLabelText('Save sentence')).toHaveLength(2);
+    expect(screen.getAllByLabelText('study.saveSentenceBookmark')).toHaveLength(2);
   });
 });
 

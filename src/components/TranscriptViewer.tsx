@@ -294,8 +294,8 @@ const TranscriptViewer: React.FC<TranscriptViewerProps> = ({
                       handleAddSentence(line);
                     }
                   }}
-                  title={sentenceSaved ? 'Remove bookmark' : 'Save sentence'}
-                  aria-label={sentenceSaved ? 'Remove bookmark' : 'Save sentence'}
+                  title={sentenceSaved ? t('study.removeSentenceBookmark') : t('study.saveSentenceBookmark')}
+                  aria-label={sentenceSaved ? t('study.removeSentenceBookmark') : t('study.saveSentenceBookmark')}
                   className={`flex-shrink-0 p-1.5 md:p-1 rounded transition-colors cursor-pointer ${
                     sentenceSaved
                       ? 'text-violet-500 dark:text-violet-400 hover:text-violet-700 dark:hover:text-violet-300'

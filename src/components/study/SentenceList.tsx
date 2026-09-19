@@ -46,7 +46,7 @@ const SentenceList: React.FC<{
               <button
                 onClick={() => onSeek?.(item.startTime)}
                 className="text-[10px] font-mono text-indigo-500 hover:text-indigo-700 hover:underline cursor-pointer"
-                title="Jump to this point in the video"
+                title={t('study.jumpToTimestamp')}
               >
                 @{formatTime(item.startTime)}
               </button>

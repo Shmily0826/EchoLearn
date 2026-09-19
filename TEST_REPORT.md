@@ -3214,3 +3214,69 @@ Closes the gap recorded earlier the same day, when the deployed SHA could not be
 - **The working tree was never at risk.** All four in-progress edits were intact throughout; only git's metadata and object store were affected.
 - **`git fsck` still reports thousands of `HEAD: invalid reflog entry <sha>` lines** — stale reflog entries pointing at objects absent from the local store. Harmless for normal operation, and deliberately **not** cleaned: `git reflog expire` + `git gc --prune=now` is destructive and this environment has now demonstrated it can lose object data.
 - **Rule for this environment, recorded in the project memory: do not use `git stash`.** To compare current files against `HEAD`, read the old version with `git show HEAD:<path>` and swap files inside a `try/finally` that always restores, or copy the file aside first.
+
+## 2026-09-19 — Overnight QA campaign (agent/overnight-20260919, worktree of a31d837)
+
+**Scope.** Release-confidence campaign: real learner journeys (Production dogfood +
+local), targeted review, bounded fixes. All work LOCAL VERIFIED in the isolated
+worktree `D:\CODE\project\EchoLearn-overnight`; canonical checkout untouched; nothing
+committed/pushed/deployed. Full ledger in the worktree `PROGRESS.md`; here: durable
+test evidence only.
+
+**Confirmed bugs fixed (2 A/C-class, both with falsified regressions).**
+
+1. **Player keeps playing the sample video after a new video is loaded**
+   (`src/components/YouTubeEmbed.tsx`). A `[youtubeId]` change landing while
+   `status !== 'ready'` was dropped forever — Production dogfood reproduced it
+   (iframe src stayed `embed/iG9CE55wbtY` while transcript/session showed
+   aircAruvnKk) and a deterministic local repro confirmed it. Fix: add `status`
+   to the effect deps. Regression: `src/components/__tests__/YouTubeEmbed.test.tsx`.
+2. **Unverified account can never sign out** (`src/contexts/AuthContext.tsx`).
+   logOut demanded a successful cloud sync, but `assertVerified` blocks every
+   cloud write for unverified accounts -> permanent deadlock behind the misleading
+   "Reconnect and try again." message (user-observed screenshot adjudicated: it
+   was Sign Out failing). Fix: gate the sync guard and the local-data wipe on
+   `emailVerified`. Live-verified with the real unverified QA account on the
+   worktree build. Regressions: 2 tests in AuthContext.test.tsx (falsified pre-fix).
+
+**Bounded D-class fixes.** i18n for the sentence-jump title and save/remove-bookmark
+labels (were hardcoded English in the Chinese UI); mobile sentence bookmark gained an
+accessible name; transient-Analyze fallback copy now says "temporarily unavailable ...
+try Re-analyze". 3 new translation keys.
+
+**Deterministic gap coverage (no product change).**
+`src/services/__tests__/localAudio.subtitleGaps.test.ts`: empty-cue VTT rejected
+honestly; partially-malformed SRT imports its parseable cues (best-effort by design);
+unsupported extension rejected before content read.
+
+**Journey evidence (behavior-level).** All five journeys executed — A/B/E and C's AI
+slice on real Production dogfood (marker verified each session), C's logout fix and D
+on the worktree build. Error/recovery discriminators browser-verified on local:
+timeout renders the retry card (never "no subtitles"), explicit captions_not_found
+renders the honest no-subtitles state, empty-lines 200 produces no false success,
+stale out-of-order responses are discarded, route-leave leaves no stale injection.
+AI suggestion saves and the Review/SRS session (due computation, per-card persistence,
+honest accuracy) verified live. Zero `@0:00` on a page mixing placed and AI-suggested
+saves (startTime:0 sentinel holds end-to-end).
+
+**Provider/accounting.** Intentional real `/api/ai`: 2 of 3 (translateWord 200;
+Analyze SSE 200 — both semantically judged, see worktree PROGRESS.md section 5).
+Sample-video Analyze was a shared-cache HIT. Supadata: 2 credits PROVEN (fresh
+origin fetches); a later `Source: supadata` UI label is NOT proof of a further
+charge — edge stale-while-revalidate serves the previous supadata payload, and the
+CDN design (s-maxage=3600 + SWR 86400) is sound. The earlier 'every load re-burns
+a credit' statement was a hypothesis and is WITHDRAWN; the real cost risk is the
+broken VPS route plus whether Vercel edge caches /api/transcript at all. ASR: zero
+triggers.
+
+**Not covered / remaining.** Production still runs a31d837 (fixes LOCAL ONLY until the
+user deploys). Provider identity RESOLVED as far as static analysis allows: the panel
+badge is hardcoded (`AIAnalysisPanel.tsx:143`) and the real provider is env-selected
+(`api/ai.ts:462`, AI_PROVIDER, default deepseek) — what Production actually runs needs
+one Vercel-env glance (INCONCLUSIVE from code). VPS transcript route failing for probe
+videos (cost follow-up); Review remembered->mastered progression and a positive
+bilibili caption journey untested; seek-settle gap and dictionary in-flight duplicate
+request are backlog.
+
+**Validation.** vitest 656/656 (64 files); tsc clean; eslint 0 errors; build OK.
+Screenshots and journey scripts: `campaign/` in the worktree.

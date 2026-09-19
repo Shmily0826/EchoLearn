@@ -65,6 +65,13 @@ describe('MobileTranscriptPanel', () => {
     expect(screen.getByText('study.noSubtitles')).toBeTruthy();
   });
 
+
+  it('gives the sentence bookmark an accessible name (mobile had none)', () => {
+    renderPanel({ savedSentences: new Set(['And here is a placed sentence.']) });
+    expect(screen.getByLabelText('study.saveSentenceBookmark')).toBeTruthy();
+    expect(screen.getByLabelText('study.removeSentenceBookmark')).toBeTruthy();
+  });
+
   it('marks the active line with the highlight style', () => {
     renderPanel({ activeLineIndex: 1 });
     expect(rowOf('placed').className).toContain('bg-indigo-50');
