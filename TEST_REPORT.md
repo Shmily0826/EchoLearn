@@ -3911,3 +3911,23 @@ URLs) which this PR deliberately did not touch.
 - **Production** — deployment identity PASS at `05ee239`; **behavior verified** for
   Sample Clear, Import Audio discoverability, Local Audio import, Review due
   count-vs-queue honesty and manual-add scheduling, provider-free, both viewports.
+
+### Follow-up Production checks (app code unchanged since `05ee239`)
+
+- **zh render on the live site**: the first-level entry was only string-checked in the
+  12-point dogfood, so it was verified as rendered — a fresh guest with
+  `echolearn_lang=zh` on `https://echo-learn.uk/?dogfood=1` sees 清空 / 导入音频 /
+  选择 SRT / VTT 字幕 / 在学习页打开 with **no** leftover English `Import Audio`, entry at
+  top=173 inside the 900px viewport and above the first transcript row, no ErrorBoundary.
+  A local control run against the same commit produced a byte-identical page state, so
+  the comparison isolates deployment rather than the script. An earlier "FAIL" from this
+  check was my own script missing the post-gate re-navigation, not a product defect —
+  corrected before anything was concluded from it.
+- **Re-verified after the docs merge**: the full 12-check dogfood was rerun against
+  Production once `main` had moved to `1176444` (docs only) and passed 12/12 again,
+  with `/api/ai` 0 and provider hosts 0.
+- **Revision-vs-verification rule adopted here**: PRs #10/#11 change only
+  `PROGRESS.md` / `TEST_REPORT.md` / `DECISIONS.md`, which are not part of the app
+  bundle, so the behavior verified at `05ee239` remains the governing evidence for
+  the deployed client; `deploy:check` still confirms Production is running the newest
+  `main`. No app source has changed since the verified revision.
