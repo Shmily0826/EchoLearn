@@ -24,6 +24,9 @@ vi.mock('../../services/translationService', () => ({
   translateSentences: vi.fn(), TRANSLATE_LANGS: { zh: 'Chinese' },
 }));
 vi.mock('../../utils/storage', () => ({
+  todayStartMs: () => { const d = new Date(); d.setHours(0, 0, 0, 0); return d.getTime(); },
+  tomorrowMs: () => Date.now() + 24 * 60 * 60 * 1000,
+  addVocabularyItem: vi.fn((item) => item),
   loadSentences: vi.fn(() => state.sentences),
   removeSentenceItem: vi.fn(),
   updateSentenceItem: vi.fn(),

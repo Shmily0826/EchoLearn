@@ -1,4 +1,5 @@
 import { test, expect, type Page } from '@playwright/test';
+import { mockDictionaryApi } from './helpers/mockDictionary';
 
 /**
  * P5 NEW_LESSON_REGRESSION + same-filename discriminator — campaign (untracked).
@@ -32,6 +33,10 @@ const srtFor = (marker: string) => [
 ].join('\n\n');
 
 async function enterGuest(page: Page) {
+  // This campaign saves a word out of the lookup popup; without the local
+  // dictionary stub the popup re-mounts on live third-party responses and the
+  // save click can hang until the test times out.
+  await mockDictionaryApi(page);
   await page.addInitScript(() => {
     localStorage.setItem('echolearn_lang', 'en');
     localStorage.setItem('echolearn-lang-chosen', '1');

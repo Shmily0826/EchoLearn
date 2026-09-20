@@ -9,7 +9,9 @@ import {
   updateVocabularyItem,
   addVocabularyItem,
   loadAllSessions,
+  tomorrowMs,
 } from '../utils/storage';
+import { isDue, isUnscheduled, reviewWindowEnd } from '../utils/reviewSchedule';
 import WordDictionaryPopup, { type WordDictionaryPopupData } from '../components/WordDictionaryPopup';
 import { exportVocabularyCSV, exportVocabularyPDF } from '../services/exportService';
 import { translateWords, translateWord } from '../services/translationService';
@@ -23,10 +25,6 @@ type FilterMode = 'all' | 'mastered' | 'unmastered';
 type SortMode = 'newest' | 'az' | 'review' | 'most-reviewed';
 type ViewMode = 'card' | 'list';
 
-function nowMs(): number {
-  return Date.now();
-}
-
 interface DictPopupState {
   word: string;
   context?: string;
@@ -39,7 +37,7 @@ interface DictPopupState {
 /** Format a nextReviewAt timestamp as a short label. */
 function reviewLabel(nextReviewAt: number, mastered: boolean, t: (key: string, vars?: Record<string, string | number>) => string): { text: string; color: string } {
   if (mastered) return { text: t('reviewLabel.mastered'), color: 'text-green-600 dark:text-green-400' };
-  if (nextReviewAt === 0) return { text: t('reviewLabel.mastered'), color: 'text-green-600 dark:text-green-400' };
+  if (isUnscheduled({ mastered, nextReviewAt })) return { text: t('reviewLabel.unscheduled'), color: 'text-gray-400 dark:text-gray-500' };
   const now = Date.now();
   if (nextReviewAt <= now) return { text: t('reviewLabel.dueNow'), color: 'text-red-500 dark:text-red-400' };
   const days = Math.ceil((nextReviewAt - now) / (24 * 60 * 60 * 1000));
@@ -269,7 +267,7 @@ const VocabularyPage: React.FC = () => {
       mastered: false,
       reviewCount: 0,
       lastReviewedAt: 0,
-      nextReviewAt: 0,
+      nextReviewAt: tomorrowMs(),
     }, {
       dictionaryEntry: dictPopupData?.entry,
       learnerMeaning: dictPopupData?.learnerMeaning,
@@ -394,10 +392,12 @@ const VocabularyPage: React.FC = () => {
   }, [vocabulary, search, filter, sort, lang]);
 
   const masteredCount = vocabulary.filter((v) => v.mastered).length;
-  const dueCount = useMemo(() => {
-    const now = nowMs();
-    return vocabulary.filter((v) => !v.mastered && v.nextReviewAt <= now).length;
-  }, [vocabulary]);
+  // Same predicate as Review and Dashboard, so the "Review (N)" link here cannot
+  // count a legacy unscheduled row or miss a mastered refresher.
+  const dueCount = useMemo(
+    () => vocabulary.filter((v) => isDue(v, reviewWindowEnd())).length,
+    [vocabulary],
+  );
 
   return (
     <div className="max-w-5xl mx-auto px-4 sm:px-6 py-6 sm:py-10">

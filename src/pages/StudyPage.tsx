@@ -1386,7 +1386,7 @@ const StudyPage: React.FC = () => {
                 )}
               </button>
             )}
-            {session && (
+            {(session || videoId) && (
               <button
                 onClick={handleClearSession}
                 className="px-3 sm:px-4 py-1.5 text-sm bg-white dark:bg-slate-800 border border-red-200 dark:border-red-800 text-red-600 dark:text-red-400 rounded-lg hover:bg-red-50 dark:hover:bg-red-950/30 transition-colors font-medium cursor-pointer whitespace-nowrap"
@@ -1400,6 +1400,14 @@ const StudyPage: React.FC = () => {
 
       {/* Main content */}
       <main className="max-w-7xl mx-auto px-4 sm:px-6 py-4 sm:py-6">
+        {/* Learning-material entry: the single Local Audio importer, kept above
+            the transcript scroll area so a learner reaches it without scrolling
+            past a whole lesson. The restore flow below stays separate. */}
+        {session?.sourceType !== 'local_audio' && (
+          <div className="mb-3">
+            <LocalAudioImporter mode="local-media" onSuccess={handleImportLocalAudio} />
+          </div>
+        )}
         {currentContext && (
           <div
             className="mb-3 flex items-center gap-3 px-3 py-2 bg-indigo-50 dark:bg-indigo-950/30 border border-indigo-200 dark:border-indigo-900 rounded-lg"
@@ -1889,7 +1897,6 @@ const StudyPage: React.FC = () => {
             {videoId && !displayLines.length && !fetchingCaption && !captionError && (
               <div className="lg:hidden mt-2">
                 <TranscriptImporter onImport={handleImportTranscript} />
-                <LocalAudioImporter mode="local-media" onSuccess={handleImportLocalAudio} />
               </div>
             )}
           </div>
@@ -1976,9 +1983,6 @@ const StudyPage: React.FC = () => {
                 onLookupStateChange={setLookupActive}
                 onSeekTo={handleSeekTo}
                 />
-                {session?.sourceType !== 'local_audio' && (
-                  <LocalAudioImporter mode="local-media" onSuccess={handleImportLocalAudio} />
-                )}
               </>
             ) : fetchingCaption ? (
               <div className="flex flex-col items-center justify-center py-16 text-gray-400 dark:text-gray-500">
@@ -2038,7 +2042,6 @@ const StudyPage: React.FC = () => {
             ) : videoId ? (
               <>
                 <TranscriptImporter onImport={handleImportTranscript} />
-                <LocalAudioImporter mode="local-media" onSuccess={handleImportLocalAudio} />
               </>
             ) : (
               <>
@@ -2046,7 +2049,6 @@ const StudyPage: React.FC = () => {
                   <p>{t('study.noVideo')}</p>
                   <p className="mt-1">{t('study.loadToStart')}</p>
                 </div>
-                <LocalAudioImporter mode="local-media" onSuccess={handleImportLocalAudio} />
               </>
             )}
             </div>

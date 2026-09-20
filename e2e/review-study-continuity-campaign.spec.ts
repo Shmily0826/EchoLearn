@@ -1,5 +1,6 @@
 import { test, expect, type Page } from '@playwright/test';
 import { enterGuestMode } from './helpers/guestMode';
+import { mockDictionaryApi } from './helpers/mockDictionary';
 
 /**
  * P6 REVIEW_RETURN_TO_STUDY_V1 — campaign scenario (untracked).
@@ -8,6 +9,7 @@ import { enterGuestMode } from './helpers/guestMode';
  */
 
 async function enterGuest(page: Page) {
+  await mockDictionaryApi(page);
   await page.addInitScript(() => {
     localStorage.setItem('echolearn_lang', 'en');
     localStorage.setItem('echolearn-lang-chosen', '1');
@@ -60,10 +62,10 @@ test('review session reflects saved items and returns into a continuous study co
   await page.waitForTimeout(1000);
   await expect(page.getByText(/2 words/).first()).toBeVisible({ timeout: 8000 });
 
-  // Review: start an all-unmastered session and complete it
+  // Review: start a full-queue session and complete it
   await page.locator('a[href="/review"]').filter({ visible: true }).first().click();
   await page.waitForTimeout(1200);
-  const allBtn = page.getByRole('button', { name: /Review All|all unmastered/i }).first();
+  const allBtn = page.getByRole('button', { name: /review every saved item/i }).first();
   const dueBtn = page.getByRole('button', { name: /Continue|review/i }).first();
   if (await allBtn.isVisible().catch(() => false)) await allBtn.click();
   else await dueBtn.click();

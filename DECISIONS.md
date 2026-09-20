@@ -379,3 +379,51 @@ Once the active goal, root cause, and acceptance criteria are sufficiently speci
 - **Firestore emulator on a campaign port.** Default port 8080 is occupied by
   the user's unrelated tunnel-client.exe (not killed); the rules suite ran via a
   temporary `--config` with port 8099. Default config untouched.
+
+
+## 2026-09-20 — Learner entry / Review scheduling decisions (branch agent/learner-entry-review-correctness)
+
+- **One definition of "due" for the whole app.** `src/utils/reviewSchedule.ts`
+  owns it: due = `nextReviewAt > 0 && nextReviewAt <= endOfToday`, and the
+  Dashboard count, the Review landing count, the completion-screen count, the
+  Vocabulary and Sentences header "N due" / "Review (N)" links, and the actual
+  session queue all derive from the same `collectReviewCards` / `selectDueCards`
+  calls. Previously four predicates disagreed — three inside `ReviewPage.tsx`
+  alone (one included `nextReviewAt === 0`, one used `now` instead of end-of-today,
+  one ignored `> 0`) and one on each library page, which is what let a screen show
+  a count the queue did not honour. Durable rule: a Review count is never computed
+  beside its queue, and no screen computes it locally at all.
+- **Mastered refreshers stay due (unchanged).** Accepted behaviour from the
+  original design is preserved: a mastered card re-enters the queue when its
+  long-term interval elapses. What changed is the WORDING: the button is
+  "Review Every Saved Item" with the total-queue count, because the label
+  "Review All Unmastered" described a queue it never built. Fix the label rather
+  than silently narrow the queue.
+- **`nextReviewAt === 0` on a non-mastered item means UNSCHEDULED, not
+  mastered.** Manual adds now enter the normal first-review schedule
+  (`tomorrowMs()`), matching every other save path. Legacy rows that still carry
+  `0` are labelled "Not scheduled" and are never counted due anywhere; they are
+  NOT bulk-rewritten at read time or in storage — repairing a display by
+  mutating a learner's records is not a fix.
+- **Learning-material actions are first-level on Study.** The single Local Audio
+  importer sits above the transcript, not at the bottom of it, and Clear is
+  offered whenever anything is on screen — including the deliberately
+  unpersisted Sample Video. Two rejected shortcuts: creating a fake persisted
+  session so the existing `session &&` gate would show Clear, and adding global
+  storage to remember that the Sample was dismissed. Two importer instances are
+  also rejected: the restore flow stays a separate `variant="restore"` affordance
+  so it cannot compete with the import flow for the selected files.
+- **Discoverability is asserted against the initial viewport.** A test that
+  reaches a control by `data-testid`, or that lets Playwright scroll to it,
+  proves the control EXISTS, not that a learner can FIND IT — which is exactly
+  how 26 unit tests and 60+ E2E tests missed both Study entry defects. New
+  discovery assertions use role/name plus a bounding box above the fold, at
+  1440x900 and 390x844.
+
+- **An E2E spec may not depend on live third-party latency.** A campaign that saves
+  words through the lookup popup was the last spec still falling through to the
+  public Free Dictionary / Datamuse APIs, because `vite dev` has no
+  `/api/dictionary` handler; it passed alone and dropped a save under full-suite
+  load. Any spec that touches a provider-shaped route must stub it and abort the
+  external fallback, so CI measures the app rather than the network.
+

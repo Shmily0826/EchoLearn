@@ -93,6 +93,8 @@ vi.mock('../../utils/jumpToSource', () => ({
 }));
 vi.mock('../../utils/sentence', () => ({ extractSentence: vi.fn((context: string) => context) }));
 vi.mock('../../utils/storage', () => ({
+  todayStartMs: () => { const d = new Date(); d.setHours(0, 0, 0, 0); return d.getTime(); },
+  tomorrowMs: () => Date.now() + 24 * 60 * 60 * 1000,
   loadVocabulary: vi.fn(() => state.vocabulary),
   removeVocabularyItem: vi.fn(),
   updateVocabularyItem: vi.fn((id: string, patch: Record<string, unknown>) => {
