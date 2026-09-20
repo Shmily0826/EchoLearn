@@ -416,7 +416,7 @@ Once the active goal, root cause, and acceptance criteria are sufficiently speci
 - **Discoverability is asserted against the initial viewport.** A test that
   reaches a control by `data-testid`, or that lets Playwright scroll to it,
   proves the control EXISTS, not that a learner can FIND IT — which is exactly
-  how 26 unit tests and 60+ E2E tests missed both Study entry defects. New
+  how 673 unit tests and 77 E2E tests missed both Study entry defects. New
   discovery assertions use role/name plus a bounding box above the fold, at
   1440x900 and 390x844.
 
