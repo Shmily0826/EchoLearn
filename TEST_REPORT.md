@@ -3672,3 +3672,162 @@ small); no deletions.
 - Final validation after additions: vitest 673/673, tsc clean, lint 0 errors
   (12 pre-existing warnings), build PASS, git diff --check clean, all 8 affected
   E2E suites PASS (19 tests).
+
+## 2026-09-20 — Learner entry & Review scheduling correctness (branch `agent/learner-entry-review-correctness`, base `92b7792`)
+
+### P0 user-visible baseline, captured before any code change
+
+Driven in a real Chromium at a fresh Guest context, discovering controls only by
+visible role/name (never `data-testid`), and measuring the INITIAL viewport without
+scrolling. Evidence: `.workbuddy/evidence/p0-20260920/` (screenshots + JSON).
+
+| Observation | desktop 1440x900 | mobile 390x844 |
+|---|---|---|
+| Controls scanned | 3464 | 3461 |
+| `Clear` rendered at all | **no** (UX-01) | **no** (UX-01) |
+| Independent scrolling regions | 2 (page 1238px, transcript 674px window over 19314px) | 2 (page 1364px, transcript 464px over 20947px) |
+| `Import Audio` position | top = **19340px**, 277 transcript rows above it | **not present** while a transcript is populated |
+| Visible in first viewport | Load Video / Focus mode / speed presets / Study settings / Analyze only | same |
+
+The mobile column is the sharper half of UX-02: the importer was rendered only in
+the `!displayLines.length` branches, so a phone learner looking at any real lesson
+had no local-audio entry at all.
+
+### Fixes
+
+- **UX-01 / P1:** Clear is now gated on "something is on screen" (`session || videoId`)
+  rather than on a persisted session, so the deliberately unpersisted Sample gets an
+  exit. Rejected shortcuts: fabricating a session for the Sample, or storing a
+  "sample dismissed" flag. `handleClearSession` already invalidates in-flight caption
+  requests (SC7) and touches no vocabulary/sentences/review history (SC5, pinned by
+  a test).
+- **UX-02 / P2:** the Local Audio importer is now rendered exactly once, in a
+  first-level learning-material area above the transcript, instead of four times
+  inside transcript-state branches. The `variant="restore"` importer stays where it
+  was, so import and restore remain distinct flows and there is never a second
+  competing file-selection state (IA7–IA9).
+
+### Scheduling / P4–P5
+
+Three due predicates (Review landing, Review queue, Review completion) plus the
+Dashboard's are replaced by one (`src/utils/reviewSchedule.ts`), and manual adds now
+get `tomorrowMs()` like every other save path. `nextReviewAt === 0` on a
+non-mastered item is displayed as "Not scheduled" instead of "Mastered" and is never
+counted due; legacy rows are not rewritten. `startSession` refuses an empty pool, so
+the render-phase `setSessionActive(false)` escape is gone. The queue keeps mastered
+refreshers (accepted behaviour) and the button wording/count now says so.
+
+### Why the existing tests missed UX-01 and UX-02
+
+1. `e2e/local-audio.spec.ts` and the campaigns opened with
+   `getByTestId('local-media-importer')` — presence by testid, not discoverability.
+2. Files were supplied with `setInputFiles()` straight away, which needs no visible
+   entry at all.
+3. No assertion anywhere compared a control's position with the initial viewport, and
+   Playwright's automatic scrolling silently rescued any off-screen target.
+4. No scenario ever pressed Clear, because the Sample has no session to clear —
+   the code path simply did not exist.
+
+The new spec therefore starts from the learner's entry point, finds
+`Import Audio` / `Clear` by role+name, and asserts their bounding box is above the
+fold and above the first transcript row, at both viewports. `setInputFiles` is used
+only after a real button click has opened the file chooser.
+
+### Falsification (the tests must fail on the pre-fix code)
+
+`src/pages/StudyPage.tsx` was temporarily replaced with `git show 92b7792:...`
+(file copy, no `git stash`) and the three UX tests were rerun: **3 failed**
+(Clear absent; importer at 19340px; post-Clear state unreachable), then the fixed
+file was restored and they pass 9/9.
+
+### Validation
+
+| Gate | Result |
+|---|---|
+| Vitest full | **682/682 (66 files)** — 673 baseline + 9 new `reviewSchedule` cases |
+| New discovery E2E | **9/9** (4 scenarios x desktop 1440x900 + mobile 390x844, + the data-safety case) |
+| Affected existing E2E batch | **30/30** — `local-audio`, `local-audio-new-lesson-regression-campaign`, `media-sync`, `study-failure-recovery`, `study-controls-hierarchy` + the new spec |
+| `tsc -b` | clean |
+| `eslint` | 0 errors, 12 warnings (unchanged baseline) |
+| `npm run build` | PASS (PWA precache 35 entries) |
+| `git diff --check` | clean |
+
+### Evidence level and external cost
+
+**LOCAL VERIFIED ONLY.** Nothing was committed, pushed, merged or deployed, so
+Production is unchanged and this is not Production verification. No paid provider
+traffic: the E2E layer mocks or aborts every external route, and no Supadata /
+Groq / ASR / DeepSeek / Gemini call was made; no Production learning data was
+touched (guest localStorage + synthetic WAV/SRT fixtures only).
+
+### One accepted baseline needed a selector update, and why that matters
+
+`e2e/review-study-continuity-campaign.spec.ts` located the All button with
+`/Review All|all unmastered/i` and, if not found, silently fell back to the due
+button. Relabelling the button to "Review Every Saved Item" would therefore have
+left that campaign **green while testing a different queue** — the failure mode this
+whole campaign is about. The locator was updated to the new label and the spec
+rerun: 5/5 across `review-study-continuity`, `golden-path`,
+`real-learning-flow-journey` and `first-run-journey`, with the journey's own
+evidence line reporting `apiAiAttempts 0 / supadataAttempts 0 / asrAttempts 0`.
+
+### A fourth due predicate, found by the Review campaign spec
+
+The new `e2e/review-schedule-campaign.spec.ts` recorded a residual the implementation
+pass had missed: `VocabularyPage` and `SentencesPage` each computed their own header
+"N due" / "Review (N)" with `!mastered && nextReviewAt <= now` — which both counted
+the legacy `nextReviewAt: 0` row as due and ignored mastered refreshers that Review
+DOES queue. Both now call the shared `isDue(v, reviewWindowEnd())`, so the library
+screens, Dashboard and Review cannot disagree. Side effects of that change:
+`nowMs()` became unused in both pages (removed), and the three page-level unit mocks of
+`../../utils/storage` had to gain `todayStartMs` / `tomorrowMs` because the shared
+helper reaches storage at module scope. Vitest after the change: **682/682 (66 files)**.
+
+### Test-harness hygiene lesson (cost a false red)
+
+`npx playwright test ... | tail` reports `tail`'s exit code, not Playwright's — a
+9.1-minute full run that had **3 failures** looked like exit 0. Use
+`--reporter=line`, redirect to a file, and read `$?`. The real cause of the bogus reds
+was then identified: `playwright.config.ts` declares a single `webServer` on port 5173
+with `reuseExistingServer: !CI`, so concurrent suites share one Vite process — and when
+the process that owned it exited, every remaining test died with
+`net::ERR_CONNECTION_REFUSED at http://localhost:5173/` (77 failures in one batch).
+It was harness topology, not product state: the same specs pass serially. E2E
+verification in this repo must therefore be serial and own its dev server
+(`nohup npx vite --port 5173 --strictPort` before the run).
+
+### Final gates (serial, exclusive, own dev server)
+
+| Gate | Result |
+|---|---|
+| `npx playwright test --workers=1` (whole suite, incl. both new specs + mobile-pwa projects) | **91 passed, 1 skipped, exit 0** (6.1 min). The skip is `integrated-journey-campaign` needing a production-build preview — pre-existing and honest. |
+| `e2e/review-schedule-campaign.spec.ts` | 2 passed |
+| `e2e/study-material-entry-campaign.spec.ts` | 9 passed (4 scenarios x 1440x900 + 390x844, + data-safety case) |
+| Falsification of the header count | dropping the `> 0` guard in `isDue` reddens it at `Received: "3"`; restoring returns 2/2 green |
+| Vitest / `tsc -b` / eslint / build / `git diff --check` | 682/682 · clean · 0 errors (12 baseline warnings) · PASS · clean |
+
+`review-schedule-campaign.spec.ts` states its own limitation in-file: for the seeded
+fixture the old local predicate also yields 2 (it drops a mastered refresher and adds
+the legacy row, cancelling out), so that number pins one-sided regressions while the
+exact card SET is pinned by the due-session identity assertions.
+
+## 2026-09-20 (release pass) — localization, hermetic E2E, final Local gates
+
+- **Local Audio first-level entry localized.** The `local-media` importer branch moved
+  behind 8 `localMedia.*` i18n keys (`en` values byte-identical to the strings it
+  hardcoded, so all existing locators hold; `zh` now real). The legacy ASR branch is
+  untouched. New E2E case asserts a zh guest sees 导入音频 / 选择 SRT / VTT 字幕 / 清空
+  and sees no English `Import Audio`.
+- **One load-dependent E2E failure found and closed honestly.** During the first clean
+  full run `e2e/review-study-continuity-campaign.spec.ts` failed once (`2 words saved`
+  → 1). Diagnosis, not assumption: the spec saves words through the lookup popup, and
+  under `vite dev` `/api/dictionary` has no handler, so the client falls through to the
+  **live** Free Dictionary / Datamuse APIs — the only campaign spec with an unmocked
+  third-party dependency. A/B repeats (6x on the pre-fix StudyPage, 6x on the new one,
+  both green) showed no layout causality; the variable is machine load. Fixed by
+  stubbing `/api/dictionary` and aborting the external fallbacks, the same treatment
+  `dictionary-semantics.spec.ts` already uses. 4/4 green afterwards.
+- **Final Local gates:** Vitest **682/682**, full Playwright serial **92 passed /
+  1 pre-existing honest skip / exit 0** (6.3 min), `tsc -b` clean, `npm run lint`
+  0 errors (12 baseline warnings), `npm run build` PASS, `git diff --check` clean,
+  secret scan over the diff clean.
