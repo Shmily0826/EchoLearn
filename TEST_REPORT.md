@@ -3831,3 +3831,83 @@ exact card SET is pinned by the due-session identity assertions.
   1 pre-existing honest skip / exit 0** (6.3 min), `tsc -b` clean, `npm run lint`
   0 errors (12 baseline warnings), `npm run build` PASS, `git diff --check` clean,
   secret scan over the diff clean.
+
+## 2026-09-20 (GitHub layer) — PR #9, CI, and a flake that turned out to be a real gap
+
+- **PR #9** (3 commits off `92b7792`): `a816b7e` scheduling contract · `bdb04f5` Study
+  entry + localized importer + discovery spec · `6510f1f` docs. **GitHub CI: `test`
+  and `e2e` both success** (run `35495075791`, 93 collected, 88 passed, 4 skipped —
+  pre-existing skips — and **1 flaky**).
+- **The flaky was chased down, not waved through.** `local-audio-new-lesson-regression-campaign.spec.ts:109`
+  hung for the full 240 s on `+ Add to Vocab`, in `waiting for element to be visible,
+  enabled and stable`. Main's last five runs show no prior occurrence, so it could not
+  be blamed on load. Root cause: that spec is the *second* campaign that saves a word
+  from the lookup popup without stubbing `/api/dictionary`, so under `vite dev` it
+  falls through to the live Free Dictionary / Datamuse APIs and the popup re-mounts
+  each time data lands — the helper's own comment already said so. `88 + 4 + 1 flaky
+  = 93` reconciles exactly with the local `--list` count, so nothing was silently
+  un-run.
+- **Fix:** `e2e/helpers/mockDictionary.ts` (stub `/api/dictionary`, abort both public
+  fallbacks), used by both campaign specs; `dictionary-semantics.spec.ts` keeps its
+  own richer stub untouched. Repeats after the change: **32/32** across the two specs
+  (8x each), and the full local suite is **92 passed / 1 skipped / 0 flaky**, exit 0.
+- **Evidence level:** GitHub = CI green (re-run pending for this fix commit).
+  Production = **not yet verified**; see the dogfood section below.
+
+## 2026-09-20 (Production layer) — release acceptance for PR #9
+
+**GitHub.** PR #9 merged to `main` as `05ee239` (commits `a816b7e` scheduling ·
+`bdb04f5` Study entry + localized importer + discovery spec · `6510f1f` docs ·
+`6a89d9a` hermetic dictionary stub). CI on the merged head: `test` + `e2e` both
+**success**, unit 66 files passed, emulator rules passed, E2E **89 passed / 4 skipped /
+0 flaky** in 4.7 min. The PR's first CI run had reported **1 flaky**; that was root-
+caused and fixed in `6a89d9a` rather than left to retries, and CI also got ~4 min faster
+because no spec waits on third-party dictionary latency any more.
+
+**Production revision identity.** `npm run deploy:check --expect 05ee239` → **PASS**:
+`05ee239` is the newest Production deployment with Vercel status `success`
+(`echolearn-fi80exyyz-…`, deployed 07:35:20Z), i.e. Production == GitHub `main`.
+Identity is proven credential-free from the public GitHub deployments API.
+
+**Provider-free Production dogfood (behaviour, not just identity).** Fresh guest in a
+throwaway Playwright profile against `https://echo-learn.uk/?dogfood=1`,
+script `.workbuddy/prod-dogfood-entry-review.mjs`, run at **both** viewports:
+
+| Check | 1440×900 | 390×844 |
+|---|---|---|
+| Sample transcript rendered on deployed build | 277 visible rows | 277 |
+| Sample offers Clear inside the first viewport | top=69 | top=77 |
+| Import Audio above the fold, above the first transcript row | 173 vs 423 | 173 vs 774 |
+| Clear removes the Sample video + transcript | 0 rows | 0 rows |
+| Entry still reachable immediately after Clear | top=173 | top=173 |
+| Local audio lesson imports and plays | audio=1, rows=1 | audio=1, rows=1 |
+| Import created a real session | title=dogfood.wav | same |
+| Manual add: `mastered=false`, `nextReviewAt ≈ +1d` | deltaDays=1 | deltaDays=1 |
+| Card reads "Due tomorrow", never "Mastered" | ✓ | ✓ |
+| Review stat == advertised count == queue served | 2 = 2 = 2 | 2 = 2 = 2 |
+| Unscheduled legacy row absent from the due queue | ✓ | ✓ |
+| Deployed bundles carry the new Review/importer copy | ✓ (7 chunks) | ✓ |
+
+**12/12 on both viewports. Cost ledger for the whole release: `/api/ai` requests 0,
+paid/external provider hosts contacted 0** (Supadata, Groq/Whisper, DeepSeek, Gemini,
+VPS `yt-api`, `proxy.` local tier, public dictionary fallbacks all at zero). The
+Production dictionary route was stubbed client-side for the same reason, so this run
+verifies the deployed **client** only — server-side dictionary/AI behaviour was not
+exercised and is not claimed.
+
+**Not verified / out of scope for this release.** Synced cross-device behaviour of the
+rescheduled manual adds (guest-only runs here); whether the "Review Every Saved Item"
+wording is the wording a learner prefers — that is a product judgement, and the
+previous label was wrong rather than merely untasty; the security-audit findings
+(feedback deletion, `aiAnalyses` write policy, IndexedDB/PAT wipe on delete, Shorts
+URLs) which this PR deliberately did not touch.
+
+### Evidence levels, stated separately
+
+- **Local** — Vitest 682/682; serial full Playwright 92 passed / 1 pre-existing skip /
+  0 flaky; `tsc -b` clean; eslint 0 errors (12 baseline warnings); build PASS.
+- **GitHub** — CI success on PR head `6a89d9a` and on merged `main` `05ee239`; E2E
+  89 passed / 4 skipped / 0 flaky.
+- **Production** — deployment identity PASS at `05ee239`; **behavior verified** for
+  Sample Clear, Import Audio discoverability, Local Audio import, Review due
+  count-vs-queue honesty and manual-add scheduling, provider-free, both viewports.
