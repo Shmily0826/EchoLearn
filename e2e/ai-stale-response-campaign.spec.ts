@@ -27,6 +27,29 @@ interface HeldCall {
   release: (body: string) => Promise<void>;
 }
 
+// Self-contained synthetic media/subtitle fixture (no gitignored material).
+function makeCampaignWav(seconds = 6): Buffer {
+  const sr = 8000, n = sr * seconds;
+  const data = Buffer.alloc(44 + n);
+  data.write('RIFF', 0); data.writeUInt32LE(data.length - 8, 4); data.write('WAVEfmt ', 8);
+  data.writeUInt32LE(16, 16); data.writeUInt16LE(1, 20); data.writeUInt16LE(1, 22);
+  data.writeUInt32LE(sr, 24); data.writeUInt32LE(sr, 28); data.writeUInt16LE(1, 32); data.writeUInt16LE(8, 34);
+  data.write('data', 36); data.writeUInt32LE(n, 40);
+  for (let i = 0; i < n; i++) {
+    const t = i / sr;
+    const env = 0.4 + 0.3 * Math.sin(2 * Math.PI * 1.5 * t);
+    const v = Math.sin(2 * Math.PI * 262 * t) * 40 * env + Math.sin(2 * Math.PI * 330 * t) * 25 * env;
+    data.writeUInt8(Math.max(0, Math.min(255, Math.round(128 + v))), 44 + i);
+  }
+  return data;
+}
+const NL = String.fromCharCode(10);
+const CAMPAIGN_SRT = [
+  ['1', '00:00:00,000 --> 00:00:02,000', 'The fixture preamble begins the lesson.'].join(NL),
+  ['2', '00:00:02,000 --> 00:00:04,000', 'A second fixture line follows here.'].join(NL),
+  ['3', '00:00:04,000 --> 00:00:06,000', 'The final fixture line closes it now.'].join(NL),
+].join(NL + NL);
+
 /** Install /api/ai routing where every call is HELD until manually released. */
 async function holdAiCalls(page: Page): Promise<{ calls: HeldCall[]; capturedBodies: string[] }> {
   const calls: HeldCall[] = [];
@@ -68,8 +91,8 @@ test('stale held AI response does not attach to a newer session; immediate newer
   await page.waitForTimeout(800);
 
   // Session 2: import the local audio fixture (deterministic transcript)
-  const wav = fs.readFileSync(path.resolve(process.cwd(), '.workbuddy/fixtures/lesson-fixture.wav'));
-  const srt = fs.readFileSync(path.resolve(process.cwd(), '.workbuddy/fixtures/lesson-fixture.srt'), 'utf8');
+  const wav = makeCampaignWav(6);
+  const srt = CAMPAIGN_SRT;
   await page.goto('/study', { waitUntil: 'domcontentloaded' });
   const importer = page.getByTestId('local-media-importer').first();
   await importer.waitFor({ state: 'visible', timeout: 10000 });
