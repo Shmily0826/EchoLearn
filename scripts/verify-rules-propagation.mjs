@@ -41,12 +41,6 @@ const ANONYMOUS_PROBES = [
   { label: 'legacy flat feedback read', path: `feedback/probe-absent-${STAMP}`, deny: true },
 ];
 
-/** The Stage-1 marker, only meaningful with a verified account's token. */
-const AUTHENTICATED_PROBES = [
-  { label: 'private cache subtree (Stage-1 marker)', path: `aiCache/probe-owner-${STAMP}/analyses/probe-absent-${STAMP}`, deny: false },
-  { label: 'stranger user data', path: `users/${PROBE_UID}/data/vocabulary`, deny: true },
-];
-
 async function probe(path, bearer) {
   const res = await fetch(`${BASE}/${path}`, {
     method: 'GET',
@@ -62,10 +56,25 @@ function verdict(status, { deny, label }) {
   return `? ${status}         ${label}`;
 }
 
+/**
+ * The owner-scoped paths can only confirm Stage 1 when the probe asks for the
+ * caller's OWN subtree — `aiCache/{writerId}/...` requires request.auth.uid ==
+ * writerId, so a made-up uid is denied identically before and after the deploy.
+ * The uid therefore comes from the token itself (decoded locally; nothing is
+ * printed and the token never leaves this process).
+ */
+function tokenClaims(bearer) {
+  const payload = bearer.split('.')[1];
+  if (!payload) throw new Error('the value in ECHOLEARN_PROBE_TOKEN is not a Firebase ID token');
+  const json = Buffer.from(payload.replace(/-/g, '+').replace(/_/g, '/'), 'base64').toString('utf8');
+  return JSON.parse(json);
+}
+
 async function main() {
   const lines = [];
   let exposed = false;
   let stage1Confirmed = false;
+  let authProbes = [];
 
   lines.push(`project ${PROJECT}  probes ${STAMP}  credential ${token ? 'disposable token' : 'none'}`);
   lines.push('');
@@ -77,13 +86,29 @@ async function main() {
   }
 
   if (token) {
+    const claims = tokenClaims(token);
+    const uid = claims.sub;
+    const verified = claims.email_verified === true;
     lines.push('');
-    lines.push('authenticated reads (Stage-1 confirmation):');
-    for (const p of AUTHENTICATED_PROBES) {
+    lines.push(`authenticated reads (token uid ${String(uid).slice(0, 6)}…, email_verified=${verified}):`);
+    authProbes = [
+      { label: 'own private cache subtree (Stage-1 marker)', path: `aiCache/${uid}/analyses/probe-absent-${STAMP}`, deny: false },
+      { label: 'own user data (Stage-1 marker)', path: `users/${uid}/data/vocabulary`, deny: false },
+      { label: "another uid's cache subtree", path: `aiCache/stranger-${STAMP}/analyses/probe-absent-${STAMP}`, deny: true },
+      { label: "another uid's user data", path: `users/stranger-${STAMP}/data/vocabulary`, deny: true },
+    ];
+    for (const p of authProbes) {
       const status = await probe(p.path, token);
-      if (!p.deny && status === 404) stage1Confirmed = true;
-      if (p.deny && status !== 403) exposed = true;
-      lines.push(`  ${verdict(status, p)}   [${p.path}]`);
+      p.status = status;
+      lines.push(`  ${verdict(status, p)}   [${p.label}]`);
+    }
+    // Both owner reads must come back "allowed but absent" (404). A verified
+    // owner still denied is pre-campaign behavior; an unverified caller is
+    // denied by design and says nothing about the deployed rules.
+    if (verified) {
+      const markers = authProbes.filter((p) => p.label.includes('Stage-1'));
+      stage1Confirmed = markers.every((p) => p.status === 404);
+      if (authProbes.some((p) => p.deny && p.status !== 403)) exposed = true;
     }
   }
 
