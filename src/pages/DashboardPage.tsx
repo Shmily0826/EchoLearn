@@ -11,7 +11,6 @@ import {
   loadAllSessions,
   loadCurrentSession,
   deleteSession,
-  todayStartMs,
   loadDailyPlan,
   addDailyPlanItem,
   updateDailyPlanItem,
@@ -26,6 +25,7 @@ import {
   clearPageToken,
 } from '../utils/storage';
 import { getRecentVideosFromChannel, hasApiKey } from '../services/youtubeApi';
+import { selectDueCards, reviewWindowEnd } from '../utils/reviewSchedule';
 import { useI18n } from '../i18n/I18nContext';
 import { useAuth } from '../contexts/AuthContext';
 import { syncDeletedSessions } from '../services/sessionDeletionSync';
@@ -117,13 +117,11 @@ const DashboardPage: React.FC = () => {
     saveChannelPrefs(updated);
   };
 
-  // Today's review: items where nextReviewAt <= end of today and not mastered
-  const todayCount = useMemo(() => {
-    const todayEnd = todayStartMs() + 24 * 60 * 60 * 1000;
-    const dueWords = vocabulary.filter((v) => !v.mastered && v.nextReviewAt <= todayEnd).length;
-    const dueSentences = sentences.filter((s) => !s.mastered && s.nextReviewAt <= todayEnd).length;
-    return dueWords + dueSentences;
-  }, [vocabulary, sentences]);
+  // Today's review: the same pool the Review page queues (see reviewSchedule).
+  const todayCount = useMemo(
+    () => selectDueCards(vocabulary, sentences, 'all', reviewWindowEnd()).length,
+    [vocabulary, sentences],
+  );
 
   // Study streak: consecutive days with any learning activity
   const streak = useMemo(() => {

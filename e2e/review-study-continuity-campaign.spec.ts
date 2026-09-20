@@ -7,7 +7,34 @@ import { enterGuestMode } from './helpers/guestMode';
  * verify progress continuity back in Vocabulary and Study. Guest mode, local only.
  */
 
+/**
+ * This campaign saves words out of the word-lookup popup, which needs a
+ * dictionary result. Under `vite dev` there is no `/api/dictionary` handler, so
+ * the client falls through to the public Free Dictionary / Datamuse APIs — live
+ * third-party latency that only bites when the whole suite is running. Stub the
+ * backend route (same approach as e2e/dictionary-semantics.spec.ts) and refuse
+ * the external fallbacks, so the save path is deterministic and provider-free.
+ */
+async function mockDictionary(page: Page) {
+  await page.route('**/api/dictionary*', (route) => {
+    const word = new URL(route.request().url()).searchParams.get('word') ?? '';
+    const sense = `${word} (E2E stub sense)`;
+    return route.fulfill({
+      status: 200,
+      contentType: 'application/json',
+      body: JSON.stringify({
+        ipa_uk: '', ipa_us: '', audio_url: '', base_form: word,
+        source: 'e2e-stub', lemma_provenance: 'provider-confirmed',
+        entries: [{ pos: 'verb', definitions: [{ display_order: 0, definitions_json: { definition: sense, source_text: sense } }] }],
+      }),
+    });
+  });
+  await page.route('https://api.dictionaryapi.dev/**', (route) => route.abort());
+  await page.route('https://api.datamuse.com/**', (route) => route.abort());
+}
+
 async function enterGuest(page: Page) {
+  await mockDictionary(page);
   await page.addInitScript(() => {
     localStorage.setItem('echolearn_lang', 'en');
     localStorage.setItem('echolearn-lang-chosen', '1');
@@ -60,10 +87,10 @@ test('review session reflects saved items and returns into a continuous study co
   await page.waitForTimeout(1000);
   await expect(page.getByText(/2 words/).first()).toBeVisible({ timeout: 8000 });
 
-  // Review: start an all-unmastered session and complete it
+  // Review: start a full-queue session and complete it
   await page.locator('a[href="/review"]').filter({ visible: true }).first().click();
   await page.waitForTimeout(1200);
-  const allBtn = page.getByRole('button', { name: /Review All|all unmastered/i }).first();
+  const allBtn = page.getByRole('button', { name: /review every saved item/i }).first();
   const dueBtn = page.getByRole('button', { name: /Continue|review/i }).first();
   if (await allBtn.isVisible().catch(() => false)) await allBtn.click();
   else await dueBtn.click();

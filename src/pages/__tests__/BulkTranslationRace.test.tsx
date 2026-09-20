@@ -104,6 +104,8 @@ vi.mock('../../utils/sentence', () => ({ extractSentence: vi.fn((context: string
 // Mirrors the real storage semantics: each update reads the current list,
 // writes back, and returns what it wrote.
 vi.mock('../../utils/storage', () => ({
+  todayStartMs: () => { const d = new Date(); d.setHours(0, 0, 0, 0); return d.getTime(); },
+  tomorrowMs: () => Date.now() + 24 * 60 * 60 * 1000,
   loadVocabulary: vi.fn(() => state.vocabulary),
   removeVocabularyItem: vi.fn(),
   updateVocabularyItem: vi.fn((id: string, patch: Record<string, unknown>) => {

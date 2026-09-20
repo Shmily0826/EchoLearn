@@ -182,6 +182,17 @@ const translations: Record<string, Record<Lang, string>> = {
   'study.urlPh':         { en: 'Paste YouTube / Bilibili URL or BV id...', zh: '粘贴 YouTube / Bilibili 链接或 BV 号...' },
   'study.loadVideo':     { en: 'Load Video', zh: '加载视频' },
   'study.clear':         { en: 'Clear', zh: '清空' },
+  // First-level Local Audio entry (`local-media` importer branch). English values
+  // are byte-identical to the strings this component hardcoded before, so every
+  // existing E2E locator keeps matching while zh learners get real Chinese copy.
+  'localMedia.importAudio':   { en: 'Import Audio', zh: '导入音频' },
+  'localMedia.chooseSubtitle':{ en: 'Choose SRT / VTT', zh: '选择 SRT / VTT 字幕' },
+  'localMedia.noAudio':       { en: 'No audio selected', zh: '未选择音频文件' },
+  'localMedia.noSubtitle':    { en: 'No subtitles selected', zh: '未选择字幕文件' },
+  'localMedia.subtitlesRequired': { en: 'Subtitles are required for local media import. No transcription is performed.', zh: '导入本地媒体必须提供字幕文件，系统不会进行语音转写。' },
+  'localMedia.opening':       { en: 'Opening…', zh: '正在打开…' },
+  'localMedia.openCta':       { en: 'Open in Study', zh: '在学习页打开' },
+  'localMedia.importFailed':  { en: 'Could not import local media.', zh: '无法导入本地媒体。' },
   'study.selectPart':    { en: 'Part', zh: '分P' },
   'study.pasteStart':    { en: 'Paste a YouTube or Bilibili URL above to start', zh: '在上方粘贴 YouTube 或 Bilibili 链接开始' },
   'study.subtitles':     { en: 'Subtitles', zh: '字幕' },
@@ -376,8 +387,10 @@ const translations: Record<string, Record<Lang, string>> = {
   'review.sentOnly':     { en: 'Sentences Only', zh: '仅句子' },
   'review.reviewDue':    { en: 'Review Due Today', zh: '复习今日到期' },
   'review.spacedHint':   { en: 'Items scheduled by spaced repetition', zh: '按间隔复习计划排列的项目' },
-  'review.allUnmastered':{ en: 'Review All Unmastered', zh: '复习所有未掌握' },
-  'review.allHint':      { en: 'Go through every unmastered item right now', zh: '现在遍历所有未掌握的项目' },
+  'review.allCards':     { en: 'Review Every Saved Item', zh: '复习全部已保存项目' },
+  'review.allCardsBtn':  { en: 'Review every saved item ({n})', zh: '复习全部已保存项目（{n}）' },
+  'review.itemsTotal':   { en: 'saved items in total', zh: '已保存项目总数' },
+  'review.allCardsHint': { en: 'Go through all saved items now, including mastered refreshers', zh: '现在遍历全部已保存项目，含已掌握的复习' },
   'review.keyboard':     { en: 'Keyboard shortcuts: Space/R Reveal \u00B7 P Play \u00B7 1 Forgot \u00B7 2 Remember \u00B7 3 Skip', zh: '快捷键：空格/R 揭示 \u00B7 P 播放 \u00B7 1 忘了 \u00B7 2 记得 \u00B7 3 跳过' },
   'review.complete':     { en: 'Session Complete!', zh: '复习完成！' },
   'review.keepItUp':     { en: 'Great work \u2014 keep it up.', zh: '做得好 \u2014 继续加油。' },
@@ -386,9 +399,7 @@ const translations: Record<string, Record<Lang, string>> = {
   'review.toReviewAgain':{ en: 'To Review Again', zh: '需再复习' },
   'review.itemsDue':     { en: 'items still due', zh: '项仍待复习' },
   'review.noDue':        { en: 'No items due right now', zh: '当前没有待复习项目' },
-  'review.unmasteredTotal':{ en: 'unmastered total', zh: '项未掌握' },
   'review.continueDue':  { en: 'Continue Review ({n} due)', zh: '继续复习（{n} 项待复习）' },
-  'review.allUnmasBtn':  { en: 'Review All Unmastered ({n})', zh: '复习所有未掌握（{n} 项）' },
   'review.sentences':    { en: 'Sentences', zh: '句子' },
   'review.dashboard':    { en: 'Dashboard', zh: '主页' },
   'review.end':          { en: 'End', zh: '结束' },
@@ -407,6 +418,7 @@ const translations: Record<string, Record<Lang, string>> = {
 
   // ── Review labels ────────────────────────────────────────
   'reviewLabel.mastered':    { en: 'Mastered', zh: '已掌握' },
+  'reviewLabel.unscheduled': { en: 'Not scheduled', zh: '未排期' },
   'reviewLabel.dueNow':      { en: 'Due now', zh: '待复习' },
   'reviewLabel.dueTomorrow': { en: 'Due tomorrow', zh: '明天复习' },
   'reviewLabel.dueIn':       { en: 'Due in {n}d', zh: '{n}天后复习' },

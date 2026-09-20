@@ -8,11 +8,11 @@ import {
   loadSentences,
   updateVocabularyItem,
   updateSentenceItem,
-  todayStartMs,
   tomorrowMs,
   computeNextReviewAt,
 } from '../utils/storage';
 import type { VocabularyItem, SentenceItem } from '../types';
+import { isDue, collectReviewCards, reviewWindowEnd } from '../utils/reviewSchedule';
 
 // ─── Swipe gesture hook ─────────────────────────────────────
 
@@ -57,10 +57,6 @@ type ReviewCard =
 type ReviewMode = 'due' | 'all';
 type TypeFilter = 'all' | 'words' | 'sentences';
 
-function nowMs(): number {
-  return Date.now();
-}
-
 // ─── ReviewPage ─────────────────────────────────────────────
 
 const ReviewPage: React.FC = () => {
@@ -88,15 +84,26 @@ const ReviewPage: React.FC = () => {
   const [stats, setStats] = useState({ remembered: 0, forgot: 0 });
 
   // ── Computed stats ──────────────────────────────────────
-  const todayEnd = todayStartMs() + 24 * 60 * 60 * 1000;
+  // One definition of "due" for the whole app: utils/reviewSchedule. The landing
+  // counts below and the session queue in startSession both derive from it, so a
+  // count can never describe a queue the button will not build.
+  const todayEnd = reviewWindowEnd();
 
-  const dueWordCount = useMemo(() => vocabulary.filter((v) => v.nextReviewAt > 0 && v.nextReviewAt <= todayEnd).length, [vocabulary, todayEnd]);
-  const dueSentenceCount = useMemo(() => sentences.filter((s) => s.nextReviewAt > 0 && s.nextReviewAt <= todayEnd).length, [sentences, todayEnd]);
+  const dueWordCount = useMemo(() => vocabulary.filter((v) => isDue(v, todayEnd)).length, [vocabulary, todayEnd]);
+  const dueSentenceCount = useMemo(() => sentences.filter((s) => isDue(s, todayEnd)).length, [sentences, todayEnd]);
   const dueCount = dueWordCount + dueSentenceCount;
+
+  const allWordCount = vocabulary.length;
+  const allSentenceCount = sentences.length;
+  const allCount = allWordCount + allSentenceCount;
 
   const unmasteredWordCount = useMemo(() => vocabulary.filter((v) => !v.mastered).length, [vocabulary]);
   const unmasteredSentenceCount = useMemo(() => sentences.filter((s) => !s.mastered).length, [sentences]);
   const unmasteredCount = unmasteredWordCount + unmasteredSentenceCount;
+
+  // Counts for the pool the current type filter actually selects.
+  const visibleDueCount = typeFilter === 'words' ? dueWordCount : typeFilter === 'sentences' ? dueSentenceCount : dueCount;
+  const visibleAllCount = typeFilter === 'words' ? allWordCount : typeFilter === 'sentences' ? allSentenceCount : allCount;
 
   const masteredCount = useMemo(() => {
     const w = vocabulary.filter((v) => v.mastered).length;
@@ -107,25 +114,9 @@ const ReviewPage: React.FC = () => {
   // ── Start session ──────────────────────────────────────
   const startSession = useCallback(
     (selectedMode: ReviewMode, filter: TypeFilter = 'all') => {
-      const due: ReviewCard[] = [];
-      const all: ReviewCard[] = [];
-
-      // A word/sentence is "due" when its next review is today or earlier and it
-      // has a real schedule (nextReviewAt > 0). Mastered items re-enter the
-      // queue here once their long-term refresher interval elapses.
-      const consider = (card: ReviewCard, nextReviewAt: number) => {
-        all.push(card); // 'all' mode studies everything, incl. mastered refreshers
-        if (nextReviewAt > 0 && nextReviewAt <= todayEnd) due.push(card);
-      };
-
-      if (filter !== 'sentences') {
-        for (const v of vocabulary) consider({ kind: 'word', item: v }, v.nextReviewAt);
-      }
-      if (filter !== 'words') {
-        for (const s of sentences) consider({ kind: 'sentence', item: s }, s.nextReviewAt);
-      }
-
-      const pool = selectedMode === 'due' ? due : all;
+      const cards = collectReviewCards(vocabulary, sentences, filter);
+      const pool = selectedMode === 'due' ? cards.filter((c) => isDue(c.item, todayEnd)) : cards;
+      if (!pool.length) return;
       const shuffled = [...pool].sort(() => Math.random() - 0.5);
 
       setMode(selectedMode);
@@ -315,15 +306,10 @@ const ReviewPage: React.FC = () => {
           ? Math.round((stats.remembered / (stats.remembered + stats.forgot)) * 100)
           : 0;
 
-      // Recalculate counts after this session
-      const newDueCount = (() => {
-        const now = nowMs();
-        const w = vocabulary.filter((v) => !v.mastered && v.nextReviewAt <= now).length;
-        const s = sentences.filter((ss) => !ss.mastered && ss.nextReviewAt <= now).length;
-        return w + s;
-      })();
-      const newUnmasteredCount = vocabulary.filter((v) => !v.mastered).length +
-        sentences.filter((ss) => !ss.mastered).length;
+      // Recalculate counts after this session — the same helpers the queue uses,
+      // so "Continue due (N)" can never offer a queue of a different size.
+      const newDueCount = visibleDueCount;
+      const newTotalCount = visibleAllCount;
 
       return (
         <div className="max-w-2xl mx-auto px-4 sm:px-6 py-6 sm:py-10">
@@ -349,12 +335,12 @@ const ReviewPage: React.FC = () => {
             </div>
 
             {/* Remaining info */}
-            {(newDueCount > 0 || newUnmasteredCount > 0) && (
+            {(newDueCount > 0 || newTotalCount > 0) && (
               <p className="text-xs text-gray-400 dark:text-gray-500 mb-4">
                 {newDueCount > 0
                   ? `${newDueCount} ${t('review.itemsDue')}`
                   : t('review.noDue')}{' '}
-                &middot; {newUnmasteredCount} {t('review.unmasteredTotal')}
+                &middot; {newTotalCount} {t('review.itemsTotal')}
               </p>
             )}
 
@@ -371,7 +357,7 @@ const ReviewPage: React.FC = () => {
                   {t('review.continueDue', { n: newDueCount })}
                 </button>
               )}
-              {newUnmasteredCount > 0 && newUnmasteredCount !== newDueCount && (
+              {newTotalCount > 0 && newTotalCount !== newDueCount && (
                 <button
                   onClick={() => {
                     handleReset();
@@ -379,7 +365,7 @@ const ReviewPage: React.FC = () => {
                   }}
                   className="w-full px-5 py-3 text-sm bg-white dark:bg-slate-800 text-gray-700 dark:text-gray-300 border border-gray-200 dark:border-slate-700 rounded-xl hover:bg-gray-50 dark:hover:bg-slate-700 transition-colors font-medium cursor-pointer"
                 >
-                  {t('review.allUnmasBtn', { n: newUnmasteredCount })}
+                  {t('review.allCardsBtn', { n: newTotalCount })}
                 </button>
               )}
               <div className="flex gap-2 pt-2">
@@ -476,7 +462,7 @@ const ReviewPage: React.FC = () => {
             <div className="space-y-3">
               <button
                 onClick={() => startSession('due', typeFilter)}
-                disabled={dueCount === 0 || (typeFilter === 'words' && dueWordCount === 0) || (typeFilter === 'sentences' && dueSentenceCount === 0)}
+                disabled={visibleDueCount === 0}
                 className="w-full px-5 py-4 text-sm bg-indigo-600 text-white rounded-xl hover:bg-indigo-700 transition-colors font-medium cursor-pointer disabled:opacity-40 disabled:cursor-not-allowed text-left flex items-center justify-between"
               >
                 <div>
@@ -486,23 +472,23 @@ const ReviewPage: React.FC = () => {
                   </p>
                 </div>
                 <span className="text-lg font-bold">
-                  {typeFilter === 'words' ? dueWordCount : typeFilter === 'sentences' ? dueSentenceCount : dueCount}
+                  {visibleDueCount}
                 </span>
               </button>
 
               <button
                 onClick={() => startSession('all', typeFilter)}
-                disabled={unmasteredCount === 0 || (typeFilter === 'words' && unmasteredWordCount === 0) || (typeFilter === 'sentences' && unmasteredSentenceCount === 0)}
+                disabled={visibleAllCount === 0}
                 className="w-full px-5 py-4 text-sm bg-white dark:bg-slate-800 text-gray-700 dark:text-gray-300 border border-gray-200 dark:border-slate-700 rounded-xl hover:bg-gray-50 dark:hover:bg-slate-700 transition-colors font-medium cursor-pointer disabled:opacity-40 disabled:cursor-not-allowed text-left flex items-center justify-between"
               >
                 <div>
-                  <p className="font-semibold">{t('review.allUnmastered')}</p>
+                  <p className="font-semibold">{t('review.allCards')}</p>
                   <p className="text-xs text-gray-400 dark:text-gray-500 mt-0.5">
-                    {t('review.allHint')}
+                    {t('review.allCardsHint')}
                   </p>
                 </div>
                 <span className="text-lg font-bold text-gray-400">
-                  {typeFilter === 'words' ? unmasteredWordCount : typeFilter === 'sentences' ? unmasteredSentenceCount : unmasteredCount}
+                  {visibleAllCount}
                 </span>
               </button>
             </div>
@@ -522,7 +508,6 @@ const ReviewPage: React.FC = () => {
   const progress = total > 0 ? ((currentIdx + (revealed ? 0.5 : 0)) / total) * 100 : 0;
 
   if (!currentCard) {
-    setSessionActive(false);
     return null;
   }
 

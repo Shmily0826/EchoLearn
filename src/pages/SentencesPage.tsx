@@ -11,6 +11,7 @@ import {
   getTranslateLang,
   saveTranslateLang,
 } from '../utils/storage';
+import { isDue, isUnscheduled, reviewWindowEnd } from '../utils/reviewSchedule';
 import WordDictionaryPopup from '../components/WordDictionaryPopup';
 import { exportSentencesCSV, exportSentencesPDF } from '../services/exportService';
 import { translateSentences, TRANSLATE_LANGS } from '../services/translationService';
@@ -33,7 +34,7 @@ function splitTokens(text: string): string[] {
 /** Format a nextReviewAt timestamp as a short label. */
 function reviewLabel(nextReviewAt: number, mastered: boolean, t: (key: string, vars?: Record<string, string | number>) => string): { text: string; color: string } {
   if (mastered) return { text: t('reviewLabel.mastered'), color: 'text-green-600 dark:text-green-400' };
-  if (nextReviewAt === 0) return { text: t('reviewLabel.mastered'), color: 'text-green-600 dark:text-green-400' };
+  if (isUnscheduled({ mastered, nextReviewAt })) return { text: t('reviewLabel.unscheduled'), color: 'text-gray-400 dark:text-gray-500' };
   const now = Date.now();
   if (nextReviewAt <= now) return { text: t('reviewLabel.dueNow'), color: 'text-red-500 dark:text-red-400' };
   const days = Math.ceil((nextReviewAt - now) / (24 * 60 * 60 * 1000));
@@ -42,9 +43,6 @@ function reviewLabel(nextReviewAt: number, mastered: boolean, t: (key: string, v
   return { text: t('reviewLabel.dueIn', { n: days }), color: 'text-gray-400' };
 }
 
-function nowMs(): number {
-  return Date.now();
-}
 
 const SentencesPage: React.FC = () => {
   const navigate = useNavigate();
@@ -204,10 +202,11 @@ const SentencesPage: React.FC = () => {
       (lang === 'zh' && s.meaningCn.toLowerCase().includes(q)),
   );
 
-  const dueCount = useMemo(() => {
-    const now = nowMs();
-    return sentences.filter((s) => !s.mastered && s.nextReviewAt <= now).length;
-  }, [sentences]);
+  // Same predicate as Review and Dashboard (see utils/reviewSchedule).
+  const dueCount = useMemo(
+    () => sentences.filter((s) => isDue(s, reviewWindowEnd())).length,
+    [sentences],
+  );
 
   const masteredCount = useMemo(() => {
     return sentences.filter((s) => s.mastered).length;
