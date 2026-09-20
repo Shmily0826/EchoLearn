@@ -92,7 +92,7 @@ EchoLearn is **guest-friendly**: watching videos, saving words/sentences, and sp
 - **Sign-in methods** — Google (OAuth via the custom auth domain `auth.echo-learn.uk`) or email + password.
 - **Email verification** — Email sign-up sends a verification link. Cloud sync and feedback are **gated on a verified email**, enforced both in the UI and server-side in `firestore.rules`, so throwaway/fake emails cannot write data. Google accounts are auto-verified by Firebase.
 - **Cloud sync backends** — (1) **Firebase Firestore** for automatic cross-device sync (requires a verified email); (2) **GitHub Gist** for manual PAT-scoped backup/restore.
-- **Account deletion** — In Settings, permanently deletes your Firebase account and all associated cloud data (local data optional).
+- **Account deletion** — In Settings, permanently deletes your Firebase account, its cloud sync data, any feedback you submitted, and this device's study data (including imported audio and the GitHub backup credential). Firebase requires a recent sign-in for this, so you confirm your identity first and nothing is deleted until that succeeds. Two limits are stated rather than hidden: the **backup Gist itself is not deleted** from GitHub (only the local credential is cleared — delete the gist there if you want it gone), and feedback submitted **before 2026-09-20** used a document layout no client can enumerate, so removing it takes an administrator.
 
 ## Product Analytics
 

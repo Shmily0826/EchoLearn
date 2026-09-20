@@ -31,6 +31,7 @@ import {
   checkLocalProxy,
 } from '../utils/storage';
 import { submitFeedback as submitFeedbackToFirestore } from '../services/feedback';
+import { AccountDeletionError } from '../services/accountDeletion';
 import {
   exportVocabularyCSV,
   exportSentencesCSV,
@@ -104,6 +105,11 @@ const SettingsPage: React.FC<{ onLoginRequest?: () => void }> = ({ onLoginReques
   const [showFeedback, setShowFeedback] = useState(false);
   const [showLogoutConfirm, setShowLogoutConfirm] = useState(false);
   const [logoutPending, setLogoutPending] = useState(false);
+  // Deletion asks for the password only when Firebase needs proof of a recent
+  // sign-in, i.e. after the account type is known and before anything is wiped.
+  const [askDeletePassword, setAskDeletePassword] = useState(false);
+  const [deletePassword, setDeletePassword] = useState('');
+  const [deletePending, setDeletePending] = useState(false);
   const [resending, setResending] = useState(false);
   const [feedbackText, setFeedbackText] = useState('');
   const [includeEmail, setIncludeEmail] = useState(true);
@@ -433,15 +439,49 @@ const SettingsPage: React.FC<{ onLoginRequest?: () => void }> = ({ onLoginReques
   }, [resendVerificationEmail, t]);
 
   // ── Delete account ──────────────────────────────────
-  const handleDeleteAccount = useCallback(async () => {
-    if (!window.confirm(t('settings.deleteAccountConfirm'))) return;
-    try {
-      await deleteAccount();
-      // On success auth state flips to null → the account section unmounts.
-    } catch {
-      setSyncMessage({ type: 'error', text: t('settings.deleteAccountError') });
+  const deletionFailureText = useCallback((error: unknown) => {
+    if (!(error instanceof AccountDeletionError)) return t('settings.deleteAccountError');
+    switch (error.failure) {
+      case 'cloud-cleanup-failed': return t('settings.deleteErrorCloud');
+      case 'no-local-copy': return t('settings.deleteErrorNoLocalCopy');
+      case 'account-delete-failed': return t('settings.deleteErrorAccount');
+      case 'device-purge-failed': return t('settings.deleteErrorDevice');
+      case 'reauth-cancelled': return t('settings.deleteErrorReauthCancelled');
+      case 'reauth-failed':
+      case 'reauth-required': return t('settings.deleteErrorReauth');
     }
-  }, [deleteAccount, t]);
+  }, [t]);
+
+  /**
+   * Runs the sequenced deletion. Every failure leaves the learner with what
+   * they still have, so the message names the stage instead of blaming one
+   * generic error: `reauth-required` is not a failure at all, it is the point
+   * where we ask for the password before anything is destroyed.
+   */
+  const runDeleteAccount = useCallback(async (password?: string) => {
+    if (deletePending) return;
+    setDeletePending(true);
+    try {
+      await deleteAccount(password);
+      setAskDeletePassword(false);
+      setDeletePassword('');
+      // On success auth state flips to null → the account section unmounts.
+    } catch (error) {
+      if (error instanceof AccountDeletionError && error.failure === 'reauth-required') {
+        setAskDeletePassword(true);
+      } else {
+        setAskDeletePassword(false);
+        setSyncMessage({ type: 'error', text: deletionFailureText(error) });
+      }
+    } finally {
+      setDeletePending(false);
+    }
+  }, [deleteAccount, deletePending, deletionFailureText]);
+
+  const handleDeleteAccount = useCallback(() => {
+    if (!window.confirm(t('settings.deleteAccountConfirm'))) return;
+    void runDeleteAccount();
+  }, [runDeleteAccount, t]);
 
   const closeFeedback = useCallback(() => {
     setShowFeedback(false);
@@ -1145,6 +1185,56 @@ const SettingsPage: React.FC<{ onLoginRequest?: () => void }> = ({ onLoginReques
                 className="px-3 py-2 text-sm rounded-lg bg-red-500 text-white hover:bg-red-600 disabled:opacity-50 cursor-pointer disabled:cursor-not-allowed"
               >
                 {logoutPending ? t('settings.signingOut') : t('settings.logoutConfirmProceed')}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* ── Account-deletion password confirmation ──────────── */}
+      {askDeletePassword && (
+        <div
+          className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/40"
+          onClick={() => { setAskDeletePassword(false); setDeletePassword(''); }}
+          role="presentation"
+        >
+          <div
+            className="w-full max-w-md bg-white dark:bg-slate-800 rounded-2xl border border-gray-200 dark:border-slate-700 shadow-xl p-5 sm:p-6"
+            onClick={(e) => e.stopPropagation()}
+            role="dialog"
+            aria-modal="true"
+            aria-labelledby="delete-account-password-title"
+          >
+            <h3 id="delete-account-password-title" className="text-lg font-semibold text-gray-900 dark:text-gray-100">
+              {t('settings.deletePasswordTitle')}
+            </h3>
+            <p className="mt-2 text-sm text-gray-600 dark:text-gray-300 leading-relaxed">
+              {t('settings.deletePasswordBody')}
+            </p>
+            <input
+              type="password"
+              value={deletePassword}
+              onChange={(e) => setDeletePassword(e.target.value)}
+              placeholder={t('settings.deletePasswordPlaceholder')}
+              autoComplete="current-password"
+              aria-label={t('settings.deletePasswordPlaceholder')}
+              className="mt-4 w-full px-3 py-2 text-sm border border-gray-300 dark:border-slate-600 rounded-lg bg-white dark:bg-slate-800 text-gray-900 dark:text-gray-100 focus:outline-none focus:ring-2 focus:ring-red-400"
+            />
+            <div className="mt-5 flex flex-col-reverse sm:flex-row sm:justify-end gap-2">
+              <button
+                onClick={() => { setAskDeletePassword(false); setDeletePassword(''); }}
+                disabled={deletePending}
+                className="px-3 py-2 text-sm rounded-lg border border-gray-300 dark:border-slate-600 text-gray-700 dark:text-gray-200 hover:bg-gray-50 dark:hover:bg-slate-700 disabled:opacity-50 cursor-pointer disabled:cursor-not-allowed"
+              >
+                {t('settings.logoutConfirmCancel')}
+              </button>
+              <button
+                onClick={() => void runDeleteAccount(deletePassword)}
+                disabled={deletePending || !deletePassword}
+                aria-busy={deletePending}
+                className="px-3 py-2 text-sm rounded-lg bg-red-500 text-white hover:bg-red-600 disabled:opacity-50 cursor-pointer disabled:cursor-not-allowed"
+              >
+                {t('settings.deletePasswordProceed')}
               </button>
             </div>
           </div>

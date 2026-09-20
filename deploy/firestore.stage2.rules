@@ -65,13 +65,7 @@ service cloud.firestore {
     // removed by an administrator from the Firebase console — see
     // DECISIONS.md (ECHO_AUTH_DATA_AND_AI_CACHE_SAFETY_V1).
     match /feedback/{docId} {
-      allow create: if isVerified()
-        && request.resource.data.userId == request.auth.uid
-        && request.resource.data.text is string
-        && request.resource.data.text.size() > 0
-        && request.resource.data.text.size() < 5000
-        && (request.resource.data.userEmail is string || request.resource.data.userEmail == null)
-        && request.resource.data.createdAt == request.time;
+      allow create: if false; // STAGE-2: the nested subtree is the only shape clients may write
       allow read, update, delete: if false;
     }
 

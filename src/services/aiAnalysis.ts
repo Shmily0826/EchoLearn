@@ -8,7 +8,7 @@ import { t, type Lang } from '../i18n/translations';
 import { checkAiRateLimit, rateLimitWaitSeconds } from './aiRateLimit';
 import { doc, getDoc, setDoc, serverTimestamp } from 'firebase/firestore';
 import { aiAuthHeaders } from './apiAuth';
-import { db } from '../lib/firebase';
+import { auth, db } from '../lib/firebase';
 
 // ── Local-analysis "no translation" sentinel ──────────────────
 // When the live DeepSeek call fails we fall back to a local analysis and stamp
@@ -58,12 +58,24 @@ function smartTruncate(text: string, max = MAX_TRANSCRIPT_CHARS): string {
 // FIRST user pays for the AI call; everyone else reads the cached result.
 // This cuts the dominant cost of running EchoLearn at scale.
 //
-// - Keyed on the transcript text, so identical transcripts (same video, or a
-//   manually pasted transcript) share a cache entry across all users.
-// - Stored in a public-read Firestore collection (content is non-PII AI output
-//   of public transcripts). Writes require an authenticated user.
+// Trust boundary (ECHO_AUTH_DATA_AND_AI_CACHE_SAFETY_V1):
+// - Reads and writes both use `aiCache/{writerUid}/analyses/{key}`. A client can
+//   only ever reach its own subtree, so no other account can inject or overwrite
+//   the result a learner is served, and nobody can pre-create a trusted entry
+//   under a predictable key for someone else's video. Writes need a verified
+//   session.
+// - The legacy flat `aiAnalyses/{key}` collection is NOT read any more, even
+//   though rules still allow a public read. It was writable by any signed-in
+//   client — including unverified ones — so its contents cannot be treated as
+//   authoritative AI output; being read-only now does not make past third-party
+//   writes trustworthy. Deleting that corpus is an administrator action on the
+//   `aiAnalyses` collection group (see DECISIONS.md).
+// - Accepted cost consequence: results cached before this change are paid for
+//   once again per learner, and cross-user HITs no longer accrue. Restoring
+//   shared caching needs a privileged server writer (Admin SDK), which is a
+//   separate infrastructure decision, not something to smuggle in here.
 
-const AI_CACHE_COLLECTION = 'aiAnalyses';
+const AI_CACHE_COLLECTION = 'aiCache';
 const AI_CACHE_TTL_MS = 1000 * 60 * 60 * 24 * 30; // 30 days
 
 async function sha256Hex(input: string): Promise<string> {
@@ -74,9 +86,15 @@ async function sha256Hex(input: string): Promise<string> {
     .join('');
 }
 
-async function getCachedAnalysis(cacheKey: string): Promise<AIAnalysisResult | null> {
+/** The signed-in, email-verified uid allowed to write cache docs, if any. */
+function cacheWriterUid(): string | null {
+  const user = auth.currentUser;
+  return user?.emailVerified ? user.uid : null;
+}
+
+async function readCacheDoc(docPath: string): Promise<AIAnalysisResult | null> {
   try {
-    const snap = await getDoc(doc(db, AI_CACHE_COLLECTION, cacheKey));
+    const snap = await getDoc(doc(db, docPath));
     if (!snap.exists()) return null;
     const data = snap.data() as { content?: string; createdAt?: number };
     if (!data.content) return null;
@@ -89,9 +107,20 @@ async function getCachedAnalysis(cacheKey: string): Promise<AIAnalysisResult | n
   }
 }
 
-async function setCachedAnalysis(cacheKey: string, result: AIAnalysisResult): Promise<void> {
+/** Exported for the trust-boundary tests; the analysis flow below is the only caller. */
+export async function getCachedAnalysis(cacheKey: string): Promise<AIAnalysisResult | null> {
+  const uid = cacheWriterUid();
+  // Only this account's own subtree is trusted, because only this account could
+  // have written it. The legacy shared corpus is deliberately not consulted.
+  if (!uid) return null;
+  return readCacheDoc(`${AI_CACHE_COLLECTION}/${uid}/analyses/${cacheKey}`);
+}
+
+export async function setCachedAnalysis(cacheKey: string, result: AIAnalysisResult): Promise<void> {
+  const uid = cacheWriterUid();
+  if (!uid) return; // guests and unverified accounts have no writable cache
   try {
-    await setDoc(doc(db, AI_CACHE_COLLECTION, cacheKey), {
+    await setDoc(doc(db, AI_CACHE_COLLECTION, uid, 'analyses', cacheKey), {
       content: JSON.stringify(result),
       createdAt: Date.now(),
       serverCreatedAt: serverTimestamp(),

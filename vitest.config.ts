@@ -8,7 +8,10 @@ export default defineConfig({
   test: {
     environment: 'node',
     include: ['src/**/*.{test,spec}.{ts,tsx}', 'scripts/**/*.{test,spec}.{ts,tsx}'],
-    exclude: ['src/services/__tests__/firestoreRules.emulator.test.ts'],
+    exclude: [
+      'src/services/__tests__/firestoreRules.emulator.test.ts',
+      'src/services/__tests__/firestoreRulesCompatibility.test.ts',
+    ],
     setupFiles: ['src/test/setup.ts'],
   },
 });
