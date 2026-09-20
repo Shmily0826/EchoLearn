@@ -1,0 +1,115 @@
+/**
+ * Read-only probe of the LIVE Production rules (ECHO_AUTH_DATA_AND_AI_CACHE_RELEASE_V1 §3, Stage 2).
+ *
+ * `firebase deploy` reporting success is not proof that the rules are
+ * effective — Firestore keeps serving cached rules to active listeners for up
+ * to ~10 minutes, and this project cannot list its rulesets over the REST API
+ * (both `firebasemgmt.googleapis.com` rule endpoints answer 404), so the only
+ * available confirmation is behavior. This script performs GETs exclusively:
+ * it cannot create, update or delete a single document.
+ *
+ * What each answer means:
+ *   403  -> a rule denied the read
+ *   404  -> the rules let the read through and the probe document is absent
+ *
+ * The Stage-1 signal is `aiCache/...`: that path does not exist in the
+ * pre-campaign rules, so a verified token gets 403 there and 404 once Stage 1
+ * is live. Without a token every probe path is denied by design, which is also
+ * the safety check: an authenticated-free 200/404 on `users/...` would mean
+ * learner data had become public.
+ *
+ * Usage:
+ *   node scripts/verify-rules-propagation.mjs
+ *   ECHOLEARN_PROBE_TOKEN=<id token of a disposable verified account> \
+ *     node scripts/verify-rules-propagation.mjs
+ *
+ * Exit codes: 0 = Stage 1 confirmed (token required), 1 = rules not yet
+ * effective or an exposure was detected, 2 = network/usage error.
+ */
+const PROJECT = process.env.ECHOLEARN_PROJECT_ID || 'echolearn-9f369';
+const BASE = `https://firestore.googleapis.com/v1/projects/${PROJECT}/databases/(default)/documents`;
+const STAMP = Date.now();
+const PROBE_UID = `probe-unauthenticated-${STAMP}`;
+
+const token = process.env.ECHOLEARN_PROBE_TOKEN || null;
+
+/** Paths probed without any credential. `deny` marks ones no rule may open. */
+const ANONYMOUS_PROBES = [
+  { label: 'user data', path: `users/${PROBE_UID}/data/vocabulary`, deny: true },
+  { label: 'legacy shared cache read', path: `aiAnalyses/probe-absent-${STAMP}`, deny: false },
+  { label: 'private cache subtree', path: `aiCache/${PROBE_UID}/analyses/probe-absent-${STAMP}`, deny: true },
+  { label: 'legacy flat feedback read', path: `feedback/probe-absent-${STAMP}`, deny: true },
+];
+
+/** The Stage-1 marker, only meaningful with a verified account's token. */
+const AUTHENTICATED_PROBES = [
+  { label: 'private cache subtree (Stage-1 marker)', path: `aiCache/probe-owner-${STAMP}/analyses/probe-absent-${STAMP}`, deny: false },
+  { label: 'stranger user data', path: `users/${PROBE_UID}/data/vocabulary`, deny: true },
+];
+
+async function probe(path, bearer) {
+  const res = await fetch(`${BASE}/${path}`, {
+    method: 'GET',
+    headers: bearer ? { Authorization: `Bearer ${bearer}` } : {},
+  });
+  return res.status;
+}
+
+function verdict(status, { deny, label }) {
+  if (status === 403) return deny ? `OK denied        ${label}` : `denied           ${label}`;
+  if (status === 404) return deny ? `!! EXPOSED       ${label}` : `ALLOWED (absent) ${label}`;
+  if (status === 200) return deny ? `!! EXPOSED       ${label}` : `ALLOWED (found)  ${label}`;
+  return `? ${status}         ${label}`;
+}
+
+async function main() {
+  const lines = [];
+  let exposed = false;
+  let stage1Confirmed = false;
+
+  lines.push(`project ${PROJECT}  probes ${STAMP}  credential ${token ? 'disposable token' : 'none'}`);
+  lines.push('');
+  lines.push('unauthenticated reads (every "must deny" path is an exposure check):');
+  for (const p of ANONYMOUS_PROBES) {
+    const status = await probe(p.path, null);
+    if (p.deny && status !== 403) exposed = true;
+    lines.push(`  ${verdict(status, p)}   [${p.path}]`);
+  }
+
+  if (token) {
+    lines.push('');
+    lines.push('authenticated reads (Stage-1 confirmation):');
+    for (const p of AUTHENTICATED_PROBES) {
+      const status = await probe(p.path, token);
+      if (!p.deny && status === 404) stage1Confirmed = true;
+      if (p.deny && status !== 403) exposed = true;
+      lines.push(`  ${verdict(status, p)}   [${p.path}]`);
+    }
+  }
+
+  lines.push('');
+  if (exposed) {
+    lines.push('RESULT: BLOCKED — a path that must be closed was readable without a credential.');
+    lines.push('Do not proceed with the release; investigate the deployed rules first.');
+    console.log(lines.join('\n'));
+    process.exit(1);
+  }
+  if (!token) {
+    lines.push('RESULT: anonymous half-check passed (nothing exposed). Stage 1 is NOT yet confirmed.');
+    lines.push('Confirming Stage 1 needs a read with a verified token; see deploy/RULES_RELEASE.md Stage 2.');
+    console.log(lines.join('\n'));
+    process.exit(1);
+  }
+  lines.push(
+    stage1Confirmed
+      ? 'RESULT: Stage 1 is effective — aiCache is readable by its owner, so the frontend may ship.'
+      : 'RESULT: Stage 1 is NOT effective yet — aiCache is still denied, which is the pre-campaign behavior. Wait for propagation and re-run.',
+  );
+  console.log(lines.join('\n'));
+  process.exit(stage1Confirmed ? 0 : 1);
+}
+
+main().catch((error) => {
+  console.error(`probe failed: ${error instanceof Error ? error.message : String(error)}`);
+  process.exit(2);
+});
