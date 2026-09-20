@@ -48,6 +48,7 @@ import {
   loadVocabularyTombstones,
   loadSentenceTombstones,
   loadSessionTombstones,
+  isLocalMediaReferencedByOtherSession,
 } from '../storage';
 
 const DAY_MS = 24 * 60 * 60 * 1000;
@@ -539,5 +540,24 @@ describe('clearAllLocalData', () => {
       'echolearn:sentences-changed',
       'echolearn:sessions-changed',
     ]));
+  });
+});
+
+describe('isLocalMediaReferencedByOtherSession', () => {
+  it('detects another session referencing the same local media id', () => {
+    saveCurrentSession(makeSession({ id: 'a', localMediaId: 'media_1' } as never));
+    saveCurrentSession(makeSession({ id: 'b', localMediaId: 'media_1' } as never));
+    expect(isLocalMediaReferencedByOtherSession('media_1', 'a')).toBe(true);
+    expect(isLocalMediaReferencedByOtherSession('media_1', 'b')).toBe(true);
+  });
+
+  it('returns false when only the excluded session references the media id', () => {
+    saveCurrentSession(makeSession({ id: 'a', localMediaId: 'media_2' } as never));
+    expect(isLocalMediaReferencedByOtherSession('media_2', 'a')).toBe(false);
+    expect(isLocalMediaReferencedByOtherSession('media_2')).toBe(true);
+  });
+
+  it('returns false for an unknown media id', () => {
+    expect(isLocalMediaReferencedByOtherSession('media_missing')).toBe(false);
   });
 });
