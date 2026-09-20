@@ -20,10 +20,10 @@ import {
   getDoc,
   setDoc,
   serverTimestamp,
-  deleteDoc,
   getDocs,
+  limit,
   query,
-  where,
+  writeBatch,
   collection,
 } from 'firebase/firestore';
 import type { DocumentReference, DocumentData } from 'firebase/firestore';
@@ -101,18 +101,114 @@ function assertVerified(uid: string): void {
 }
 
 /**
- * Delete all cloud data belonging to a user (their sync docs + any feedback
- * they submitted). Used by account deletion. Best-effort: errors are surfaced
- * to the caller but do not abort the surrounding deletion flow.
+ * Delete all cloud data belonging to a user, for account deletion.
+ *
+ * The learning-data documents and the first page of feedback are removed in ONE
+ * batched write, because Firestore commits a batched write all-or-none ("either
+ * all of the operations succeed, or none of them are applied"): a cleanup that
+ * dies halfway cannot leave a learner with half a cloud library. Failures are
+ * propagated rather than swallowed, so the caller stops before destroying
+ * anything on the device.
+ *
+ * Feedback beyond the first page is deleted in further bounded batches. Those
+ * later batches can fail after the first succeeded, which is reported rather
+ * than hidden — feedback is not learning data, and a retry finishes it.
+ *
+ * An email-unverified account has nothing to delete — the rules deny it every
+ * write to `users/*` and `feedback/*` in the first place, and would deny the
+ * delete too — so the call is a no-op for that account instead of a guaranteed
+ * permission error.
+ *
+ * LEGACY `feedback/{docId}` documents are NOT reachable here: they live in the
+ * `feedback` collection group with ids no client ever kept, and rules have never
+ * allowed a client to read or list them. Removing them is an administrator
+ * action (see DECISIONS.md), not something this function can promise.
  */
 export async function deleteUserData(uid: string): Promise<void> {
-  const collections: SyncCollection[] = ['vocabulary', 'sentences', 'sessions'];
-  await Promise.allSettled(collections.map((c) => deleteDoc(getCollectionRef(uid, c))));
+  const current = auth.currentUser;
+  if (!current || current.uid !== uid || !current.emailVerified) return;
 
-  const fbSnap = await getDocs(
-    query(collection(db, 'feedback'), where('userId', '==', uid)),
-  );
-  await Promise.allSettled(fbSnap.docs.map((d) => deleteDoc(d.ref)));
+  // Safety interlock. There is no transaction that spans Firestore and Firebase
+  // Auth, so if the cloud documents were the learner's ONLY copy, a successful
+  // cloud delete followed by a failed `deleteUser` would be irreversible data
+  // loss. Refuse that state instead of performing it: this device can export or
+  // re-sync from the right device first.
+  const cloudDocs = await Promise.all(SYNC_COLLECTIONS.map((name) => getDoc(getCollectionRef(uid, name))));
+  const cloudHasData = cloudDocs.some((snap) => {
+    const items = (snap.data() as CloudDoc<unknown> | undefined)?.items;
+    return Array.isArray(items) && items.length > 0;
+  });
+  if (cloudHasData && !hasLocalSyncableData()) throw new NoLocalCopyError();
+
+  const messages = collection(db, 'feedback', uid, 'messages');
+  const failed: string[] = [];
+  let page: number | undefined;
+
+  for (let pass = 0; ; pass += 1) {
+    let feedbackIds: string[];
+    try {
+      const snap = await getDocs(query(messages, limit(FEEDBACK_DELETE_BATCH)));
+      feedbackIds = snap.docs.map((d) => d.id);
+      page = snap.size;
+    } catch (error) {
+      failed.push(`feedback:list: ${messageOf(error)}`);
+      break;
+    }
+
+    // The sync documents ride along with the first page so a single commit
+    // covers every piece of learning data.
+    const batch = writeBatch(db);
+    if (pass === 0) {
+      for (const name of SYNC_COLLECTIONS) batch.delete(getCollectionRef(uid, name));
+    }
+    for (const id of feedbackIds) batch.delete(doc(db, 'feedback', uid, 'messages', id));
+
+    try {
+      await batch.commit();
+    } catch (error) {
+      failed.push(`${pass === 0 ? 'learning data + feedback' : 'feedback'}: ${messageOf(error)}`);
+      break;
+    }
+
+    if (feedbackIds.length < FEEDBACK_DELETE_BATCH) break;
+    if (pass >= FEEDBACK_DELETE_PASSES) {
+      failed.push(`feedback: still present after ${FEEDBACK_DELETE_PASSES + 1} batches`);
+      break;
+    }
+  }
+
+  if (failed.length) throw new CloudCleanupError(failed, page);
+}
+
+const SYNC_COLLECTIONS: SyncCollection[] = ['vocabulary', 'sentences', 'sessions'];
+
+/** The `list` rule caps at 50, so each page — and each batch — is bounded by it. */
+const FEEDBACK_DELETE_BATCH = 50;
+const FEEDBACK_DELETE_PASSES = 10;
+
+function messageOf(error: unknown): string {
+  return error instanceof Error ? error.message : String(error);
+}
+
+/** Refused before any cloud write: the cloud copy is the only one that exists. */
+export class NoLocalCopyError extends Error {
+  constructor() {
+    super('no-local-copy');
+    this.name = 'NoLocalCopyError';
+  }
+}
+
+/** Thrown when cloud cleanup could not remove everything it promised to. */
+export class CloudCleanupError extends Error {
+  readonly failed: string[];
+  /** How many feedback documents were visible in the last listed page, if any. */
+  readonly lastFeedbackPage?: number;
+  constructor(failed: string[], lastFeedbackPage?: number) {
+    super(`cloud-cleanup-incomplete: ${failed.join('; ')}`);
+    this.name = 'CloudCleanupError';
+    this.failed = failed;
+    this.lastFeedbackPage = lastFeedbackPage;
+  }
 }
 
 /**
