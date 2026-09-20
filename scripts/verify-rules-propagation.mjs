@@ -102,13 +102,16 @@ async function main() {
       p.status = status;
       lines.push(`  ${verdict(status, p)}   [${p.label}]`);
     }
-    // Both owner reads must come back "allowed but absent" (404). A verified
-    // owner still denied is pre-campaign behavior; an unverified caller is
-    // denied by design and says nothing about the deployed rules.
+    // Stage 1 is proven by the owner's own `aiCache` subtree no longer being
+    // denied: pre-campaign rules have no such path, so it answers 403 there and
+    // 404/200 once Stage 1 is live. An owner read of `users/...` returns 200
+    // whenever the account has data, so it is checked as "not denied" too but
+    // says nothing on its own — it is the invariant, not the marker.
     if (verified) {
       const markers = authProbes.filter((p) => p.label.includes('Stage-1'));
-      stage1Confirmed = markers.every((p) => p.status === 404);
+      stage1Confirmed = markers.filter((p) => p.label.includes('cache')).every((p) => p.status !== 403);
       if (authProbes.some((p) => p.deny && p.status !== 403)) exposed = true;
+      if (markers.some((p) => p.status === 403)) stage1Confirmed = false;
     }
   }
 
