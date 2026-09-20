@@ -426,4 +426,3 @@ Once the active goal, root cause, and acceptance criteria are sufficiently speci
   `/api/dictionary` handler; it passed alone and dropped a save under full-suite
   load. Any spec that touches a provider-shaped route must stub it and abort the
   external fallback, so CI measures the app rather than the network.
-
