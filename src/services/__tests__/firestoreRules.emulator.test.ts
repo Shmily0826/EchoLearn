@@ -209,17 +209,22 @@ describe('Firestore Security Rules', () => {
   it('enforces verified ownership for feedback creation', async () => {
     const verified = dbFor('user-a', true);
     const unverified = dbFor('user-b', false);
-    const feedback = {
-      userId: 'user-a',
+    const message = {
       userEmail: 'user-a@example.test',
       text: 'emulator feedback',
+      locale: 'en',
+      platform: 'web',
       createdAt: serverTimestamp(),
     };
 
-    await assertSucceeds(setDoc(doc(verified, 'feedback', 'feedback-a'), feedback));
-    await assertFails(setDoc(doc(unverified, 'feedback', 'feedback-b'), {
-      ...feedback,
-      userId: 'user-b',
+    await assertSucceeds(setDoc(doc(verified, 'feedback/user-a/messages', 'feedback-a'), message));
+    await assertFails(setDoc(doc(unverified, 'feedback/user-b/messages', 'feedback-b'), message));
+    // The legacy flat shape is closed permanently now that the new frontend is
+    // live: it was the one shape whose documents their author could never
+    // remove, which is exactly what the nested path fixes.
+    await assertFails(setDoc(doc(verified, 'feedback', 'flat-again'), {
+      userId: 'user-a',
+      ...message,
     }));
   });
 });

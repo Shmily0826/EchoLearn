@@ -535,6 +535,15 @@ Once the active goal, root cause, and acceptance criteria are sufficiently speci
   `firebase.stage2.json`, `firebase.rollback.json`) plus a generator that refuses
   to emit Stage 5 unless it matches Stage 1 in exactly one anchor — no deployment
   may depend on someone re-typing rules from memory.
+- **A Stage-5 probe is attempted once, because a flat feedback document is
+  undeletable by design.** The only client-observable effect of closing the
+  legacy flat `feedback/{docId}` create is that a create which used to succeed now
+  answers 403 — so confirming it live means attempting it. If the rules have not
+  propagated, the attempt *succeeds* and leaves a document no client can remove.
+  The release therefore waits out the documented propagation window, makes a
+  single attempt with the document id recorded, never retries, and treats an
+  accepted create as "not live yet" plus an administrator cleanup item rather than
+  as something to fix by trying again.
 - **Reproduction evidence is transient by design.** The audit gap was
   demonstrated by running the committed emulator suite against the pre-change
   rules (an unverified session's write became the served content), then
