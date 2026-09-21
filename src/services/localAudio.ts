@@ -3,6 +3,7 @@ import type { TranscriptLine } from '../types';
 import { parseSrtTranscript, parseVttTranscript } from '../utils/transcriptParser';
 
 export const LOCAL_AUDIO_MAX_BYTES = 25 * 1024 * 1024;
+export const LOCAL_MEDIA_MAX_BYTES = 200 * 1024 * 1024;
 const AUDIO_TYPES: Record<string, Set<string>> = {
   mp3: new Set(['audio/mpeg', 'audio/mp3']),
   m4a: new Set(['audio/mp4', 'audio/x-m4a']),
@@ -20,15 +21,25 @@ export class LocalAudioError extends Error {
   }
 }
 
-export function validateLocalAudio(file: File): LocalAudioError | null {
+function validateAudio(file: File, maxBytes: number, sizeMessage: string): LocalAudioError | null {
   const extension = file.name.split('.').pop()?.toLowerCase() || '';
   if (!AUDIO_TYPES[extension] || !AUDIO_TYPES[extension].has((file.type || '').toLowerCase())) {
     return new LocalAudioError('unsupported', 'Use an mp3, m4a, or wav audio file.');
   }
-  if (file.size > LOCAL_AUDIO_MAX_BYTES) {
-    return new LocalAudioError('too_large', 'Audio files must be 25 MiB or smaller.');
+  if (file.size > maxBytes) {
+    return new LocalAudioError('too_large', sizeMessage);
   }
   return null;
+}
+
+/** Legacy upload/ASR limit. Keep this narrow because the Worker still caps it. */
+export function validateLocalAudio(file: File): LocalAudioError | null {
+  return validateAudio(file, LOCAL_AUDIO_MAX_BYTES, 'Audio files must be 25 MiB or smaller.');
+}
+
+/** Browser-local V2 limit; this path does not upload or transcribe the audio. */
+export function validateLocalMediaAudio(file: File): LocalAudioError | null {
+  return validateAudio(file, LOCAL_MEDIA_MAX_BYTES, 'Local media audio files must be 200 MiB or smaller.');
 }
 
 export interface LocalAudioTranscript {
@@ -118,10 +129,27 @@ function runMediaRequest<T>(
   action: (store: IDBObjectStore, resolve: (value: T) => void, reject: (reason?: unknown) => void) => void,
 ): Promise<T> {
   return openLocalMediaDb().then((db) => new Promise<T>((resolve, reject) => {
-    const transaction = db.transaction(LOCAL_MEDIA_STORE, mode);
-    transaction.onerror = () => reject(new LocalAudioError('persistence', 'Could not update local audio storage.'));
-    action(transaction.objectStore(LOCAL_MEDIA_STORE), resolve, reject);
-    transaction.oncomplete = () => db.close();
+    const persistenceError = (cause?: unknown) => {
+      const name = cause && typeof cause === 'object' && 'name' in cause ? String(cause.name) : '';
+      return new LocalAudioError(
+        'persistence',
+        name === 'QuotaExceededError'
+          ? 'Not enough browser storage for this audio. Free up space or compress the audio and try again.'
+          : 'Could not update local audio storage.',
+      );
+    };
+    try {
+      const transaction = db.transaction(LOCAL_MEDIA_STORE, mode);
+      transaction.onerror = () => {
+        db.close();
+        reject(persistenceError(transaction.error));
+      };
+      action(transaction.objectStore(LOCAL_MEDIA_STORE), resolve, (reason) => reject(persistenceError(reason)));
+      transaction.oncomplete = () => db.close();
+    } catch (error) {
+      db.close();
+      reject(persistenceError(error));
+    }
   }));
 }
 
@@ -145,10 +173,12 @@ export async function parseLocalSubtitle(file: File): Promise<TranscriptLine[]> 
 
 /** Persist a V2 audio Blob without putting binary data in localStorage. */
 export function saveLocalAudioMedia(id: string, file: File): Promise<void> {
+  const validationError = validateLocalMediaAudio(file);
+  if (validationError) return Promise.reject(validationError);
   return runMediaRequest<void>('readwrite', (store, resolve, reject) => {
     const request = store.put({ id, blob: file, name: file.name, type: file.type } satisfies LocalMediaRecord);
     request.onsuccess = () => resolve();
-    request.onerror = () => reject(new LocalAudioError('persistence', 'Could not save local audio in this browser.'));
+    request.onerror = () => reject(request.error);
   });
 }
 

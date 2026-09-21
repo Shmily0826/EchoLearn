@@ -1,7 +1,13 @@
 import { useRef, useState } from 'react';
 import type { TranscriptLine } from '../types';
-import { LocalAudioError, parseLocalSubtitle, transcribeLocalAudio, validateLocalAudio } from '../services/localAudio';
+import { LocalAudioError, parseLocalSubtitle, transcribeLocalAudio, validateLocalMediaAudio } from '../services/localAudio';
 import { useI18n } from '../i18n/I18nContext';
+
+function isStorageFailure(error: unknown): boolean {
+  const name = error && typeof error === 'object' && 'name' in error ? String(error.name) : '';
+  return (error instanceof LocalAudioError && error.code === 'persistence')
+    || ['QuotaExceededError', 'SecurityError', 'InvalidStateError'].includes(name);
+}
 
 interface LocalAudioImporterProps {
   onSuccess: (file: File, lines: TranscriptLine[]) => void | Promise<void>;
@@ -39,6 +45,7 @@ export default function LocalAudioImporter({ onSuccess, mode = 'legacy-asr', var
           <input ref={subtitleInputRef} data-testid="local-media-subtitle-input" type="file" accept=".srt,.vtt" className="hidden" onChange={(event) => { setSubtitleFile(event.target.files?.[0] ?? null); setError(null); }} />
           <span className="min-w-0 truncate text-xs text-gray-600 dark:text-gray-300">{subtitleFile?.name || t('localMedia.noSubtitle')}</span>
         </div>
+        <p className="mt-2 text-xs text-gray-600 dark:text-gray-300">{t('localMedia.audioRequirements')}</p>
         {audioFile && !subtitleFile && <p role="status" className="mt-2 text-xs text-amber-700 dark:text-amber-300">{t('localMedia.subtitlesRequired')}</p>}
         {variant === 'restore' && <p className="mt-2 text-xs text-gray-600 dark:text-gray-300">{t('study.restoreAudioNote')}</p>}
         <button
@@ -59,12 +66,12 @@ export default function LocalAudioImporter({ onSuccess, mode = 'legacy-asr', var
     setMediaState('importing');
     setError(null);
     try {
-      const audioError = validateLocalAudio(audioFile);
+      const audioError = validateLocalMediaAudio(audioFile);
       if (audioError) throw audioError;
       const lines = await parseLocalSubtitle(subtitleFile);
       await onSuccess(audioFile, lines);
     } catch (err) {
-      setError(err instanceof LocalAudioError ? err.message : t('localMedia.importFailed'));
+      setError(isStorageFailure(err) ? t('localMedia.storageFailed') : err instanceof LocalAudioError && err.code === 'too_large' ? t('localMedia.audioTooLarge') : err instanceof LocalAudioError ? err.message : t('localMedia.importFailed'));
     } finally {
       setMediaState('idle');
     }

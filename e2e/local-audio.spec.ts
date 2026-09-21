@@ -116,6 +116,21 @@ test('V2 rejects unsupported subtitle files without leaving the importer', async
   await expect(page.locator('audio')).toHaveCount(0);
 });
 
+test('V2 reports local storage failure without opening or changing a lesson', async ({ page }) => {
+  const importer = await openStudy(page);
+  await page.evaluate(() => {
+    IDBObjectStore.prototype.put = function () {
+      throw new DOMException('quota', 'QuotaExceededError');
+    };
+  });
+  await importer.getByTestId('local-media-audio-input').setInputFiles({ name: 'lesson.wav', mimeType: 'audio/wav', buffer: tinyWav() });
+  await importer.getByTestId('local-media-subtitle-input').setInputFiles({ name: 'lesson.srt', mimeType: 'application/x-subrip', buffer: Buffer.from(srt) });
+  await importer.getByRole('button', { name: 'Open in Study' }).click();
+  await expect(importer.getByRole('alert')).toContainText(/Free up browser storage or compress the audio/i);
+  await expect(page.locator('audio')).toHaveCount(0);
+  await expect(page.getByRole('link', { name: 'Study', exact: true })).toBeVisible();
+});
+
 
 test('a restored local_audio session without its blob shows the re-import state, not a caption error', async ({ page }) => {
   // Simulates the cross-device case: the session record synced from the cloud

@@ -955,7 +955,6 @@ const StudyPage: React.FC = () => {
     const id = `local_${now}_${Math.random().toString(36).slice(2, 8)}`;
     const previousLocalMediaId = session?.localMediaId;
     await saveLocalAudioMedia(id, file);
-    const localUrl = registerLocalAudio(id, file);
     const sentenceLines = normalizeTranscriptToSentences(lines);
     const fresh: VideoStudySession = {
       id: `session_${now}_${Math.random().toString(36).slice(2, 8)}`,
@@ -973,7 +972,13 @@ const StudyPage: React.FC = () => {
       status: 'studying',
       lastPosition: 0,
     };
-    saveCurrentSession(fresh);
+    try {
+      saveCurrentSession(fresh);
+    } catch (error) {
+      await deleteLocalAudioMedia(id).catch(() => undefined);
+      throw error;
+    }
+    const localUrl = registerLocalAudio(id, file);
     // Only drop the previous Blob when no other session still references it:
     // starting a NEW lesson must not destroy the previous lesson's audio.
     if (previousLocalMediaId && !isLocalMediaReferencedByOtherSession(previousLocalMediaId, fresh.id)) {
@@ -1005,7 +1010,6 @@ const StudyPage: React.FC = () => {
     // Save the new Blob BEFORE any removal: a failed/invalid import leaves the
     // existing session and its data untouched (the importer validates first).
     await saveLocalAudioMedia(newMediaId, file);
-    const localUrl = registerLocalAudio(newMediaId, file);
     const restoredSentenceLines = normalizeTranscriptToSentences(lines);
     const restored: VideoStudySession = {
       ...session,
@@ -1017,7 +1021,13 @@ const StudyPage: React.FC = () => {
       captionSource: 'local_audio',
       updatedAt: now,
     };
-    saveCurrentSession(restored);
+    try {
+      saveCurrentSession(restored);
+    } catch (error) {
+      await deleteLocalAudioMedia(newMediaId).catch(() => undefined);
+      throw error;
+    }
+    const localUrl = registerLocalAudio(newMediaId, file);
     if (previousLocalMediaId && previousLocalMediaId !== newMediaId && !isLocalMediaReferencedByOtherSession(previousLocalMediaId, restored.id)) {
       void deleteLocalAudioMedia(previousLocalMediaId);
     }
