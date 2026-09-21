@@ -122,6 +122,10 @@ describe('Firestore Security Rules', () => {
 
     await assertSucceeds(setDoc(doc(owner, ownPath), payload));
     await assertSucceeds(getDoc(doc(owner, ownPath)));
+    // Account deletion depends on being able to enumerate and remove this
+    // subtree: after the uid is gone, no other caller ever could.
+    await assertSucceeds(getDocs(query(collection(owner, `aiCache/user-a/analyses`))));
+    await assertSucceeds(deleteDoc(doc(owner, ownPath)));
 
     // AI1/AI2: the same predictable key in someone else's subtree is unreachable.
     await assertFails(setDoc(doc(attacker, ownPath), { content: 'POISONED', createdAt: 2 }));

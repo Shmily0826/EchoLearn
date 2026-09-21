@@ -5,6 +5,8 @@ const state = {
   uid: 'user-a',
   emailVerified: true,
   messageIds: [] as string[],
+  /** Entries held in the writer's own aiCache subtree. */
+  cacheIds: [] as string[],
   /** Items held in each cloud sync document; empty means the cloud is empty. */
   cloudItems: [] as unknown[],
   /** 1-based commit number that should fail, or null for a clean run. */
@@ -27,9 +29,10 @@ vi.mock('firebase/firestore', () => ({
     exists: () => state.cloudItems.length > 0 && ref.path.includes('/data/'),
     data: () => ({ items: ref.path.includes('/data/') ? state.cloudItems : [] }),
   })),
-  getDocs: vi.fn(async () => {
+  getDocs: vi.fn(async (q: { path?: string }) => {
+    const ids = q?.path?.startsWith('aiCache/') ? state.cacheIds : state.messageIds;
     if (state.listFails) throw new Error('unavailable');
-    return { size: state.messageIds.length, docs: state.messageIds.map((id) => ({ id })) };
+    return { size: ids.length, docs: ids.map((id) => ({ id })) };
   }),
   setDoc: vi.fn(),
   deleteDoc: vi.fn(),
@@ -56,6 +59,7 @@ const SYNC_PATHS = [
   'users/user-a/data/sessions',
 ];
 const messagePath = (id: string) => `feedback/user-a/messages/${id}`;
+const cachePath = (id: string) => `aiCache/user-a/analyses/${id}`;
 
 beforeEach(() => {
   commits.length = 0;
@@ -67,6 +71,7 @@ beforeEach(() => {
   state.uid = 'user-a';
   state.emailVerified = true;
   state.messageIds = ['m1', 'm2'];
+  state.cacheIds = ['c1'];
   state.cloudItems = [{ id: 'cloud-word' }];
   state.failOnCommit = null;
   state.listFails = false;
@@ -76,11 +81,24 @@ beforeEach(() => {
 describe('deleteUserData — atomic learning-data removal', () => {
   it('removes every sync document and the feedback page in ONE batched commit', async () => {
     await deleteUserData('user-a');
-    expect(commits).toHaveLength(1);
     expect(commits[0]).toEqual([...SYNC_PATHS, messagePath('m1'), messagePath('m2')]);
     // The all-or-none guarantee comes from the batched write; individual
     // deletes each commit alone and could leave half a library behind.
     expect(deleteDoc).not.toHaveBeenCalled();
+  });
+
+  it('removes the writer\'s own AI cache subtree, which nothing could reach after the account is gone', async () => {
+    await deleteUserData('user-a');
+    expect(commits[1]).toEqual([cachePath('c1')]);
+  });
+
+  it('names a cache-only failure instead of reporting a clean deletion', async () => {
+    state.failOnCommit = 2;
+    const error = await deleteUserData('user-a').then(() => null, (e: unknown) => e);
+    expect(error).toBeInstanceOf(CloudCleanupError);
+    expect((error as Error).message).toMatch(/aiCache: permission-denied/);
+    // The learning data did go, and the message says which part did not.
+    expect(commits[0]).toEqual([...SYNC_PATHS, messagePath('m1'), messagePath('m2')]);
   });
 
   it('AD4: a failed commit deletes nothing and is surfaced, not swallowed', async () => {
@@ -88,7 +106,7 @@ describe('deleteUserData — atomic learning-data removal', () => {
     const error = await deleteUserData('user-a').then(() => null, (e: unknown) => e);
     expect(error).toBeInstanceOf(CloudCleanupError);
     expect((error as Error).message).toMatch(/learning data \+ feedback: permission-denied/);
-    expect(commits).toEqual([]);
+    expect(commits.some((ops) => ops.some((p) => p.startsWith('users/')))).toBe(false);
     expect(deleteDoc).not.toHaveBeenCalled();
   });
 
@@ -97,7 +115,10 @@ describe('deleteUserData — atomic learning-data removal', () => {
     state.failOnCommit = 2;
     await expect(deleteUserData('user-a')).rejects.toThrow(/^cloud-cleanup-incomplete: feedback: permission-denied$/);
     expect(commits[0]).toEqual([...SYNC_PATHS, ...state.messageIds.map(messagePath)]);
-    expect(commits).toHaveLength(1);
+    // The cache pass still runs after that failure, because a partial cleanup
+    // is reported as partial rather than stopping at the first bad batch.
+    expect(commits).toHaveLength(2);
+    expect(commits[1]).toEqual([cachePath('c1')]);
   });
 
   it('A3: a feedback listing that cannot be read is reported instead of assumed empty', async () => {
@@ -135,6 +156,6 @@ describe('deleteUserData — only-copy safety interlock', () => {
     localStorage.clear();
     localStorage.setItem('echolearn_vocabulary_tombstones', JSON.stringify({ 'gone': 123 }));
     await expect(deleteUserData('user-a')).resolves.toBeUndefined();
-    expect(commits).toHaveLength(1);
+    expect(commits).toHaveLength(2);
   });
 });
