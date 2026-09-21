@@ -85,6 +85,7 @@ const VocabularyPage: React.FC = () => {
   const [backfilling, setBackfilling] = useState(false);
   const [backfillingDefinitions, setBackfillingDefinitions] = useState(false);
   const [backfillDefinitionsError, setBackfillDefinitionsError] = useState<string | null>(null);
+  const [defsProgress, setDefsProgress] = useState<{ done: number; total: number } | null>(null);
   const [backfillTranslationStatus, setBackfillTranslationStatus] = useState<{
     kind: 'success' | 'partial' | 'failed';
     failed: number;
@@ -191,12 +192,15 @@ const VocabularyPage: React.FC = () => {
     if (missing.length === 0) return;
     setBackfillingDefinitions(true);
     setBackfillDefinitionsError(null);
+    setDefsProgress({ done: 0, total: missing.length });
     const failedWords: string[] = [];
     try {
-      // Process in small batches so a large legacy library cannot overwhelm
-      // the dictionary service or the browser's request queue.
-      for (let index = 0; index < missing.length; index += 4) {
-        const batch = missing.slice(index, index + 4);
+      // A word can cost two backend calls (English definition + Chinese meaning),
+      // and /api/dictionary allows 120 requests per minute per IP. Two at a time
+      // with a short pause keeps a large legacy library inside that budget; the
+      // dictionary service cools the backend off itself if we are refused.
+      for (let index = 0; index < missing.length; index += 2) {
+        const batch = missing.slice(index, index + 2);
         const results = await Promise.all(batch.map(async (item) => {
           try {
             return { id: item.id, word: item.word, patch: await enrichVocabularyItem(item, { aiTranslationEnabled: !!user }) };
@@ -211,6 +215,8 @@ const VocabularyPage: React.FC = () => {
           if (isMissingEnglishDefinition(patch.definitionEn)) failedWords.push(word);
         }
         setVocabulary(updated);
+        setDefsProgress({ done: Math.min(index + batch.length, missing.length), total: missing.length });
+        if (index + 2 < missing.length) await new Promise((resolve) => setTimeout(resolve, 250));
       }
       if (failedWords.length > 0) {
         const uniqueFailedWords = [...new Set(failedWords)];
@@ -224,6 +230,7 @@ const VocabularyPage: React.FC = () => {
       }
       triggerCloudSync();
     } finally {
+      setDefsProgress(null);
       setBackfillingDefinitions(false);
     }
   }, [user, vocabulary, triggerCloudSync, t]);
@@ -464,7 +471,9 @@ const VocabularyPage: React.FC = () => {
               disabled={backfillingDefinitions}
               className="px-3 py-1.5 text-sm text-sky-700 dark:text-sky-300 bg-sky-50 dark:bg-sky-950/30 border border-sky-200 dark:border-sky-800 rounded-lg hover:bg-sky-100 dark:hover:bg-sky-900/40 transition-colors font-medium cursor-pointer disabled:opacity-60"
             >
-              {backfillingDefinitions ? t('vocab.loadingDefinitions') : t('vocab.fillEnglishDefs')}
+              {defsProgress
+                ? t('vocab.loadingDefinitionsProgress', { done: defsProgress.done, total: defsProgress.total })
+                : backfillingDefinitions ? t('vocab.loadingDefinitions') : t('vocab.fillEnglishDefs')}
             </button>
           )}
           {/* Export dropdown */}

@@ -524,3 +524,70 @@ describe('lookupWord — client-side fallback path', () => {
     expect(callsTo('/api/dictionary')).toBe(1);
   });
 });
+
+// ── Backend rate-limit cooldown ────────────────────────────────
+
+/** A Datamuse fixture that answers whatever word was asked for. */
+function datamuseFor(url: string): string {
+  const word = new URL(url).searchParams.get('sp') ?? '';
+  return JSON.stringify([{ word, defs: [`n\ta definition of ${word}`] }]);
+}
+
+describe('lookupWord — backend rate-limit cooldown', () => {
+  it('stops probing the backend once it has refused with 429, and still answers from the fallback', async () => {
+    fetchMock.mockImplementation(async (input) => {
+      const url = String(input);
+      if (url.includes('/api/dictionary')) return mockResponse('slow down', { status: 429 });
+      if (url.includes('dictionaryapi.dev')) return mockResponse('[]', { status: 404 });
+      if (url.includes('datamuse.com')) return mockResponse(datamuseFor(url));
+      throw new Error(`unexpected url: ${url}`);
+    });
+    const mod = await freshModule();
+
+    const first = await mod.lookupWord('cat');
+    expect(first?.definitionEn).toBe('a definition of cat');
+    expect(first?.provider).toBe('Datamuse');
+    expect(callsTo('/api/dictionary')).toBe(1);
+
+    // The whole point: a bulk backfill of uncached words must not spend one
+    // refused round trip each for the length of the rate-limit window.
+    await mod.lookupWord('dog');
+    await mod.lookupWord('bird');
+    expect(callsTo('/api/dictionary')).toBe(1);
+  });
+
+  it('treats a transient 5xx as per-word, not a reason to stop using the better tier', async () => {
+    fetchMock.mockImplementation(async (input) => {
+      const url = String(input);
+      if (url.includes('/api/dictionary')) {
+        return url.includes('word=cat')
+          ? mockResponse('upstream hiccup', { status: 502 })
+          : mockResponse(backendPayload());
+      }
+      if (url.includes('dictionaryapi.dev')) return mockResponse('[]', { status: 404 });
+      if (url.includes('datamuse.com')) return mockResponse(datamuseFor(url));
+      throw new Error(`unexpected url: ${url}`);
+    });
+    const mod = await freshModule();
+
+    const degraded = await mod.lookupWord('cat');
+    expect(degraded?.provider).toBe('Datamuse');
+
+    const recovered = await mod.lookupWord('dog');
+    expect(recovered?.provider).toBe('Free Dictionary');
+    expect(callsTo('/api/dictionary')).toBe(2);
+  });
+
+  it('still reports service failure when the backend is cooling off and every fallback is down', async () => {
+    fetchMock.mockImplementation(async (input) => {
+      const url = String(input);
+      if (url.includes('/api/dictionary')) return mockResponse('slow down', { status: 429 });
+      throw new Error('network unreachable');
+    });
+    const mod = await freshModule();
+
+    await expect(mod.lookupWord('cat')).rejects.toThrow();
+    await expect(mod.lookupWord('dog')).rejects.toThrow();
+    expect(callsTo('/api/dictionary')).toBe(1);
+  });
+});

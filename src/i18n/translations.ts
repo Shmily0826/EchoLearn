@@ -319,6 +319,7 @@ const translations: Record<string, Record<Lang, string>> = {
   'vocab.autoTranslate': { en: 'Auto Translate', zh: '自动翻译' },
   'vocab.fillEnglishDefs': { en: 'Fill English definitions', zh: '补全英文释义' },
   'vocab.loadingDefinitions': { en: 'Loading definitions...', zh: '正在补全释义...' },
+  'vocab.loadingDefinitionsProgress': { en: 'Loading definitions… {done}/{total}', zh: '正在补全释义… {done}/{total}' },
   'vocab.defsFailedAll': { en: 'Could not load English definitions. Check your network and try again.', zh: '无法加载英文释义，请检查网络后重试。' },
   'vocab.defsFailedSome': { en: 'No English definition found for: {words}', zh: '以下单词未找到英文释义：{words}' },
   'vocab.retryDefinitions': { en: 'Retry definitions', zh: '重试补全释义' },

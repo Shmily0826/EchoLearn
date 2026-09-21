@@ -27,6 +27,7 @@ const DEFAULT_TARGET = 'zh-CN';
 
 const FREE_DICT_BASE = 'https://api.dictionaryapi.dev/api/v2/entries/en';
 const DATAMUSE_BASE = 'https://api.datamuse.com/words';
+const FREE_DICT_TIMEOUT_MS = 2500;
 
 // A previous client-side lemmatizer persisted this common adjective as
 // "unprecedent". Keep the lookup tolerant of that legacy value without
@@ -252,10 +253,26 @@ function backendLemmaProvenance(raw: BackendResponse): DictionaryLemmaProvenance
 
 // ── Primary: backend lookup ────────────────────────────────────
 
+/**
+ * The edge function rate-limits each IP at 120 requests per 60-second window,
+ * and a bulk definition backfill can exhaust that on its own. Once we have been
+ * told to slow down, every further backend call is a wasted round trip that
+ * ends in the client fallback anyway, so stop asking for the length of that
+ * window. A 429 is the only trigger: a 5xx may be one bad word, and blacklisting
+ * the better tier for a minute over that would degrade ordinary lookups.
+ */
+const BACKEND_RATE_LIMIT_COOLDOWN_MS = 60_000;
+let backendRateLimitedUntil = 0;
+
 async function fetchFromBackend(
   cleaned: string,
   target: string,
 ): Promise<LookupAttempt<DictionaryEntry & { lemma?: string }>> {
+  if (Date.now() < backendRateLimitedUntil) {
+    // Not a failure and not an answer: the caller falls through to the
+    // client-side tiers, which decide whether this lookup succeeds.
+    return { entry: null, failed: false };
+  }
   try {
     const url =
       `${API_BASE}?word=${encodeURIComponent(cleaned)}` +
@@ -263,6 +280,7 @@ async function fetchFromBackend(
     const res = await fetch(url, { signal: AbortSignal.timeout(8000) });
     if (!res.ok) {
       console.warn(`[dictionary] ${url} returned HTTP ${res.status}`);
+      if (res.status === 429) backendRateLimitedUntil = Date.now() + BACKEND_RATE_LIMIT_COOLDOWN_MS;
       return { entry: null, failed: res.status !== 404 }; // 404 is a confirmed miss
     }
     const raw: BackendResponse = await res.json();
@@ -399,7 +417,11 @@ function buildCandidates(cleaned: string): string[] {
 async function fetchFromFreeDict(word: string): Promise<LookupAttempt<DictionaryEntry>> {
   try {
     const res = await fetch(`${FREE_DICT_BASE}/${encodeURIComponent(word)}`, {
-      signal: AbortSignal.timeout(8000),
+      // The fallback races this against Datamuse with allSettled, so the whole
+      // word waits for whoever is slowest. This upstream has been observed
+      // returning 522 after ~19s of silence; matching the backend's own 2.5s
+      // budget keeps a dead tier from stalling every word in a bulk backfill.
+      signal: AbortSignal.timeout(FREE_DICT_TIMEOUT_MS),
     });
     if (!res.ok) return { entry: null, failed: res.status !== 404 };
     const data: ApiEntry[] = await res.json();

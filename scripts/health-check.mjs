@@ -26,6 +26,9 @@ const TRANSCRIPT_CACHE_HEADER = 'X-EchoLearn-Transcript-Cache';
 // A stable Bilibili video with known BV id (used in the repo's own code
 // examples) and a stable YouTube video with English captions.
 const BILI_FULL_URL = 'https://www.bilibili.com/video/BV1xx411c7mD';
+// The Easy English video the repo's own Bilibili production smoke used, so a
+// future PASS here is comparable to that recorded acceptance.
+const BILI_CAPTION_PROBE_BVID = 'BV1emBiYcEAV';
 const YOUTUBE_CAPTION_CONTROLS = [
   {
     name: 'Worker serves YouTube captions (control dQ)',
@@ -143,6 +146,36 @@ const CHECKS = [
         return typeof data.bvid === 'string' && data.bvid.startsWith('BV')
           ? null
           : 'response has no bvid';
+      } catch {
+        return 'not JSON';
+      }
+    },
+  },
+  {
+    name: 'Bilibili captions resolve caption-first (no ASR requested)',
+    // The same route the learner's browser tries first (Worker, then the
+    // same-origin Vercel proxy). No allowAsr=1 is sent and both routes refuse
+    // transcription without it, so this cannot spend Groq credit — measured at
+    // ~1-2s and a refusal naming ASR as the opt-in recovery, never the 40-60s
+    // an ASR run takes.
+    url: `${WORKER_BASE}/api/bilibili?bvid=${BILI_CAPTION_PROBE_BVID}&lang=zh-CN`,
+    timeoutMs: 30000,
+    // Known-degraded: Bilibili keeps its subtitle track behind login, so the
+    // steady state today is HTTP 502 provider_failure. Reported as WARN rather
+    // than failing the run for the same reason as the iG9 control above — a
+    // hard failure would fire on every schedule while learners are unaffected.
+    //
+    // It is still worth having: before this control the monitor probed Bilibili
+    // /api/info only, so it stayed green end to end while the caption path was
+    // in fact dead. A PASS here would be the first recurring Production evidence
+    // that native Bilibili subtitles ever reached a learner without ASR.
+    warnOnly: true,
+    validate: (body) => {
+      try {
+        const data = JSON.parse(body);
+        return Array.isArray(data.lines) && data.lines.length > 0
+          ? null
+          : 'HTTP 200 with no usable caption lines';
       } catch {
         return 'not JSON';
       }
