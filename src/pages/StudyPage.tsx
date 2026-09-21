@@ -137,6 +137,9 @@ const StudyPage: React.FC = () => {
 
   // Video state
   const [urlInput, setUrlInput] = useState('');
+  // Form-validation feedback for the URL box. Kept separate from the caption
+  // error state so an invalid paste never touches the lesson on screen.
+  const [urlError, setUrlError] = useState<string | null>(null);
   const [videoId, setVideoId] = useState<string | null>(null);
   const [startTime, setStartTime] = useState<number | undefined>(undefined);
   const [sessionTitle, setSessionTitle] = useState('');
@@ -747,12 +750,13 @@ const StudyPage: React.FC = () => {
   // ── Load video ─────────────────────────────────────────────
   const handleLoadVideo = useCallback(() => {
     const failInvalidInput = (message: string) => {
-      setRawBlocks([]);
-      setSentenceLines([]);
-      setAnalysis(null);
-      invalidateCaptionRequests();
-      failCaptionRequest(message);
+      setUrlError(message);
     };
+    if (!urlInput.trim()) {
+      failInvalidInput(t('study.urlEmpty'));
+      return;
+    }
+    setUrlError(null);
     const detected = detectPlatform(urlInput);
     if (!detected) {
       failInvalidInput(t('study.invalidVideo'));
@@ -1395,6 +1399,23 @@ const StudyPage: React.FC = () => {
               </button>
             )}
           </div>
+          {urlError && (
+            <p
+              role="alert"
+              data-testid="study-url-error"
+              className="mt-2 text-xs font-medium text-red-600 dark:text-red-400"
+            >
+              {urlError}
+            </p>
+          )}
+          {!session && videoId === SAMPLE_VIDEO_ID && (
+            <p
+              data-testid="study-sample-note"
+              className="mt-2 text-xs text-gray-500 dark:text-gray-400"
+            >
+              {t('study.sampleNote')}
+            </p>
+          )}
         </div>
       </div>
 
