@@ -13,8 +13,10 @@
  * old Rules, and what a rollback costs at each stage.
  */
 import preCampaignRules from '../../../deploy/firestore.pre-campaign.rules?raw';
-import stage1Rules from '../../../firestore.rules?raw';
-import stage2Rules from '../../../deploy/firestore.stage2.rules?raw';
+// Stage 1 is now an archived compatibility artifact: what Production runs is the
+// Stage-5 file, which is also the repository's canonical firestore.rules.
+import stage1Rules from '../../../deploy/firestore.stage1-compat.rules?raw';
+import stage2Rules from '../../../firestore.rules?raw';
 import {
   assertFails,
   assertSucceeds,

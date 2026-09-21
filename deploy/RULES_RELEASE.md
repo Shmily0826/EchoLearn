@@ -10,11 +10,17 @@ a committed file with a committed deploy config.
 
 ## Artifacts
 
-| Stage | File | How it is produced | Deploy command |
-| --- | --- | --- | --- |
-| today's Production (rollback target) | `deploy/firestore.pre-campaign.rules` | `git show HEAD:firestore.rules` at baseline `b928ee8` | `npx firebase-tools deploy --only firestore:rules --config firebase.rollback.json --project echolearn-9f369` |
-| Stage 1 — compatibility rules | `firestore.rules` | committed in this branch | `npx firebase-tools deploy --only firestore:rules --project echolearn-9f369` |
-| Stage 5 — tightened rules | `deploy/firestore.stage2.rules` | `node scripts/rules-stage2.mjs --write` (refuses to write unless it matches exactly one anchor) | `npx firebase-tools deploy --only firestore:rules --config firebase.stage2.json --project echolearn-9f369` |
+Layout after the 2026-09-21 release: the repository's canonical `firestore.rules` **is**
+what Production runs (Stage 5), so a plain rules deploy from the repository can never
+silently re-open what the release closed. The intermediate compatibility ruleset is kept
+as an archived, separately deployable file rather than as the canonical one.
+
+| Role | File | Deploy command |
+| --- | --- | --- |
+| canonical = deployed (Stage 5) | `firestore.rules` | `npx firebase-tools deploy --only firestore:rules --project echolearn-9f369` |
+| Stage 1 — compatibility, archived | `deploy/firestore.stage1-compat.rules` | `npx firebase-tools deploy --only firestore:rules --config firebase.stage1.json --project echolearn-9f369` |
+| Stage 5 artifact (byte-identical to canonical) | `deploy/firestore.stage2.rules` | `npx firebase-tools deploy --only firestore:rules --config firebase.stage2.json --project echolearn-9f369` |
+| pre-campaign — full rollback | `deploy/firestore.pre-campaign.rules` | `npx firebase-tools deploy --only firestore:rules --config firebase.rollback.json --project echolearn-9f369` |
 
 Check the Stage-5 artifact is still exactly Stage 1 plus one condition, before and
 after generating:
@@ -128,11 +134,11 @@ node scripts/rules-stage2.mjs --write
 npx firebase-tools deploy --only firestore:rules --config firebase.stage2.json --project echolearn-9f369
 ```
 
-Afterwards, re-run the Stage-2 confirmation probe and follow with a housekeeping commit
-that copies the Stage-5 content into `firestore.rules` so the canonical file matches
-Production (`node scripts/rules-stage2.mjs --write && cp deploy/firestore.stage2.rules firestore.rules`).
-From that commit on, `node scripts/rules-stage2.mjs` exits 1 with `found 0` — that is the
-generator's way of saying the tightening has already landed, not a broken tool.
+Applied on 2026-09-21. The canonical file was then promoted to the Stage-5 content (see
+the Artifacts table), so from here on `node scripts/rules-stage2.mjs` exits 1 with
+`found 0` — the generator's way of reporting that the tightening has already landed, not
+a broken tool. Confirm effectiveness with the previous deployment's client, not with this
+repository's tests: see the operational note below.
 
 ## Rollback
 
@@ -140,18 +146,44 @@ generator's way of saying the tightening has already landed, not a broken tool.
 | --- | --- | --- |
 | Stage 4 fails, Stage 5 not yet applied | Redeploy the previous frontend on Vercel. Stage-1 rules are backward compatible with the deployed build, so no rules change is needed. | minutes (Vercel) |
 | Rules must be reverted | `npx firebase-tools deploy --only firestore:rules --config firebase.rollback.json --project echolearn-9f369` | up to ~10 min |
-| Frontend must be rolled back **after** Stage 5 | Redeploy Stage 1 (the default `firestore.rules` path) first, then the previous frontend — under Stage-5 rules the old build cannot submit feedback. | up to ~10 min |
+| Frontend must be rolled back **after** Stage 5 | Restore the archived Stage-1 rules first — `npx firebase-tools deploy --only firestore:rules --config firebase.stage1.json --project echolearn-9f369` — then the previous frontend. Under Stage 5 the old build cannot submit feedback. | up to ~10 min |
 
 A rules rollback never strands learner data: `users/{uid}/data/{collection}` has the same
 decision table in all three rulesets (probed), so sync, study and review keep working
 while cache writes and feedback fall back to pre-campaign behavior.
+
+## Execution record — 2026-09-21
+
+All five stages ran in this order and Production is on the final state: Stage 1 rules
+deployed and behaviorally confirmed -> PR #12 merged (`1020601`) -> non-destructive
+Production smoke 20/20 -> acceptance found the `aiCache/{uid}/analyses/*` deletion gap,
+fixed and merged as PR #13 (`b469bd4`) -> real Delete Account acceptance on one
+disposable verified account -> Stage 5 deployed at 02:28:18Z and confirmed live. The
+evidence is recorded layer by layer in `TEST_REPORT.md`.
+
+Two operational facts worth keeping for the next release:
+
+- **Stage 5 cannot be confirmed over the Firestore REST commit API.** The legacy create
+  condition requires `createdAt == request.time`, and a `Write` cannot carry both
+  `update` and `transform` (they are members of the same oneof), so no single REST
+  request can present a document that Stage 1 would accept. The vehicle that works is
+  **the previously deployed client on its retained Vercel URL**: it performs exactly
+  that create, and the verdict is taken from a before/after count of the flat
+  documents through a read-only owner credential rather than from a status code.
+  Attempts that fail with HTTP 400 never reached a rule and must be reported as
+  harness errors, not as denials.
+- **A rejected password sign-in is not proof that an account was deleted.**
+  `INVALID_LOGIN_CREDENTIALS` covers a wrong password and a removed account alike;
+  confirm against the Auth user directory (`firebase auth:export` to a scratch file,
+  check membership, delete the file).
 
 ## Unfinished obligations this release does not close
 
 - Historical flat `feedback/{docId}` documents (created before this release) are readable
   and deletable by neither the owner nor any client rule. They stay in Production and are
   an administrator cleanup task; the collection-group read in the emulator suite proves
-  they remain separable from the new nested shape.
+  they remain separable from the new nested shape. Measured after Stage 5: **1** such
+  document exists, so the obligation is a single removal, not a migration.
 - The frozen `aiAnalyses/{key}` corpus keeps serving reads to the old client and is never
   read by the new one. Its documents are left in place.
 - Cross-user AI cache HITs stop accruing; restoring shared caching requires a

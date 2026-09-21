@@ -38,6 +38,12 @@ fill the form from the captured value; do not print it.
 
 ## Reuse rules
 
+- **Never delete A or B.** They are long-lived regression fixtures and keep the
+  learning/sync data earlier campaigns depend on. Account-deletion acceptance
+  requires a **freshly created disposable account** (created for that run, named
+  for it, and destroyed by the product UI). Confirm the target uid before the
+  destructive step, and confirm afterwards that A, B and the owner's own account
+  are still present in the Auth user directory.
 - Sign in with the account whose `emailVerified` state the test needs. Both
   accounts were created 2026-09-19 and email-verified by the user.
 - **Do not register new accounts** for these purposes; if signup returns
@@ -53,6 +59,19 @@ fill the form from the captured value; do not print it.
 
 ## Related, not part of this pair
 
+- **Disposable delete-target accounts.** Account-deletion acceptance needs an
+  account that is allowed to be destroyed, so it cannot be A or B. Create one per
+  run (an `+alias` of the owner's Gmail is enough), store its generated password
+  in Credential Manager under its own target, and ask the user to click the
+  verification link — never resend in a loop when Firebase rate-limits
+  (`TOO_MANY_ATTEMPTS_TRY_LATER`). Confirm the uid, the `email_verified` claim and
+  the email shown in Settings immediately before the destructive click, and verify
+  afterwards against the Auth user directory (`firebase auth:export` to a scratch
+  file, read the membership, delete the file) rather than treating a rejected
+  sign-in as proof: `INVALID_LOGIN_CREDENTIALS` is Firebase's anti-enumeration
+  answer for a wrong password *and* a removed account alike.
+  2026-09-21: `EchoLearn-QA-Delete-Smoke-20260921` was created, seeded, deleted
+  through the product UI and confirmed absent from the directory.
 - `echolearn-qa-20260919@example.invalid` — the campaign's disposable unverified
   account (permanently unverified by design; credentials in that worktree's
   gitignored `campaign/.qa-credentials`).
