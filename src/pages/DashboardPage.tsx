@@ -435,7 +435,7 @@ const DashboardPage: React.FC = () => {
         <div className="flex flex-col sm:flex-row sm:items-end sm:justify-between gap-4">
           <div>
             <h1 className="text-2xl sm:text-3xl font-bold text-gray-900 dark:text-gray-100 tracking-tight">
-              {vocabulary.length === 0 && sentences.length === 0 && sessions.length === 0
+              {!user && vocabulary.length === 0 && sentences.length === 0 && sessions.length === 0
                 ? t('dash.welcomeNew')
                 : t('dash.welcome')}
             </h1>
