@@ -275,11 +275,12 @@ test('G: mobile dictionary popup stays in the 390x844 viewport through loading',
   expect(box, 'MP1: a bottom-band word is genuinely visible after page scroll').not.toBeNull();
   evidence.clickedWord = box;
   // Click through the accessible name so Playwright's own actionability
-  // (visible + stable + receives events) replaces a hand-rolled coordinate.
+  // (visible + stable + receives events) is the single real word interaction.
+  // A second click at the old word coordinate would be outside the mounted
+  // popup and correctly trigger its outside-pointer close handler.
   await page.getByRole('button', { name: box!.label }).filter({ visible: true }).first().click();
   expect(box!.y).toBeLessThan(844);
 
-  await page.mouse.click(box!.x, box!.y);
   const popup = page.locator('[data-dictionary-popup]').filter({ visible: true }).first();
   await expect(popup, 'MP2/MP3: click reaches the app and loading feedback is prompt').toBeVisible({ timeout: 2000 });
   const loadingBox = await popup.boundingBox();
