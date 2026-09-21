@@ -169,3 +169,22 @@ export function deleteLocalAudioMedia(id: string): Promise<void> {
     request.onerror = () => reject(new LocalAudioError('persistence', 'Could not clear local audio storage.'));
   });
 }
+
+/**
+ * Remove every persisted local-media Blob by dropping the database itself.
+ *
+ * Used by account deletion, whose promise covers all of this device's learning
+ * data: deleting records one by one cannot reach Blobs whose session id was
+ * already lost. Rejects rather than reporting success when the browser refuses
+ * to delete the database, so the caller can say so honestly.
+ */
+export function deleteAllLocalAudioMedia(): Promise<void> {
+  if (typeof indexedDB === 'undefined') return Promise.resolve();
+  localAudioFiles.clear();
+  return new Promise((resolve, reject) => {
+    const request = indexedDB.deleteDatabase(LOCAL_MEDIA_DB);
+    request.onsuccess = () => resolve();
+    request.onerror = () => reject(new LocalAudioError('persistence', 'Could not clear local audio storage.'));
+    request.onblocked = () => reject(new LocalAudioError('persistence', 'Local audio storage is still open; reload and try again.'));
+  });
+}

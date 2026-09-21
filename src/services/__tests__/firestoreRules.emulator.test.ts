@@ -8,9 +8,14 @@ import {
   type RulesTestEnvironment,
 } from '@firebase/rules-unit-testing';
 import {
+  collection,
+  collectionGroup,
   deleteDoc,
   doc,
   getDoc,
+  getDocs,
+  limit,
+  query,
   serverTimestamp,
   setDoc,
 } from 'firebase/firestore';
@@ -79,30 +84,147 @@ describe('Firestore Security Rules', () => {
     await assertFails(setDoc(doc(userB, DATA_PATH('user-a', 'vocabulary')), { items: [] }));
   });
 
-  it('keeps the current aiAnalyses authenticated policy explicit', async () => {
+  it('freezes the legacy shared AI cache: readable by anyone, writable by nobody', async () => {
+    const writer = dbFor('user-a', true);
+    const stranger = dbFor('user-b', true);
     const unverified = dbFor('user-unverified', false);
     const unauth = unauthenticatedDb();
-    const payload = { content: 'pending-policy fixture', createdAt: 1 };
+    const key = 'deadbeef'.repeat(4);
+    const ref = (f: ReturnType<typeof dbFor>) => doc(f, 'aiAnalyses', key);
 
-    // CURRENT POLICY — PRODUCT/SECURITY DECISION PENDING.
-    await assertSucceeds(setDoc(doc(unverified, 'aiAnalyses', 'unverified-policy'), payload));
-    await assertFails(setDoc(doc(unauth, 'aiAnalyses', 'unauthenticated-policy'), payload));
+    // The audit's reproduction showed a verified, a stranger AND an unverified
+    // session could each overwrite this shared doc, and the last write was then
+    // served to every learner. Under the frozen policy none of them can.
+    await assertFails(setDoc(ref(writer), { content: 'legit', createdAt: 1 }));
+    await assertFails(setDoc(ref(stranger), { content: 'POISONED', createdAt: 2 }));
+    await assertFails(setDoc(ref(unverified), { content: 'POISONED-UNVERIFIED', createdAt: 3 }));
+    await assertFails(setDoc(ref(unauth), { content: 'POISONED-ANON', createdAt: 4 }));
+    await assertFails(deleteDoc(ref(writer)));
+
+    // Already-banked entries stay readable at the rule level (the frontend no
+    // longer consumes them — pinned in aiCacheTrust.test.ts — but the deployed
+    // client still does until the rules-then-frontend order is followed, and a
+    // public read of non-PII AI output is not itself a leak).
+    await testEnv.withSecurityRulesDisabled(async (context) => {
+      await setDoc(doc(context.firestore(), 'aiAnalyses', key), { content: 'banked', createdAt: 1 });
+    });
+    const served = await assertSucceeds(getDoc(ref(unauth)));
+    expect((served.data() as { content: string }).content).toBe('banked');
+  });
+
+  it('binds each AI cache entry to its writer so no other account can poison it', async () => {
+    const owner = dbFor('user-a', true);
+    const attacker = dbFor('user-b', true);
+    const unverified = dbFor('user-unverified', false);
+    const key = 'cafebabe'.repeat(4);
+    const ownPath = `aiCache/user-a/analyses/${key}`;
+    const payload = { content: 'own analysis', createdAt: 1 };
+
+    await assertSucceeds(setDoc(doc(owner, ownPath), payload));
+    await assertSucceeds(getDoc(doc(owner, ownPath)));
+    // Account deletion depends on being able to enumerate and remove this
+    // subtree: after the uid is gone, no other caller ever could.
+    await assertSucceeds(getDocs(query(collection(owner, `aiCache/user-a/analyses`))));
+    await assertSucceeds(deleteDoc(doc(owner, ownPath)));
+
+    // AI1/AI2: the same predictable key in someone else's subtree is unreachable.
+    await assertFails(setDoc(doc(attacker, ownPath), { content: 'POISONED', createdAt: 2 }));
+    await assertFails(getDoc(doc(attacker, ownPath)));
+    await assertFails(deleteDoc(doc(attacker, ownPath)));
+    // AI3: unverified and anonymous sessions cannot write at all.
+    await assertFails(setDoc(doc(unverified, `aiCache/user-unverified/analyses/${key}`), payload));
+    await assertFails(setDoc(doc(unauthenticatedDb(), `aiCache/user-a/analyses/${key}`), payload));
+    // ...and cannot read a stranger's cache either.
+    await assertFails(getDoc(doc(unverified, ownPath)));
+  });
+
+  it('lets the owner list and delete their own feedback, and nobody else’s', async () => {
+    const owner = dbFor('user-a', true);
+    const stranger = dbFor('user-b', true);
+    const unverified = dbFor('user-unverified', false);
+    const messagePath = (id: string) => 'feedback/user-a/messages/' + id;
+    const messageIn = (f: ReturnType<typeof dbFor>, id: string) => doc(f, messagePath(id));
+    const messagesIn = (f: ReturnType<typeof dbFor>) => collection(f, 'feedback', 'user-a', 'messages');
+
+    await assertSucceeds(setDoc(messageIn(owner, 'm1'), {
+      userEmail: null, text: 'owner-only body', locale: 'en', createdAt: serverTimestamp(),
+    }));
+    // A list must mirror the rule's limit, which is exactly what the client's
+    // bounded delete loop does.
+    await assertSucceeds(getDocs(query(messagesIn(owner), limit(50))));
+    await assertFails(getDocs(query(messagesIn(owner))));
+    await assertFails(getDocs(query(messagesIn(owner), limit(51))));
+    expect((await getDocs(query(messagesIn(owner), limit(50)))).docs).toHaveLength(1);
+
+    // AD3: a non-owner cannot read, list, write or delete, so the subtree is not
+    // a public window onto who submitted feedback.
+    await assertFails(getDoc(messageIn(stranger, 'm1')));
+    await assertFails(getDocs(query(messagesIn(stranger), limit(50))));
+    await assertFails(setDoc(messageIn(stranger, 'm1'), { text: 'injected', createdAt: serverTimestamp() }));
+    await assertFails(deleteDoc(messageIn(stranger, 'm1')));
+    await assertFails(setDoc(messageIn(unverified, 'm1'), { text: 'throwaway', createdAt: serverTimestamp() }));
+    await assertFails(getDoc(messageIn(unauthenticatedDb(), 'm1')));
+    // The owner can remove it, which is what makes the deletion promise keepable.
+    await assertSucceeds(deleteDoc(messageIn(owner, 'm1')));
+    expect((await getDocs(query(messagesIn(owner), limit(50)))).docs).toHaveLength(0);
+  });
+
+  it('keeps legacy flat feedback closed to clients, which is why it needs an admin pass', async () => {
+    const owner = dbFor('user-a', true);
+    // No client ever held these autogenerated ids, and no rule has ever allowed
+    // a read or list, so no owner-side deletion rule can reach them: they are
+    // documented as administrator cleanup rather than silently claimed deleted.
+    await assertFails(deleteDoc(doc(owner, 'feedback', 'legacy-random-id')));
+    await assertFails(getDoc(doc(owner, 'feedback', 'legacy-random-id')));
+    await assertFails(getDocs(query(collection(owner, 'feedback'))));
+  });
+
+  it('proves the legacy feedback range is separable from the new owner subtree', async () => {
+    // Seed both shapes the way they will coexist after the rules deploy.
+    await testEnv.withSecurityRulesDisabled(async (context) => {
+      const admin = context.firestore();
+      await setDoc(doc(admin, 'feedback', 'legacy-a'), { userId: 'user-a', text: 'old', createdAt: 1 });
+      await setDoc(doc(admin, 'feedback', 'legacy-b'), { userId: 'user-b', text: 'old', createdAt: 2 });
+      await setDoc(doc(admin, 'feedback', 'user-a', 'messages', 'm1'), { text: 'new', createdAt: 3 });
+    });
+
+    const owner = dbFor('user-a', true);
+    // An owner's deletion removes only their nested document…
+    await assertSucceeds(deleteDoc(doc(owner, 'feedback', 'user-a', 'messages', 'm1')));
+    // …and cannot touch the legacy ones, which is exactly the residual gap.
+    await testEnv.withSecurityRulesDisabled(async (context) => {
+      const admin = context.firestore();
+      const legacy = await getDocs(collectionGroup(admin, 'feedback'));
+      expect(legacy.docs.map((d) => d.id).sort()).toEqual(['legacy-a', 'legacy-b']);
+      // A collection-group query on `feedback` selects precisely the legacy
+      // documents and cannot sweep the new subtree in, because those live in a
+      // group named `messages`. So an administrator can enumerate, verify and
+      // then delete the historical range without touching current data.
+      expect(legacy.docs.every((d) => d.ref.path.split('/').length === 2)).toBe(true);
+      const current = await getDocs(collectionGroup(admin, 'messages'));
+      expect(current.docs).toHaveLength(0);
+    });
   });
 
   it('enforces verified ownership for feedback creation', async () => {
     const verified = dbFor('user-a', true);
     const unverified = dbFor('user-b', false);
-    const feedback = {
-      userId: 'user-a',
+    const message = {
       userEmail: 'user-a@example.test',
       text: 'emulator feedback',
+      locale: 'en',
+      platform: 'web',
       createdAt: serverTimestamp(),
     };
 
-    await assertSucceeds(setDoc(doc(verified, 'feedback', 'feedback-a'), feedback));
-    await assertFails(setDoc(doc(unverified, 'feedback', 'feedback-b'), {
-      ...feedback,
-      userId: 'user-b',
+    await assertSucceeds(setDoc(doc(verified, 'feedback/user-a/messages', 'feedback-a'), message));
+    await assertFails(setDoc(doc(unverified, 'feedback/user-b/messages', 'feedback-b'), message));
+    // The legacy flat shape is closed permanently now that the new frontend is
+    // live: it was the one shape whose documents their author could never
+    // remove, which is exactly what the nested path fixes.
+    await assertFails(setDoc(doc(verified, 'feedback', 'flat-again'), {
+      userId: 'user-a',
+      ...message,
     }));
   });
 });

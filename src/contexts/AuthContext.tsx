@@ -8,6 +8,9 @@ import {
   createUserWithEmailAndPassword,
   signOut,
   updateProfile,
+  reauthenticateWithPopup,
+  reauthenticateWithCredential,
+  EmailAuthProvider,
   sendEmailVerification,
   deleteUser,
   GoogleAuthProvider,
@@ -18,6 +21,8 @@ import { auth, googleProvider } from '../lib/firebase';
 import { isCapacitor } from '../utils/platform';
 import { clearSyncMetadata, deleteUserData, hasLocalSyncableData, isSyncPending, syncWithCloud } from '../services/firestoreSync';
 import { clearAllLocalData } from '../utils/storage';
+import { deleteAccountSafely, AccountDeletionError } from '../services/accountDeletion';
+import { purgeDeviceData } from '../services/deviceDataPurge';
 import { trackEvent } from '../services/analytics';
 
 // ── Types ──────────────────────────────────────────────────────
@@ -30,8 +35,12 @@ interface AuthContextValue {
   signUpWithEmail: (email: string, password: string, displayName: string) => Promise<void>;
   /** Re-send the email verification link to the currently signed-in user. */
   resendVerificationEmail: () => Promise<void>;
-  /** Permanently delete the account + its cloud data, then clear local data. */
-  deleteAccount: () => Promise<void>;
+  /**
+   * Delete the account under the failure-safe order: prove identity, remove
+   * cloud data, delete the account, then purge this device. An email/password
+   * account surfaces `reauth-required` until its password is supplied.
+   */
+  deleteAccount: (emailPassword?: string) => Promise<void>;
   logOut: () => Promise<void>;
 }
 
@@ -148,36 +157,40 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     await sendEmailVerification(u);
   }, []);
 
-  const deleteAccount = useCallback(async () => {
+  const deleteAccount = useCallback(async (emailPassword?: string) => {
     const u = auth.currentUser;
     if (!u) throw new Error('No authenticated user');
-    // Best-effort: wipe the user's cloud data before destroying the account.
-    // (Orphaned docs would otherwise linger, since rules require the uid.)
-    try {
-      await deleteUserData(u.uid);
-    } catch (err) {
-      console.error('[Auth] deleteUserData failed (continuing):', err);
-    }
-    // Wipe local study data on this device too.
-    clearAllLocalData();
-    clearSyncMetadata();
-    try {
-      await deleteUser(u);
-    } catch (err) {
-      // deleteUser requires a recent sign-in. For Google users we can silently
-      // re-authenticate; for others we surface the error so the UI can ask for
-      // a re-login.
-      if (err instanceof Error && err.message.includes('requires-recent-login')) {
-        if (u.providerData.some((p) => p.providerId === 'google.com')) {
-          await signInWithPopup(auth, googleProvider);
-          await deleteUser(auth.currentUser!);
-        } else {
-          throw new Error('auth/requires-recent-login', { cause: err });
+    const usesGoogle = u.providerData.some((p) => p.providerId === 'google.com');
+
+    await deleteAccountSafely({
+      user: u,
+      reauthenticate: async (user) => {
+        if (usesGoogle) {
+          // Same bridge as sign-in: the native picker yields an ID token that
+          // web Firebase Auth consumes as a credential.
+          if (isCapacitor()) {
+            const result = await FirebaseAuthentication.signInWithGoogle({ useCredentialManager: false });
+            const idToken = result?.credential?.idToken;
+            if (!idToken) throw new Error('Google re-authentication returned no ID token');
+            await reauthenticateWithCredential(user, GoogleAuthProvider.credential(idToken));
+          } else {
+            await reauthenticateWithPopup(user, googleProvider);
+          }
+          return;
         }
-      } else {
-        throw err;
-      }
-    }
+        if (!u.email || !emailPassword) {
+          // Ask the UI for the password and retry. Throwing here is the point:
+          // Firebase only reports requires-recent-login by attempting a
+          // sensitive operation, so identity is proven before anything is
+          // destroyed rather than discovered halfway through a wipe.
+          throw new AccountDeletionError('reauth-required');
+        }
+        await reauthenticateWithCredential(user, EmailAuthProvider.credential(u.email, emailPassword));
+      },
+      deleteCloudData: deleteUserData,
+      removeAccount: (user) => deleteUser(user),
+      purgeDeviceData,
+    });
   }, []);
 
   const logOut = useCallback(async () => {

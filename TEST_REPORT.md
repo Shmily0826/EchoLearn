@@ -3951,3 +3951,379 @@ Bounded implementation of the two closed Dogfood campaigns (ECHO_FIRST_TIME_LEAR
 **Evidence.** New behavior spec `e2e/learner-friction-fix.spec.ts` (Tests A–G, discovery by visible role/name, deterministic dictionary stub, synthetic WAV/SRT): 7/7 PASS desktop; related existing suites `local-audio`, `dictionary-failure-loop`, `dictionary-semantics`, `review-schedule-campaign`, `golden-path`, `first-run-journey`, and `mobile-pwa`: 26/26 PASS after rerunning WebKit without the Chrome-only browser override. Gates: Vitest 682/682, `tsc -b` clean, eslint 0 errors / 12 baseline warnings, `vite build` PASS, `git diff --check` pending after this report edit. Diff surface: 7 source files (+53/−10), this report entry, and the new spec; no Auth/Firestore/AI-cache file touched; Production untouched (no commit/push/deploy).
 
 **Mobile popup acceptance (MP1–MP7, added at release-prep review).** New spec Test G runs the 390×844 dictionary-popup journey: a genuinely visible bottom-band word is hit-tested; loading and final popups stay inside the viewport; the card stays below 90% of the screen; Save Word is reachable and works; Escape closes; horizontal overflow is 0 px. The historical `.dogfood-scratch/shots/mobile-popup-geometry.json` path is absent, so these are current local assertions only; the former retained-artifact claim is an evidence gap. No app-code change was needed — the first G failure was traced to a harness race (coordinates captured mid smooth-scroll went stale); the spec now clicks through the accessible name so Playwright's own stability/hit-test applies. Full pass: A–G 7/7 with dictionary-semantics, dictionary-failure-loop, local-audio and review-schedule-campaign (green).
+## 2026-09-20 — ECHO_AUTH_DATA_AND_AI_CACHE_SAFETY_V1 (LOCAL VERIFIED only)
+
+Baseline re-verified before work: `main` == `origin/main` == `b928ee8`, clean tree,
+`main` CI success, `deploy:check` PASS for `b928ee8`. Work happened on the new branch
+`agent/auth-data-ai-cache-safety`; no commit, push, merge, deploy or **Firebase rules
+deployment** was performed, and the four existing worktrees were left alone.
+
+### Reproduction (before any fix)
+
+The committed rules suite was run against the **pre-change** `firestore.rules`
+(then restored — file copy, no `git stash`):
+
+| Reproduced | Result |
+|---|---|
+| A2 — owner cannot enumerate their own feedback | `getDocs(query(where userId))` **denied**, `deleteDoc` **denied**, `getDoc` **denied** |
+| A2 — a stranger cannot read it either | denied (so the data is orphaned, not merely private) |
+| AI1/AI2 — shared cache poisoning | verified user, **stranger** and **unverified** account could each overwrite `aiAnalyses/{key}`; the last write (`POISONED-UNVERIFIED`) is what a reader was served |
+| A1 — deletion order | code read confirmed: `deleteUserData` → `clearAllLocalData()` → `deleteUser()`, i.e. destruction before the operation that can fail |
+| A3 — swallowed failures | `Promise.allSettled` on both the sync docs and the feedback deletes, with the rejection only logged |
+| A4 — cleanup boundary | no `deleteDatabase` call existed anywhere in `src/`; `clearPat()` was never called by deletion |
+
+### M1 — implementation and tests
+
+`src/services/accountDeletion.ts` (pure sequencer + typed `DeletionFailure`),
+`src/services/deviceDataPurge.ts`, `deleteAllLocalAudioMedia()`, `deleteUserData` now
+propagating with a bounded, rule-mirroring feedback loop, owner-scoped
+`feedback/{uid}/messages` writes, and a Settings password step that appears only when
+Firebase needs proof of a recent sign-in.
+
+| Test | Pins |
+|---|---|
+| `accountDeletion.test.ts` (7) | the exact order; each failing step stops the ones behind it; cancelled vs rejected reauth distinguished; `reauth-required` passes through unlabelled |
+| `AuthContext.test.tsx` +6 (19 total) | the boundary as reached through the provider: no password → nothing touched; success order by `invocationCallOrder`; `requires-recent-login` no longer destroys local data; cloud failure stops deletion; Google uses the popup; **AD5** logout still does not delete |
+| `deviceDataPurge.test.ts` (3) | study data + both sync-marker sets + PAT/gist gone, language survives, `deleteDatabase` reached, a blocked IDB rejects instead of claiming a clean device; ordinary logout still leaves the PAT alone |
+
+### M2 — implementation and tests
+
+Rules: `aiCache/{writerId}/analyses/{key}` verified-owner-only read+write; legacy
+`aiAnalyses/{docId}` public **read**, `write: if false`; legacy flat `feedback/{docId}`
+unchanged except a documented admin-cleanup note. Client reads its own subtree first,
+then the frozen corpus, and writes only its own subtree as a verified session.
+
+| Criterion | Evidence |
+|---|---|
+| AI1/AI2 | emulator: stranger write/get/delete on another uid's key **fails**; `aiCacheTrust.test.ts`: a verified session never writes `aiAnalyses/*` |
+| AI3 | unverified and anonymous writes **fail** at both the rule and client level |
+| AI4/AI5 | own entry wins the read; a banked legacy entry still returns a HIT with **no** rewrite; a guest can still HIT the legacy corpus |
+| AI6 | expired entry → miss; a rejected read → miss, never an invented result |
+| AI7 | the table above reproduces the old gap; the new suite pins the boundary |
+| AI8 | `/api/ai` auth header, guest cost boundary and client rate limit untouched |
+| AI9 | tests assert plumbing and rule decisions only; no mock result is presented as provider output |
+
+### Validation
+
+| Gate | Result |
+|---|---|
+| Vitest | **704/704** (69 files) — 682 baseline + 22 new |
+| Firestore Emulator rules suite | **13 passed** (port 8099 scratch config; the user's 8080 tunnel and `firebase.json` untouched) |
+| Full Playwright, serial, own dev server | run 1: 91 passed / **1 failed** / 1 skipped; run 2: **92 passed / 1 skipped / 0 flaky, exit 0** |
+| `tsc -b` / `eslint` / `npm run build` / `git diff --check` | clean / 0 errors, 12 baseline warnings / PASS / clean |
+
+The one E2E failure was `mobile-pwa.spec.ts` "offline and reconnect do not crash the
+loaded guest shell" — the service-worker/offline area is explicitly out of this goal's
+scope, it passed 18/18 standalone and green on a full re-run, so it is recorded as a
+load-sensitive flake in an excluded area rather than fixed or quietly dropped.
+
+Two things had to be fixed in my own harness before the evidence meant anything: the
+sequencer initially relabelled `reauth-required` as `reauth-failed`, and two early test
+files were vacuous (overrides bypassed the recording spy; a mocked `clearPat` made the
+PAT assertion untestable).
+
+### Evidence level and what is NOT verified
+
+**LOCAL VERIFIED.** GitHub has nothing merged and **Production Firestore rules are
+unchanged**, so none of this is Production-protected yet: the deployed rules still allow
+the shared-cache write path and still deny owner feedback deletion. Not exercised: real
+`deleteUser` against a live account (no real account was deleted), the Capacitor
+native-picker reauth path (web popup and mocked flows only), the GitHub-gist side of the
+copy, and rules propagation timing on a live project. No paid provider call was made and
+no Production Firestore document was read or written.
+
+### Reproducing the emulator run on this machine
+
+Port 8080 is held by an unrelated user process, so run the rules suite with a scratch config at the repo root
+(`firebase.emulator.local.json`, untracked: same rules path, emulator port 8099) and the injectable host added to
+`vitest.emulator.config.ts`:
+
+```bash
+ECHOLEARN_EMULATOR_HOST=127.0.0.1:8099 npx firebase --config firebase.emulator.local.json \n  emulators:exec --project echolearn-emulator --only firestore "npx vitest run --config vitest.emulator.config.ts"
+```
+
+CI needs none of this: it runs `npm run test:emulator` against the committed 8080 config.
+
+## 2026-09-20 (supervisor review closure) — three security-boundary tightenings
+
+### 1. Account deletion: partial-failure states made explicit, one made impossible
+
+- **Learning-data removal is now ONE batched write** (3 sync documents + the first
+  feedback page). Firestore commits a batched write all-or-none — "either all of
+  the operations succeed, or none of them are applied" — so the old mid-cleanup
+  window (vocabulary deleted, sentences still present, account alive) cannot happen
+  for learning data any more. Per-document `deleteDoc` is gone from this path and a
+  test asserts it is never called.
+- Deterministic states now pinned (`deleteUserData.test.ts` 8 cases,
+  `accountDeletion.test.ts` 8 cases): commit 1 fails → **zero** commits applied and
+  the error is surfaced; commit 2 fails → learning data provably already gone and
+  the message names only `feedback`; the feedback listing itself fails → reported as
+  `feedback:list`, never assumed empty; unverified session or another uid → nothing
+  touched; no password → nothing runs.
+- **The irreducible case is refused rather than performed.** No transaction spans
+  Firestore and Firebase Auth, so "cloud deleted, then `deleteUser` failed" is only
+  recoverable while this device still holds a copy. If the cloud documents would be
+  the *only* copy, `deleteUserData` throws `NoLocalCopyError` before writing
+  anything and the UI tells the learner to export first or delete on the device that
+  holds the data. **The strict AC ("no learner loses data merely because a deletion
+  step fails") cannot be guaranteed by a pure client and is recorded as a design
+  limitation, not as fixed**; no new infrastructure was introduced to chase it.
+- Per-stage copy no longer over-promises: `cloud-cleanup-failed` states the learning
+  data was either fully removed or not at all and the device/account are untouched;
+  `account-delete-failed` states the cloud data is gone while the account and this
+  device's data are intact and the operation can be finished later.
+- Three harness defects had to be fixed before the evidence meant anything: an
+  unused mock parameter, a `ref` vs `ref.path` mistake, and an early version whose
+  overrides bypassed the recording spy — that last one would have made every
+  ordering assertion vacuously pass.
+
+### 2. Legacy AI cache is no longer read at all
+
+`getCachedAnalysis` consults only `aiCache/{uid}/analyses/{key}`. The legacy
+`aiAnalyses/{key}` corpus stays public-**read** at the rule level (so the frontend
+now in Production does not lose its HITs before the release order below completes,
+and a public read of non-PII AI output is not itself a leak), but the new client
+never consumes it: being immutable now does not make writes that any signed-in or
+unverified client could once have made trustworthy.
+
+`aiCacheTrust.test.ts` pins exactly that: a legacy document holding **valid JSON, a
+matching key and a `createdAt` a year in the future** — so no TTL rule could reject
+it — yields `null` for a verified user, with the asserted read list containing only
+the own subtree; a guest gets `null` and issues **no** read at all.
+
+**Accepted cost consequence:** analyses cached in the legacy corpus are paid for
+once again per learner, and no cross-user HITs accrue. Restoring shared caching
+requires a privileged server writer (Admin SDK service account) — an infrastructure
+decision left to the owner, not taken here.
+
+### 3. Legacy `feedback/{docId}`: true status, provable range, admin plan
+
+- Truth: the new flow deletes **only** `feedback/{uid}/messages/*`. Legacy flat
+  documents are **not** deleted by it and cannot be — the client never kept their
+  autogenerated ids and no rule has ever allowed a client read or list. This is a
+  remaining gap, not a completed fix, and the docs say so.
+- The range is provably separable: the new emulator test seeds two legacy flat
+  documents plus one nested document, deletes the nested one as its owner, then
+  shows with admin-bypassed reads that a collection-group query on `feedback`
+  returns **exactly the two legacy documents** (all depth-2 paths) while the
+  current subtree lives in the `messages` group. An administrator can therefore
+  enumerate and verify the historical set with no risk of catching live data.
+- Admin plan (not executed — no authorization, nothing deleted):
+  1. Enumerate and count first, e.g. Admin SDK `collectionGroup('feedback')
+     .listDocuments()`, and confirm every hit is depth 2 with `createdAt` before
+     the cutover date.
+  2. Delete by explicit document id, non-recursive (or export, then delete).
+  3. **Never** run `firebase firestore:delete /feedback` recursively — `/feedback`
+     is also the parent of the new owner subtree and would remove current
+     submissions too.
+  4. The frozen `aiAnalyses` corpus can be dropped by collection once no client
+     reads it.
+
+### Closure gates
+
+Vitest **713/713** (70 files, +31 over the `b928ee8` baseline); Firestore emulator
+**14 passed** (scratch port 8099); full Playwright serial **92 passed / 1
+pre-existing skip / 0 flaky, exit 0** on the final tree, after one load-sensitive
+failure each in `mobile-pwa` and `bilibili-reliability` on earlier runs (9/9 and
+18/18 standalone, neither area present in this diff — no caption or Study source was
+touched); `tsc -b` clean; eslint 0 errors (12 baseline warnings); build PASS;
+`git diff --check` clean. Still LOCAL ONLY: nothing committed, no rules deployed, no
+Production read or write, no paid provider call, no real account deleted.
+
+## Release preparation — `ECHO_AUTH_DATA_AND_AI_CACHE_RELEASE_V1` (2026-09-21, LOCAL VERIFIED — AWAITING AUTHORIZATION)
+
+Baseline re-checked on the day of preparation: `HEAD` = `origin/main` = `b928ee8`, CI
+green on `main`, `npm run deploy:check` PASS (Production serves `b928ee8`), five
+worktrees listed with the other agents' branches untouched, `git status` showing only
+this campaign's files.
+
+**Deployed rules could not be downloaded.** `firebasemgmt.googleapis.com` rulesets
+listing returns 404 on both `v1` and `v1beta1` for this project with a valid (never
+printed) token, so "what rules are live" was answered behaviorally instead, with
+read-only GETs against Production via `scripts/verify-rules-propagation.mjs`:
+
+```
+users/probe-…/data/vocabulary            403   (owner-only, nothing leaked)
+aiAnalyses/probe-absent-…                404   (public read, document absent)
+aiCache/probe-…/analyses/absent          403   (path not in the live rules)
+feedback/probe-absent-…                  403   (no client read of feedback)
+```
+
+The `aiCache` 403 is consistent with pre-campaign rules *and* with Stage 1, which is why
+that script exits 1 without a credential: the anonymous half-check proves nothing is
+exposed, and only an owner-scoped read with a disposable verified token (403 → 404)
+confirms Stage 1 became effective. That requirement is reported, not worked around.
+
+**Compatibility matrix, executed.** `src/services/__tests__/firestoreRulesCompatibility.test.ts`
+loads all three committed rulesets — `deploy/firestore.pre-campaign.rules`,
+`firestore.rules` (Stage 1) and `deploy/firestore.stage2.rules` (Stage 5) — seeds each
+through the documented admin bypass after clearing the shared emulator, and probes 16
+operations per ruleset. Firestore emulator now **31 passed** (14 rules + 17 matrix).
+What the tables show, as outcomes rather than as prose:
+
+- Stage 1 → Stage 5 flips **exactly one** cell: `feedback.flatCreate` allowed → denied.
+- Pre-campaign → Stage 1 moves **exactly five**: the two `aiCache` owner operations and
+  the two nested-feedback operations become allowed, and `aiAnalyses.legacyWrite` becomes
+  denied. Everything else is unchanged, so the rules deploy cannot surprise the client
+  that is live today.
+- All five `userData.*` cells are identical in all three rulesets (owner allowed,
+  unverified / cross-uid / guest denied) — the ordinary learner data boundary is not
+  touched by either stage, and a rules rollback does not strand a library.
+- New frontend against **pre-campaign** rules: nested feedback create and list and the
+  whole `aiCache` subtree are denied → feedback submission breaks outright. That is the
+  proof for rules-first, frontend-second, and why Stage 2 gates Stage 3.
+- Old frontend against **Stage 1**: shared-cache read still works, its write is denied —
+  and the deployed code path is `try { setDoc } catch { /* best-effort */ }` invoked as
+  `void setCachedAnalysis(...)`, so a frozen write costs a cache miss, not an error.
+- Stage 5 with the old frontend restored: flat feedback create denied → rollback after
+  Stage 5 must restore Stage-1 rules first, which `firebase.rollback.json` does in one
+  command.
+
+**Artifacts, so no step depends on editing rules from memory.** `deploy/RULES_RELEASE.md`
+records the five stages with the exact command per stage; `scripts/rules-stage2.mjs`
+regenerates the Stage-5 file and refuses to run unless it matches its 7-line anchor
+exactly once (`node scripts/rules-stage2.mjs` prints the one-line change and three
+sanity flags); `firebase.stage2.json` and `firebase.rollback.json` point the CLI at the
+Stage-5 and rollback files so nothing has to be copied into `firestore.rules` by hand.
+
+**Gates (final tree, 2026-09-21).** Vitest **713/713** (70 files; the matrix file is
+excluded from the no-emulator run and fails with a sentence, not 17 connection errors,
+if that exclusion is ever removed), Firestore emulator **31/31** on scratch port 8099,
+`tsc -b` clean, eslint **0 errors / 12 warnings** (the same 12 as the baseline, in
+`AuthContext`, `SettingsPage` and `StudyPage` — none introduced here), build PASS,
+`git diff --check` clean. Two hygiene items found and fixed on the way: the scratch
+emulator config is now written and deleted by the runner itself and gitignored, and this
+campaign's browser dogfood scratch directory (a copy of `StudyPage.tsx` plus a logged-in
+browser profile) was moved out of the repository — eslint lints ignored paths too, so it
+had been inflating the local warning count to 20 and it held session cookies that must
+never be committed. No rules deployed, no
+Production write of any kind (the probes are GETs), no account deleted, no paid provider
+call. Playwright was not re-run: this stretch changed only test/config/`scripts`/docs
+files, no runtime source, so a browser run would re-test an unchanged bundle.
+
+## Release execution — `ECHO_AUTH_DATA_AND_AI_CACHE_RELEASE_V1` (2026-09-21, PRODUCTION VERIFIED)
+
+The five stages ran in the authorized order, and each layer's status is recorded
+separately: what was checked locally, what reached GitHub, what is deployed as
+Firebase Rules, what Vercel is serving, and what a real account deletion actually
+removed. Layers are not used as proxies for each other.
+
+### Local
+
+Four commits on `agent/auth-data-ai-cache-safety` off `b928ee8`, gates re-run on the
+final tree: Vitest **715/715** (70 files), Firestore emulator **31/31**, `tsc -b`
+clean, eslint **0 errors / 12 pre-existing warnings**, build PASS, `git diff --check`
+clean. `node scripts/rules-stage2.mjs` reproduced `deploy/firestore.stage2.rules`
+byte-identically to the committed artifact (`cmp` clean), so what was deployed as
+Stage 5 is what the repository holds.
+
+### GitHub
+
+- **PR #12** (security implementation + rules + release artifacts) — CI `test` 1m26s
+  and `e2e` 6m5s green, merged as **`1020601`**.
+- **PR #13** — a genuine defect found by the acceptance run below, not by re-auditing:
+  `deleteUserData` removed learning data and feedback but not the account's own
+  `aiCache/{uid}/analyses/*`, which after deletion no caller could ever reach again.
+  Fixed with no rules change and no new infrastructure; CI green; merged as **`b469bd4`**.
+- Two probe-verdict bugs were also fixed in the open, as separate commits: a Stage-1
+  verdict that required 404 where an owner read legitimately returns 200, and a probe
+  that used a made-up uid for an owner-scoped path (so it could only ever be denied).
+
+### Firebase Rules
+
+- **Stage 1 deployed and confirmed effective before the merge.** Confirmation is
+  behavioral: with a verified account's own token, `aiCache/{that uid}/…` answers
+  404 (rule allows the read, document absent) where pre-campaign rules answer 403,
+  while `users/{stranger}` and `aiCache/{stranger}` stay 403 and nothing is readable
+  anonymously. The ruleset itself still cannot be listed back — `firebasemgmt`
+  returns 404 for this project — so a deploy receipt is treated as a receipt.
+- **Stage 5 deployed 2026-09-21T02:28:18Z and confirmed live.** The only observable
+  change is that a legacy flat `feedback/{docId}` create is now denied, so it was
+  probed with the only client that can express it: Vercel still serves the previous
+  deployment (`index-DylzYbHh.js`, distinct from Production's `index-7lykTDfi.js`),
+  whose bundle writes flat feedback with a server-set `createdAt`. The Firestore REST
+  commit API cannot be substituted for this — `update` and `transform` are the same
+  oneof, so no single REST write can satisfy `createdAt == request.time` — and two
+  early attempts were therefore malformed requests that never reached a rule (HTTP
+  400, and the first script wrongly read "not 200" as "denied"; the verdict logic now
+  requires `PERMISSION_DENIED` plus an absent document). The real attempt created
+  **nothing**: the flat-document census held at 1 before and after, with zero page
+  errors. One attempt, no retries, per the rule recorded in `DECISIONS.md`.
+- Post-Stage-5 re-check of every boundary: owner cache 404-allowed, owner user data
+  200, another uid's cache and user data 403, anonymous user data 403, legacy shared
+  cache still public-read, nested write + owner delete still 200/200.
+- Rollback path is a command, not a memory: `--config firebase.rollback.json` against
+  `deploy/firestore.pre-campaign.rules`.
+
+### Vercel Production
+
+`npm run deploy:check --expect b469bd4` PASS — `b469bd4` is the newest Production
+deployment and Vercel reports success. Identity alone is not treated as behavior: the
+running client is identified by what it writes, and the acceptance below shows
+feedback landing only under `feedback/{uid}/messages/…`, a shape only the new client
+can produce. The earlier note that local-vs-live bundle hashes are not comparable in
+this repository (`docs/TESTING.md`) was honored; an attempted hash comparison was
+dropped rather than explained away.
+
+### Non-destructive Production smoke — 20/20
+
+Against the final bundle, reusing only the long-lived verified QA accounts A/B:
+guest Study renders 277 rows; A signs in and the cloud returns 23 items; a UI feedback
+submission appears under the owner's nested path and the owner can list it, while B
+cannot (403); A's own `aiCache` subtree is readable and B's is not; user data is
+readable by its owner and denied anonymously; the legacy shared cache still answers
+public reads; B does not inherit A's words; the delete control demands a native
+confirmation and then a password reauthentication ("…nothing has been deleted yet")
+and cancelling leaves the account intact; logout clears the device; zero console and
+zero page errors. The smoke's own feedback documents were then removed through the
+owner delete path (4 deletes, all 200, 0 remaining), which is itself the rule
+account deletion depends on.
+
+### Real Delete Account acceptance — one disposable account
+
+Target confirmed before the destructive click: uid `D1hSHX8p…`, `email_verified: true`,
+the `+echolearn-del-20260921` alias, not A (`FTi3lOgJ…`), not B (`YbPoHsjN…`), and the
+Settings page displayed that email. Credentials stayed in Credential Manager; no
+password or token was printed at any point.
+
+Seeded first, so this was not a deletion of an empty account: 2 vocabulary + 1 sentence
+pushed through the product's own sync, 1 nested feedback message through the UI,
+`echolearn-local-media-v2` created with a Blob, and synthetic PAT / gist / last-sync
+keys. Pre-deletion state was read through the owner channel and the read-only
+project-owner channel: learning documents FOUND (2 items), feedback 1 document.
+
+Executed through the product UI only (no Admin SDK shortcut): native confirmation →
+password reauthentication modal → "Delete my account".
+
+Verified afterwards:
+
+| Layer | Result | Evidence |
+| --- | --- | --- |
+| Firebase Auth | **DELETED** | the user directory (`auth:export` to a scratch file, membership read, file deleted) holds 14 users and no longer contains the uid; A, B and the owner's own account are all still present. A rejected sign-in alone was *not* accepted as proof, because `INVALID_LOGIN_CREDENTIALS` is Firebase's anti-enumeration answer for a wrong password and a removed account alike. |
+| Cloud learning data | **DELETED** | the same read-only channel that found the documents before answers 404 NOT_FOUND for both sync documents afterwards. |
+| Feedback | **DELETED** | the owner's `feedback/{uid}/messages` listing went from 1 document to 0, counted administratively so a 403 cannot be mistaken for absence. |
+| Private AI cache | **see limit below** | subtree list 0 documents and the probe entry 404. |
+| Device localStorage | **PURGED** | vocabulary, sentences, PAT, gist id and last-sync keys all null. |
+| IndexedDB audio | **PURGED** | `echolearn-local-media-v2` is gone from `indexedDB.databases()`, leaving only Firebase's own heartbeats/installations/auth stores. |
+| Session | **ENDED** | the account section unmounted, signed-out state, no error surfaced, no page errors. |
+| Long-lived accounts | **UNAFFECTED** | A still signs in, still reads its own vocabulary (200), and B still signs in. |
+
+**Honest limits of this acceptance.** (1) The disposable account's cache subtree was
+empty when it was deleted: my synthetic cache write used the wrong document endpoint
+(HTTP 400), so that run could not show a *non-empty* subtree being removed. The
+mechanism was then proven on Production with QA Account A — owner write 200 → listed →
+read 200 → **cross-account read 403** → owner delete 200 → listing empty — which is the
+exact call sequence `deleteOwnedSubtree` performs, and unit plus emulator coverage hold
+for the deletion itself; but the deleted-account case remains **UNVERIFIED** as executed.
+(2) A real cache HIT was never observed, because producing one needs a paid DeepSeek call
+that this release does not authorize. (3) "No other user affected" rests on path scoping,
+rule denials and the A/B controls, not on a full-project document census.
+
+### Historical data obligations, with numbers now attached
+
+The flat `feedback/{docId}` census through the owner read channel is **1 document**, not
+an unbounded set — an administrator removal item, listed rather than cleaned, since bulk
+admin cleanup is not authorized and recursive deletion of `/feedback` would also take the
+new owner subtree. The frozen `aiAnalyses` corpus is left in place and is no longer read
+by the new client. Account deletion still does not delete the remote GitHub Gist, which
+remains stated in the README boundary rather than being quietly expanded.

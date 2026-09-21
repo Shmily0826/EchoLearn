@@ -426,3 +426,126 @@ Once the active goal, root cause, and acceptance criteria are sufficiently speci
   `/api/dictionary` handler; it passed alone and dropped a save under full-suite
   load. Any spec that touches a provider-shaped route must stub it and abort the
   external fallback, so CI measures the app rather than the network.
+
+## ECHO_AUTH_DATA_AND_AI_CACHE_SAFETY_V1 — deletion contract and AI cache trust boundary
+
+- **Accepted account-deletion contract (order is the contract).** 1) prove
+  identity by reauthentication, 2) delete cloud data with every failure
+  propagated, 3) `deleteUser`, 4) purge the device. Firebase documents exactly
+  this shape — a sensitive operation needs a recent sign-in and the recovery is
+  "authenticate again, then call `reauthenticateWithCredential()`" — and states
+  no numeric recency window, so none is claimed anywhere in the UI. The previous
+  order (cloud wipe → local wipe → `deleteUser`) could destroy a learner's data
+  and then fail, leaving the account alive.
+- **The one non-atomic boundary is named, not papered over.** If cloud cleanup
+  succeeds but `deleteUser` then fails, the account survives with the device's
+  local data fully intact, so the learner can sign in, re-sync and retry. The
+  reverse ordering would have left cloud documents no client can ever reach
+  again. No cross-service "transaction" is claimed across Auth, Firestore,
+  IndexedDB and GitHub, because none exists.
+- **The deletion promise now matches the copy.** Device purge covers
+  localStorage study data, both sync-marker sets, the GitHub PAT + gist id, and
+  every persisted Local Audio Blob (`indexedDB.deleteDatabase`). Ordinary logout
+  keeps its narrower semantics on purpose — it must not delete a learner's
+  audio files or backup credential. README and the Settings hint now state the
+  two real limits: the remote **Gist is not deleted** (only the local
+  credential is), and pre-2026-09-20 flat feedback needs an administrator.
+- **Feedback became deletable by nesting the uid in the path**
+  (`feedback/{userId}/messages/{id}`). A rule cannot rescue documents whose ids
+  the client never kept and could never list, which is why owner-delete alone on
+  the flat collection was a dead end. `list` carries
+  `request.query.limit <= 50` and the client mirrors it with `limit(50)` in a
+  bounded loop, because Firestore rules can see `request.query.limit` but there
+  is no documented `request.query.predicates` to assert an owner filter with.
+  The flat create rule stays for backward compatibility with the deployed
+  frontend and should become `if false` once this frontend ships.
+- **Legacy flat feedback is an open gap with a provable boundary, not a
+  completed fix.** The new flow deletes only `feedback/{uid}/messages/*`. The old
+  flat documents cannot be reached by any client at all, so no rule change makes
+  them deletable by their owner. What was established instead is that the
+  historical set is *separable*: a collection-group query on `feedback` returns
+  exactly the depth-2 legacy documents and never the current subtree (which lives
+  in the `messages` group), verified in the emulator. So the cleanup is an
+  administrator action with a safe procedure — enumerate and count, confirm
+  `createdAt` is before the cutover, then delete by explicit id non-recursively —
+  and one named hazard: `firebase firestore:delete /feedback` is recursive over
+  `/feedback/{uid}/messages/*` and must not be used.
+- **AI cache trust boundary: an owner-scoped subtree, and the legacy corpus
+  frozen to read-only.** `aiCache/{writerUid}/analyses/{key}` is readable and
+  writable only by its own verified session, so no other account can overwrite
+  or pre-create what a learner is served. The old public `aiAnalyses/{key}`
+  collection is now `read: true / write: false` at the rule level — nobody,
+  legitimate or malicious, can add to it — **and the new client does not read it
+  either**. Freezing it does not retroactively make it trustworthy: any signed-in
+  or unverified client could previously write it, so its contents stay untrusted
+  input, and serving them would reintroduce the poisoning path through the back
+  door. It is deletable by an administrator as a collection group.
+- **Learning-data cloud removal is one batched write, and that is a documented
+  guarantee, not an assumption.** Firestore states a batched write is committed
+  all-or-none ("either all of the operations succeed, or none of them are
+  applied"), so the three sync documents plus the first feedback page either all
+  go or none go; per-document `deleteDoc` was removed from this path and a test
+  asserts it is never called. What batching does *not* cover is stated plainly:
+  feedback beyond the first page goes in further batches (a later failure leaves
+  learning data already gone and says so), and Firestore and Firebase Auth are
+  still separate services.
+- **Account deletion also removes the writer's own AI cache subtree, because
+  nothing else ever could.** `aiCache/{uid}/analyses/*` is bound to its writer by
+  the same rule that protects it, so once the Auth account is gone no client —
+  including a future owner of that uid, which cannot exist — can read or delete
+  those documents. Leaving them behind would recreate exactly the orphan shape
+  this campaign exists to end, so `deleteUserData` lists and deletes that subtree
+  in bounded batches alongside feedback and learning data. It needed no rules
+  change and no new infrastructure: the owner already has `read, write` on its own
+  path. An empty subtree costs no write, and a cache-only failure is named as such
+  rather than reported as a clean deletion.
+- **The only-copy interlock, and the AC it exists because a client cannot
+  satisfy.** If this device holds no copy of the cloud learning data, deleting the
+  cloud documents would be irreversible the moment `deleteUser` fails afterwards,
+  and no client-side ordering can undo that — so `deleteUserData` refuses with
+  `no-local-copy` and the UI points at export or the device that has the data.
+  **The strict acceptance criterion "no learner loses data merely because a
+  deletion step fails" is therefore recorded as a design limitation of a
+  pure-client design, not as solved**; closing it properly needs a trusted server
+  (Admin SDK / Auth-triggered function), which is explicitly out of scope here
+  rather than introduced quietly.
+- **Rejected for the shared cache, with reasons.** Attaching `userId` to the
+  document is not a boundary (anyone can write that field); create-only shared
+  writes do not stop first-writer poisoning; and no documented privileged-writer
+  pattern exists without the Admin SDK or Cloud Functions, because rules cannot
+  validate a client-computed SHA-256 and server libraries bypass rules by
+  design. Firestore TTL is console/gcloud-only and works per collection group,
+  so it cannot prune legacy feedback without also pruning live submissions. The
+  Delete-User-Data extension is deprecated (service closes 2027-03-31).
+  **Consequence accepted:** cross-user cache HITs stop accruing — restoring full
+  sharing is a decision that costs a new service-account credential, and it is
+  listed as such rather than smuggled in.
+- **Rules deployment order is part of the design, and the plan is an artifact.**
+  Rules are deployed independently (`firebase deploy --only firestore:rules`,
+  propagation up to ~10 minutes for active listeners). Ship the rules first: they
+  only add two collections and freeze legacy cache writes, and the currently
+  deployed frontend tolerates that freeze because its cache write is already
+  best-effort/try-catch. Shipping the frontend first would break it — nested
+  feedback and `aiCache` writes would be denied by the rules then live. Neither
+  step may weaken `users/{uid}/data/*` isolation. Because a rules deploy cannot
+  be listed back over the REST API for this project, "effective" is confirmed
+  behaviorally (`scripts/verify-rules-propagation.mjs`, GET-only: `aiCache/...`
+  answers 403 before Stage 1 and 404 after), and every deployable ruleset is a
+  committed file with its own `--config` (`deploy/RULES_RELEASE.md`,
+  `firebase.stage2.json`, `firebase.rollback.json`) plus a generator that refuses
+  to emit Stage 5 unless it matches Stage 1 in exactly one anchor — no deployment
+  may depend on someone re-typing rules from memory.
+- **A Stage-5 probe is attempted once, because a flat feedback document is
+  undeletable by design.** The only client-observable effect of closing the
+  legacy flat `feedback/{docId}` create is that a create which used to succeed now
+  answers 403 — so confirming it live means attempting it. If the rules have not
+  propagated, the attempt *succeeds* and leaves a document no client can remove.
+  The release therefore waits out the documented propagation window, makes a
+  single attempt with the document id recorded, never retries, and treats an
+  accepted create as "not live yet" plus an administrator cleanup item rather than
+  as something to fix by trying again.
+- **Reproduction evidence is transient by design.** The audit gap was
+  demonstrated by running the committed emulator suite against the pre-change
+  rules (an unverified session's write became the served content), then
+  restoring the old file. The old rules are not committed as a fixture: a second
+  copy of security policy would only be able to drift.

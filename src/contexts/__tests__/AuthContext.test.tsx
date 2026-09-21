@@ -2,6 +2,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { cleanup, render, screen } from '@testing-library/react';
 import { AuthProvider, useAuth } from '../AuthContext';
+import { AccountDeletionError } from '../../services/accountDeletion';
 
 const mocks = vi.hoisted(() => ({
   auth: { currentUser: { uid: 'user-a', emailVerified: true, getIdToken: vi.fn() } as { uid: string; emailVerified: boolean; getIdToken: ReturnType<typeof vi.fn> } | null },
@@ -11,6 +12,12 @@ const mocks = vi.hoisted(() => ({
   hasLocalSyncableData: vi.fn(() => true),
   isSyncPending: vi.fn(() => false),
   clearSyncMetadata: vi.fn(),
+  deleteUser: vi.fn(),
+  reauthenticateWithPopup: vi.fn(),
+  reauthenticateWithCredential: vi.fn(),
+  emailCredential: vi.fn(() => ({ kind: 'email-credential' })),
+  deleteUserData: vi.fn(),
+  purgeDeviceData: vi.fn(),
 }));
 
 vi.mock('firebase/auth', () => ({
@@ -22,17 +29,21 @@ vi.mock('firebase/auth', () => ({
   createUserWithEmailAndPassword: vi.fn(),
   updateProfile: vi.fn(),
   sendEmailVerification: vi.fn(),
-  deleteUser: vi.fn(),
+  deleteUser: mocks.deleteUser,
+  reauthenticateWithPopup: mocks.reauthenticateWithPopup,
+  reauthenticateWithCredential: mocks.reauthenticateWithCredential,
+  EmailAuthProvider: { credential: mocks.emailCredential },
   GoogleAuthProvider: class { static credential() { return {}; } },
 }));
 vi.mock('../../lib/firebase', () => ({ auth: mocks.auth, googleProvider: {} }));
 vi.mock('../../services/firestoreSync', () => ({
-  deleteUserData: vi.fn(),
+  deleteUserData: mocks.deleteUserData,
   syncWithCloud: mocks.syncWithCloud,
   hasLocalSyncableData: mocks.hasLocalSyncableData,
   isSyncPending: mocks.isSyncPending,
   clearSyncMetadata: mocks.clearSyncMetadata,
 }));
+vi.mock('../../services/deviceDataPurge', () => ({ purgeDeviceData: mocks.purgeDeviceData }));
 vi.mock('../../services/analytics', () => ({ trackEvent: vi.fn() }));
 vi.mock('../../utils/platform', () => ({ isCapacitor: () => false }));
 
@@ -276,5 +287,127 @@ describe('AuthProvider account boundary', () => {
 
     await vi.waitFor(() => expect(getIdToken).toHaveBeenCalledWith(true));
     expect(mocks.syncWithCloud).not.toHaveBeenCalled();
+  });
+});
+
+function DeleteButton({ password, onError }: { password?: string; onError?: (error: unknown) => void }) {
+  const { deleteAccount } = useAuth();
+  return <button onClick={() => void deleteAccount(password).catch(onError)}>Delete account</button>;
+}
+
+/**
+ * M1: the account-deletion boundary as the learner actually reaches it, through
+ * the provider — not just the pure sequencer. The invariant under test is that
+ * nothing is destroyed before identity is proven, and nothing device-local is
+ * destroyed before the account itself is gone.
+ */
+describe('AuthProvider account deletion', () => {
+  const emailUser = {
+    uid: 'user-a', email: 'owner@example.test', emailVerified: true,
+    providerData: [{ providerId: 'password' }], getIdToken: vi.fn().mockResolvedValue('t'),
+  };
+  const googleUser = {
+    uid: 'user-g', email: 'owner@gmail.test', emailVerified: true,
+    providerData: [{ providerId: 'google.com' }], getIdToken: vi.fn().mockResolvedValue('t'),
+  };
+
+  afterEach(() => cleanup());
+  beforeEach(() => {
+    vi.clearAllMocks();
+    localStorage.clear();
+    // clearAllMocks drops call history but keeps implementations, so a rejected
+    // mock from an earlier case would otherwise leak into the next one.
+    for (const fn of [mocks.reauthenticateWithPopup, mocks.reauthenticateWithCredential, mocks.deleteUserData, mocks.deleteUser, mocks.purgeDeviceData]) {
+      fn.mockResolvedValue(undefined);
+    }
+    mocks.onAuthStateChanged.mockImplementation((_a: unknown, next: (u: unknown) => void) => {
+      next(mocks.auth.currentUser);
+      return vi.fn();
+    });
+    mocks.hasLocalSyncableData.mockReturnValue(false);
+    mocks.isSyncPending.mockReturnValue(false);
+  });
+
+  /** Clicks delete and returns the captured rejection, so each case waits on what it asserts. */
+  async function clickDelete(password?: string) {
+    const onError = vi.fn();
+    render(<AuthProvider><DeleteButton password={password} onError={onError} /></AuthProvider>);
+    screen.getByRole('button', { name: 'Delete account' }).click();
+    return onError;
+  }
+
+  const failureOf = async (onError: ReturnType<typeof vi.fn>) => {
+    await vi.waitFor(() => expect(onError).toHaveBeenCalledTimes(1));
+    const error = onError.mock.calls[0][0];
+    return error instanceof AccountDeletionError ? error.failure : 'no-error';
+  };
+
+  it('asks an email account for its password before touching any data', async () => {
+    mocks.auth.currentUser = emailUser;
+    localStorage.setItem('echolearn_vocabulary', JSON.stringify([{ id: 'keep-me' }]));
+    expect(await failureOf(await clickDelete(undefined))).toBe('reauth-required');
+    expect(mocks.reauthenticateWithPopup).not.toHaveBeenCalled();
+    expect(mocks.deleteUserData).not.toHaveBeenCalled();
+    expect(mocks.deleteUser).not.toHaveBeenCalled();
+    expect(mocks.purgeDeviceData).not.toHaveBeenCalled();
+    expect(localStorage.getItem('echolearn_vocabulary')).not.toBeNull();
+  });
+
+  it('reauthenticates, then deletes cloud data, the account, and only then the device', async () => {
+    mocks.auth.currentUser = emailUser;
+    await clickDelete('correct horse battery staple');
+    await vi.waitFor(() => expect(mocks.purgeDeviceData).toHaveBeenCalledTimes(1));
+    expect(mocks.emailCredential).toHaveBeenCalledWith('owner@example.test', 'correct horse battery staple');
+    expect(mocks.reauthenticateWithCredential).toHaveBeenCalled();
+    expect(mocks.deleteUserData).toHaveBeenCalledWith('user-a');
+    expect(mocks.deleteUser).toHaveBeenCalled();
+    // Order: identity → cloud → account → device.
+    const order = [
+      mocks.reauthenticateWithCredential.mock.invocationCallOrder[0],
+      mocks.deleteUserData.mock.invocationCallOrder[0],
+      mocks.deleteUser.mock.invocationCallOrder[0],
+      mocks.purgeDeviceData.mock.invocationCallOrder[0],
+    ];
+    expect(order).toEqual([...order].sort((a, b) => a - b));
+  });
+
+  it('AD1: a stale session (requires-recent-login) no longer destroys local data first', async () => {
+    mocks.auth.currentUser = emailUser;
+    localStorage.setItem('echolearn_vocabulary', JSON.stringify([{ id: 'keep-me' }]));
+    mocks.deleteUser.mockRejectedValue(new Error('auth/requires-recent-login'));
+    await clickDelete('hunter2');
+    await vi.waitFor(() => expect(mocks.deleteUser).toHaveBeenCalledTimes(1));
+    // The old flow had already run clearAllLocalData() before reaching here.
+    expect(mocks.purgeDeviceData).not.toHaveBeenCalled();
+    expect(localStorage.getItem('echolearn_vocabulary')).not.toBeNull();
+  });
+
+  it('A3: a failed cloud cleanup stops the deletion instead of proceeding', async () => {
+    mocks.auth.currentUser = emailUser;
+    mocks.deleteUserData.mockRejectedValue(new Error('permission-denied'));
+    await clickDelete('hunter2');
+    await vi.waitFor(() => expect(mocks.deleteUserData).toHaveBeenCalledTimes(1));
+    expect(mocks.deleteUser).not.toHaveBeenCalled();
+    expect(mocks.purgeDeviceData).not.toHaveBeenCalled();
+  });
+
+  it('reauthenticates a Google account through the popup, with no password prompt', async () => {
+    mocks.auth.currentUser = googleUser;
+    await clickDelete(undefined);
+    await vi.waitFor(() => expect(mocks.purgeDeviceData).toHaveBeenCalledTimes(1));
+    expect(mocks.reauthenticateWithPopup).toHaveBeenCalled();
+    expect(mocks.reauthenticateWithCredential).not.toHaveBeenCalled();
+    expect(mocks.emailCredential).not.toHaveBeenCalled();
+  });
+
+  it('AD5: deleting is not logging out — ordinary logout still only clears the account boundary', async () => {
+    mocks.auth.currentUser = { ...emailUser };
+    localStorage.setItem('echolearn_vocabulary', JSON.stringify([{ id: 'a' }]));
+    render(<AuthProvider><LogoutButton /></AuthProvider>);
+    screen.getByRole('button', { name: 'Log out' }).click();
+    await vi.waitFor(() => expect(mocks.signOut).toHaveBeenCalledTimes(1));
+    expect(mocks.deleteUser).not.toHaveBeenCalled();
+    expect(mocks.deleteUserData).not.toHaveBeenCalled();
+    expect(mocks.purgeDeviceData).not.toHaveBeenCalled();
   });
 });

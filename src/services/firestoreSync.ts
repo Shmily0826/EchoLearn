@@ -20,13 +20,13 @@ import {
   getDoc,
   setDoc,
   serverTimestamp,
-  deleteDoc,
   getDocs,
+  limit,
   query,
-  where,
+  writeBatch,
   collection,
 } from 'firebase/firestore';
-import type { DocumentReference, DocumentData } from 'firebase/firestore';
+import type { DocumentReference, DocumentData, WriteBatch } from 'firebase/firestore';
 import { db, auth } from '../lib/firebase';
 import {
   loadVocabulary,
@@ -101,18 +101,142 @@ function assertVerified(uid: string): void {
 }
 
 /**
- * Delete all cloud data belonging to a user (their sync docs + any feedback
- * they submitted). Used by account deletion. Best-effort: errors are surfaced
- * to the caller but do not abort the surrounding deletion flow.
+ * Delete all cloud data belonging to a user, for account deletion.
+ *
+ * The learning-data documents and the first page of feedback are removed in ONE
+ * batched write, because Firestore commits a batched write all-or-none ("either
+ * all of the operations succeed, or none of them are applied"): a cleanup that
+ * dies halfway cannot leave a learner with half a cloud library. Failures are
+ * propagated rather than swallowed, so the caller stops before destroying
+ * anything on the device.
+ *
+ * Feedback beyond the first page is deleted in further bounded batches. Those
+ * later batches can fail after the first succeeded, which is reported rather
+ * than hidden — feedback is not learning data, and a retry finishes it.
+ *
+ * The writer's own AI cache subtree (`aiCache/{uid}/analyses/*`) is removed by
+ * the same kind of bounded pass. Without it, deleting an account would leave
+ * documents that no future client can ever reach again — the rules bind them to
+ * a uid that can no longer authenticate — which is precisely the orphan shape
+ * this campaign exists to end.
+ *
+ * An email-unverified account has nothing to delete — the rules deny it every
+ * write to `users/*`, `feedback/*` and `aiCache/*` in the first place, and would
+ * deny the delete too — so the call is a no-op for that account instead of a
+ * guaranteed permission error.
+ *
+ * LEGACY `feedback/{docId}` documents are NOT reachable here: they live in the
+ * `feedback` collection group with ids no client ever kept, and rules have never
+ * allowed a client to read or list them. Removing them is an administrator
+ * action (see DECISIONS.md), not something this function can promise.
  */
 export async function deleteUserData(uid: string): Promise<void> {
-  const collections: SyncCollection[] = ['vocabulary', 'sentences', 'sessions'];
-  await Promise.allSettled(collections.map((c) => deleteDoc(getCollectionRef(uid, c))));
+  const current = auth.currentUser;
+  if (!current || current.uid !== uid || !current.emailVerified) return;
 
-  const fbSnap = await getDocs(
-    query(collection(db, 'feedback'), where('userId', '==', uid)),
-  );
-  await Promise.allSettled(fbSnap.docs.map((d) => deleteDoc(d.ref)));
+  // Safety interlock. There is no transaction that spans Firestore and Firebase
+  // Auth, so if the cloud documents were the learner's ONLY copy, a successful
+  // cloud delete followed by a failed `deleteUser` would be irreversible data
+  // loss. Refuse that state instead of performing it: this device can export or
+  // re-sync from the right device first.
+  const cloudDocs = await Promise.all(SYNC_COLLECTIONS.map((name) => getDoc(getCollectionRef(uid, name))));
+  const cloudHasData = cloudDocs.some((snap) => {
+    const items = (snap.data() as CloudDoc<unknown> | undefined)?.items;
+    return Array.isArray(items) && items.length > 0;
+  });
+  if (cloudHasData && !hasLocalSyncableData()) throw new NoLocalCopyError();
+
+  const failed: string[] = [];
+  // The sync documents ride along with the first feedback batch so a single
+  // commit covers every piece of learning data.
+  const carryLearningData = (batch: WriteBatch) => {
+    for (const name of SYNC_COLLECTIONS) batch.delete(getCollectionRef(uid, name));
+  };
+  const feedbackPage = await deleteOwnedSubtree(['feedback', uid, 'messages'], 'feedback', failed, carryLearningData);
+  await deleteOwnedSubtree(['aiCache', uid, 'analyses'], 'aiCache', failed);
+
+  if (failed.length) throw new CloudCleanupError(failed, feedbackPage);
+}
+
+/**
+ * List and delete one owner-scoped subtree in bounded batches, appending every
+ * failure to `failed` instead of throwing at the first one. The path must begin
+ * with the collection the caller owns outright, because rules cannot reach a
+ * document whose id the client never kept.
+ */
+async function deleteOwnedSubtree(
+  root: [string, ...string[]],
+  label: string,
+  failed: string[],
+  onFirstBatch?: (batch: WriteBatch) => void,
+): Promise<number | undefined> {
+  let lastPage: number | undefined;
+
+  for (let pass = 0; ; pass += 1) {
+    let ids: string[];
+    try {
+      const snap = await getDocs(query(collection(db, ...root), limit(FEEDBACK_DELETE_BATCH)));
+      ids = snap.docs.map((entry) => entry.id);
+      lastPage = snap.size;
+    } catch (error) {
+      failed.push(`${label}:list: ${messageOf(error)}`);
+      break;
+    }
+
+    // An empty subtree costs no write: committing a batch that deletes nothing
+    // would be a pointless Production round-trip on every deletion.
+    if (ids.length === 0 && !(pass === 0 && onFirstBatch)) break;
+
+    const batch = writeBatch(db);
+    if (pass === 0) onFirstBatch?.(batch);
+    for (const id of ids) batch.delete(doc(db, ...root, id));
+
+    try {
+      await batch.commit();
+    } catch (error) {
+      failed.push(`${pass === 0 && onFirstBatch ? 'learning data + ' : ''}${label}: ${messageOf(error)}`);
+      break;
+    }
+
+    if (ids.length < FEEDBACK_DELETE_BATCH) break;
+    if (pass >= FEEDBACK_DELETE_PASSES) {
+      failed.push(`${label}: still present after ${FEEDBACK_DELETE_PASSES + 1} batches`);
+      break;
+    }
+  }
+
+  return lastPage;
+}
+
+const SYNC_COLLECTIONS: SyncCollection[] = ['vocabulary', 'sentences', 'sessions'];
+
+/** The `list` rule caps at 50, so each page — and each batch — is bounded by it. */
+const FEEDBACK_DELETE_BATCH = 50;
+const FEEDBACK_DELETE_PASSES = 10;
+
+function messageOf(error: unknown): string {
+  return error instanceof Error ? error.message : String(error);
+}
+
+/** Refused before any cloud write: the cloud copy is the only one that exists. */
+export class NoLocalCopyError extends Error {
+  constructor() {
+    super('no-local-copy');
+    this.name = 'NoLocalCopyError';
+  }
+}
+
+/** Thrown when cloud cleanup could not remove everything it promised to. */
+export class CloudCleanupError extends Error {
+  readonly failed: string[];
+  /** How many feedback documents were visible in the last listed page, if any. */
+  readonly lastFeedbackPage?: number;
+  constructor(failed: string[], lastFeedbackPage?: number) {
+    super(`cloud-cleanup-incomplete: ${failed.join('; ')}`);
+    this.name = 'CloudCleanupError';
+    this.failed = failed;
+    this.lastFeedbackPage = lastFeedbackPage;
+  }
 }
 
 /**
