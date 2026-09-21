@@ -458,6 +458,16 @@ const ReviewPage: React.FC = () => {
               ))}
             </div>
 
+            {visibleDueCount === 0 && visibleAllCount > 0 && (
+              <p
+                role="note"
+                data-testid="review-first-day-hint"
+                className="-mt-4 mb-4 text-xs leading-relaxed text-gray-500 dark:text-gray-400"
+              >
+                {t('review.firstDayHint')}
+              </p>
+            )}
+
             {/* Start buttons */}
             <div className="space-y-3">
               <button

@@ -435,7 +435,9 @@ const DashboardPage: React.FC = () => {
         <div className="flex flex-col sm:flex-row sm:items-end sm:justify-between gap-4">
           <div>
             <h1 className="text-2xl sm:text-3xl font-bold text-gray-900 dark:text-gray-100 tracking-tight">
-              {t('dash.welcome')}
+              {vocabulary.length === 0 && sentences.length === 0 && sessions.length === 0
+                ? t('dash.welcomeNew')
+                : t('dash.welcome')}
             </h1>
             <p className="mt-2 text-gray-500 dark:text-gray-400 max-w-2xl leading-relaxed text-sm sm:text-base">
               {t('dash.subtitle')}

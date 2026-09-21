@@ -3931,3 +3931,23 @@ URLs) which this PR deliberately did not touch.
   bundle, so the behavior verified at `05ee239` remains the governing evidence for
   the deployed client; `deploy:check` still confirms Production is running the newest
   `main`. No app source has changed since the verified revision.
+
+---
+
+## ECHO_LEARNER_FRICTION_FIX_V1 — 2026-09-20/21 (LOCAL VERIFIED; branch `agent/learner-friction-fix-v1`, base `b928ee8`, isolated worktree `D:\CODE\project\EchoLearn-friction-fix`)
+
+Bounded implementation of the two closed Dogfood campaigns (ECHO_FIRST_TIME_LEARNER_DOGFOOD_V1 → ECHO_FIRST_TIME_LEARNER_FINDINGS_CLOSURE_V1). Findings kept with their corrected root-cause classifications; nothing here rewrites the earlier evidence.
+
+**F1 (confirmed defect, fixed).** `StudyPage.handleLoadVideo` previously routed invalid/empty URL input through `failInvalidInput`, which cleared `rawBlocks`/`sentenceLines`/`analysis` and opened the caption-error state while leaving the current videoId on screen — the learner lost a working transcript (including the bundled Sample's 277 lines) to a pure form mistake, and saw a misleading "Unable to fetch captions" message. Now invalid input sets a `urlError` rendered as a `role=alert` line directly under the URL box (`study.invalidVideo` for unrecognized input, new `study.urlEmpty` for empty), touches no lesson state, starts no caption request, and cannot reach Retry/ASR. Valid-load caption failure (IV10) is unchanged.
+
+**F4 (original claim corrected, real friction fixed).** The Dogfood "2 of 4 word clicks unresponsive" was a harness artifact (clicks below the fold). The genuine defect found in Closure: `WordDictionaryPopup.updatePlacement` skipped placement while `loading`, so a word near the viewport bottom showed its loading card below the fold for ~1–2 s. Placement now runs during loading with a reserved settled-card height (360 px floor), so the card appears inside the viewport immediately and barely moves when the result lands.
+
+**F2 (intended behavior, explained).** The bundled Sample remains intentionally unpersisted; a new bilingual `study.sampleNote` renders only in the Sample state ("saved words and sentences are kept, but this lesson won't appear in your study history"). No Session-creation rule was changed.
+
+**F3 (SRS policy preserved, guidance added).** With `Due Today = 0` but saved items present, Review shows `review.firstDayHint` pointing at the existing "Review Every Saved Item" action. Intervals, due predicates and counts untouched.
+
+**F5 (small UX).** First-visit guests now see "Welcome/欢迎" (`dash.welcomeNew`) instead of "Welcome back" — derived from existing data (no sessions/words/sentences), no new persistence. The transcript Save Sentence bookmark grew from a 28×28 to a ≥44×44 touch target via padding + negative margin in both `TranscriptViewer` and `MobileTranscriptPanel`, with no layout overflow.
+
+**Evidence.** New behavior spec `e2e/learner-friction-fix.spec.ts` (Tests A–G, discovery by visible role/name, deterministic dictionary stub, synthetic WAV/SRT): 7/7 PASS desktop; related existing suites `local-audio`, `dictionary-failure-loop`, `dictionary-semantics`, `review-schedule-campaign`, `golden-path`, `first-run-journey`, and `mobile-pwa`: 26/26 PASS after rerunning WebKit without the Chrome-only browser override. Gates: Vitest 682/682, `tsc -b` clean, eslint 0 errors / 12 baseline warnings, `vite build` PASS, `git diff --check` pending after this report edit. Diff surface: 7 source files (+53/−10), this report entry, and the new spec; no Auth/Firestore/AI-cache file touched; Production untouched (no commit/push/deploy).
+
+**Mobile popup acceptance (MP1–MP7, added at release-prep review).** New spec Test G runs the 390×844 dictionary-popup journey: a genuinely visible bottom-band word is hit-tested; loading and final popups stay inside the viewport; the card stays below 90% of the screen; Save Word is reachable and works; Escape closes; horizontal overflow is 0 px. The historical `.dogfood-scratch/shots/mobile-popup-geometry.json` path is absent, so these are current local assertions only; the former retained-artifact claim is an evidence gap. No app-code change was needed — the first G failure was traced to a harness race (coordinates captured mid smooth-scroll went stale); the spec now clicks through the accessible name so Playwright's own stability/hit-test applies. Full pass: A–G 7/7 with dictionary-semantics, dictionary-failure-loop, local-audio and review-schedule-campaign (green).

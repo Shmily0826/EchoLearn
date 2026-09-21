@@ -265,7 +265,7 @@ const MobileTranscriptPanel: React.FC<{
                       handleAddSentence(line);
                     }
                   }}
-                  className={`flex-shrink-0 p-1.5 rounded transition-colors cursor-pointer ${
+                  className={`flex-shrink-0 p-3.5 -m-2 rounded transition-colors cursor-pointer ${
                     sentenceSaved
                       ? 'text-violet-500 dark:text-violet-400'
                       : 'text-gray-300 active:text-violet-400'

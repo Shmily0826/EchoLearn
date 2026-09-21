@@ -328,11 +328,17 @@ const WordDictionaryPopup: React.FC<WordDictionaryPopupProps> = ({
   };
 
   const updatePlacement = useCallback(() => {
-    if (!popupRef.current || loading) return;
+    // Clamp during the loading skeleton too: a word near the viewport bottom
+    // must give the learner immediate visible feedback, not an off-screen card.
+    if (!popupRef.current) return;
+    const measured = popupRef.current.getBoundingClientRect().height;
+    // Reserve a typical settled-card height while loading so the placement
+    // barely moves when the dictionary result replaces the skeleton.
+    const h = loading ? Math.max(measured, 360) : measured;
     const sourceRow = sourceRowTop !== undefined && sourceRowBottom !== undefined
       ? { top: sourceRowTop, bottom: sourceRowBottom }
       : undefined;
-    setPopupTop(getPopupTop(y, popupRef.current.getBoundingClientRect().height, window.innerHeight, 16, sourceRow));
+    setPopupTop(getPopupTop(y, h, window.innerHeight, 16, sourceRow));
   }, [loading, y, sourceRowTop, sourceRowBottom]);
 
   // The learner's natural "back to reading" gesture: any pointer press outside
