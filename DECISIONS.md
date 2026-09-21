@@ -549,3 +549,11 @@ Once the active goal, root cause, and acceptance criteria are sufficiently speci
   rules (an unverified session's write became the served content), then
   restoring the old file. The old rules are not committed as a fixture: a second
   copy of security policy would only be able to drift.
+
+## ECHO-20260921-1851 - V2 local-media large browser-local import
+
+- **Status:** ACTIVE / LOCAL VERIFIED only. The browser-local V2 local-media path accepts `.mp3`, `.m4a`, and `.wav` up to **200 MiB** so a roughly 90 MB NotebookLM podcast can be paired with an existing `.srt` or `.vtt` without upload or transcription.
+- **Boundary:** legacy ASR upload/transcription remains capped at **25 MiB**; the Worker/VPS ASR path remains unchanged at its **25 MiB** limit. The two validators are intentionally separate.
+- **Failure safety:** IndexedDB `QuotaExceededError` and storage failures surface a free-space/compress guidance message; a failed import does not open or change the old lesson. If session persistence fails after the new Blob is written, the new Blob is cleaned up and the old lesson remains intact. Successful Blobs remain in IndexedDB and restore after refresh.
+- **Evidence boundary:** subtitle parsing is unchanged. Vitest **6/6**, local-media E2E **5/5**, `tsc -b`, lint (0 errors, 12 baseline warnings), and build passed. The 90 MB case is a size-contract test only; no real 90 MB browser/device import was claimed.
+- **Release boundary:** LOCAL VERIFIED; no commit, push, or deploy. Production and GitHub behavior are unchanged.
