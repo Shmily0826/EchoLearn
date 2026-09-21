@@ -30,33 +30,35 @@ export default function LocalAudioImporter({ onSuccess, mode = 'legacy-asr', var
 
   if (mode === 'local-media') {
     return (
-      <div className="mt-4 rounded-xl border border-indigo-100 dark:border-slate-700 bg-indigo-50/50 dark:bg-slate-800/60 p-4" data-testid="local-media-importer" data-variant={variant}>
-        <div className="flex flex-wrap items-center gap-3">
-          <button type="button" onClick={() => inputRef.current?.click()} disabled={mediaState !== 'idle'} className="px-3 py-2 text-sm rounded-lg bg-indigo-600 text-white disabled:opacity-50 cursor-pointer disabled:cursor-not-allowed">
+      <div className="mt-3 rounded-lg border border-indigo-100 dark:border-slate-700 bg-indigo-50/50 dark:bg-slate-800/60 px-3 py-2" data-testid="local-media-importer" data-variant={variant}>
+        <div className="flex flex-wrap items-center gap-x-3 gap-y-1.5">
+          <button type="button" onClick={() => inputRef.current?.click()} disabled={mediaState !== 'idle'} title={t('localMedia.audioRequirements')} className="px-3 py-1.5 text-sm rounded-lg bg-indigo-600 text-white disabled:opacity-50 cursor-pointer disabled:cursor-not-allowed">
             {t('localMedia.importAudio')}
           </button>
           <input ref={inputRef} data-testid="local-media-audio-input" type="file" accept=".mp3,.m4a,.wav,audio/mpeg,audio/mp4,audio/wav" className="hidden" onChange={(event) => { setAudioFile(event.target.files?.[0] ?? null); setError(null); }} />
-          <span className="min-w-0 truncate text-xs text-gray-600 dark:text-gray-300">{audioFile?.name || t('localMedia.noAudio')}</span>
-        </div>
-        <div className="mt-2 flex flex-wrap items-center gap-3">
-          <button type="button" onClick={() => subtitleInputRef.current?.click()} disabled={mediaState !== 'idle'} className="px-3 py-2 text-sm rounded-lg border border-indigo-200 dark:border-slate-600 text-indigo-700 dark:text-indigo-300 disabled:opacity-50 cursor-pointer disabled:cursor-not-allowed">
+          <span className="min-w-0 max-w-[14rem] truncate text-xs text-gray-600 dark:text-gray-300">{audioFile?.name || t('localMedia.noAudio')}</span>
+          <button type="button" onClick={() => subtitleInputRef.current?.click()} disabled={mediaState !== 'idle'} className="px-3 py-1.5 text-sm rounded-lg border border-indigo-200 dark:border-slate-600 text-indigo-700 dark:text-indigo-300 disabled:opacity-50 cursor-pointer disabled:cursor-not-allowed">
             {t('localMedia.chooseSubtitle')}
           </button>
           <input ref={subtitleInputRef} data-testid="local-media-subtitle-input" type="file" accept=".srt,.vtt" className="hidden" onChange={(event) => { setSubtitleFile(event.target.files?.[0] ?? null); setError(null); }} />
-          <span className="min-w-0 truncate text-xs text-gray-600 dark:text-gray-300">{subtitleFile?.name || t('localMedia.noSubtitle')}</span>
+          <span className="min-w-0 max-w-[14rem] truncate text-xs text-gray-600 dark:text-gray-300">{subtitleFile?.name || t('localMedia.noSubtitle')}</span>
+          <button
+            type="button"
+            disabled={mediaState !== 'idle' || !audioFile || !subtitleFile}
+            onClick={() => { void submitMedia(); }}
+            className="ml-auto px-3 py-1.5 text-sm rounded-lg bg-indigo-600 text-white disabled:opacity-50 cursor-pointer disabled:cursor-not-allowed"
+          >
+            {mediaState === 'importing' ? t('localMedia.opening') : variant === 'restore' ? t('study.restoreAudioCta') : t('localMedia.openCta')}
+          </button>
         </div>
-        <p className="mt-2 text-xs text-gray-600 dark:text-gray-300">{t('localMedia.audioRequirements')}</p>
-        {audioFile && !subtitleFile && <p role="status" className="mt-2 text-xs text-amber-700 dark:text-amber-300">{t('localMedia.subtitlesRequired')}</p>}
-        {variant === 'restore' && <p className="mt-2 text-xs text-gray-600 dark:text-gray-300">{t('study.restoreAudioNote')}</p>}
-        <button
-          type="button"
-          disabled={mediaState !== 'idle' || !audioFile || !subtitleFile}
-          onClick={() => { void submitMedia(); }}
-          className="mt-3 px-3 py-2 text-sm rounded-lg bg-indigo-600 text-white disabled:opacity-50 cursor-pointer disabled:cursor-not-allowed"
-        >
-          {mediaState === 'importing' ? t('localMedia.opening') : variant === 'restore' ? t('study.restoreAudioCta') : t('localMedia.openCta')}
-        </button>
-        {error && <p role="alert" className="mt-2 text-xs text-red-600 dark:text-red-400">{error}</p>}
+        {/* The size/no-transcription contract is stated once, before the learner
+            has committed to a file; after that the row would only repeat it. */}
+        {!audioFile && !subtitleFile && (
+          <p className="mt-1.5 text-[11px] leading-snug text-gray-500 dark:text-gray-400">{t('localMedia.audioRequirements')}</p>
+        )}
+        {audioFile && !subtitleFile && <p role="status" className="mt-1.5 text-xs text-amber-700 dark:text-amber-300">{t('localMedia.subtitlesRequired')}</p>}
+        {variant === 'restore' && <p className="mt-1.5 text-xs text-gray-600 dark:text-gray-300">{t('study.restoreAudioNote')}</p>}
+        {error && <p role="alert" className="mt-1.5 text-xs text-red-600 dark:text-red-400">{error}</p>}
       </div>
     );
   }

@@ -216,15 +216,17 @@ const VocabularyPage: React.FC = () => {
         const uniqueFailedWords = [...new Set(failedWords)];
         setBackfillDefinitionsError(
           uniqueFailedWords.length === missing.length
-            ? 'English definitions could not be loaded. Check the local API connection and try again.'
-            : `Some English definitions could not be loaded: ${uniqueFailedWords.slice(0, 4).join(', ')}${uniqueFailedWords.length > 4 ? '…' : ''}`,
+            ? t('vocab.defsFailedAll')
+            : t('vocab.defsFailedSome', {
+              words: `${uniqueFailedWords.slice(0, 4).join(', ')}${uniqueFailedWords.length > 4 ? '…' : ''}`,
+            }),
         );
       }
       triggerCloudSync();
     } finally {
       setBackfillingDefinitions(false);
     }
-  }, [user, vocabulary, triggerCloudSync]);
+  }, [user, vocabulary, triggerCloudSync, t]);
 
   const handleWordClick = (word: string, context: string | undefined, e: React.MouseEvent) => {
     e.stopPropagation();
@@ -400,7 +402,7 @@ const VocabularyPage: React.FC = () => {
   );
 
   return (
-    <div className="max-w-5xl mx-auto px-4 sm:px-6 py-6 sm:py-10">
+    <div className="max-w-5xl 2xl:max-w-7xl mx-auto px-4 sm:px-6 py-6 sm:py-10">
       {/* Dictionary popup */}
       {dictPopup && (
         <WordDictionaryPopup
@@ -424,7 +426,7 @@ const VocabularyPage: React.FC = () => {
       )}
 
       {/* Header */}
-      <div className="flex flex-col sm:flex-row sm:items-end justify-between mb-4 sm:mb-6 gap-3">
+      <div className="flex flex-col sm:flex-row sm:items-end justify-between gap-3">
         <div>
           <h1 className="text-xl sm:text-2xl font-bold text-gray-900 dark:text-gray-100 tracking-tight">{t('vocab.title')}</h1>
           <p className="text-sm text-gray-500 dark:text-gray-400 mt-1">
@@ -456,18 +458,6 @@ const VocabularyPage: React.FC = () => {
               {backfilling ? t('vocab.translating') : t('vocab.autoTranslate')}
             </button>
           )}
-          {backfillTranslationStatus && (
-            <p
-              role={backfillTranslationStatus.kind === 'success' ? 'status' : 'alert'}
-              className="w-full text-xs text-amber-700 dark:text-amber-400"
-            >
-              {backfillTranslationStatus.kind === 'success'
-                ? t('vocab.translationComplete')
-                : backfillTranslationStatus.kind === 'partial'
-                  ? t('vocab.translationPartial', { count: backfillTranslationStatus.failed })
-                  : t('vocab.translationFailed')}
-            </p>
-          )}
           {vocabulary.some((v) => isMissingEnglishDefinition(v.definitionEn)) && (
             <button
               onClick={handleBackfillDefinitions}
@@ -476,11 +466,6 @@ const VocabularyPage: React.FC = () => {
             >
               {backfillingDefinitions ? t('vocab.loadingDefinitions') : t('vocab.fillEnglishDefs')}
             </button>
-          )}
-          {backfillDefinitionsError && (
-            <p role="alert" className="w-full text-xs text-rose-600 dark:text-rose-400">
-              {backfillDefinitionsError}
-            </p>
           )}
           {/* Export dropdown */}
           <div className="relative">
@@ -510,8 +495,46 @@ const VocabularyPage: React.FC = () => {
         </div>
       </div>
 
+      {/* Backfill results: a status row of its own, so a long message never
+          breaks the action bar above into a ragged stack. */}
+      {(backfillTranslationStatus || backfillDefinitionsError) && (
+        <div className="mt-3 flex flex-wrap items-center gap-2">
+          {backfillTranslationStatus && (
+            <p
+              role={backfillTranslationStatus.kind === 'success' ? 'status' : 'alert'}
+              className={`px-3 py-1.5 text-xs rounded-lg border ${
+                backfillTranslationStatus.kind === 'success'
+                  ? 'bg-emerald-50 dark:bg-emerald-950/30 border-emerald-200 dark:border-emerald-800 text-emerald-700 dark:text-emerald-300'
+                  : 'bg-amber-50 dark:bg-amber-950/30 border-amber-200 dark:border-amber-800 text-amber-700 dark:text-amber-300'
+              }`}
+            >
+              {backfillTranslationStatus.kind === 'success'
+                ? t('vocab.translationComplete')
+                : backfillTranslationStatus.kind === 'partial'
+                  ? t('vocab.translationPartial', { count: backfillTranslationStatus.failed })
+                  : t('vocab.translationFailed')}
+            </p>
+          )}
+          {backfillDefinitionsError && (
+            <p
+              role="alert"
+              className="flex flex-wrap items-center gap-2 px-3 py-1.5 text-xs rounded-lg bg-rose-50 dark:bg-rose-950/30 border border-rose-200 dark:border-rose-800 text-rose-700 dark:text-rose-300"
+            >
+              <span>{backfillDefinitionsError}</span>
+              <button
+                onClick={handleBackfillDefinitions}
+                disabled={backfillingDefinitions}
+                className="font-medium underline hover:text-rose-900 dark:hover:text-rose-200 transition-colors cursor-pointer disabled:opacity-60"
+              >
+                {t('vocab.retryDefinitions')}
+              </button>
+            </p>
+          )}
+        </div>
+      )}
+
       {/* Filter tabs + sort */}
-      <div className="flex flex-col items-stretch gap-3 mb-6 sm:flex-row sm:items-center sm:justify-between">
+      <div className="mt-4 sm:mt-6 flex flex-col items-stretch gap-3 mb-6 sm:flex-row sm:items-center sm:justify-between">
         <div className="flex gap-1">
           {(['all', 'unmastered', 'mastered'] as FilterMode[]).map((f) => (
             <button
@@ -519,11 +542,11 @@ const VocabularyPage: React.FC = () => {
               onClick={() => setFilter(f)}
               className={`px-3.5 py-1.5 text-sm font-medium rounded-lg transition-colors cursor-pointer ${
                 filter === f
-                  ? 'bg-indigo-50 dark:bg-indigo-950 text-indigo-700'
+                  ? 'bg-indigo-50 dark:bg-indigo-950 text-indigo-700 dark:text-indigo-200'
                   : 'text-gray-500 dark:text-gray-400 hover:text-gray-700 hover:bg-gray-50 dark:hover:bg-slate-900'
               }`}
             >
-              {f === 'all' ? t('vocab.all') : f === 'mastered' ? t('vocab.mastered') : t('vocab.unmastered')}
+              {f === 'all' ? t('vocab.all') : f === 'mastered' ? t('vocab.masteredFilter') : t('vocab.unmastered')}
             </button>
           ))}
         </div>
@@ -587,26 +610,26 @@ const VocabularyPage: React.FC = () => {
           </p>
         </div>
       ) : viewMode === 'card' ? (
-        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3">
+        <div className="grid grid-cols-1 items-start sm:grid-cols-2 lg:grid-cols-3 2xl:grid-cols-4 gap-3">
           {filtered.map((item) => (
             <div
               key={item.id}
-              className={`bg-white dark:bg-slate-800 border rounded-xl p-4 group hover:shadow-sm transition-shadow overflow-hidden ${
-                item.mastered ? 'border-green-200' : 'border-gray-200 dark:border-slate-700'
+              className={`flex flex-col bg-white dark:bg-slate-800 border rounded-xl p-4 group hover:shadow-sm transition-shadow overflow-hidden ${
+                item.mastered ? 'border-green-200 dark:border-green-900' : 'border-gray-200 dark:border-slate-700'
               }`}
             >
               {/* Top row: word + phonetic + mastered badge */}
               <div className="flex items-start justify-between gap-2 mb-2">
-                <div className="flex items-center gap-2 min-w-0">
+                <div className="flex flex-wrap items-center gap-x-2 gap-y-1 min-w-0">
                   <span
                     onClick={(e) => handleWordClick(item.word, item.context, e)}
-                    className="text-lg font-semibold text-gray-800 dark:text-gray-200 truncate cursor-pointer hover:text-indigo-600 transition-colors"
+                    className="text-lg font-semibold text-gray-800 dark:text-gray-200 break-words cursor-pointer hover:text-indigo-600 transition-colors"
                     title="Click to look up in dictionary"
                   >
                     {item.word}
                   </span>
                   {item.phonetic && (
-                    <span className="text-xs text-gray-400 dark:text-gray-500 font-mono">{item.phonetic}</span>
+                    <span className="min-w-0 truncate text-xs text-gray-400 dark:text-gray-500 font-mono">{item.phonetic}</span>
                   )}
                   {item.audioUrl && (
                     <button
@@ -624,7 +647,7 @@ const VocabularyPage: React.FC = () => {
                     </button>
                   )}
                   {item.mastered && (
-                    <span className="shrink-0 px-1.5 py-0.5 text-[10px] font-medium bg-green-100 dark:bg-green-900/40 text-green-700 rounded">
+                    <span className="shrink-0 px-1.5 py-0.5 text-[10px] font-medium bg-green-100 dark:bg-green-900/40 text-green-700 dark:text-green-300 rounded">
                       {t('vocab.masteredBadge')}
                     </span>
                   )}
@@ -639,7 +662,7 @@ const VocabularyPage: React.FC = () => {
 
               {/* Part of speech tag (dictionary data) */}
               {item.partOfSpeech && (
-                <span className="inline-block text-[10px] px-1.5 py-0.5 bg-indigo-50 dark:bg-indigo-950 text-indigo-500 rounded-full font-medium mb-1.5">
+                <span className="self-start inline-block text-[10px] px-1.5 py-0.5 bg-indigo-50 dark:bg-indigo-950 text-indigo-500 dark:text-indigo-300 rounded-full font-medium mb-1.5">
                   {item.partOfSpeech}
                 </span>
               )}
@@ -709,7 +732,7 @@ const VocabularyPage: React.FC = () => {
               {/* Example sentence — prefer a short dictionary example or the single
                   sentence containing the word; keep it to 2 lines by default with an
                   expand toggle to reveal the full original context. */}
-              <div>
+              <div className="mb-3">
                 {(() => {
                   const compact = getCompactExample(item);
                   const full = item.fullContext || item.context;
@@ -738,8 +761,9 @@ const VocabularyPage: React.FC = () => {
                 })()}
               </div>
 
-              {/* Footer: source + date + toggle */}
-              <div className="mt-3 pt-2 border-t border-gray-100 dark:border-slate-700 space-y-1.5">
+              {/* Footer: source + date + toggle — pinned to the card bottom so a
+                  short card does not read as an empty box. */}
+              <div className="mt-auto pt-2 border-t border-gray-100 dark:border-slate-700 space-y-1.5">
                 <div className="flex items-center gap-2 min-w-0">
                   {item.sourceVideoId ? (
                     <button
@@ -849,7 +873,7 @@ const VocabularyPage: React.FC = () => {
                           </button>
                         )}
                         {item.mastered && (
-                          <span className="shrink-0 px-1 py-0.5 text-[9px] font-medium bg-green-100 dark:bg-green-900/40 text-green-700 rounded">
+                          <span className="shrink-0 px-1 py-0.5 text-[9px] font-medium bg-green-100 dark:bg-green-900/40 text-green-700 dark:text-green-300 rounded">
                             {t('vocab.masteredBadge')}
                           </span>
                         )}
