@@ -489,6 +489,16 @@ Once the active goal, root cause, and acceptance criteria are sufficiently speci
   feedback beyond the first page goes in further batches (a later failure leaves
   learning data already gone and says so), and Firestore and Firebase Auth are
   still separate services.
+- **Account deletion also removes the writer's own AI cache subtree, because
+  nothing else ever could.** `aiCache/{uid}/analyses/*` is bound to its writer by
+  the same rule that protects it, so once the Auth account is gone no client —
+  including a future owner of that uid, which cannot exist — can read or delete
+  those documents. Leaving them behind would recreate exactly the orphan shape
+  this campaign exists to end, so `deleteUserData` lists and deletes that subtree
+  in bounded batches alongside feedback and learning data. It needed no rules
+  change and no new infrastructure: the owner already has `read, write` on its own
+  path. An empty subtree costs no write, and a cache-only failure is named as such
+  rather than reported as a clean deletion.
 - **The only-copy interlock, and the AC it exists because a client cannot
   satisfy.** If this device holds no copy of the cloud learning data, deleting the
   cloud documents would be irreversible the moment `deleteUser` fails afterwards,

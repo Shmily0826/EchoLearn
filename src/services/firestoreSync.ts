@@ -26,7 +26,7 @@ import {
   writeBatch,
   collection,
 } from 'firebase/firestore';
-import type { DocumentReference, DocumentData } from 'firebase/firestore';
+import type { DocumentReference, DocumentData, WriteBatch } from 'firebase/firestore';
 import { db, auth } from '../lib/firebase';
 import {
   loadVocabulary,
@@ -114,10 +114,16 @@ function assertVerified(uid: string): void {
  * later batches can fail after the first succeeded, which is reported rather
  * than hidden — feedback is not learning data, and a retry finishes it.
  *
+ * The writer's own AI cache subtree (`aiCache/{uid}/analyses/*`) is removed by
+ * the same kind of bounded pass. Without it, deleting an account would leave
+ * documents that no future client can ever reach again — the rules bind them to
+ * a uid that can no longer authenticate — which is precisely the orphan shape
+ * this campaign exists to end.
+ *
  * An email-unverified account has nothing to delete — the rules deny it every
- * write to `users/*` and `feedback/*` in the first place, and would deny the
- * delete too — so the call is a no-op for that account instead of a guaranteed
- * permission error.
+ * write to `users/*`, `feedback/*` and `aiCache/*` in the first place, and would
+ * deny the delete too — so the call is a no-op for that account instead of a
+ * guaranteed permission error.
  *
  * LEGACY `feedback/{docId}` documents are NOT reachable here: they live in the
  * `feedback` collection group with ids no client ever kept, and rules have never
@@ -140,44 +146,66 @@ export async function deleteUserData(uid: string): Promise<void> {
   });
   if (cloudHasData && !hasLocalSyncableData()) throw new NoLocalCopyError();
 
-  const messages = collection(db, 'feedback', uid, 'messages');
   const failed: string[] = [];
-  let page: number | undefined;
+  // The sync documents ride along with the first feedback batch so a single
+  // commit covers every piece of learning data.
+  const carryLearningData = (batch: WriteBatch) => {
+    for (const name of SYNC_COLLECTIONS) batch.delete(getCollectionRef(uid, name));
+  };
+  const feedbackPage = await deleteOwnedSubtree(['feedback', uid, 'messages'], 'feedback', failed, carryLearningData);
+  await deleteOwnedSubtree(['aiCache', uid, 'analyses'], 'aiCache', failed);
+
+  if (failed.length) throw new CloudCleanupError(failed, feedbackPage);
+}
+
+/**
+ * List and delete one owner-scoped subtree in bounded batches, appending every
+ * failure to `failed` instead of throwing at the first one. The path must begin
+ * with the collection the caller owns outright, because rules cannot reach a
+ * document whose id the client never kept.
+ */
+async function deleteOwnedSubtree(
+  root: [string, ...string[]],
+  label: string,
+  failed: string[],
+  onFirstBatch?: (batch: WriteBatch) => void,
+): Promise<number | undefined> {
+  let lastPage: number | undefined;
 
   for (let pass = 0; ; pass += 1) {
-    let feedbackIds: string[];
+    let ids: string[];
     try {
-      const snap = await getDocs(query(messages, limit(FEEDBACK_DELETE_BATCH)));
-      feedbackIds = snap.docs.map((d) => d.id);
-      page = snap.size;
+      const snap = await getDocs(query(collection(db, ...root), limit(FEEDBACK_DELETE_BATCH)));
+      ids = snap.docs.map((entry) => entry.id);
+      lastPage = snap.size;
     } catch (error) {
-      failed.push(`feedback:list: ${messageOf(error)}`);
+      failed.push(`${label}:list: ${messageOf(error)}`);
       break;
     }
 
-    // The sync documents ride along with the first page so a single commit
-    // covers every piece of learning data.
+    // An empty subtree costs no write: committing a batch that deletes nothing
+    // would be a pointless Production round-trip on every deletion.
+    if (ids.length === 0 && !(pass === 0 && onFirstBatch)) break;
+
     const batch = writeBatch(db);
-    if (pass === 0) {
-      for (const name of SYNC_COLLECTIONS) batch.delete(getCollectionRef(uid, name));
-    }
-    for (const id of feedbackIds) batch.delete(doc(db, 'feedback', uid, 'messages', id));
+    if (pass === 0) onFirstBatch?.(batch);
+    for (const id of ids) batch.delete(doc(db, ...root, id));
 
     try {
       await batch.commit();
     } catch (error) {
-      failed.push(`${pass === 0 ? 'learning data + feedback' : 'feedback'}: ${messageOf(error)}`);
+      failed.push(`${pass === 0 && onFirstBatch ? 'learning data + ' : ''}${label}: ${messageOf(error)}`);
       break;
     }
 
-    if (feedbackIds.length < FEEDBACK_DELETE_BATCH) break;
+    if (ids.length < FEEDBACK_DELETE_BATCH) break;
     if (pass >= FEEDBACK_DELETE_PASSES) {
-      failed.push(`feedback: still present after ${FEEDBACK_DELETE_PASSES + 1} batches`);
+      failed.push(`${label}: still present after ${FEEDBACK_DELETE_PASSES + 1} batches`);
       break;
     }
   }
 
-  if (failed.length) throw new CloudCleanupError(failed, page);
+  return lastPage;
 }
 
 const SYNC_COLLECTIONS: SyncCollection[] = ['vocabulary', 'sentences', 'sessions'];
