@@ -166,3 +166,24 @@ describe('lemmatize — inherited Object.prototype keys are ordinary words', () 
     expect(lemmatize('Constructor')).toBe('constructor');
   });
 });
+
+describe('lemmatize — total over the inherited-member domain', () => {
+  // The crash class, stated once instead of one example at a time: every name
+  // Object.prototype exposes is a legal transcript token ("Every class gets a
+  // constructor."), and a table lookup that walks the prototype chain returns a
+  // function for it. This list is derived from the platform, so it keeps
+  // covering new members without anyone thinking to add a test.
+  const inherited = Object.getOwnPropertyNames(Object.prototype);
+
+  it.each(inherited.map((name) => [name]))('lemmatize(%s) returns a string', (name) => {
+    const result = lemmatize(name);
+    expect(typeof result).toBe('string');
+    expect(result.length).toBeGreaterThan(0);
+  });
+
+  it('covers every inherited member, so the sweep cannot silently narrow', () => {
+    expect(inherited).toContain('constructor');
+    expect(inherited).toContain('__proto__');
+    expect(inherited.length).toBeGreaterThan(10);
+  });
+});
