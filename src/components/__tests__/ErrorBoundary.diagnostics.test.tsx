@@ -57,7 +57,7 @@ describe('ErrorBoundary diagnostics', () => {
   });
 
   it('copies the diagnostics and confirms it', async () => {
-    const writeText = vi.fn((_text: string) => Promise.resolve());
+    const writeText = vi.fn<(text: string) => Promise<void>>();
     Object.defineProperty(navigator, 'clipboard', { configurable: true, value: { writeText } });
 
     render(<ErrorBoundary><ThrowingChild /></ErrorBoundary>);
