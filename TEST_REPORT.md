@@ -17,6 +17,10 @@
 - **Falsified per guard.** Dropping `this.setState({ componentStack })` reddens the render-path assertion. A realistic storage dump reddens both privacy assertions. Clipboard-denial path is covered by a rejecting mock: the label must not claim success and the text stays on screen for manual selection.
 - **Gates actually run.** `npx tsc -b` clean; `npx eslint .` 0 errors / 12 warnings (recorded baseline); `npm test` **965/965** (+5); `npm run build` PASS (the pre-existing chunk-size advisory is unchanged).
 - **Limitation, stated rather than papered over.** The block cannot name the offending transcript token or the current lesson id: that would mean handing app state to the boundary. Not done — the message plus render path identified this incident, and the alternative is plumbing through every page for a signal we have not yet needed twice.
+- **Process failure recorded.** This PR was merged with its `test` job **red**. The chain was `gh pr checks --watch && gh pr merge`, which merges whatever the watch exits on without reading the outcome, and the underlying defect was one I introduced in my last edit — an unused `_text` parameter in a mock that `@typescript-eslint/no-unused-vars` rejects — which I did not re-lint after editing. So `eslint .` failed on `main` for the interval between the merge and the fix-forward below. The content was never broken (Vitest, tsc and build all passed on the merged commit); the gate that failed was style, and the gate that mattered was the one I stopped running last. Corrective rules now applied here: run every gate **after the final edit**, and never chain a merge to a watch without checking the reported status.
+- **Fix-forward.** The mock is typed as `vi.fn<(text: string) => Promise<void>>()` with no implementation, so there is no unused parameter and `writeText.mock.calls[0][0]` still types as `string`. Re-ran all four gates on the final tree: `tsc -b` clean, lint **0 errors / 12 baseline warnings**, Vitest **965/965**, build PASS.
+
+
 - **Not covered.** No Production observation of the new boundary (nothing currently crashes on the live site, by design), and no mobile-pwa run.
 
 
