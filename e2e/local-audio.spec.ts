@@ -169,3 +169,26 @@ test('a restored local_audio session without its blob shows the re-import state,
   await expect(page.getByTestId('caption-error-card')).toHaveCount(0);
   expect(captionFetches).toBe(0);
 });
+
+test('a subtitle containing an Object.prototype word renders instead of crashing Study', async ({ page }) => {
+  // Regression: the word "constructor" made lemmatize() return the Object
+  // function, and the transcript token check threw during render, taking the
+  // whole Study route down to the error boundary for any programming lecture.
+  const riskySrt = '1\n00:00:00,000 --> 00:00:02,000\nEvery class gets a constructor.\n\n2\n00:00:02,000 --> 00:00:04,000\nThe next line is plain.';
+
+  const importer = await openStudy(page);
+  await importer.getByTestId('local-media-audio-input').setInputFiles({
+    name: 'lecture.wav', mimeType: 'audio/wav', buffer: tinyWav(),
+  });
+  await importer.getByTestId('local-media-subtitle-input').setInputFiles({
+    name: 'lecture.srt', mimeType: 'application/x-subrip', buffer: Buffer.from(riskySrt),
+  });
+  await importer.getByRole('button', { name: 'Open in Study' }).click();
+
+  await expect(page.getByText('Something went wrong')).toHaveCount(0);
+  const rows = page.locator('[data-transcript-line]').filter({ visible: true });
+  await expect(rows.first()).toContainText('constructor');
+  // The token is still rendered as an interactive word, so the saved-word check
+  // really ran against it rather than the line being skipped.
+  await expect(rows.first().getByRole('button', { name: 'constructor' })).toBeVisible();
+});

@@ -32,9 +32,13 @@ const FREE_DICT_TIMEOUT_MS = 2500;
 // A previous client-side lemmatizer persisted this common adjective as
 // "unprecedent". Keep the lookup tolerant of that legacy value without
 // changing the stored vocabulary word.
-const LEGACY_LOOKUP_ALIASES: Record<string, string> = {
+//
+// Prototype-less because the key is learner text: a saved word like
+// "constructor" would otherwise resolve through Object.prototype and be used
+// as the lookup term.
+const LEGACY_LOOKUP_ALIASES: Record<string, string> = Object.assign(Object.create(null), {
   unprecedent: 'unprecedented',
-};
+});
 
 // ── Cache helpers ──────────────────────────────────────────────
 
