@@ -4,11 +4,14 @@ import { parseSrtTranscript, parseVttTranscript } from '../utils/transcriptParse
 
 export const LOCAL_AUDIO_MAX_BYTES = 25 * 1024 * 1024;
 export const LOCAL_MEDIA_MAX_BYTES = 200 * 1024 * 1024;
-const AUDIO_TYPES: Record<string, Set<string>> = {
+// Prototype-less because the key is a file extension taken from the learner's
+// file name: `song.constructor` would otherwise resolve through
+// Object.prototype and be treated as a supported type.
+const AUDIO_TYPES: Record<string, Set<string>> = Object.assign(Object.create(null), {
   mp3: new Set(['audio/mpeg', 'audio/mp3']),
   m4a: new Set(['audio/mp4', 'audio/x-m4a']),
   wav: new Set(['audio/wav', 'audio/x-wav', 'audio/wave']),
-};
+});
 
 export type LocalAudioErrorCode = 'unsupported' | 'too_large' | 'upload' | 'timeout' | 'transcription' | 'no_speech' | 'invalid_audio' | 'unsupported_subtitle' | 'invalid_subtitle' | 'persistence';
 

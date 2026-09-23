@@ -147,3 +147,22 @@ describe('sameLemma', () => {
     expect(sameLemma('WENT', 'going')).toBe(true);
   });
 });
+
+describe('lemmatize — inherited Object.prototype keys are ordinary words', () => {
+  // A subtitle line containing the word "constructor" once crashed the entire
+  // Study route: the word tables were plain object literals, so the lookup
+  // resolved through Object.prototype and lemmatize handed back the Object
+  // *function* — which the caller then called .toLowerCase() on.
+  it.each([
+    'constructor', '__proto__', 'toString', 'valueOf', 'hasOwnProperty', 'isPrototypeOf',
+  ])('lemmatize(%s) returns a string, not an inherited member', (word) => {
+    const result = lemmatize(word);
+    expect(typeof result).toBe('string');
+    expect(result.length).toBeGreaterThan(0);
+  });
+
+  it('keeps "constructor" as itself', () => {
+    expect(lemmatize('constructor')).toBe('constructor');
+    expect(lemmatize('Constructor')).toBe('constructor');
+  });
+});

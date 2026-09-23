@@ -562,6 +562,18 @@ function tryAdjectiveForm(word: string): string | null {
  *   lemmatize('better')    // → 'good'
  *   lemmatize('happily')   // → 'happily'  (adverbs not handled — returned as-is)
  */
+/**
+ * Read one of the word tables below.
+ *
+ * They are plain object literals, so a bare index also resolves against
+ * Object.prototype: lemmatize('constructor') used to hand back the Object
+ * *function*, and the caller's `.toLowerCase()` crashed the whole Study route
+ * for any transcript containing that word.
+ */
+function own<T>(table: Record<string, T>, key: string): T | undefined {
+  return Object.prototype.hasOwnProperty.call(table, key) ? table[key] : undefined;
+}
+
 export function lemmatize(word: string): string {
   // Normalize
   const lower = word.toLowerCase().trim();
@@ -644,15 +656,17 @@ export function lemmatize(word: string): string {
       // let's
       "let's": 'let',
     };
-    if (CONTRACTIONS[lower]) return CONTRACTIONS[lower];
+    const contraction = own(CONTRACTIONS, lower);
+    if (contraction) return contraction;
     // Fallback: strip everything after the apostrophe (e.g. "gov't" → "gov").
     const base = lower.split("'")[0];
     if (base.length >= 1) return base;
   }
 
   // 1. Irregular forms (highest priority)
-  if (IRREGULARS[lower]) {
-    return IRREGULARS[lower];
+  const irregular = own(IRREGULARS, lower);
+  if (irregular) {
+    return irregular;
   }
 
   // 2. Try rule-based suffix stripping
