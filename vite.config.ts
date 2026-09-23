@@ -110,6 +110,14 @@ export default defineConfig(({ mode }) => {
         ]
       : []),
     ],
+    // Baked into the bundle so the error boundary can name the exact build a
+    // learner is reporting from. Vercel and GitHub Actions both publish the SHA;
+    // a plain local build says so rather than pretending to be a release.
+    define: {
+      __APP_COMMIT__: JSON.stringify(
+        process.env.VERCEL_GIT_COMMIT_SHA || process.env.GITHUB_SHA || 'local-dev',
+      ),
+    },
     build: {
       // Strip console.* and debugger from production builds (kept in dev for debugging).
       // Vite 8 uses rolldown/oxc which doesn't expose drop_console, so use terser here.

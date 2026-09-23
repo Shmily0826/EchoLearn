@@ -517,6 +517,8 @@ const translations: Record<string, Record<Lang, string>> = {
   'error.clearConfirmBody': { en: 'This will remove EchoLearn learning data stored in this browser: saved words, sentences, study sessions, and settings. Progress that has not been synced to your account may be permanently lost. Data already synced to the cloud is not affected. If you are unsure, choose Cancel and try Reload Page first.', zh: '这将删除本浏览器中保存的 EchoLearn 学习数据：生词、句子、学习会话和设置。尚未同步到账户的进度可能会永久丢失。已同步到云端的数据不受影响。如果不确定，请选择"取消"，先尝试"刷新页面"。' },
   'error.clearConfirmCancel': { en: 'Cancel', zh: '取消' },
   'error.clearConfirmConfirm': { en: 'Clear local data and reload', zh: '清除本地数据并刷新' },
+  'error.copyDiagnostics': { en: 'Copy diagnostic info', zh: '复制诊断信息' },
+  'error.diagnosticsCopied': { en: 'Copied — paste it into your report', zh: '已复制，可直接粘贴到反馈里' },
 
   // ── Anti-translate banner ────────────────────────────────
   'banner.translateWarn':{ en: 'Auto-translate detected \u2014 this may break the app. Please disable it in your browser settings.', zh: '检测到自动翻译 \u2014 可能导致应用异常。请在浏览器设置中关闭。' },
