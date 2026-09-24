@@ -348,3 +348,73 @@ test('the transcript keeps the line being read on screen through a dense subtitl
   expect(resumed.inView, 'following never resumed after the reading pause').toBe(true);
   expect(resumed.top).toBeGreaterThan(scrolledAway);
 });
+
+test('a reopened lesson keeps the transcript in step with the audio', async ({ page }) => {
+  // Regression, reported from Production as "the subtitles cannot scroll
+  // automatically". The playback clock polled the player handle, and the
+  // interval that polls it refused to start while the handle was still missing.
+  // On a REOPENED lesson the audio source is a blob URL that resolves after
+  // that effect has already run, so the clock stayed at 0:00 for the whole
+  // lesson: no line was highlighted and the follow-scroll never fired, while
+  // the player itself played on. Every earlier test measured a freshly
+  // imported lesson, where the ordering happens to work.
+  const STEP = 1.75;
+  const CUES = 40;
+
+  const wavSeconds = (seconds: number) => {
+    const samples = 8000 * seconds;
+    const data = Buffer.alloc(44 + samples * 2);
+    data.write('RIFF', 0); data.writeUInt32LE(data.length - 8, 4); data.write('WAVEfmt ', 8);
+    data.writeUInt32LE(16, 16); data.writeUInt16LE(1, 20); data.writeUInt16LE(1, 22);
+    data.writeUInt32LE(8000, 24); data.writeUInt32LE(16000, 28); data.writeUInt16LE(2, 32);
+    data.writeUInt16LE(16, 34); data.write('data', 36); data.writeUInt32LE(samples * 2, 40);
+    return data;
+  };
+  const stamp = (s: number) => {
+    const m = Math.floor(s / 60), sec = Math.floor(s % 60), ms = Math.round((s % 1) * 1000);
+    return `00:${String(m).padStart(2, '0')}:${String(sec).padStart(2, '0')},${String(ms).padStart(3, '0')}`;
+  };
+  const srt = Array.from({ length: CUES }, (_, i) =>
+    `${i + 1}\n${stamp(i * STEP)} --> ${stamp((i + 1) * STEP - 0.05)}\nReopened cue ${i + 1} has several words.\n`).join('\n');
+
+  const laidOutActiveRow = () => page.evaluate(() => {
+    for (const el of document.querySelectorAll<HTMLElement>('[data-transcript-line].border-l-indigo-500')) {
+      const r = el.getBoundingClientRect();
+      if (r.width <= 0 || r.height <= 0) continue;
+      const box = el.closest('.overflow-y-auto') as HTMLElement;
+      return {
+        index: Number(el.getAttribute('data-transcript-line')),
+        scrollTop: Math.round(box.scrollTop),
+      };
+    }
+    return { index: -1, scrollTop: -1 };
+  });
+
+  const importer = await openStudy(page);
+  await importer.getByTestId('local-media-audio-input').setInputFiles({
+    name: 'reopen.wav', mimeType: 'audio/wav', buffer: wavSeconds(CUES * STEP + 5),
+  });
+  await importer.getByTestId('local-media-subtitle-input').setInputFiles({
+    name: 'reopen.srt', mimeType: 'application/x-subrip', buffer: Buffer.from(srt),
+  });
+  await importer.getByRole('button', { name: 'Open in Study' }).click();
+  await expect.poll(() => page.evaluate(() => {
+    const a = document.querySelector('audio');
+    return a && Number.isFinite(a.duration) ? a.duration : 0;
+  }), { timeout: 15000 }).toBeGreaterThan(50);
+
+  await page.reload();
+  await expect.poll(() => page.evaluate(() => {
+    const a = document.querySelector('audio');
+    return a && Number.isFinite(a.duration) ? a.duration : 0;
+  }), { timeout: 20000 }).toBeGreaterThan(50);
+
+  // Deep into the lesson: cue 30 of 40, which no longer fits on screen.
+  await page.evaluate(() => { (document.querySelector('audio') as HTMLAudioElement).currentTime = 55; });
+  await expect
+    .poll(laidOutActiveRow, { timeout: 10000, intervals: [500, 1000] })
+    .toMatchObject({ index: 31 });
+  const afterSeek = await laidOutActiveRow();
+  expect(afterSeek.scrollTop, 'the pane never moved although the line being read is off screen')
+    .toBeGreaterThan(0);
+});

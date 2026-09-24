@@ -28,7 +28,14 @@ export function usePlaybackPosition({
   useEffect(() => {
     // Bilibili's native iframe exposes no trustworthy playback clock. Audio
     // mode is its only supported caption-sync transport.
-    if (!videoId || !playerRef.current || (platform === 'bilibili' && !audioMode)) return;
+    //
+    // The player handle is deliberately NOT part of the guard: on a restored
+    // session the source (a blob URL, or an extracted audio stream) resolves
+    // after this effect first runs, so requiring the handle here started the
+    // clock never — currentTime stayed 0, no line was highlighted, and the
+    // transcript stopped scrolling for the whole lesson. The tick below skips
+    // its own beat until the handle exists.
+    if (!videoId || (platform === 'bilibili' && !audioMode)) return;
     const id = setInterval(() => {
       if (!playerRef.current) return;
       try {
