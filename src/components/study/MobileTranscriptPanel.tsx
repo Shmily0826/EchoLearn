@@ -8,6 +8,8 @@ import { tomorrowMs } from '../../utils/storage';
 import type { TranscriptLine, VocabularyItem, SentenceItem } from '../../types';
 import WordDictionaryPopup, { type WordDictionaryPopupData } from '../WordDictionaryPopup';
 import { formatTime } from './formatTime';
+/** How long a learner keeps their own scroll position after manual input. */
+const FOLLOW_RESUME_GRACE_MS = 6000;
 
 interface MobileWordPopup {
   word: string;
@@ -56,7 +58,7 @@ const MobileTranscriptPanel: React.FC<{
     if (scrollTimer.current) clearTimeout(scrollTimer.current);
     scrollTimer.current = setTimeout(() => {
       userScrolled.current = false;
-    }, 3000);
+    }, FOLLOW_RESUME_GRACE_MS);
   }, []);
 
   useEffect(() => {
@@ -65,6 +67,9 @@ const MobileTranscriptPanel: React.FC<{
     const el = activeRef.current;
     const containerRect = container.getBoundingClientRect();
     const elRect = el.getBoundingClientRect();
+    // Re-engage only once the line being read has actually left the screen, so
+    // a small scroll to re-read a sentence is not yanked back.
+    if (elRect.top >= containerRect.top && elRect.bottom <= containerRect.bottom) return;
     const targetScroll =
       container.scrollTop +
       (elRect.top - containerRect.top) -
