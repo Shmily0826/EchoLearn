@@ -9,6 +9,9 @@ import { lookupWord } from '../services/dictionaryService';
 import { prepareVocabularyItem } from '../services/vocabularyEnrichment';
 import WordDictionaryPopup, { type WordDictionaryPopupData } from './WordDictionaryPopup';
 
+/** How long a learner keeps their own scroll position after manual input. */
+const FOLLOW_RESUME_GRACE_MS = 6000;
+
 interface TranscriptViewerProps {
   lines: TranscriptLine[];
   videoId: string;
@@ -69,12 +72,16 @@ const TranscriptViewer: React.FC<TranscriptViewerProps> = ({
   // three seconds of following. On a dense transcript (a Whisper or local
   // subtitle at under three seconds a line) that left the list permanently
   // behind the highlighted line.
+  //
+  // The window is a reading pause, not an animation delay: scrolling a row or
+  // two up to check the line just spoken should not have the list dragged back
+  // under the eyes.
   const handleUserScroll = useCallback(() => {
     userScrolledRef.current = true;
     if (scrollTimerRef.current) clearTimeout(scrollTimerRef.current);
     scrollTimerRef.current = setTimeout(() => {
       userScrolledRef.current = false;
-    }, 3000);
+    }, FOLLOW_RESUME_GRACE_MS);
   }, []);
 
   useEffect(() => {
@@ -97,6 +104,10 @@ const TranscriptViewer: React.FC<TranscriptViewerProps> = ({
     if (!container) return;
     const containerRect = container.getBoundingClientRect();
     const elRect = el.getBoundingClientRect();
+    // Only re-engage when the line being read has actually left the screen. A
+    // learner who moved the list a little can still see it, and re-centering it
+    // for no reason reads as the player grabbing the scroll back.
+    if (elRect.top >= containerRect.top && elRect.bottom <= containerRect.bottom) return;
     const targetScroll =
       container.scrollTop +
       (elRect.top - containerRect.top) -
