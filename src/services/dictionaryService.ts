@@ -239,6 +239,14 @@ export class DictionaryLookupError extends Error {
 interface LookupAttempt<T> {
   entry: T | null;
   failed: boolean;
+  /**
+   * The tier was reached and answered "no such word", as opposed to failing to
+   * answer. Only a tier that can actually confirm absence sets this: the
+   * backend, which consults Merriam, Free Dictionary and Datamuse itself. A
+   * miss from the smaller client-side tiers says nothing - Free Dictionary does
+   * not define "cat" either - and Datamuse is a word-association index.
+   */
+  answered?: boolean;
   lemmaProvenance?: DictionaryLemmaProvenance;
 }
 
@@ -285,11 +293,12 @@ async function fetchFromBackend(
     if (!res.ok) {
       console.warn(`[dictionary] ${url} returned HTTP ${res.status}`);
       if (res.status === 429) backendRateLimitedUntil = Date.now() + BACKEND_RATE_LIMIT_COOLDOWN_MS;
-      return { entry: null, failed: res.status !== 404 }; // 404 is a confirmed miss
+      // 404 is a confirmed miss: the backend already consulted every tier it has.
+      return { entry: null, failed: res.status !== 404, answered: res.status === 404 };
     }
     const raw: BackendResponse = await res.json();
     if (!Array.isArray(raw.entries)) return { entry: null, failed: true };
-    if (raw.entries.length === 0) return { entry: null, failed: false };
+    if (raw.entries.length === 0) return { entry: null, failed: false, answered: true };
 
     const firstEntry = raw.entries[0];
     const firstDef = firstEntry?.definitions?.[0]?.definitions_json?.definition ?? '';
@@ -641,6 +650,10 @@ export async function lookupWord(
     return normalized;
   }
   let sawFailure = backendAttempt.failed;
+  // Only the backend can confirm absence: it consults Merriam, Free Dictionary
+  // and Datamuse itself. A 404 from the small free dictionary alone proves
+  // nothing - it does not define "cat" either.
+  const sawAnswer = Boolean(backendAttempt.answered);
 
   // 2. Fallback (client-side) — note: English only, no server translation
   for (const candidate of buildCandidates(cleaned)) {
@@ -655,6 +668,11 @@ export async function lookupWord(
     sawFailure ||= result.failed;
   }
 
-  if (sawFailure) throw new DictionaryLookupError();
+  // "Service unavailable" is reserved for a lookup nobody could answer. A word
+  // the backend has already declared absent must not be re-labelled an outage
+  // because a slower tier timed out on the way - that misreported every brand,
+  // name and coinage in a transcript while api.dictionaryapi.dev was returning
+  // 522 after twenty seconds.
+  if (sawFailure && !sawAnswer) throw new DictionaryLookupError();
   return null;
 }

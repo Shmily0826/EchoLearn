@@ -1,13 +1,30 @@
 /**
- * Known brand names, platforms, abbreviations, and proper nouns that the free
- * dictionaries (Free Dictionary API / Datamuse) will never define.
+ * Tokens that are clicked like words but should not be looked up.
  *
- * Used by `lookupWord` to short-circuit dictionary API calls for these tokens
- * (saving requests), and by the popups to show a friendlier "no entry" message
- * instead of the generic "Dictionary entry not found".
+ * The original premise - "the free dictionaries will never define these" - is
+ * not true. Every entry in the previous version of this list answered 200 on
+ * `/api/dictionary` except `tbh` and `kmh`. What the measurement actually
+ * showed is worse than no answer: the provider defines a *different word* than
+ * the one the learner clicked.
  *
- * Keep this conservative: only add tokens that are NOT ordinary English words,
- * otherwise legitimate lookups would be blocked.
+ *   china  -> "a hard white material made of baked clay"
+ *   trump  -> "a card from the suit chosen as most valuable"
+ *   musk   -> "a strong-smelling substance used in perfume"
+ *   facebook -> "a reference book containing photographs"   (Datamuse)
+ *   uber    -> "Very; super."                              (Datamuse)
+ *   idk     -> a biography of the rapper IDK               (Datamuse)
+ *   btw     -> "Baoding Tianwei Baobian Electric Co., Ltd." (Datamuse)
+ *   omg     -> "Initialism of Object Management Group"
+ *   rn      -> "registered nurse"          (in a chat transcript: right now)
+ *
+ * So the rule is not "brand vs word", it is **would the returned gloss name the
+ * thing the learner clicked?** Units, initialisms and ordinary abbreviations
+ * pass that test and have been removed from this set (`ai`, `app`, `tech`,
+ * `gps`, `mph`, `km`, `fyi`, `asap`, `lol`, ...); names, brands, and chat
+ * shorthand whose only answer is provider noise stay.
+ *
+ * `lookupWord` short-circuits on this set, and the popups use it to show
+ * "this looks like a name, brand, or abbreviation" instead of an error.
  */
 export const KNOWN_PROPER_NOUNS = new Set<string>([
   // Platforms / brands
@@ -18,13 +35,11 @@ export const KNOWN_PROPER_NOUNS = new Set<string>([
   // Countries / cities / nationalities
   'china', 'japan', 'london', 'paris', 'tokyo', 'america', 'britain',
   'england', 'australia', 'canada', 'germany', 'france', 'india', 'brazil',
-  // Common abbreviations / internet slang (not dictionary words)
-  'lol', 'lmao', 'omg', 'btw', 'fyi', 'asap', 'idk', 'tbh', 'rn', 'smh',
-  'wtf', 'brb', 'imo', 'smh', 'yolo', 'dm', 'pm',
-  // Units / tech acronyms
-  'km', 'cm', 'mm', 'kg', 'gb', 'mb', 'kb', 'mph', 'kmh', 'gps', 'wifi',
-  'app', 'tech', 'ai',
-  // A few proper names commonly seen in videos
+  // Chat shorthand whose only available answer is a different word or noise
+  'omg', 'btw', 'idk', 'tbh', 'rn', 'smh', 'wtf', 'brb', 'imo', 'yolo',
+  // Units that no tier defines at all
+  'kmh',
+  // Proper names commonly seen in videos
   'trump', 'biden', 'elon', 'musk', 'obama',
 ]);
 
