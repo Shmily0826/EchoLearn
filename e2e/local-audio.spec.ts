@@ -219,8 +219,14 @@ test('the transcript keeps the line being read on screen through a dense subtitl
     const m = Math.floor(s / 60), sec = Math.floor(s % 60), ms = Math.round((s % 1) * 1000);
     return `00:${String(m).padStart(2, '0')}:${String(sec).padStart(2, '0')},${String(ms).padStart(3, '0')}`;
   };
+  // Real Whisper cues never start at zero - the learner's lesson opens at
+  // 0.07s - and that offset matters here: a fixture starting at 0 has an active
+  // row at mount, which let the pane's input listeners be reached through it
+  // and hid a defect that made a learner's own scroll invisible to the
+  // component on every real subtitle.
+  const FIRST_CUE_AT = 0.07;
   const srt = Array.from({ length: CUES }, (_, i) =>
-    `${i + 1}\n${stamp(i * STEP)} --> ${stamp((i + 1) * STEP - 0.05)}\nCue ${i + 1} carries a few transcript words.\n`).join('\n');
+    `${i + 1}\n${stamp(i * STEP + FIRST_CUE_AT)} --> ${stamp((i + 1) * STEP + FIRST_CUE_AT - 0.05)}\nCue ${i + 1} carries a few transcript words.\n`).join('\n');
 
   const importer = await openStudy(page);
   await importer.getByTestId('local-media-audio-input').setInputFiles({
