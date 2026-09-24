@@ -249,7 +249,7 @@ test('the transcript keeps the line being read on screen through a dense subtitl
   const activeRowState = async () => {
     const handle = await laidOutActiveRow();
     const node = handle.asElement();
-    if (!node) return { index: -1, inView: false, top: 0 };
+    if (!node) return { index: -1, inView: false, top: 0, bottomRatio: 0 };
     return node.evaluate((el) => {
       const box = (el as HTMLElement).closest('.overflow-y-auto') as HTMLElement;
       const cr = box.getBoundingClientRect(), er = (el as HTMLElement).getBoundingClientRect();
@@ -257,6 +257,7 @@ test('the transcript keeps the line being read on screen through a dense subtitl
         index: Number((el as HTMLElement).getAttribute('data-transcript-line')),
         inView: er.top >= cr.top - 2 && er.bottom <= cr.bottom + 2,
         top: Math.round(box.scrollTop),
+        bottomRatio: (er.bottom - cr.top) / cr.height,
       };
     });
   };
@@ -278,12 +279,14 @@ test('the transcript keeps the line being read on screen through a dense subtitl
   });
   const lost: number[] = [];
   const tops: number[] = [];
+  const rests: number[] = [];
   for (let cue = 1; cue <= 40; cue += 1) {
     await page.evaluate((t) => { (document.querySelector('audio') as HTMLAudioElement).currentTime = t; }, cue * STEP);
     await page.waitForTimeout(320);
     const state = await activeRowState();
     if (!state.inView) lost.push(state.index);
     tops.push(state.top);
+    rests.push(state.bottomRatio);
   }
   expect(lost, `rows that left the screen: ${lost.join(', ')}`).toEqual([]);
   // A list that never moves is the original Production bug.
@@ -296,15 +299,26 @@ test('the transcript keeps the line being read on screen through a dense subtitl
   const leaps = tops.slice(1).map((v, i) => v - tops[i]).filter((d) => d > paneHeight * 0.4);
   expect(leaps, `jumps over 40% of the ${paneHeight}px pane: ${leaps.join(', ')}`).toEqual([]);
 
-  // A nudge that leaves the line inside the comfort band must not be fought.
-  // No wheel event here on purpose: a programmatic scroll is not learner input,
-  // so this exercises the band rather than the reading pause.
+  // Where the line being read actually rests. Reported from the previous band:
+  // "the focus sits too low, put it a bit above the middle". The median over a
+  // steady run is the honest measure of a resting place - a single sample can
+  // catch the line mid-drift - and the old band, which parked the line on its
+  // own lower edge, reports ~0.75 here.
+  const sorted = [...rests.slice(10)].sort((a, b) => a - b);
+  const medianRest = sorted[Math.floor(sorted.length / 2)];
+  expect(medianRest, `the line rests at ${(medianRest * 100).toFixed(0)}% down the pane`).toBeLessThan(0.55);
+
+  // A learner who scrolls back to re-read the sentence just spoken keeps their
+  // position. The pause renews itself for as long as that line is on screen, so
+  // a sentence longer than the old fixed window no longer ends with the list
+  // moving under someone who is still reading it.
   const nudged = await page.evaluate(() => {
     const el = [...document.querySelectorAll<HTMLElement>('[data-transcript-line].border-l-indigo-500')]
       .find((n) => n.getBoundingClientRect().height > 0)!;
     const box = el.closest('.overflow-y-auto') as HTMLElement;
     const before = box.scrollTop;
-    box.scrollTop = before + 40;
+    box.scrollTop = Math.max(0, before - 150);
+    box.dispatchEvent(new WheelEvent('wheel', { deltaY: -150, bubbles: true }));
     return { before: Math.round(before), after: Math.round(box.scrollTop) };
   });
   await page.evaluate((t) => { (document.querySelector('audio') as HTMLAudioElement).currentTime = t; }, 41 * STEP);
@@ -317,13 +331,27 @@ test('the transcript keeps the line being read on screen through a dense subtitl
     return { top: Math.round(box.scrollTop), inView: er.top >= cr.top - 2 && er.bottom <= cr.bottom + 2 };
   });
   expect(afterNudge.inView, 'a single cue should not push the line off screen').toBe(true);
-  // The band may still nudge by the amount needed to keep the line inside it.
-  // What it must not do is undo the learner's scroll: re-centring on the old
-  // anchor moved this by ~200px backwards.
+  // The hold is absolute while the line is readable: the list stays exactly
+  // where the learner left it. Against the previous band this failed by ~200px,
+  // because resting the line on the edge of the band meant any drift at all
+  // crossed it and the next cue dragged them back.
   expect(
     Math.abs(afterNudge.top - nudged.after),
-    `the list was dragged back ${afterNudge.top - nudged.after}px although the line sat inside the band`,
-  ).toBeLessThanOrEqual(rowHeight);
+    `the list was dragged back ${afterNudge.top - nudged.after}px although the line was still on screen`,
+  ).toBeLessThanOrEqual(4);
+
+  // And it survives the old fixed window: a sentence the learner is still
+  // reading must not end with the list moving under them the moment six seconds
+  // pass. Without the renewal this fails by ~58px (one row) at the first cue
+  // after the window.
+  await page.waitForTimeout(6400);
+  await page.evaluate((t) => { (document.querySelector('audio') as HTMLAudioElement).currentTime = t; }, 42 * STEP);
+  await page.waitForTimeout(900);
+  const afterWindow = await activeRowState();
+  expect(
+    Math.abs(afterWindow.top - nudged.after),
+    `the list moved ${afterWindow.top - nudged.after}px once the fixed window expired`,
+  ).toBeLessThanOrEqual(4);
 
   // Scrolled far enough that the line really is gone: the reading pause holds
   // the list still, and following resumes once it expires.
