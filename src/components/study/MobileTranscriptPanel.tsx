@@ -10,6 +10,9 @@ import WordDictionaryPopup, { type WordDictionaryPopupData } from '../WordDictio
 import { formatTime } from './formatTime';
 /** How long a learner keeps their own scroll position after manual input. */
 const FOLLOW_RESUME_GRACE_MS = 6000;
+/** The active line is kept between these fractions of the pane: 25% from the top, 25% from the bottom. */
+const FOLLOW_BAND_TOP = 0.25;
+const FOLLOW_BAND_BOTTOM = 0.25;
 
 interface MobileWordPopup {
   word: string;
@@ -67,15 +70,22 @@ const MobileTranscriptPanel: React.FC<{
     const el = activeRef.current;
     const containerRect = container.getBoundingClientRect();
     const elRect = el.getBoundingClientRect();
-    // Re-engage only once the line being read has actually left the screen, so
-    // a small scroll to re-read a sentence is not yanked back.
-    if (elRect.top >= containerRect.top && elRect.bottom <= containerRect.bottom) return;
-    const targetScroll =
-      container.scrollTop +
-      (elRect.top - containerRect.top) -
-      container.clientHeight * 0.4 +
-      elRect.height / 2;
-    container.scrollTo({ top: Math.max(0, targetScroll), behavior: 'smooth' });
+    // Follow by the smallest amount that keeps the line inside a comfort band in
+    // the middle of the pane: re-centring yanks a learner who only nudged the
+    // list, and refusing to move until the line leaves the screen freezes it for
+    // ten cues and then teleports a screenful.
+    const bandTop = containerRect.top + containerRect.height * FOLLOW_BAND_TOP;
+    const bandBottom = containerRect.bottom - containerRect.height * FOLLOW_BAND_BOTTOM;
+    const delta = elRect.bottom > bandBottom
+      ? elRect.bottom - bandBottom
+      : elRect.top < bandTop
+        ? elRect.top - bandTop
+        : 0;
+    if (delta === 0) return;
+    container.scrollTo({
+      top: Math.max(0, container.scrollTop + delta),
+      behavior: 'smooth',
+    });
   }, [activeLineIndex]);
 
   const showPopup = useCallback((word: string, line: TranscriptLine, e: React.MouseEvent | React.TouchEvent) => {
