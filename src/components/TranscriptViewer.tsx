@@ -65,6 +65,7 @@ const TranscriptViewer: React.FC<TranscriptViewerProps> = ({
   // which shifts every row down AFTER the click-time rect was taken.
   const popupRowRef = useRef<HTMLElement | null>(null);
   const activeLineRef = useRef<HTMLDivElement>(null);
+  const rootRef = useRef<HTMLDivElement>(null);
   const userScrolledRef = useRef(false);
   const lastManualScrollAtRef = useRef(0);
   const showChinese = lang === 'zh';
@@ -85,10 +86,16 @@ const TranscriptViewer: React.FC<TranscriptViewerProps> = ({
     lastManualScrollAtRef.current = Date.now();
   }, []);
 
+  // Attached to the scroll pane from this component's own root, NOT from the
+  // active row: a real Whisper subtitle starts its first cue after zero
+  // (0.07s in the lesson this was found in), so at mount there is no active row
+  // at all. Resolving the pane through one made the learner's scroll invisible
+  // to the component for the rest of the lesson, which is what read as "it
+  // keeps dragging my list back".
   useEffect(() => {
-    const lineEl = activeLineRef.current;
-    if (!lineEl) return;
-    const container = lineEl.closest('.overflow-y-auto') as HTMLElement | null;
+    const root = rootRef.current;
+    if (!root) return;
+    const container = root.closest('.overflow-y-auto') as HTMLElement | null;
     if (!container) return;
     container.addEventListener('wheel', handleUserScroll, { passive: true });
     container.addEventListener('touchmove', handleUserScroll, { passive: true });
@@ -96,7 +103,7 @@ const TranscriptViewer: React.FC<TranscriptViewerProps> = ({
       container.removeEventListener('wheel', handleUserScroll);
       container.removeEventListener('touchmove', handleUserScroll);
     };
-  }, [handleUserScroll, lines]);
+  }, [handleUserScroll]);
 
   useEffect(() => {
     if (activeLineIndex < 0 || !activeLineRef.current) return;
@@ -231,7 +238,7 @@ const TranscriptViewer: React.FC<TranscriptViewerProps> = ({
   const splitIntoWords = (text: string) => text.match(/[\w']+|[^\w\s]+|\s+/g) || [];
 
   return (
-    <div className="relative">
+    <div className="relative" ref={rootRef}>
       {popup && (
         <WordDictionaryPopup
           word={popup.word}
