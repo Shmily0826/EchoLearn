@@ -235,81 +235,109 @@ test('the transcript keeps the line being read on screen through a dense subtitl
     return a && Number.isFinite(a.duration) ? a.duration : 0;
   }), { timeout: 15000 }).toBeGreaterThan(60);
 
-  const activeRowState = () => page.evaluate(() => {
-    const el = document.querySelector('[data-transcript-line].border-l-indigo-500');
-    if (!el) return { index: -1, inView: false, top: 0 };
-    const c = el.closest('.overflow-y-auto') as HTMLElement;
-    const cr = c.getBoundingClientRect(), er = el.getBoundingClientRect();
-    return {
-      index: Number(el.getAttribute('data-transcript-line')),
-      inView: er.top >= cr.top - 2 && er.bottom <= cr.bottom + 2,
-      top: Math.round(c.scrollTop),
-    };
+  // The transcript is mounted twice - a `lg:hidden` mobile copy and the desktop
+  // copy - and a plain querySelector returns the hidden one, whose rect is 0x0.
+  // Measuring the hidden copy would make every number below meaningless.
+  const laidOutActiveRow = () => page.evaluateHandle(() => {
+    for (const el of document.querySelectorAll<HTMLElement>('[data-transcript-line].border-l-indigo-500')) {
+      const r = el.getBoundingClientRect();
+      if (r.width > 0 && r.height > 0) return el;
+    }
+    return null;
   });
 
+  const activeRowState = async () => {
+    const handle = await laidOutActiveRow();
+    const node = handle.asElement();
+    if (!node) return { index: -1, inView: false, top: 0 };
+    return node.evaluate((el) => {
+      const box = (el as HTMLElement).closest('.overflow-y-auto') as HTMLElement;
+      const cr = box.getBoundingClientRect(), er = (el as HTMLElement).getBoundingClientRect();
+      return {
+        index: Number((el as HTMLElement).getAttribute('data-transcript-line')),
+        inView: er.top >= cr.top - 2 && er.bottom <= cr.bottom + 2,
+        top: Math.round(box.scrollTop),
+      };
+    });
+  };
+
   // One cue at a time, the cadence the report came in at.
+  const rowHeight = await page.evaluate(() => {
+    for (const el of document.querySelectorAll<HTMLElement>('[data-transcript-line]')) {
+      const r = el.getBoundingClientRect();
+      if (r.height > 0) return Math.round(r.height);
+    }
+    return 0;
+  });
+  // A zero baseline would silently turn every honest step into a "leap".
+  expect(rowHeight, 'no laid-out transcript row to measure against').toBeGreaterThan(10);
+  const paneHeight = await page.evaluate(() => {
+    const el = [...document.querySelectorAll<HTMLElement>('[data-transcript-line]')]
+      .find((n) => n.getBoundingClientRect().height > 0)!;
+    return Math.round((el.closest('.overflow-y-auto') as HTMLElement).getBoundingClientRect().height);
+  });
   const lost: number[] = [];
+  const tops: number[] = [];
   for (let cue = 1; cue <= 40; cue += 1) {
     await page.evaluate((t) => { (document.querySelector('audio') as HTMLAudioElement).currentTime = t; }, cue * STEP);
     await page.waitForTimeout(320);
     const state = await activeRowState();
     if (!state.inView) lost.push(state.index);
+    tops.push(state.top);
   }
   expect(lost, `rows that left the screen: ${lost.join(', ')}`).toEqual([]);
+  // A list that never moves is the original Production bug.
+  expect(tops[tops.length - 1], 'the list never moved at all').toBeGreaterThan(tops[0]);
+  // And it must follow a line at a time. Freezing for ten cues and then
+  // teleporting most of a screen was reported as "the subtitles stopped
+  // scrolling" - which is what a plain "don't move while it is visible" guard
+  // produces on a tall pane. Row heights vary with line length, so the bound is
+  // a fraction of the pane rather than a multiple of a row.
+  const leaps = tops.slice(1).map((v, i) => v - tops[i]).filter((d) => d > paneHeight * 0.4);
+  expect(leaps, `jumps over 40% of the ${paneHeight}px pane: ${leaps.join(', ')}`).toEqual([]);
 
-  // A small scroll that keeps the current line visible must not be fought.
-  const nudged = await page.evaluate(async () => {
-    const el = document.querySelector('[data-transcript-line].border-l-indigo-500');
-    const c = el!.closest('.overflow-y-auto') as HTMLElement;
-    const before = c.scrollTop;
-    c.scrollTop = before + 40;
-    return { before: Math.round(before), after: Math.round(c.scrollTop) };
+  // A nudge that leaves the line inside the comfort band must not be fought.
+  // No wheel event here on purpose: a programmatic scroll is not learner input,
+  // so this exercises the band rather than the reading pause.
+  const nudged = await page.evaluate(() => {
+    const el = [...document.querySelectorAll<HTMLElement>('[data-transcript-line].border-l-indigo-500')]
+      .find((n) => n.getBoundingClientRect().height > 0)!;
+    const box = el.closest('.overflow-y-auto') as HTMLElement;
+    const before = box.scrollTop;
+    box.scrollTop = before + 40;
+    return { before: Math.round(before), after: Math.round(box.scrollTop) };
   });
-  await page.evaluate(() => {
-    const el = document.querySelector('[data-transcript-line].border-l-indigo-500');
-    el!.closest('.overflow-y-auto')!.dispatchEvent(new WheelEvent('wheel', { deltaY: 40, bubbles: true }));
-  });
-  // One cue ahead, still comfortably on screen: the list must be left alone.
   await page.evaluate((t) => { (document.querySelector('audio') as HTMLAudioElement).currentTime = t; }, 41 * STEP);
   await page.waitForTimeout(700);
-  const duringPause = await page.evaluate(() => {
-    const el = document.querySelector('[data-transcript-line].border-l-indigo-500');
-    const c = el!.closest('.overflow-y-auto') as HTMLElement;
-    const cr = c.getBoundingClientRect(), er = el.getBoundingClientRect();
-    return { top: Math.round(c.scrollTop), inView: er.top >= cr.top - 2 && er.bottom <= cr.bottom + 2 };
+  const afterNudge = await page.evaluate(() => {
+    const el = [...document.querySelectorAll<HTMLElement>('[data-transcript-line].border-l-indigo-500')]
+      .find((n) => n.getBoundingClientRect().height > 0)!;
+    const box = el.closest('.overflow-y-auto') as HTMLElement;
+    const cr = box.getBoundingClientRect(), er = el.getBoundingClientRect();
+    return { top: Math.round(box.scrollTop), inView: er.top >= cr.top - 2 && er.bottom <= cr.bottom + 2 };
   });
-  expect(duringPause.inView, 'a single cue should not push the line off screen').toBe(true);
-  expect(duringPause.top, 'the list moved while the learner was inside the reading pause')
-    .toBe(nudged.after);
-
-  // After the pause expires, a line that is still visible must *stay* put: this
-  // is the in-view guard, and it is what stops the list being re-centred under
-  // a reader who only moved a row or two.
-  await page.waitForTimeout(6200);
-  await page.evaluate((t) => { (document.querySelector('audio') as HTMLAudioElement).currentTime = t; }, 42 * STEP);
-  await page.waitForTimeout(900);
-  const afterPause = await page.evaluate(() => {
-    const el = document.querySelector('[data-transcript-line].border-l-indigo-500');
-    const c = el!.closest('.overflow-y-auto') as HTMLElement;
-    const cr = c.getBoundingClientRect(), er = el.getBoundingClientRect();
-    return { top: Math.round(c.scrollTop), inView: er.top >= cr.top - 2 && er.bottom <= cr.bottom + 2 };
-  });
-  expect(afterPause.inView).toBe(true);
-  expect(afterPause.top, 'the list was dragged back although the line was still visible')
-    .toBe(nudged.after);
+  expect(afterNudge.inView, 'a single cue should not push the line off screen').toBe(true);
+  // The band may still nudge by the amount needed to keep the line inside it.
+  // What it must not do is undo the learner's scroll: re-centring on the old
+  // anchor moved this by ~200px backwards.
+  expect(
+    Math.abs(afterNudge.top - nudged.after),
+    `the list was dragged back ${afterNudge.top - nudged.after}px although the line sat inside the band`,
+  ).toBeLessThanOrEqual(rowHeight);
 
   // Scrolled far enough that the line really is gone: the reading pause holds
   // the list still, and following resumes once it expires.
   const scrolledAway = await page.evaluate(() => {
-    const el = document.querySelector('[data-transcript-line].border-l-indigo-500');
-    const c = el!.closest('.overflow-y-auto') as HTMLElement;
-    c.scrollTop = Math.max(0, c.scrollTop - 600);
-    c.dispatchEvent(new WheelEvent('wheel', { deltaY: -600, bubbles: true }));
-    return Math.round(c.scrollTop);
+    const el = [...document.querySelectorAll<HTMLElement>('[data-transcript-line].border-l-indigo-500')]
+      .find((n) => n.getBoundingClientRect().height > 0)!;
+    const box = el.closest('.overflow-y-auto') as HTMLElement;
+    box.scrollTop = Math.max(0, box.scrollTop - 600);
+    box.dispatchEvent(new WheelEvent('wheel', { deltaY: -600, bubbles: true }));
+    return Math.round(box.scrollTop);
   });
   await page.evaluate((t) => { (document.querySelector('audio') as HTMLAudioElement).currentTime = t; }, 48 * STEP);
   await page.waitForTimeout(900);
-  const duringGrace = await page.evaluate(() => Math.round((document.querySelector('[data-transcript-line].border-l-indigo-500')!.closest('.overflow-y-auto') as HTMLElement).scrollTop));
+  const { top: duringGrace } = await activeRowState();
   expect(duringGrace, 'the list jumped back while the learner was still inside the reading pause')
     .toBe(scrolledAway);
 

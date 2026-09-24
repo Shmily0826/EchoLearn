@@ -11,6 +11,9 @@ import WordDictionaryPopup, { type WordDictionaryPopupData } from './WordDiction
 
 /** How long a learner keeps their own scroll position after manual input. */
 const FOLLOW_RESUME_GRACE_MS = 6000;
+/** The active line is kept between these fractions of the pane: 25% from the top, 25% from the bottom. */
+const FOLLOW_BAND_TOP = 0.25;
+const FOLLOW_BAND_BOTTOM = 0.25;
 
 interface TranscriptViewerProps {
   lines: TranscriptLine[];
@@ -104,16 +107,23 @@ const TranscriptViewer: React.FC<TranscriptViewerProps> = ({
     if (!container) return;
     const containerRect = container.getBoundingClientRect();
     const elRect = el.getBoundingClientRect();
-    // Only re-engage when the line being read has actually left the screen. A
-    // learner who moved the list a little can still see it, and re-centering it
-    // for no reason reads as the player grabbing the scroll back.
-    if (elRect.top >= containerRect.top && elRect.bottom <= containerRect.bottom) return;
-    const targetScroll =
-      container.scrollTop +
-      (elRect.top - containerRect.top) -
-      container.clientHeight * 0.4 +
-      elRect.height / 2;
-    container.scrollTo({ top: Math.max(0, targetScroll), behavior: 'smooth' });
+    // Follow by the smallest amount that keeps the line inside a comfort band in
+    // the middle of the pane. Re-centring on every change yanks a learner who
+    // only nudged the list to re-read a sentence; refusing to move while the
+    // line is anywhere on screen freezes the list for ten cues and then teleports
+    // it a screenful, which reads as "it stopped scrolling" - both were reported.
+    const bandTop = containerRect.top + containerRect.height * FOLLOW_BAND_TOP;
+    const bandBottom = containerRect.bottom - containerRect.height * FOLLOW_BAND_BOTTOM;
+    const delta = elRect.bottom > bandBottom
+      ? elRect.bottom - bandBottom
+      : elRect.top < bandTop
+        ? elRect.top - bandTop
+        : 0;
+    if (delta === 0) return;
+    container.scrollTo({
+      top: Math.max(0, container.scrollTop + delta),
+      behavior: 'smooth',
+    });
   }, [activeLineIndex]);
 
   const handleWordClick = (
