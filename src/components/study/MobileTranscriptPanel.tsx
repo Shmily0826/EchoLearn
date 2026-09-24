@@ -10,9 +10,8 @@ import WordDictionaryPopup, { type WordDictionaryPopupData } from '../WordDictio
 import { formatTime } from './formatTime';
 /** How long a learner keeps their own scroll position after manual input. */
 const FOLLOW_RESUME_GRACE_MS = 6000;
-/** The active line is kept between these fractions of the pane: 25% from the top, 25% from the bottom. */
-const FOLLOW_BAND_TOP = 0.25;
-const FOLLOW_BAND_BOTTOM = 0.25;
+/** Where the line being read is placed when the list moves: just above centre. */
+const FOLLOW_ANCHOR = 0.45;
 
 interface MobileWordPopup {
   word: string;
@@ -44,7 +43,7 @@ const MobileTranscriptPanel: React.FC<{
   const containerRef = useRef<HTMLDivElement>(null);
   const activeRef = useRef<HTMLDivElement>(null);
   const userScrolled = useRef(false);
-  const scrollTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const lastManualScrollAt = useRef(0);
   const [popup, setPopup] = useState<MobileWordPopup | null>(null);
   const [dictionaryData, setDictionaryData] = useState<WordDictionaryPopupData | null>(null);
   // Row element of the popup's source sentence: the context bar mounted by the
@@ -56,30 +55,37 @@ const MobileTranscriptPanel: React.FC<{
   // scroll itself, and treating that as manual input suppressed the next three
   // seconds of following — which on a dense transcript meant the list never
   // kept up with the highlighted line.
+  //
+  // A timestamp, not a timer: the hold has to be judged against where the line
+  // is at the next cue boundary, which can arrive long after any timer ran out.
   const handleScroll = useCallback(() => {
     userScrolled.current = true;
-    if (scrollTimer.current) clearTimeout(scrollTimer.current);
-    scrollTimer.current = setTimeout(() => {
-      userScrolled.current = false;
-    }, FOLLOW_RESUME_GRACE_MS);
+    lastManualScrollAt.current = Date.now();
   }, []);
 
   useEffect(() => {
-    if (userScrolled.current || !activeRef.current || !containerRef.current) return;
+    if (!activeRef.current || !containerRef.current) return;
     const container = containerRef.current;
     const el = activeRef.current;
     const containerRect = container.getBoundingClientRect();
     const elRect = el.getBoundingClientRect();
-    // Follow by the smallest amount that keeps the line inside a comfort band in
-    // the middle of the pane: re-centring yanks a learner who only nudged the
-    // list, and refusing to move until the line leaves the screen freezes it for
-    // ten cues and then teleports a screenful.
-    const bandTop = containerRect.top + containerRect.height * FOLLOW_BAND_TOP;
-    const bandBottom = containerRect.bottom - containerRect.height * FOLLOW_BAND_BOTTOM;
-    const delta = elRect.bottom > bandBottom
-      ? elRect.bottom - bandBottom
-      : elRect.top < bandTop
-        ? elRect.top - bandTop
+    // The learner's own position wins for as long as the line they stopped on is
+    // still readable in the pane; once it is out of sight the pause runs its
+    // course and following resumes, so a scroll far ahead cannot detach the
+    // transcript for the rest of the lesson.
+    if (userScrolled.current) {
+      const inView = elRect.top >= containerRect.top && elRect.bottom <= containerRect.bottom;
+      if (inView || Date.now() - lastManualScrollAt.current < FOLLOW_RESUME_GRACE_MS) return;
+      userScrolled.current = false;
+    }
+    // Follow to an anchor just above the middle of the pane, moving by the
+    // least that keeps the line there. Refusing to move while the line is
+    // anywhere on screen freezes it for ten cues and then teleports a screenful.
+    const anchor = containerRect.top + containerRect.height * FOLLOW_ANCHOR;
+    const delta = elRect.bottom > anchor
+      ? elRect.bottom - anchor
+      : elRect.top < containerRect.top
+        ? elRect.top - containerRect.top
         : 0;
     if (delta === 0) return;
     container.scrollTo({

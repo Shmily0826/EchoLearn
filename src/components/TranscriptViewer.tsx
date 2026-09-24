@@ -11,9 +11,8 @@ import WordDictionaryPopup, { type WordDictionaryPopupData } from './WordDiction
 
 /** How long a learner keeps their own scroll position after manual input. */
 const FOLLOW_RESUME_GRACE_MS = 6000;
-/** The active line is kept between these fractions of the pane: 25% from the top, 25% from the bottom. */
-const FOLLOW_BAND_TOP = 0.25;
-const FOLLOW_BAND_BOTTOM = 0.25;
+/** Where the line being read is placed when the list moves: just above centre. */
+const FOLLOW_ANCHOR = 0.45;
 
 interface TranscriptViewerProps {
   lines: TranscriptLine[];
@@ -67,7 +66,7 @@ const TranscriptViewer: React.FC<TranscriptViewerProps> = ({
   const popupRowRef = useRef<HTMLElement | null>(null);
   const activeLineRef = useRef<HTMLDivElement>(null);
   const userScrolledRef = useRef(false);
-  const scrollTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const lastManualScrollAtRef = useRef(0);
   const showChinese = lang === 'zh';
 
   // Manual input, not the `scroll` event: the follow-scroll below is itself a
@@ -78,13 +77,12 @@ const TranscriptViewer: React.FC<TranscriptViewerProps> = ({
   //
   // The window is a reading pause, not an animation delay: scrolling a row or
   // two up to check the line just spoken should not have the list dragged back
-  // under the eyes.
+  // under the eyes. It is a timestamp rather than a timer because the hold has
+  // to be judged against where the line currently is, and a cue boundary - the
+  // only moment this matters - can arrive long after any timer would have run.
   const handleUserScroll = useCallback(() => {
     userScrolledRef.current = true;
-    if (scrollTimerRef.current) clearTimeout(scrollTimerRef.current);
-    scrollTimerRef.current = setTimeout(() => {
-      userScrolledRef.current = false;
-    }, FOLLOW_RESUME_GRACE_MS);
+    lastManualScrollAtRef.current = Date.now();
   }, []);
 
   useEffect(() => {
@@ -101,23 +99,31 @@ const TranscriptViewer: React.FC<TranscriptViewerProps> = ({
   }, [handleUserScroll, lines]);
 
   useEffect(() => {
-    if (activeLineIndex < 0 || !activeLineRef.current || userScrolledRef.current) return;
+    if (activeLineIndex < 0 || !activeLineRef.current) return;
     const el = activeLineRef.current;
     const container = el.closest('.overflow-y-auto') as HTMLElement | null;
     if (!container) return;
     const containerRect = container.getBoundingClientRect();
     const elRect = el.getBoundingClientRect();
-    // Follow by the smallest amount that keeps the line inside a comfort band in
-    // the middle of the pane. Re-centring on every change yanks a learner who
-    // only nudged the list to re-read a sentence; refusing to move while the
-    // line is anywhere on screen freezes the list for ten cues and then teleports
-    // it a screenful, which reads as "it stopped scrolling" - both were reported.
-    const bandTop = containerRect.top + containerRect.height * FOLLOW_BAND_TOP;
-    const bandBottom = containerRect.bottom - containerRect.height * FOLLOW_BAND_BOTTOM;
-    const delta = elRect.bottom > bandBottom
-      ? elRect.bottom - bandBottom
-      : elRect.top < bandTop
-        ? elRect.top - bandTop
+    // The learner's own position wins while the line they stopped on is still on
+    // screen: the pause renews itself for as long as it is, and only runs out
+    // once following would have to lose the line entirely. A fixed window was
+    // reported as "easily dragged back", because a sentence longer than the
+    // window ends with the list moving under someone who is still reading it.
+    if (userScrolledRef.current) {
+      const inView = elRect.top >= containerRect.top && elRect.bottom <= containerRect.bottom;
+      if (inView || Date.now() - lastManualScrollAtRef.current < FOLLOW_RESUME_GRACE_MS) return;
+      userScrolledRef.current = false;
+    }
+    // Follow to an anchor just above the middle of the pane, moving by the
+    // least that keeps the line there. Refusing to move while the line is
+    // anywhere on screen freezes the list for ten cues and then teleports a
+    // screenful, which reads as "it stopped scrolling".
+    const anchor = containerRect.top + containerRect.height * FOLLOW_ANCHOR;
+    const delta = elRect.bottom > anchor
+      ? elRect.bottom - anchor
+      : elRect.top < containerRect.top
+        ? elRect.top - containerRect.top
         : 0;
     if (delta === 0) return;
     container.scrollTo({
