@@ -386,9 +386,12 @@ describe('lookupWord — client-side fallback path', () => {
   });
 
   it('rejects malformed Free Dictionary entries instead of returning a blank entry', async () => {
+    // The backend is 5xx here, not 404: with the backend confirming absence the
+    // correct report is a miss, and this case is about a *broken* tier that
+    // nobody has answered over.
     fetchMock.mockImplementation(async (input) => {
       const url = String(input);
-      if (url.includes('/api/dictionary')) return mockResponse('', { status: 404 });
+      if (url.includes('/api/dictionary')) return mockResponse('bad gateway', { status: 502 });
       if (url.includes('dictionaryapi.dev')) return mockResponse('[{}]');
       return mockResponse('', { status: 404 });
     });
@@ -589,5 +592,86 @@ describe('lookupWord — backend rate-limit cooldown', () => {
     await expect(mod.lookupWord('cat')).rejects.toThrow();
     await expect(mod.lookupWord('dog')).rejects.toThrow();
     expect(callsTo('/api/dictionary')).toBe(1);
+  });
+});
+
+// ── A confirmed miss is not an outage ──────────────────────────
+
+describe('lookupWord — miss versus outage', () => {
+  it('reports "no entry" when the backend confirmed the word is absent, even if another tier failed', async () => {
+    // What Production actually looked like while api.dictionaryapi.dev was
+    // answering 522 after ~20s: the backend said "no such word" and the slower
+    // tier timed out. That combination used to be rendered as "Dictionary
+    // service unavailable. Please try again." for every brand, name and
+    // coinage in a transcript.
+    fetchMock.mockImplementation(async (input) => {
+      const url = String(input);
+      if (url.includes('/api/dictionary')) return mockResponse('not found', { status: 404 });
+      throw new Error('origin timeout');
+    });
+    const mod = await freshModule();
+
+    await expect(mod.lookupWord('echolearn')).resolves.toBeNull();
+  });
+
+  it('reports an outage only when no tier could answer at all', async () => {
+    fetchMock.mockImplementation(async (input) => {
+      const url = String(input);
+      if (url.includes('/api/dictionary')) return mockResponse('bad gateway', { status: 502 });
+      throw new Error('origin timeout');
+    });
+    const mod = await freshModule();
+
+    await expect(mod.lookupWord('cat')).rejects.toThrow('Dictionary service unavailable');
+  });
+
+  it('treats an empty backend payload as a confirmed answer, not a failure', async () => {
+    fetchMock.mockImplementation(async (input) => {
+      const url = String(input);
+      if (url.includes('/api/dictionary')) return mockResponse(JSON.stringify({ entries: [] }));
+      throw new Error('origin timeout');
+    });
+    const mod = await freshModule();
+
+    await expect(mod.lookupWord('xyzzy')).resolves.toBeNull();
+  });
+
+  it('does not let a Datamuse empty result confirm absence', async () => {
+    // Datamuse is a word-association index: no rows says nothing about whether
+    // the word exists, so a lookup where it is the only tier to answer must
+    // still surface the failure rather than a confident "no entry".
+    fetchMock.mockImplementation(async (input) => {
+      const url = String(input);
+      if (url.includes('/api/dictionary')) return mockResponse('bad gateway', { status: 502 });
+      if (url.includes('dictionaryapi.dev')) throw new Error('origin timeout');
+      return mockResponse('[]');
+    });
+    const mod = await freshModule();
+
+    await expect(mod.lookupWord('cat')).rejects.toThrow('Dictionary service unavailable');
+  });
+});
+
+// ── What the proper-noun blocklist is allowed to suppress ──────
+
+describe('lookupWord — proper-noun blocklist', () => {
+  it('looks up units and initialisms the provider defines as that abbreviation', async () => {
+    route('backend');
+    const mod = await freshModule();
+
+    for (const word of ['ai', 'app', 'gps', 'mph', 'fyi', 'asap', 'lol']) {
+      expect(await mod.lookupWord(word)).not.toBeNull();
+    }
+    expect(callsTo('/api/dictionary')).toBe(7);
+  });
+
+  it('still suppresses names, brands and shorthand whose answer is a different word', async () => {
+    route('backend');
+    const mod = await freshModule();
+
+    for (const word of ['China', 'Trump', 'Facebook', 'Uber', 'rn', 'btw', 'omg']) {
+      expect(await mod.lookupWord(word)).toBeNull();
+    }
+    expect(fetchMock).not.toHaveBeenCalled();
   });
 });

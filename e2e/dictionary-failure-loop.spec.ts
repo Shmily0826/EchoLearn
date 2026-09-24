@@ -71,3 +71,23 @@ test('popup stays render-stable and clickable when every dictionary path fails',
 
   expect(depthErrors, `render loop fired ${depthErrors.length}x`).toEqual([]);
 });
+
+test('a word the backend confirmed absent is reported as no entry, not as an outage', async ({ page }) => {
+  // The shape Production had while api.dictionaryapi.dev was answering 522
+  // after ~20s: our own backend says "no such word" and the slower client-side
+  // tier never answers. That used to render "Dictionary service unavailable.
+  // Please try again." over the top of a perfectly good "this word is not in
+  // the dictionary" answer, for every brand, name and coinage in a transcript.
+  await page.route('**/api/dictionary*', (route) =>
+    route.fulfill({ status: 404, contentType: 'application/json', body: '{"error":"not found"}' }));
+  await page.route('**api.dictionaryapi.dev**', (route) => route.abort('timedout'));
+  await page.route('**api.datamuse.com**', (route) => route.abort('timedout'));
+  await page.route('**/api/translate**', (route) =>
+    route.fulfill({ status: 502, contentType: 'application/json', body: '{}' }));
+
+  await openPopupOnFailingBackend(page);
+
+  const card = page.locator('#tour-transcript-save-word').locator('xpath=ancestor::div[contains(@class,"fixed")][1]');
+  await expect(card).toContainText('Dictionary entry not found');
+  await expect(card).not.toContainText('unavailable');
+});
