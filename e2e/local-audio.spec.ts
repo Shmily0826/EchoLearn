@@ -192,3 +192,68 @@ test('a subtitle containing an Object.prototype word renders instead of crashing
   // really ran against it rather than the line being skipped.
   await expect(rows.first().getByRole('button', { name: 'constructor' })).toBeVisible();
 });
+
+test('the transcript follows every cue of a dense local subtitle', async ({ page }) => {
+  // Regression: the follow-scroll used to listen for the container's own
+  // `scroll` event as "the learner scrolled", so each automatic jump suppressed
+  // the next three seconds of following. At ~1.75s per cue the list advanced
+  // about once every three lines and the highlighted row drifted permanently
+  // out of view - reported from Production as "the subtitles don't scroll".
+  const STEP = 1.75;
+  const CUES = 60;
+
+  const wavSeconds = (seconds: number) => {
+    const samples = 8000 * seconds;
+    const data = Buffer.alloc(44 + samples * 2);
+    data.write('RIFF', 0); data.writeUInt32LE(data.length - 8, 4); data.write('WAVEfmt ', 8);
+    data.writeUInt32LE(16, 16); data.writeUInt16LE(1, 20); data.writeUInt16LE(1, 22);
+    data.writeUInt32LE(8000, 24); data.writeUInt32LE(16000, 28); data.writeUInt16LE(2, 32);
+    data.writeUInt16LE(16, 34); data.write('data', 36); data.writeUInt32LE(samples * 2, 40);
+    return data;
+  };
+  const stamp = (s: number) => {
+    const m = Math.floor(s / 60), sec = Math.floor(s % 60), ms = Math.round((s % 1) * 1000);
+    return `00:${String(m).padStart(2, '0')}:${String(sec).padStart(2, '0')},${String(ms).padStart(3, '0')}`;
+  };
+  const srt = Array.from({ length: CUES }, (_, i) =>
+    `${i + 1}\n${stamp(i * STEP)} --> ${stamp((i + 1) * STEP - 0.05)}\nCue ${i + 1} carries a few transcript words.\n`).join('\n');
+
+  const importer = await openStudy(page);
+  await importer.getByTestId('local-media-audio-input').setInputFiles({
+    name: 'dense.wav', mimeType: 'audio/wav', buffer: wavSeconds(CUES * STEP + 5),
+  });
+  await importer.getByTestId('local-media-subtitle-input').setInputFiles({
+    name: 'dense.srt', mimeType: 'application/x-subrip', buffer: Buffer.from(srt),
+  });
+  await importer.getByRole('button', { name: 'Open in Study' }).click();
+  await expect.poll(() => page.evaluate(() => {
+    const a = document.querySelector('audio');
+    return a && Number.isFinite(a.duration) ? a.duration : 0;
+  }), { timeout: 15000 }).toBeGreaterThan(60);
+
+  // One cue at a time, the cadence the report came in at.
+  const tops: number[] = [];
+  for (let cue = 1; cue <= 40; cue += 1) {
+    await page.evaluate((t) => { (document.querySelector('audio') as HTMLAudioElement).currentTime = t; }, cue * STEP);
+    await page.waitForTimeout(320);
+    tops.push(await page.evaluate(() => {
+      const el = document.querySelector('[data-transcript-line].border-l-indigo-500');
+      return el ? Math.round((el.closest('.overflow-y-auto') as HTMLElement).scrollTop) : -1;
+    }));
+  }
+
+  const advances = tops.slice(1).filter((v, i) => v > tops[i]).length;
+  expect(tops).not.toContain(-1);
+  // The list must move with essentially every line, not once per three.
+  expect(advances).toBeGreaterThanOrEqual(Math.floor(39 * 0.8));
+
+  // And the line being read is on screen at the end of the run.
+  const inView = await page.evaluate(() => {
+    const el = document.querySelector('[data-transcript-line].border-l-indigo-500');
+    if (!el) return false;
+    const c = el.closest('.overflow-y-auto') as HTMLElement;
+    const cr = c.getBoundingClientRect(), er = el.getBoundingClientRect();
+    return er.top >= cr.top - 2 && er.bottom <= cr.bottom + 2;
+  });
+  expect(inView).toBe(true);
+});

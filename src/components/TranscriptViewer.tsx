@@ -64,6 +64,11 @@ const TranscriptViewer: React.FC<TranscriptViewerProps> = ({
   const scrollTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const showChinese = lang === 'zh';
 
+  // Manual input, not the `scroll` event: the follow-scroll below is itself a
+  // scroll, and listening for it made every automatic jump suppress the next
+  // three seconds of following. On a dense transcript (a Whisper or local
+  // subtitle at under three seconds a line) that left the list permanently
+  // behind the highlighted line.
   const handleUserScroll = useCallback(() => {
     userScrolledRef.current = true;
     if (scrollTimerRef.current) clearTimeout(scrollTimerRef.current);
@@ -77,8 +82,12 @@ const TranscriptViewer: React.FC<TranscriptViewerProps> = ({
     if (!lineEl) return;
     const container = lineEl.closest('.overflow-y-auto') as HTMLElement | null;
     if (!container) return;
-    container.addEventListener('scroll', handleUserScroll, { passive: true });
-    return () => container.removeEventListener('scroll', handleUserScroll);
+    container.addEventListener('wheel', handleUserScroll, { passive: true });
+    container.addEventListener('touchmove', handleUserScroll, { passive: true });
+    return () => {
+      container.removeEventListener('wheel', handleUserScroll);
+      container.removeEventListener('touchmove', handleUserScroll);
+    };
   }, [handleUserScroll, lines]);
 
   useEffect(() => {

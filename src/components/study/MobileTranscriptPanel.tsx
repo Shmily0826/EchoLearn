@@ -47,6 +47,10 @@ const MobileTranscriptPanel: React.FC<{
   const popupRowRef = useRef<HTMLElement | null>(null);
   const showChinese = lang === 'zh';
 
+  // Wheel/touch rather than the `scroll` event: the follow-scroll below fires
+  // scroll itself, and treating that as manual input suppressed the next three
+  // seconds of following — which on a dense transcript meant the list never
+  // kept up with the highlighted line.
   const handleScroll = useCallback(() => {
     userScrolled.current = true;
     if (scrollTimer.current) clearTimeout(scrollTimer.current);
@@ -200,7 +204,8 @@ const MobileTranscriptPanel: React.FC<{
 
       <div
         ref={containerRef}
-        onScroll={handleScroll}
+        onWheel={handleScroll}
+        onTouchMove={handleScroll}
         className="overflow-y-auto max-h-[55vh] px-2 py-1 bg-white dark:bg-slate-800"
         style={{ overscrollBehavior: 'contain', overflowAnchor: 'none', scrollBehavior: 'smooth' }}
       >
