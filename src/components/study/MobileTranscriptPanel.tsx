@@ -1,6 +1,7 @@
-import React, { useState, useEffect, useLayoutEffect, useCallback, useRef } from 'react';
+import React, { useState, useEffect, useLayoutEffect, useCallback, useRef, useMemo } from 'react';
 import { useI18n } from '../../i18n/I18nContext';
 import { lemmatize } from '../../utils/lemmatizer';
+import { prepareTranscriptWords } from '../../utils/transcriptWords';
 import { extractSentence } from '../../utils/sentence';
 import { lookupWord } from '../../services/dictionaryService';
 import { prepareVocabularyItem } from '../../services/vocabularyEnrichment';
@@ -184,9 +185,9 @@ const MobileTranscriptPanel: React.FC<{
     onAddSentence(item);
   }, [videoId, videoTitle, onAddSentence]);
 
-  const splitIntoWords = (text: string) => text.match(/[\w']+|[^\w\s]+|\s+/g) || [];
   const isWordSaved = (word: string) => savedWords.has(lemmatize(word).toLowerCase());
   const isSentenceSaved = (text: string) => savedSentences.has(text);
+  const wordTokensByLine = useMemo(() => prepareTranscriptWords(lines, savedWords), [lines, savedWords]);
 
   if (lines.length === 0) {
     return (
@@ -258,10 +259,9 @@ const MobileTranscriptPanel: React.FC<{
                   >
                     {formatTime(line.start)}
                   </span>
-                  {splitIntoWords(line.text).map((token, i) => {
+                  {wordTokensByLine[idx].map(({ text: token, saved }, i) => {
                     if (/^\s+$/.test(token)) return <span key={i}>{token}</span>;
                     if (/^[^\w']+$/.test(token)) return <span key={i} className="text-gray-400">{token}</span>;
-                    const saved = isWordSaved(token.toLowerCase());
                     return (
                       <span
                         key={i}
