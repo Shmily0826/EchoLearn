@@ -1,9 +1,10 @@
-import React, { useState, useRef, useEffect, useLayoutEffect, useCallback } from 'react';
+import React, { useState, useRef, useEffect, useLayoutEffect, useCallback, useMemo } from 'react';
 import { useI18n } from '../i18n/I18nContext';
 import type { TranscriptLine, VocabularyItem, SentenceItem } from '../types';
 import { tomorrowMs } from '../utils/storage';
 import { createItemId, currentTimeMs } from '../utils/id';
 import { lemmatize } from '../utils/lemmatizer';
+import { prepareTranscriptWords } from '../utils/transcriptWords';
 import { extractSentence } from '../utils/sentence';
 import { lookupWord } from '../services/dictionaryService';
 import { prepareVocabularyItem } from '../services/vocabularyEnrichment';
@@ -235,7 +236,7 @@ const TranscriptViewer: React.FC<TranscriptViewerProps> = ({
 
   const isWordSaved = (word: string) => savedWords.has(lemmatize(word).toLowerCase());
   const isSentenceSaved = (text: string) => savedSentences.has(text);
-  const splitIntoWords = (text: string) => text.match(/[\w']+|[^\w\s]+|\s+/g) || [];
+  const wordTokensByLine = useMemo(() => prepareTranscriptWords(lines, savedWords), [lines, savedWords]);
 
   return (
     <div className="relative" ref={rootRef}>
@@ -302,10 +303,9 @@ const TranscriptViewer: React.FC<TranscriptViewerProps> = ({
                     {formatTime(line.start)}
                   </span>
                   <span className="text-[15px] leading-relaxed">
-                    {splitIntoWords(line.text).map((token, i) => {
+                    {wordTokensByLine[idx].map(({ text: token, saved }, i) => {
                       if (/^\s+$/.test(token)) return <span key={i}>{token}</span>;
                       if (/^[^\w']+$/.test(token)) return <span key={i} className="text-gray-400">{token}</span>;
-                      const saved = isWordSaved(token.toLowerCase());
                       return (
                         <span
                           key={i}
