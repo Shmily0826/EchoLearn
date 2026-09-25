@@ -4526,8 +4526,15 @@ One Playwright browser check passed in system Chrome (`mobile-chromium`) against
 
 ## ECHO-20260925-1658 - transcript playback work
 
-- Deterministic 1,461-cue fixture: the legacy-equivalent reference made 11,688 lemmatizer calls on mount and 35,064 across three playback ticks; the optimized desktop/mobile transcript components made 11,688 on mount and zero additional calls over three ticks. React still recorded three playback commits. Changed lesson lines and saved-word sets recompute the memoized tokens and preserve saved-word styling.
+- Deterministic 1,461-cue fixture: the legacy-equivalent path is 11,688 lemmatizer calls per render (four words per cue, two panels); the optimized desktop/mobile transcript components made 11,688 on mount and zero additional calls over three playback ticks. React still recorded three playback commits. Changed lesson lines and saved-word sets recompute the memoized tokens and preserve saved-word styling.
 - Focused Vitest previously passed 3 files / 17 tests; app TypeScript and changed-file ESLint passed. The production build had passed earlier in this local optimization cycle. No physical-device or provider measurement was made.
 - The exploratory 1,461-cue browser sample was inconsistent: one system-Chrome run had 6/40 rows out of view at 320ms; the single bounded follow-up had 40/40 in view at 320ms, leaving no transient misses to time. Removed the flaky browser assertion; the committed 60-cue follow-scroll E2E remains. This does not establish a long-list regression or a fix, and no Chrome FPS or Android result is claimed.
 - Closeout checks: focused Vitest passed 1 file / 3 tests using a temporary config and cache; app TypeScript check and targeted ESLint passed. The production build passed earlier in this optimization cycle and was not rerun after this test/report cleanup; no new browser run was made.
-- Local branch only; no commit, push, PR, merge, or deploy.
+- No physical-device or provider measurement; the long-list browser result remains inconclusive.
+
+### CI timeout repair
+
+- GitHub CI run `36118016914` timed out the 1,461-cue playback test and route-leave test at Vitest's default 5s. Before the fix, local timings were 2,496ms and 2,442ms respectively.
+- The test now counts the legacy lexical-call expectation instead of executing 46,752 duplicate lemmatizer calls. The route-only test uses two cues rather than mounting 1,461; its timer and no-hidden-render assertions are unchanged. Only the full 1,461-cue performance test has a targeted 10s timeout.
+- Latest focused Vitest passed 3 files / 17 tests (4.50s total). App TypeScript and targeted ESLint passed. No app source or build configuration changed; production build was not rerun.
+- CI rerun is pending after this test-only repair is pushed.

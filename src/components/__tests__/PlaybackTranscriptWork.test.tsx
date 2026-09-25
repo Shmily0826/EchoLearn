@@ -8,7 +8,6 @@ import type { PlayerHandle } from '../YouTubeEmbed';
 import TranscriptViewer from '../TranscriptViewer';
 import MobileTranscriptPanel from '../study/MobileTranscriptPanel';
 import type { TranscriptLine } from '../../types';
-import { lemmatize } from '../../utils/lemmatizer';
 
 const metrics = vi.hoisted(() => ({ lemmatizeCalls: 0, clockReads: 0, commits: 0 }));
 vi.mock('../../utils/lemmatizer', async (importOriginal) => {
@@ -36,17 +35,10 @@ const savedSentences = new Set<string>();
 const savedSentenceIds = new Map<string, string>();
 const noop = () => {};
 
-function measureLegacyWordWork(inputLines: TranscriptLine[]) {
-  const before = metrics.lemmatizeCalls;
-  for (let panel = 0; panel < 2; panel++) {
-    for (const line of inputLines) {
-      for (const token of line.text.match(/[\w']+|[^\w\s]+|\s+/g) || []) {
-        if (/^\s+$/.test(token) || /^[^\w']+$/.test(token)) continue;
-        lemmatize(token.toLowerCase()).toLowerCase();
-      }
-    }
-  }
-  return metrics.lemmatizeCalls - before;
+function countLegacyWordCalls(inputLines: TranscriptLine[]) {
+  return inputLines.reduce((count, line) =>
+    count + (line.text.match(/[\w']+|[^\w\s]+|\s+/g) || []).filter((token) => /^[\w']+$/.test(token)).length * 2,
+  0);
 }
 
 function PlaybackTranscriptFixture({ fixtureLines = lines }: { fixtureLines?: TranscriptLine[] }) {
@@ -78,7 +70,7 @@ function PlaybackTranscriptFixture({ fixtureLines = lines }: { fixtureLines?: Tr
     audioMode: true,
     onPositionChange: noop,
   });
-  const activeLineIndex = Math.min(lines.length - 1, Math.floor(currentTime / 4));
+  const activeLineIndex = Math.min(lessonLines.length - 1, Math.floor(currentTime / 4));
 
   return (
     <>
@@ -130,10 +122,8 @@ describe('playback transcript work', () => {
     metrics.lemmatizeCalls = 0;
     metrics.clockReads = 0;
     metrics.commits = 0;
-    const legacyMountCalls = measureLegacyWordWork(lines);
-    const legacyTickCalls = Array.from({ length: 3 }, () => measureLegacyWordWork(lines))
-      .reduce((total, calls) => total + calls, 0);
-    metrics.lemmatizeCalls = 0;
+    const legacyMountCalls = countLegacyWordCalls(lines);
+    const legacyTickCalls = legacyMountCalls * 3;
 
     render(<PlaybackTranscriptFixture />);
     const initialCalls = metrics.lemmatizeCalls;
@@ -150,14 +140,14 @@ describe('playback transcript work', () => {
     expect(metrics.clockReads - initialReads).toBe(3);
     expect(metrics.commits - initialCommits).toBe(3);
     expect(metrics.lemmatizeCalls, `lemmatize calls grew from ${initialCalls}`).toBe(initialCalls);
-  });
+  }, 10_000);
 
   it('keeps polling after route leave but pauses without rerendering the hidden Study tree', () => {
     vi.useFakeTimers();
     metrics.lemmatizeCalls = 0;
     metrics.clockReads = 0;
     metrics.commits = 0;
-    const { getByText } = render(<PlaybackTranscriptFixture />);
+    const { getByText } = render(<PlaybackTranscriptFixture fixtureLines={lines.slice(0, 2)} />);
     fireEvent.click(getByText('leave Study'));
     const commitsWhenHidden = metrics.commits;
     const readsWhenHidden = metrics.clockReads;
