@@ -4510,3 +4510,16 @@ admin cleanup is not authorized and recursive deletion of `/feedback` would also
 new owner subtree. The frozen `aiAnalyses` corpus is left in place and is no longer read
 by the new client. Account deletion still does not delete the remote GitHub Gist, which
 remains stated in the README boundary rather than being quietly expanded.
+
+## ECHO-20260925-1025 - bounded optimization verification
+
+- Focused Vitest: 4 files, 11/11 passed (`localAudio.objectUrls`, local audio limits, Settings auth policy, AudioPlayer).
+- TypeScript: app and node projects passed separately with `tsBuildInfoFile` directed to a unique temp path. Standard `tsc -b` could not write under `node_modules/.tmp` (EPERM); no permissions were changed.
+- ESLint: 0 errors, 12 warnings (existing hook/dependency warnings).
+- Production Vite build: passed to a fresh temp output directory with Sentry upload credentials blank. Build emitted the configured large-chunk warning; no bundle restructuring was attempted.
+- Initial Playwright run: blocked by missing bundled Chromium; one system Chrome run stopped in guest onboarding before assertions. Later static-artifact browser verification is recorded in the addendum.
+- Local only. No physical Android test, provider call, production mutation, commit, or push.
+
+Verification addendum: focused Vitest passed 5 files / 16 tests, including an IndexedDB abort-after-request-success case that confirms the URL remains usable on transaction failure. App and node TypeScript projects passed; changed-file ESLint passed clean; the final Vite production build passed to a unique temp directory with Sentry credentials blank.
+
+One Playwright browser check passed in system Chrome (`mobile-chromium`) against a prebuilt production artifact served by a standalone localhost static server. It used the real guest button and verified keyboard focus from the skip link to `main#main-content`, then verified the theme button's accessible name changes after clicking. The E2E helper intercepts its listed third-party hosts but allows the app auth helper domain; no signup or provider action was used, and the run did not capture a complete network log. This browser run preceded the local-audio transaction completion refinement; the a11y path was unchanged, and the final local-audio behavior is covered by focused Vitest.

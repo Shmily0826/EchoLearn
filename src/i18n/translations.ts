@@ -2,6 +2,7 @@ export type Lang = 'en' | 'zh';
 
 const translations: Record<string, Record<Lang, string>> = {
   // ── Layout / Nav ─────────────────────────────────────────
+  'layout.skipToContent': { en: 'Skip to content', zh: '跳到主要内容' },
   'nav.dashboard':       { en: 'Dashboard',  zh: '主页' },
   'nav.study':           { en: 'Study',      zh: '学习' },
   'nav.words':           { en: 'Vocabulary', zh: '词汇' },

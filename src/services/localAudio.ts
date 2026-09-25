@@ -91,6 +91,13 @@ export function transcribeLocalAudio(
 
 const localAudioFiles = new Map<string, string>();
 
+function revokeLocalAudioUrl(id: string): void {
+  const url = localAudioFiles.get(id);
+  if (!url) return;
+  URL.revokeObjectURL(url);
+  localAudioFiles.delete(id);
+}
+
 export function registerLocalAudio(id: string, file: Blob): string {
   const previous = localAudioFiles.get(id);
   if (previous) URL.revokeObjectURL(previous);
@@ -132,6 +139,7 @@ function runMediaRequest<T>(
   action: (store: IDBObjectStore, resolve: (value: T) => void, reject: (reason?: unknown) => void) => void,
 ): Promise<T> {
   return openLocalMediaDb().then((db) => new Promise<T>((resolve, reject) => {
+    let result: { value: T } | undefined;
     const persistenceError = (cause?: unknown) => {
       const name = cause && typeof cause === 'object' && 'name' in cause ? String(cause.name) : '';
       return new LocalAudioError(
@@ -147,8 +155,19 @@ function runMediaRequest<T>(
         db.close();
         reject(persistenceError(transaction.error));
       };
-      action(transaction.objectStore(LOCAL_MEDIA_STORE), resolve, (reason) => reject(persistenceError(reason)));
-      transaction.oncomplete = () => db.close();
+      transaction.onabort = () => {
+        db.close();
+        reject(persistenceError(transaction.error));
+      };
+      action(
+        transaction.objectStore(LOCAL_MEDIA_STORE),
+        (value) => { result = { value }; },
+        (reason) => reject(persistenceError(reason)),
+      );
+      transaction.oncomplete = () => {
+        db.close();
+        if (result) resolve(result.value);
+      };
     } catch (error) {
       db.close();
       reject(persistenceError(error));
@@ -195,12 +214,13 @@ export function restoreLocalAudioMedia(id: string): Promise<string | null> {
 }
 
 /** Remove one persisted local-media item when its Study session is cleared. */
-export function deleteLocalAudioMedia(id: string): Promise<void> {
-  return runMediaRequest<void>('readwrite', (store, resolve, reject) => {
+export async function deleteLocalAudioMedia(id: string): Promise<void> {
+  await runMediaRequest<void>('readwrite', (store, resolve, reject) => {
     const request = store.delete(id);
     request.onsuccess = () => resolve();
     request.onerror = () => reject(new LocalAudioError('persistence', 'Could not clear local audio storage.'));
   });
+  revokeLocalAudioUrl(id);
 }
 
 /**
@@ -212,11 +232,20 @@ export function deleteLocalAudioMedia(id: string): Promise<void> {
  * to delete the database, so the caller can say so honestly.
  */
 export function deleteAllLocalAudioMedia(): Promise<void> {
-  if (typeof indexedDB === 'undefined') return Promise.resolve();
-  localAudioFiles.clear();
+  const revokeAll = () => {
+    for (const url of localAudioFiles.values()) URL.revokeObjectURL(url);
+    localAudioFiles.clear();
+  };
+  if (typeof indexedDB === 'undefined') {
+    revokeAll();
+    return Promise.resolve();
+  }
   return new Promise((resolve, reject) => {
     const request = indexedDB.deleteDatabase(LOCAL_MEDIA_DB);
-    request.onsuccess = () => resolve();
+    request.onsuccess = () => {
+      revokeAll();
+      resolve();
+    };
     request.onerror = () => reject(new LocalAudioError('persistence', 'Could not clear local audio storage.'));
     request.onblocked = () => reject(new LocalAudioError('persistence', 'Local audio storage is still open; reload and try again.'));
   });
