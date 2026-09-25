@@ -91,6 +91,7 @@ function AppContent({ onLoginRequest }: { onLoginRequest?: () => void }) {
         <div
           className="fixed top-0 left-0 right-0 z-[9999] px-4 py-2.5 text-sm text-center"
           style={{ backgroundColor: '#fef3c7', color: '#92400e', borderBottom: '1px solid #fcd34d' }}
+          role="status"
           translate="no"
         >
           <span>

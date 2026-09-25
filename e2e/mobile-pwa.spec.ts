@@ -98,6 +98,25 @@ async function clickMobileNav(page: Page, path: string, label: string) {
 }
 
 test.describe('Batch 11 — mobile/PWA lifecycle', () => {
+  test('keyboard users can skip to main content and toggle the named theme control', async ({ page }) => {
+    await startGuest(page);
+    await page.evaluate(() => (document.activeElement as HTMLElement | null)?.blur());
+    await page.keyboard.press('Tab');
+
+    const skipLink = page.getByRole('link', { name: 'Skip to content' });
+    await expect(skipLink).toBeFocused();
+    await page.keyboard.press('Enter');
+    await expect(page.locator('main#main-content')).toBeFocused();
+    const themeControl = page.getByRole('button', { name: /Switch to (dark|light) mode/ });
+    const startingName = await themeControl.getAttribute('aria-label');
+    await expect(themeControl).toHaveAttribute('aria-label', /Switch to (dark|light) mode/);
+    await themeControl.click();
+    await expect(themeControl).toHaveAttribute(
+      'aria-label',
+      startingName === 'Switch to dark mode' ? 'Switch to light mode' : 'Switch to dark mode',
+    );
+  });
+
   test('fresh guest can reach Study without a blocking tour', async ({ page }) => {
     await page.addInitScript(() => localStorage.clear());
     await page.goto('/');

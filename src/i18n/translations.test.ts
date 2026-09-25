@@ -29,3 +29,10 @@ describe('Study transport copy', () => {
     expect(t('study.audioMode', 'en')).toBe('Audio mode');
   });
 });
+
+describe('layout accessibility copy', () => {
+  it('localizes the keyboard skip link', () => {
+    expect(t('layout.skipToContent', 'en')).toBe('Skip to content');
+    expect(t('layout.skipToContent', 'zh')).toBe('跳到主要内容');
+  });
+});

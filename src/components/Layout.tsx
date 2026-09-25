@@ -88,6 +88,12 @@ const Layout: React.FC<{ children: ReactNode }> = ({ children }) => {
       style={{ backgroundColor: 'var(--color-bg)', color: 'var(--color-text)' }}
       translate="no"
     >
+      <a
+        href="#main-content"
+        className="sr-only focus:not-sr-only focus:fixed focus:left-4 focus:top-4 focus:z-[10000] focus:rounded-lg focus:bg-white focus:px-4 focus:py-2 focus:text-indigo-700 focus:shadow-lg"
+      >
+        {t('layout.skipToContent')}
+      </a>
       {/* Top navigation */}
       <header
         className="sticky top-0 z-40 border-b"
@@ -174,6 +180,7 @@ const Layout: React.FC<{ children: ReactNode }> = ({ children }) => {
               onClick={() => setDark(!dark)}
               className="p-2 rounded-lg transition-colors cursor-pointer hover:bg-gray-100 dark:hover:bg-gray-700"
               style={{ color: 'var(--color-text-muted)' }}
+              aria-label={dark ? t('darkMode.off') : t('darkMode.on')}
               title={dark ? t('darkMode.off') : t('darkMode.on')}
             >
               {dark ? (
@@ -191,7 +198,7 @@ const Layout: React.FC<{ children: ReactNode }> = ({ children }) => {
       </header>
 
       {/* Page content — add bottom padding on mobile for bottom nav + contact bar */}
-      <main className="flex-1 mobile-safe-bottom md:pb-0">
+      <main id="main-content" tabIndex={-1} className="flex-1 mobile-safe-bottom md:pb-0">
         {children}
       </main>
 
