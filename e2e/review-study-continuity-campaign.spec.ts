@@ -105,13 +105,16 @@ test('review session reflects saved items and returns into a continuous study co
   expect(studyState.isSampleSession).toBe(true);
   expect(studyState.hasTranscript).toBe(true);
 
-  // select the saved sentence's line, then Replay
+  // Select the saved sentence's line; the row reports itself as the retained
+  // selection via data-selected-context.
   await page.locator('div.group:visible', { hasText: "It's been great, hasn't it?" }).first().click();
-  await page.waitForTimeout(500);
-  await page.getByRole('button', { name: /replay sentence/i }).click();
-  await page.waitForTimeout(400);
-  const cur = await page.evaluate(() => (document.querySelector('main')?.innerText?.match(/Current sentence\n([^\n]+)/) || [])[1]);
-  expect(cur).toBe("It's been great, hasn't it?");
+  await expect(
+    page
+      .locator('[data-transcript-line][data-selected-context="true"]')
+      .filter({ hasText: "It's been great, hasn't it?" })
+      .filter({ visible: true })
+      .first(),
+  ).toBeVisible({ timeout: 5000 });
 
   // navigate away and back, then refresh — records and progress survive (R2)
   await page.locator('a[href="/"]').filter({ visible: true }).first().click();

@@ -67,7 +67,7 @@ test('V2 imports SRT with zero ASR and restores the existing Study flow', async 
   await subtitleInput.setInputFiles({ name: 'lesson.srt', mimeType: 'application/x-subrip', buffer: Buffer.from(srt) });
   const openButton = importer.getByRole('button', { name: 'Open in Study' });
   await openButton.dblclick();
-  await expect(page.getByText('Hello local audio.').first()).toBeVisible();
+  await expect(page.getByText('Hello local audio.').filter({ visible: true }).first()).toBeVisible();
   await expect.poll(() => page.locator('audio').count()).toBe(1);
   await expect.poll(async () => page.locator('audio').first().getAttribute('src')).toMatch(/^blob:/);
   expect(asrRequests).toBe(0);
@@ -79,10 +79,10 @@ test('V2 imports SRT with zero ASR and restores the existing Study flow', async 
     Object.defineProperty(audio, 'currentTime', { configurable: true, value: 2.5 });
     audio.dispatchEvent(new Event('timeupdate'));
   });
-  await expect(page.getByText('This line is timed.').first()).toBeVisible();
+  await expect(page.getByText('This line is timed.').filter({ visible: true }).first()).toBeVisible();
 
   await page.reload();
-  await expect(page.getByText('Hello local audio.').first()).toBeVisible();
+  await expect(page.getByText('Hello local audio.').filter({ visible: true }).first()).toBeVisible();
   await expect.poll(async () => page.locator('audio').first().getAttribute('src')).toMatch(/^blob:/);
   expect(asrRequests).toBe(0);
 
@@ -102,8 +102,8 @@ test('V2 imports VTT and never calls the ASR endpoint', async ({ page }) => {
   await expect(importer.getByText('lesson.wav')).toBeVisible();
   await importer.getByTestId('local-media-subtitle-input').setInputFiles({ name: 'lesson.vtt', mimeType: 'text/vtt', buffer: Buffer.from(vtt) });
   await importer.getByRole('button', { name: 'Open in Study' }).click();
-  await expect(page.getByText('Hello VTT audio.').first()).toBeVisible();
-  await expect(page.getByText('This VTT line is timed.').last()).toBeVisible();
+  await expect(page.getByText('Hello VTT audio.').filter({ visible: true }).first()).toBeVisible();
+  await expect(page.getByText('This VTT line is timed.').filter({ visible: true }).last()).toBeVisible();
   expect(asrRequests).toBe(0);
 });
 

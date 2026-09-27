@@ -99,7 +99,7 @@ test('stale held AI response does not attach to a newer session; immediate newer
   await importer.getByTestId('local-media-audio-input').setInputFiles({ name: 'ai-second.wav', mimeType: 'audio/wav', buffer: wav });
   await importer.getByTestId('local-media-subtitle-input').setInputFiles({ name: 'ai-second.srt', mimeType: 'application/x-subrip', buffer: Buffer.from(srt, 'utf8') });
   await importer.getByRole('button', { name: 'Open in Study' }).click();
-  await page.getByText('The fixture preamble begins the lesson.').first().waitFor({ state: 'visible', timeout: 10000 });
+  await page.getByText('The fixture preamble begins the lesson.').filter({ visible: true }).first().waitFor({ state: 'visible', timeout: 10000 });
 
   // Analyze session 2 — request 2 is also held until we release it below
   await page.getByRole('button', { name: /^(Analyze|Re-analyze)$/ }).first().click();
