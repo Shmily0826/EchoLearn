@@ -242,7 +242,7 @@ const MobileTranscriptPanel: React.FC<{
               data-selected-context={selectedLineStart === line.start ? 'true' : undefined}
               className={`px-2 py-1.5 rounded-lg text-sm leading-relaxed transition-colors ${
                 isActive
-                  ? 'bg-indigo-50 dark:bg-indigo-950/40 text-indigo-900 dark:text-indigo-100 font-medium'
+                  ? 'bg-indigo-50 dark:bg-indigo-950/40 text-indigo-900 dark:text-indigo-100'
                   : selectedLineStart === line.start
                     ? 'ring-2 ring-indigo-300 dark:ring-indigo-700 text-indigo-900 dark:text-indigo-100'
                   : sentenceSaved

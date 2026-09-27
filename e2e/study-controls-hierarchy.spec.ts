@@ -96,7 +96,8 @@ test.describe('Study control hierarchy — desktop 1280x720', () => {
     await page.getByText('good', { exact: true }).filter({ visible: true }).first().click();
     const saveButton = page.locator('#tour-transcript-save-word');
     await expect(saveButton).toBeVisible({ timeout: 15_000 });
-    await expect(page.getByTestId('study-replay-context')).toBeVisible();
+    await expect(page.getByTestId('study-rewind-10')).toBeVisible();
+    await expect(page.getByTestId('study-forward-10')).toBeVisible();
     await saveButton.click();
     await expect(page.getByRole('status').filter({ hasText: 'Saved to Vocabulary' })).toBeVisible();
     await expect(saveButton).toBeHidden({ timeout: 45_000 });

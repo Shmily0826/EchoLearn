@@ -105,22 +105,26 @@ function activeLine(page: Page, text: RegExp) {
   return page.locator('[data-transcript-line]').filter({ hasText: text, visible: true }).first();
 }
 
+function selectedLine(page: Page, text: RegExp) {
+  return page
+    .locator('[data-transcript-line][data-selected-context="true"]')
+    .filter({ hasText: text, visible: true })
+    .first();
+}
+
 test.describe('Batch 4 — media synchronization', () => {
   test('time advance changes the active transcript line', async ({ page }) => {
     await mockAudioAndStart(page);
     await setControlledMediaTime(page, 27.5);
     await expect(activeLine(page, SAMPLE_FIRST)).toHaveClass(/bg-indigo-50/);
-    await expect(page.getByTestId('study-current-context')).toContainText(SAMPLE_FIRST);
-    await expect(page.getByTestId('study-replay-context')).toBeVisible();
     await setControlledMediaTime(page, 30.2);
     await expect(activeLine(page, SAMPLE_SECOND)).toHaveClass(/bg-indigo-50/);
-    await expect(page.getByTestId('study-current-context')).toContainText(SAMPLE_SECOND);
   });
 
   test('explicit transcript selection temporarily overrides playback-derived context', async ({ page }) => {
     await mockAudioAndStart(page);
     await setControlledMediaTime(page, 30.2);
-    await expect(page.getByTestId('study-current-context')).toContainText(SAMPLE_SECOND);
+    await expect(activeLine(page, SAMPLE_SECOND)).toHaveClass(/bg-indigo-50/);
 
     // Click the row itself, not a word token inside it. A default centre click
     // lands on whatever happens to sit under that point, and the transcript
@@ -130,11 +134,10 @@ test.describe('Batch 4 — media synchronization', () => {
     // release this test asserts (see the next test). The row's leading edge
     // cannot be a word token.
     await activeLine(page, SAMPLE_FIRST).click({ position: { x: 2, y: 2 } });
-    await expect(page.getByTestId('study-current-context')).toContainText(SAMPLE_FIRST);
+    await expect(selectedLine(page, SAMPLE_FIRST)).toBeVisible();
 
     await setControlledMediaTime(page, 31.5);
     await expect(activeLine(page, SAMPLE_THIRD)).toHaveClass(/bg-indigo-50/);
-    await expect(page.getByTestId('study-current-context')).toContainText(SAMPLE_THIRD);
   });
 
   test('active word lookup retains its source context while playback advances', async ({ page }) => {
@@ -145,11 +148,12 @@ test.describe('Batch 4 — media synchronization', () => {
 
     await setControlledMediaTime(page, 31.5);
     await expect(activeLine(page, SAMPLE_THIRD)).toHaveClass(/bg-indigo-50/);
-    await expect(page.getByTestId('study-current-context')).toContainText(SAMPLE_FIRST);
+    await expect(page.getByTestId('dictionary-source-context')).toContainText(SAMPLE_FIRST);
 
-    await page.getByTestId('study-current-context').click();
+    // Press outside the popup card to dismiss it; the lookup releases.
+    await page.mouse.click(5, 5);
     await expect(page.locator('[data-dictionary-popup]')).toHaveCount(0);
-    await expect(page.getByTestId('study-current-context')).toContainText(SAMPLE_THIRD);
+    await expect(selectedLine(page, SAMPLE_FIRST)).toBeHidden();
   });
 
   test('pause keeps the active line tied to media time', async ({ page }) => {

@@ -364,9 +364,18 @@ const StudyPage: React.FC = () => {
     return () => window.clearTimeout(releaseTimer);
   }, [activeLineIndex, currentTime, lookupActive, selectedContext, selectedContextIndex, videoId]);
   const currentContext = selectedContext?.videoId === videoId ? selectedContext.line : playbackContext;
-  const replayCurrentContext = useCallback(() => {
-    if (currentContext) handleSeekTo(currentContext.start, true);
-  }, [currentContext, handleSeekTo]);
+  // Skip buttons read the live media clock rather than the render-time one: the
+  // transcript clock state can lag the player by a frame, and compounding that
+  // lag into repeated skips would drift the target.
+  const skipMedia = useCallback((deltaSeconds: number) => {
+    let base = 0;
+    try {
+      base = playerRef.current?.getCurrentTime() ?? 0;
+    } catch {
+      // Player not mounted yet: treat the media as starting at zero.
+    }
+    handleSeekTo(Math.max(0, base + deltaSeconds), true);
+  }, [handleSeekTo]);
 
   // ── Restore last session on mount ──────────────────────────
   useEffect(() => {
@@ -1439,30 +1448,6 @@ const StudyPage: React.FC = () => {
             <LocalAudioImporter mode="local-media" onSuccess={handleImportLocalAudio} />
           </div>
         )}
-        {currentContext && (
-          <div
-            className="mb-3 flex items-center gap-3 px-3 py-2 bg-indigo-50 dark:bg-indigo-950/30 border border-indigo-200 dark:border-indigo-900 rounded-lg"
-            data-testid="study-current-context"
-            data-line-start={currentContext.start}
-            role="status"
-          >
-            <span className="text-[11px] font-semibold text-indigo-700 dark:text-indigo-300 shrink-0">
-              {t('study.currentContext')}
-            </span>
-            <span className="min-w-0 flex-1 text-xs text-indigo-900 dark:text-indigo-100 truncate" title={currentContext.text}>
-              {currentContext.text}
-            </span>
-            <button
-              type="button"
-              data-testid="study-replay-context"
-              onClick={replayCurrentContext}
-              aria-label={t('study.replayContext')}
-              className="shrink-0 flex items-center gap-1 px-2 py-1 text-[11px] font-medium text-indigo-700 dark:text-indigo-300 bg-white/80 dark:bg-indigo-900/50 rounded hover:bg-white dark:hover:bg-indigo-900 transition-colors cursor-pointer"
-            >
-              {t('study.replayContext')}
-            </button>
-          </div>
-        )}
         <div className="study-layout flex flex-col lg:flex-row gap-4 lg:gap-6">
           {/* Left: video — always visible (mobile: above transcript, desktop: left column) */}
           <div className="w-full lg:w-[55%] flex-shrink-0">
@@ -1470,6 +1455,32 @@ const StudyPage: React.FC = () => {
               <>
                 {/* Audio mode toggle */}
                 <div className="mb-2 flex items-center gap-2">
+                  <button
+                    type="button"
+                    data-testid="study-rewind-10"
+                    onClick={() => skipMedia(-10)}
+                    aria-label={t('study.rewind10s')}
+                    title={t('study.rewind10s')}
+                    className="flex items-center gap-1 px-3 py-1.5 text-xs sm:text-sm rounded-lg font-medium border bg-white dark:bg-slate-800 border-gray-200 dark:border-slate-700 text-gray-600 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-slate-700 transition-colors cursor-pointer"
+                  >
+                    <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.8}>
+                      <path strokeLinecap="round" strokeLinejoin="round" d="M10 19l-7-7m0 0l7-7m-7 7h18" />
+                    </svg>
+                    10s
+                  </button>
+                  <button
+                    type="button"
+                    data-testid="study-forward-10"
+                    onClick={() => skipMedia(10)}
+                    aria-label={t('study.forward10s')}
+                    title={t('study.forward10s')}
+                    className="flex items-center gap-1 px-3 py-1.5 text-xs sm:text-sm rounded-lg font-medium border bg-white dark:bg-slate-800 border-gray-200 dark:border-slate-700 text-gray-600 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-slate-700 transition-colors cursor-pointer"
+                  >
+                    10s
+                    <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.8}>
+                      <path strokeLinecap="round" strokeLinejoin="round" d="M14 5l7 7m0 0l-7 7m7-7H3" />
+                    </svg>
+                  </button>
                   <button
                     type="button"
                     onClick={() => {

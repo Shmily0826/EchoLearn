@@ -193,10 +193,13 @@ test('guest learning journey: study → understand → save → listen → leave
     expect(boxes, JSON.stringify(boxes)).toEqual(expect.objectContaining({ covers: false }));
   }).toPass({ timeout: 5_000 });
 
-  // Pressing outside the card closes the popup; the sentence context stays.
-  await page.getByTestId('study-current-context').click();
+  // Pressing outside the card closes the popup; the looked-up sentence stays
+  // visible and highlighted in the transcript.
+  await page.mouse.click(5, 5);
   await expect(saveButton).toBeHidden();
-  await expect(page.getByTestId('study-current-context')).toContainText('Good morning. How are you?');
+  await expect(
+    page.locator('[data-transcript-line]').filter({ hasText: 'Good morning. How are you?' }).filter({ visible: true }).first(),
+  ).toBeVisible();
 
   // Escape closes too, and reopening restores the same lookup.
   await page.getByRole('button', { name: 'Look up Good', exact: true }).filter({ visible: true }).first().click();
@@ -214,8 +217,10 @@ test('guest learning journey: study → understand → save → listen → leave
   await expect(
     page.locator('span.bg-amber-100, span[class*="bg-amber-100"]').filter({ hasText: /^good$/i }).filter({ visible: true }).first(),
   ).toBeVisible({ timeout: 10_000 });
-  await expect(page.getByTestId('study-current-context')).toContainText('Good morning. How are you?');
-  await expect(page.getByTestId('study-current-context')).toHaveAttribute('data-line-start', '27');
+  // The looked-up sentence is still the retained selection (its start is 27s).
+  await expect(
+    page.locator('[data-transcript-line]').filter({ hasText: 'Good morning. How are you?' }).filter({ visible: true }).first(),
+  ).toHaveAttribute('data-selected-context', 'true', { timeout: 10_000 });
 
   // ── C2. Consecutive lookups ───────────────────────────────────
   // A press on another word must replace the popup content, not get eaten by
@@ -223,7 +228,7 @@ test('guest learning journey: study → understand → save → listen → leave
   await page.getByRole('button', { name: 'Look up How', exact: true }).filter({ visible: true }).first().click();
   await expect(saveButton).toBeVisible();
   await expect(page.locator('[data-dictionary-popup]')).toContainText('How', { ignoreCase: true });
-  await page.getByTestId('study-current-context').click();
+  await page.mouse.click(5, 5);
   await expect(saveButton).toBeHidden();
 
   // ── D. Save sentence ──────────────────────────────────────────
@@ -258,14 +263,16 @@ test('guest learning journey: study → understand → save → listen → leave
     return stable;
   }, { timeout: 10_000 }).toBe(true);
 
-  // Replay the retained source sentence while paused: one action must seek + play.
-  await page.getByTestId('study-replay-context').click();
+  // Rewind 10s while paused: one action must seek back and resume playing.
+  await page.getByTestId('study-rewind-10').click();
   await expect.poll(async () => (await audioState(page)).currentTime, { timeout: 10_000 })
-    .toBeLessThan(pausedState.currentTime);
+    .toBeLessThan(pausedState.currentTime - 5);
   const replayPosition = await audioState(page);
-  expect(replayPosition.currentTime).toBeGreaterThanOrEqual(27);
+  expect(replayPosition.currentTime).toBeGreaterThan(10);
   await expect.poll(async () => (await audioState(page)).paused, { timeout: 10_000 }).toBe(false);
-  await activeLine('Good morning').waitFor({ state: 'visible', timeout: 5_000 });
+  // The rewind landed on an earlier sentence: line sync must have resumed there.
+  await page.locator('[data-transcript-line].bg-indigo-50').filter({ visible: true }).first()
+    .waitFor({ state: 'visible', timeout: 5_000 });
   await expect.poll(async () => (await audioState(page)).currentTime, { timeout: 10_000 })
     .toBeGreaterThan(replayPosition.currentTime + 0.05);
 

@@ -275,9 +275,12 @@ const TranscriptViewer: React.FC<TranscriptViewerProps> = ({
         {lines.map((line, idx) => {
           const isActive = idx === activeLineIndex;
           const sentenceSaved = isSentenceSaved(line.text);
-          let lineClass = 'group rounded-lg px-3 py-2.5 transition-colors border cursor-pointer';
+          // The active line must not change layout metrics, only colour: a width
+          // change here shifts the row content on every cue boundary, which the
+          // learner reads as the whole page jolting once per follow-scroll.
+          let lineClass = 'group rounded-lg px-3 py-2.5 transition-colors border border-l-[3px] cursor-pointer';
           if (isActive) {
-            lineClass += ' bg-indigo-50 dark:bg-indigo-950 border-l-[3px] border-l-indigo-500 border-t-indigo-200 border-r-indigo-200 border-b-indigo-200 shadow-sm';
+            lineClass += ' bg-indigo-50 dark:bg-indigo-950 border-l-indigo-500 border-t-indigo-200 border-r-indigo-200 border-b-indigo-200 shadow-sm';
           } else if (sentenceSaved) {
             lineClass += ' bg-violet-50 dark:bg-violet-950/30 border-violet-200 dark:border-violet-800';
           } else {
