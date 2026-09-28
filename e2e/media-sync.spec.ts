@@ -1,5 +1,6 @@
 import { test, expect, type Page } from '@playwright/test';
 import { enterGuestMode } from './helpers/guestMode';
+import { setControlledMediaTime } from './helpers/mediaClock';
 
 const SAMPLE_FIRST = /Good morning/i;
 const SAMPLE_SECOND = /Audience.*Good/i;
@@ -65,21 +66,6 @@ async function enterGuestStudy(page: Page, platform: 'youtube' | 'bilibili' = 'y
     await page.getByRole('button', { name: /audio mode/i }).click();
   }
   await page.locator('audio').waitFor({ state: 'attached', timeout: 10_000 });
-}
-
-async function setControlledMediaTime(page: Page, seconds: number) {
-  await page.locator('audio').evaluate((element, value) => {
-    const audio = element as HTMLAudioElement & { __testTime?: number };
-    if (!Object.prototype.hasOwnProperty.call(audio, '__testTime')) {
-      Object.defineProperty(audio, 'currentTime', {
-        configurable: true,
-        get: () => audio.__testTime ?? 0,
-        set: (next: number) => { audio.__testTime = next; },
-      });
-    }
-    audio.__testTime = value;
-    audio.dispatchEvent(new Event('timeupdate', { bubbles: true }));
-  }, seconds);
 }
 
 async function mockAudioAndStart(page: Page) {
