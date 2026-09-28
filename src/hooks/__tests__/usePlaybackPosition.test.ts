@@ -20,6 +20,7 @@ function playerAt(getTime: () => number): PlayerHandle {
     pauseVideo: vi.fn(),
     seekTo: vi.fn(),
     getCurrentTime: getTime,
+    getDuration: vi.fn(() => 0),
     setPlaybackRate: vi.fn(),
     getPlaybackRate: vi.fn(() => 1),
   };

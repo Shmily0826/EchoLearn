@@ -41,6 +41,7 @@ const BilibiliEmbed = forwardRef<PlayerHandle, BilibiliEmbedProps>(
       pauseVideo() {},
       seekTo() {},
       getCurrentTime() { return 0; },
+      getDuration() { return 0; },
       setPlaybackRate() {},
       getPlaybackRate() { return 1; },
     }), []);

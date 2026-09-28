@@ -56,6 +56,7 @@ function PlaybackTranscriptFixture({ fixtureLines = lines }: { fixtureLines?: Tr
         if (!paused.current) seconds.current += 0.1;
         return seconds.current;
       },
+      getDuration: () => 0,
       setPlaybackRate: noop,
       getPlaybackRate: () => 1,
     }));

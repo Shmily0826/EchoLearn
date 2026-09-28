@@ -369,12 +369,18 @@ const StudyPage: React.FC = () => {
   // lag into repeated skips would drift the target.
   const skipMedia = useCallback((deltaSeconds: number) => {
     let base = 0;
+    let duration = 0;
     try {
       base = playerRef.current?.getCurrentTime() ?? 0;
+      duration = playerRef.current?.getDuration() ?? 0;
     } catch {
       // Player not mounted yet: treat the media as starting at zero.
     }
-    handleSeekTo(Math.max(0, base + deltaSeconds), true);
+    let target = Math.max(0, base + deltaSeconds);
+    // A skip must not ask the media to seek past its own end: until metadata
+    // loads the duration is unknown (0) and the browser's own clamp applies.
+    if (duration > 0) target = Math.min(target, duration);
+    handleSeekTo(target, true);
   }, [handleSeekTo]);
 
   // ── Restore last session on mount ──────────────────────────
@@ -1455,12 +1461,15 @@ const StudyPage: React.FC = () => {
               <>
                 {/* Audio mode toggle */}
                 <div className="mb-2 flex items-center gap-2">
+                  {/* Bilibili's video-mode iframe cannot be seeked cross-origin;
+                      buttons that do nothing would be lying UI. */}
                   <button
                     type="button"
                     data-testid="study-rewind-10"
                     onClick={() => skipMedia(-10)}
                     aria-label={t('study.rewind10s')}
                     title={t('study.rewind10s')}
+                    hidden={platform === 'bilibili' && !audioMode}
                     className="flex items-center gap-1 px-3 py-1.5 text-xs sm:text-sm rounded-lg font-medium border bg-white dark:bg-slate-800 border-gray-200 dark:border-slate-700 text-gray-600 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-slate-700 transition-colors cursor-pointer"
                   >
                     <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.8}>
@@ -1474,6 +1483,7 @@ const StudyPage: React.FC = () => {
                     onClick={() => skipMedia(10)}
                     aria-label={t('study.forward10s')}
                     title={t('study.forward10s')}
+                    hidden={platform === 'bilibili' && !audioMode}
                     className="flex items-center gap-1 px-3 py-1.5 text-xs sm:text-sm rounded-lg font-medium border bg-white dark:bg-slate-800 border-gray-200 dark:border-slate-700 text-gray-600 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-slate-700 transition-colors cursor-pointer"
                   >
                     10s

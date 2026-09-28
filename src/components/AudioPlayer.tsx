@@ -149,6 +149,10 @@ const AudioPlayer = forwardRef<PlayerHandle, AudioPlayerProps>(
         getCurrentTime() {
           return audioRef.current?.currentTime ?? 0;
         },
+        getDuration() {
+          const d = audioRef.current?.duration;
+          return typeof d === 'number' && Number.isFinite(d) ? d : 0;
+        },
         setPlaybackRate(rate: number) {
           const el = audioRef.current;
           if (el) el.playbackRate = rate;

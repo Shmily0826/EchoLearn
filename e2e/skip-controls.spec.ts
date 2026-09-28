@@ -130,14 +130,14 @@ test.describe('Back/Forward 10s study controls', () => {
     await expect(page.locator('[data-transcript-line]').filter({ visible: true }).first()).toBeVisible();
   });
 
-  test('forward past the end lands on the final seekable position', async ({ page }) => {
+  test('forward past the end clamps to the media duration', async ({ page }) => {
     await mockAudio(page);
     await setMediaTime(page, 55);
     await page.getByTestId('study-forward-10').click();
-    // No product-side end clamp: the browser seeks to the nearest reachable
-    // position, which for a 60s element is its duration. Assert the skip did
-    // not silently no-op and did not crash the Study page.
-    await expect.poll(() => mediaTime(page), { timeout: 5000 }).toBeGreaterThanOrEqual(55);
+    // The 60s fixture's duration is known, so the skip must not request a
+    // seek beyond it: the media lands on its final seekable position.
+    await expect.poll(() => mediaTime(page), { timeout: 5000 }).toBeGreaterThanOrEqual(59.5);
+    await expect.poll(() => mediaTime(page), { timeout: 5000 }).toBeLessThanOrEqual(60.1);
     await expect(page.locator('[data-transcript-line]').filter({ visible: true }).first()).toBeVisible();
   });
 
