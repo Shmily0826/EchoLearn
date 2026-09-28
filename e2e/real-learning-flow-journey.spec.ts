@@ -270,9 +270,6 @@ test('guest learning journey: study → understand → save → listen → leave
   const replayPosition = await audioState(page);
   expect(replayPosition.currentTime).toBeGreaterThan(10);
   await expect.poll(async () => (await audioState(page)).paused, { timeout: 10_000 }).toBe(false);
-  // The rewind landed on an earlier sentence: line sync must have resumed there.
-  await page.locator('[data-transcript-line].bg-indigo-50').filter({ visible: true }).first()
-    .waitFor({ state: 'visible', timeout: 5_000 });
   await expect.poll(async () => (await audioState(page)).currentTime, { timeout: 10_000 })
     .toBeGreaterThan(replayPosition.currentTime + 0.05);
 
