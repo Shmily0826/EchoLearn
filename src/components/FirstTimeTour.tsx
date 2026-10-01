@@ -4,7 +4,7 @@ import { driver } from 'driver.js';
 import type { Config } from 'driver.js';
 import 'driver.js/dist/driver.css';
 import { useI18n } from '../i18n/I18nContext';
-import { TOUR_START_EVENT, TOUR_LANG_CHOSEN_KEY } from './tourEvents';
+import { TOUR_START_EVENT, TOUR_LANG_CHOSEN_KEY, TOUR_SKIPPED_KEY } from './tourEvents';
 
 const TOUR_KEY = 'echolearn-tour-completed-v1';
 
@@ -34,7 +34,6 @@ const FirstTimeTour: React.FC = () => {
   const { pathname } = useLocation();
   const navigate = useNavigate();
   const tourRunningRef = useRef(false);
-  const skippedRef = useRef(false);
 
   useEffect(() => {
     const tt = t;
@@ -137,7 +136,6 @@ const FirstTimeTour: React.FC = () => {
 
     const runStudyTour = () => {
       window.scrollTo(0, 0);
-      skippedRef.current = false;
       let attempts = 0;
       const tryBuild = () => {
         const steps = buildStudySteps();
@@ -168,12 +166,18 @@ const FirstTimeTour: React.FC = () => {
           doneBtnText: tt('tour.done'),
           progressText: tt('tour.progress'),
           onHighlighted: scrollIntoCenter,
-          onCloseClick: () => { skippedRef.current = true; d.destroy(); },
-          steps,
-          onDestroyed: () => {
+          // driver.js 1.8 quirk (measured in ECHO-20260928-BATCH2): on the
+          // last step's Next click it removes the popover but never fires
+          // `onDestroyed`, and with no `onDestroyStarted` hook the app's
+          // callbacks are skipped entirely. Routing completion through
+          // `onDestroyStarted` (X-close, overlay close AND last-step Next all
+          // funnel here) makes the flag + handover explicit.
+          onDestroyStarted: () => {
+            d.destroy();
             localStorage.setItem(TOUR_KEY, '1');
             tourRunningRef.current = false;
           },
+          steps,
         });
         d.drive();
       };
@@ -182,7 +186,6 @@ const FirstTimeTour: React.FC = () => {
 
     const runDashboardTour = () => {
       window.scrollTo(0, 0);
-      skippedRef.current = false;
       const d = driver({
         showProgress: true,
         allowClose: true,
@@ -193,7 +196,23 @@ const FirstTimeTour: React.FC = () => {
         doneBtnText: tt('tour.done'),
         progressText: tt('tour.progress'),
         onHighlighted: scrollIntoCenter,
-        onCloseClick: () => { skippedRef.current = true; d.destroy(); },
+        // Same driver.js 1.8 quirk as the study tour: completion must route
+        // through onDestroyStarted or the last-step Next click silently
+        // drops the app's callbacks (popover removed, flag never written).
+        // X / overlay close also lands here — early closes are NOT treated
+        // as completion and do not hand over to the Study page.
+        onDestroyStarted: (_element, _step, opts) => {
+          const total = Array.isArray(opts.config.steps) ? opts.config.steps.length : 0;
+          const index = typeof opts.state.activeIndex === 'number' ? opts.state.activeIndex : 0;
+          const finished = total === 0 || index >= total - 1;
+          d.destroy();
+          localStorage.setItem(TOUR_KEY, '1');
+          tourRunningRef.current = false;
+          if (!finished) return;
+          // Continue the tour on the Study page.
+          navigate('/study');
+          window.setTimeout(runStudyTour, 650);
+        },
         steps: [
           {
             popover: {
@@ -229,15 +248,6 @@ const FirstTimeTour: React.FC = () => {
             },
           },
         ],
-        onDestroyed: () => {
-          localStorage.setItem(TOUR_KEY, '1');
-          tourRunningRef.current = false;
-          // Skip means the user opted out → don't continue to the Study page.
-          if (skippedRef.current) return;
-          // Continue the tour on the Study page.
-          navigate('/study');
-          window.setTimeout(runStudyTour, 650);
-        },
       });
       d.drive();
     };
@@ -262,8 +272,24 @@ const FirstTimeTour: React.FC = () => {
     const handler = () => startTour(true);
     window.addEventListener(TOUR_START_EVENT, handler);
 
+    // Auto-start on the Dashboard for a first-time user. The language chooser
+    // normally dispatches TOUR_START_EVENT itself; this timer is the fallback
+    // for the paths where the chooser was answered in an earlier session but
+    // the tour never ran (or was completed and the key cleared). Explicit
+    // skips (TOUR_SKIPPED_KEY) suppress it — Settings replay still works.
+    let timer: number | undefined;
+    if (
+      pathname === '/' &&
+      !localStorage.getItem(TOUR_KEY) &&
+      localStorage.getItem(TOUR_LANG_CHOSEN_KEY) &&
+      !localStorage.getItem(TOUR_SKIPPED_KEY)
+    ) {
+      timer = window.setTimeout(() => startTour(false), 700);
+    }
+
     return () => {
       window.removeEventListener(TOUR_START_EVENT, handler);
+      if (timer) window.clearTimeout(timer);
     };
   }, [t, pathname, navigate]);
 

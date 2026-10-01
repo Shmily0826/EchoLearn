@@ -159,11 +159,11 @@ test.describe('Dashboard number consistency (single due source)', () => {
     await page.goto('/vocabulary');
     await expect(page.getByText('No words saved yet. Click any word in a transcript to add it.')).toBeVisible();
     await page.goto('/');
-    const savedWords = await page.evaluate(() => {
-      const labels = [...document.querySelectorAll('p')];
-      const label = labels.find((el) => el.textContent === 'Saved Words');
-      return label?.previousElementSibling?.textContent;
-    });
+    // Locator-first: the Dashboard is a lazy chunk, so a bare page.evaluate
+    // right after goto can run before it mounts (CI failure 2026-10-01).
+    const savedWordsLabel = page.getByText('Saved Words', { exact: true });
+    await expect(savedWordsLabel).toBeVisible();
+    const savedWords = await savedWordsLabel.evaluate((el) => el.previousElementSibling?.textContent);
     expect(savedWords, 'the Saved Words stat must read 0').toBe('0');
   });
 });
