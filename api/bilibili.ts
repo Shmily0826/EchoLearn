@@ -8,19 +8,43 @@
 
 export const config = { runtime: 'nodejs' };
 
+import { resolveAppOrigin } from './_shared/cors.js';
+
 const VPS_API_URL = 'https://yt-api.echo-learn.uk';
-const ALLOWED_ORIGINS = [
-  'https://app.echo-learn.uk',
-  'https://echo-learn.uk',
-  'http://localhost:5173',
-  'http://localhost:4173',
-  'http://127.0.0.1:5173',
-];
+
+// ── Per-IP rate limiter (per serverless instance, best-effort) ──
+// Every request makes the VPS do real work (yt-dlp), and audio mode keeps a
+// ~180s ffmpeg task running, so audio requests cost 5 hits of the budget.
+
+const RATE_LIMIT_WINDOW_MS = 60_000;
+const RATE_LIMIT_MAX = 20;
+const rateBuckets = new Map<string, Array<{ t: number; cost: number }>>();
+
+function isRateLimited(ip: string, cost = 1): boolean {
+  const now = Date.now();
+  const cutoff = now - RATE_LIMIT_WINDOW_MS;
+  if (rateBuckets.size >= 5000) {
+    for (const [k, v] of rateBuckets) {
+      if (v.length === 0 || v[v.length - 1].t <= cutoff) rateBuckets.delete(k);
+    }
+  }
+  let hits = rateBuckets.get(ip);
+  if (!hits) { hits = []; rateBuckets.set(ip, hits); }
+  while (hits.length > 0 && hits[0].t <= cutoff) hits.shift();
+  const used = hits.reduce((sum, h) => sum + h.cost, 0);
+  if (used + cost > RATE_LIMIT_MAX) return true;
+  hits.push({ t: now, cost });
+  return false;
+}
+
+function getClientIp(req: { headers?: Record<string, unknown> }): string {
+  const xff = req.headers?.['x-forwarded-for'];
+  if (typeof xff === 'string' && xff.length > 0) return xff.split(',')[0].trim();
+  return 'unknown';
+}
 
 function resolveOrigin(origin: string | undefined): string | null {
-  if (!origin) return null;
-  if (ALLOWED_ORIGINS.includes(origin) || origin.endsWith('.vercel.app')) return origin;
-  return null;
+  return resolveAppOrigin(origin);
 }
 
 function isBilibiliHost(hostname: string): boolean {
@@ -127,6 +151,12 @@ export default async function handler(req: any, res: any): Promise<void> {
   const lang = getQueryString(req.query?.lang) || 'zh-CN';
   const part = getQueryString(req.query?.p);
   const sourceUrl = getQueryString(req.query?.url);
+
+  // Per-IP rate limit — every other /api route has one; this endpoint did not.
+  if (isRateLimited(getClientIp(req), audio ? 5 : 1)) {
+    res.status(429).json({ error: 'rate_limited', message: 'Too many requests, please slow down.' });
+    return;
+  }
 
   let upstreamPath: string;
   let timeoutMs = 180_000;

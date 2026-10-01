@@ -53,7 +53,9 @@ function makeReq(overrides: Partial<MockReq> = {}): MockReq {
   return {
     method: 'GET',
     query: {},
-    headers: {},
+    // Random per-request IP so the per-IP rate limiter never couples unrelated
+    // test cases into one bucket (mirrors transcriptHandler.test.ts).
+    headers: { 'x-forwarded-for': Math.random().toString() },
     ...overrides,
   };
 }
@@ -315,5 +317,37 @@ describe('api/bilibili handler — upstream forwarding', () => {
     expect(res.headers['content-type']).toBe('audio/mpeg');
     expect(res.headers['content-range']).toBe('bytes 0-8/9');
     expect(res.body).toBe('[binary]');
+  });
+});
+
+// ── Per-IP rate limit ──────────────────────────────────────────
+
+describe('api/bilibili handler — per-IP rate limit', () => {
+  it('returns 429 once an IP exhausts its minute budget; audio costs 5 hits', async () => {
+    const ip = '203.0.113.77';
+    const req = (query: Record<string, unknown>) =>
+      makeReq({ query, headers: { 'x-forwarded-for': ip } });
+
+    // 4 audio requests × 5 hits = the entire 20-hit minute budget.
+    for (let i = 0; i < 4; i++) {
+      fetchMock.mockResolvedValueOnce(
+        upstreamResponse('mp3-bytes', {
+          headers: {
+            'content-type': 'audio/mpeg',
+            'content-length': '9',
+            'content-range': 'bytes 0-8/9',
+          },
+        }),
+      );
+      const res = makeRes();
+      await handler(req({ audio: '1', url: 'https://www.bilibili.com/video/BV1xx411c7mD' }), res);
+      expect(res.statusCode).toBe(200);
+    }
+
+    // Budget exhausted — even a cheap caption request is rejected.
+    const rejected = makeRes();
+    await handler(req({ bvid: 'BV1xx411c7mD' }), rejected);
+    expect(rejected.statusCode).toBe(429);
+    expect(JSON.parse(rejected.body).error).toBe('rate_limited');
   });
 });
