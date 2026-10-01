@@ -37,6 +37,13 @@ jobs:
   e2e:
     runs-on: ubuntu-latest
     timeout-minutes: 15
+    strategy:
+      fail-fast: false
+      # The suite grew past the point where one serial runner (workers: 1)
+      # fit the 15-minute timeout with headroom; two shards halve the wall
+      # clock while keeping each shard's serial, deterministic ordering.
+      matrix:
+        shard: [1, 2]
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
@@ -46,4 +53,4 @@ jobs:
       - run: npm ci
       - run: npm run build
       - run: npx playwright install --with-deps chromium webkit
-      - run: npm run e2e
+      - run: npx playwright test --shard=${{ matrix.shard }}/2
