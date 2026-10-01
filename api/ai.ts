@@ -6,9 +6,13 @@
  * Supports SSE streaming (pipes the response body through).
  *
  * Hardening (pre-launch):
- *  - Per-IP in-memory rate limiting (best-effort: serverless instances are
- *    ephemeral/distributed, so this throttles casual abuse rather than
- *    guaranteeing a global cap. Use Vercel KV / Upstash for strict limits.)
+ *  - Authenticated-only: valid Firebase ID token required, with the same
+ *    `email_verified` baseline as the Firestore rules (throwaway unverified
+ *    accounts cannot spend provider quota).
+ *  - Per-IP in-memory rate limiting + per-uid daily cap (best-effort:
+ *    serverless instances are ephemeral/distributed, so this throttles casual
+ *    abuse rather than guaranteeing a global cap. Use Vercel KV / Upstash for
+ *    strict limits.)
  *  - Request body size cap.
  *  - Payload field whitelist + model whitelist + max_tokens cap, so callers
  *    cannot point the proxy at expensive models or unbounded generations.
@@ -23,6 +27,7 @@ export const config = { runtime: 'nodejs' };
 
 import { GoogleGenAI } from '@google/genai';
 import { verifyFirebaseIdToken } from './_shared/firebaseAuth.js';
+import { resolveAppOrigin } from './_shared/cors.js';
 
 const DEEPSEEK_API_URL = 'https://api.deepseek.com/chat/completions';
 const DEFAULT_GEMINI_MODEL = 'gemini-3.5-flash-lite';
@@ -41,15 +46,6 @@ const ALLOWED_MODELS = ['deepseek-v4-flash'];
 
 /** Hard cap on max_tokens even if the client requests more. */
 const MAX_TOKENS_CAP = 8192;
-
-/** Origins allowed to call this endpoint via CORS. */
-const ALLOWED_ORIGINS = [
-  'https://app.echo-learn.uk',
-  'https://echo-learn.uk',
-  'http://localhost:5173',
-  'http://localhost:4173',
-  'http://127.0.0.1:5173',
-];
 
 // ── In-memory rate limiter (per serverless instance) ──────────
 
@@ -86,15 +82,31 @@ function getClientIp(request: Request): string {
   return request.headers.get('x-real-ip') || 'unknown';
 }
 
-// ── CORS ──────────────────────────────────────────────────────
+// ── Per-uid daily cap (per serverless instance, best-effort) ──
+// Bounds the spend of a single farmed/leaked account even when the per-IP
+// limiter above is evaded by IP rotation. 200 calls/day is far above any
+// real learner's usage but caps scripted abuse at a bounded cost.
 
-function resolveOrigin(origin: string | null): string | null {
-  if (!origin) return null;
-  if (ALLOWED_ORIGINS.includes(origin)) return origin;
-  // Allow Vercel preview deployments for testing.
-  if (origin.endsWith('.vercel.app')) return origin;
-  return null;
+const UID_DAILY_LIMIT = 200;
+const uidDayCounters = new Map<string, { day: string; count: number }>();
+
+function isUidOverQuota(uid: string): boolean {
+  const day = new Date().toISOString().slice(0, 10);
+  const entry = uidDayCounters.get(uid);
+  if (!entry || entry.day !== day) {
+    if (uidDayCounters.size >= 10000) {
+      for (const [k, v] of uidDayCounters) {
+        if (v.day !== day) uidDayCounters.delete(k);
+      }
+    }
+    uidDayCounters.set(uid, { day, count: 1 });
+    return false;
+  }
+  entry.count += 1;
+  return entry.count > UID_DAILY_LIMIT;
 }
+
+// ── CORS ──────────────────────────────────────────────────────
 
 function corsHeaders(origin: string | null): Record<string, string> {
   const headers: Record<string, string> = {
@@ -102,7 +114,7 @@ function corsHeaders(origin: string | null): Record<string, string> {
     'Access-Control-Allow-Headers': 'Content-Type',
     'Access-Control-Max-Age': '86400',
   };
-  const allowed = resolveOrigin(origin);
+  const allowed = resolveAppOrigin(origin);
   if (allowed) headers['Access-Control-Allow-Origin'] = allowed;
   return headers;
 }
@@ -430,9 +442,25 @@ async function handleWebRequest(request: Request): Promise<Response> {
     return jsonResponse({ error: 'Authentication required' }, 401, origin);
   }
 
+  // Verified-email gate — the same baseline the Firestore rules enforce. A
+  // registered-but-unverified account must not be able to spend provider
+  // quota for free.
+  if (!identity.emailVerified) {
+    return jsonResponse(
+      { error: 'email_not_verified', message: 'Email verification required.' },
+      403,
+      origin,
+    );
+  }
+
   // Rate limit by client IP
   if (isRateLimited(getClientIp(request))) {
     return jsonResponse({ error: 'Too many requests, please slow down' }, 429, origin);
+  }
+
+  // Per-uid daily quota
+  if (isUidOverQuota(identity.uid)) {
+    return jsonResponse({ error: 'quota_exceeded', message: 'Daily AI quota reached.' }, 429, origin);
   }
 
   // Reject obviously oversized bodies before reading them.

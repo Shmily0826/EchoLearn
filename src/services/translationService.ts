@@ -4,6 +4,7 @@
  */
 
 import { checkAiRateLimit, rateLimitWaitSeconds } from './aiRateLimit';
+import { aiEndpointError } from './aiEndpointError';
 import { aiAuthHeaders } from './apiAuth';
 
 /** Requests go through the server-side proxy at /api/ai (API key stays server-side). */
@@ -142,7 +143,7 @@ The array must have exactly ${items.length} element(s), in the same order as the
 
     if (!response.ok) {
       const errBody = await response.text().catch(() => '');
-      throw new Error(`DeepSeek API error ${response.status}: ${errBody.slice(0, 200)}`);
+      throw aiEndpointError(response.status, errBody);
     }
 
     const data = await response.json();

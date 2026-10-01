@@ -6,6 +6,7 @@ import type {
 import { extractWordsByLevel, type CEFRLevel } from './cefrWordList';
 import { t, type Lang } from '../i18n/translations';
 import { checkAiRateLimit, rateLimitWaitSeconds } from './aiRateLimit';
+import { aiEndpointError } from './aiEndpointError';
 import { doc, getDoc, setDoc, serverTimestamp } from 'firebase/firestore';
 import { aiAuthHeaders } from './apiAuth';
 import { auth, db } from '../lib/firebase';
@@ -248,7 +249,7 @@ async function callDeepSeek(
 
   if (!response.ok) {
     const errBody = await response.text().catch(() => '');
-    throw new Error(`DeepSeek API error ${response.status}: ${errBody.slice(0, 200)}`);
+    throw aiEndpointError(response.status, errBody);
   }
 
   let content: string;

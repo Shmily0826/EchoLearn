@@ -90,6 +90,13 @@ async function getPublicKeys(): Promise<Map<string, crypto.KeyObject> | null> {
 
 export interface VerifiedIdentity {
   uid: string;
+  /**
+   * The token's `email_verified` claim (absent claim → false). Callers that
+   * gate paid capability must require true, matching the Firestore rules
+   * baseline (`request.auth.token.email_verified == true`) so a throwaway
+   * registered-but-unverified account cannot spend provider quota.
+   */
+  emailVerified: boolean;
 }
 
 /**
@@ -137,7 +144,7 @@ export async function verifyFirebaseIdToken(
   if (payload.aud !== PROJECT_ID) return null;
   if (typeof payload.sub !== 'string' || payload.sub.length === 0) return null;
 
-  return { uid: payload.sub };
+  return { uid: payload.sub, emailVerified: payload.email_verified === true };
 }
 
 /** Test-only: clear the in-memory JWKS cache between cases. */

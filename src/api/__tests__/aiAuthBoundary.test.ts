@@ -66,6 +66,7 @@ function validClaims(overrides: Record<string, unknown> = {}): Record<string, un
     auth_time: now - 10,
     iat: now - 10,
     exp: now + 3000,
+    email_verified: true,
     ...overrides,
   };
 }
@@ -227,6 +228,29 @@ describe('/api/ai authentication boundary (real verifier)', () => {
     expect(response.statusCode).toBe(200);
     expect(JSON.parse(responseText(response)).choices[0].message.content).toBe('provider reached');
     expect(providerMocks.generateContent).toHaveBeenCalledTimes(1);
+  });
+
+  it('authenticated but email-unverified → 403, provider untouched (Firestore baseline)', async () => {
+    const token = makeIdToken(validClaims({ email_verified: false }));
+    const response = makeResponse();
+    await handler(makeRequest(normalBody, { authorization: `Bearer ${token}` }), response);
+
+    expect(response.statusCode).toBe(403);
+    expect(JSON.parse(responseText(response)).error).toBe('email_not_verified');
+    expect(providerMocks.generateContent).not.toHaveBeenCalled();
+    expect(providerMocks.generateContentStream).not.toHaveBeenCalled();
+  });
+
+  it('token without an email_verified claim → 403, provider untouched', async () => {
+    const claims = validClaims();
+    delete claims.email_verified;
+    const token = makeIdToken(claims);
+    const response = makeResponse();
+    await handler(makeRequest(normalBody, { authorization: `Bearer ${token}` }), response);
+
+    expect(response.statusCode).toBe(403);
+    expect(JSON.parse(responseText(response)).error).toBe('email_not_verified');
+    expect(providerMocks.generateContent).not.toHaveBeenCalled();
   });
 
   it('expired JWKS cache + refresh failure → rejected, no stale-key trust', async () => {

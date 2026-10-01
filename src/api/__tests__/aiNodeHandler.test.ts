@@ -86,7 +86,11 @@ const normalBody = {
 describe('/api/ai Node runtime boundary', () => {
   beforeEach(() => {
     authMock.verify.mockImplementation(async (authorization: string | null) =>
-      authorization === 'Bearer valid-token' ? { uid: 'user-1' } : null);
+      authorization === 'Bearer valid-token'
+        ? { uid: 'user-1', emailVerified: true }
+        : authorization === 'Bearer unverified-token'
+          ? { uid: 'user-2', emailVerified: false }
+          : null);
     process.env.AI_PROVIDER = 'gemini';
     process.env.GEMINI_API_KEY = 'test-gemini-key';
     delete process.env.DEEPSEEK_API_KEY;
@@ -163,6 +167,15 @@ describe('/api/ai Node runtime boundary', () => {
     await handler(makeRequest(normalBody, { authorization: '' }), response);
     expect(response.statusCode).toBe(401);
     expect(responseText(response)).toContain('Authentication required');
+    expect(providerMocks.generateContent).not.toHaveBeenCalled();
+    expect(providerMocks.generateContentStream).not.toHaveBeenCalled();
+  });
+
+  it('rejects email-unverified identities with 403 before any provider call', async () => {
+    const response = makeResponse();
+    await handler(makeRequest(normalBody, { authorization: 'Bearer unverified-token' }), response);
+    expect(response.statusCode).toBe(403);
+    expect(JSON.parse(responseText(response)).error).toBe('email_not_verified');
     expect(providerMocks.generateContent).not.toHaveBeenCalled();
     expect(providerMocks.generateContentStream).not.toHaveBeenCalled();
   });
