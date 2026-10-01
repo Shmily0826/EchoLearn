@@ -123,15 +123,23 @@ const DashboardPage: React.FC = () => {
     [vocabulary, sentences],
   );
 
-  // Study streak: consecutive days with any learning activity
+  // Study streak: consecutive days with any learning activity — adding AND
+  // reviewing both count, so the incentive points at the review loop too
+  // (ReviewPage stamps lastReviewedAt on every grade).
   const streak = useMemo(() => {
     const daySet = new Set<string>();
     const addDay = (ms: number) => {
       const d = new Date(ms);
       daySet.add(`${d.getFullYear()}-${d.getMonth()}-${d.getDate()}`);
     };
-    vocabulary.forEach((v) => addDay(v.addedAt));
-    sentences.forEach((s) => addDay(s.addedAt));
+    vocabulary.forEach((v) => {
+      addDay(v.addedAt);
+      if (v.lastReviewedAt) addDay(v.lastReviewedAt);
+    });
+    sentences.forEach((s) => {
+      addDay(s.addedAt);
+      if (s.lastReviewedAt) addDay(s.lastReviewedAt);
+    });
     sessions.forEach((s) => addDay(s.createdAt));
     if (daySet.size === 0) return 0;
 

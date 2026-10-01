@@ -110,7 +110,7 @@ const translations: Record<string, Record<Lang, string>> = {
   'dash.studySessions':  { en: 'Study Sessions', zh: '学习记录' },
   'dash.todayReview':    { en: "Today's Review", zh: '今日复习' },
   'dash.startStudying':  { en: 'Start studying', zh: '开始学习' },
-  'dash.streak':         { en: 'Day Streak', zh: '连续天数' },
+  'dash.streak':         { en: 'Day Streak', zh: '连续学习天数' },
   'dash.onboardTitle':   { en: 'Welcome to EchoLearn! 🎓', zh: '欢迎使用 EchoLearn！🎓' },
   'dash.onboardDesc':    { en: 'Three steps to start learning from YouTube videos:', zh: '三步开始从 YouTube 视频学英语：' },
   'dash.onboardStep1':   { en: 'Paste a video link in Study', zh: '在学习页粘贴视频链接' },
