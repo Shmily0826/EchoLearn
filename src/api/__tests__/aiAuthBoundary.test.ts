@@ -3,9 +3,12 @@
  *
  * These tests exercise the actual `verifyFirebaseIdToken` implementation
  * (signature verification against a stubbed Google JWKS endpoint, plus the
- * Firebase claim checks) through the Node handler. The invariant under test:
+ * Firebase claim checks) through the Node handler. The invariant under test
+ * (since GUEST_AI_CONVERSION_V1):
  *
- *   an unauthenticated request NEVER reaches the provider call.
+ *   an invalid or missing token never yields ACCOUNT privileges — the
+ *   provider is only ever reached through the bounded guest channel
+ *   (3/day per IP), and a verified-email token unlocks the uid budget.
  *
  * The provider (@google/genai) is mocked so no real AI traffic can occur.
  */
@@ -111,6 +114,9 @@ function makeRequest(body: unknown, headers: Record<string, string> = {}) {
       host: 'echo-learn.uk',
       'content-type': 'application/json',
       origin: 'https://echo-learn.uk',
+      // Random per-request IP: guests share one daily counter and must not
+      // couple unrelated test cases into a single bucket.
+      'x-forwarded-for': Math.random().toString(),
       ...headers,
     },
     body,
@@ -164,60 +170,79 @@ describe('/api/ai authentication boundary (real verifier)', () => {
     delete process.env.FIREBASE_PROJECT_ID;
   });
 
-  async function expectRejected(request: { method: string; url: string; headers: Record<string, string>; body: unknown }) {
+  // GUEST_AI_CONVERSION_V1: an unauthenticated/invalid request is no longer
+  // rejected outright — it degrades to the bounded guest channel (3/day per
+  // IP). The invariant these tests still enforce: an INVALID token never
+  // yields account privileges (no uid, no 200/day budget) — the provider is
+  // only ever reached through the guest path.
+  async function expectGuestFallback(request: { method: string; url: string; headers: Record<string, string>; body: unknown }) {
     const response = makeResponse();
     await handler(request, response);
-    expect(response.statusCode).toBe(401);
-    expect(responseText(response)).toContain('Authentication required');
-    expect(providerMocks.generateContent).not.toHaveBeenCalled();
-    expect(providerMocks.generateContentStream).not.toHaveBeenCalled();
+    expect(response.statusCode).toBe(200);
+    expect(JSON.parse(responseText(response)).choices[0].message.content).toBe('provider reached');
+    expect(providerMocks.generateContent).toHaveBeenCalledTimes(1);
+    providerMocks.generateContent.mockClear();
   }
 
-  it('AC4/AC5: anonymous request → 401, provider fetch never happens', async () => {
-    await expectRejected(makeRequest(normalBody));
+  it('AC4/AC5: anonymous request → bounded guest channel (not account privileges)', async () => {
+    await expectGuestFallback(makeRequest(normalBody));
   });
 
-  it('malformed Authorization header → 401, provider untouched', async () => {
-    await expectRejected(makeRequest(normalBody, { authorization: 'Bearer' }));
-    await expectRejected(makeRequest(normalBody, { authorization: 'Basic dXNlcjpwYXNz' }));
-    await expectRejected(makeRequest(normalBody, { authorization: 'Bearer not-a-jwt' }));
+  it('guests past the 3/day cap → 403 guest_quota_exceeded, provider untouched', async () => {
+    const ip = '203.0.113.99';
+    const req = () => makeRequest(normalBody, { 'x-forwarded-for': ip });
+    for (let i = 0; i < 3; i++) {
+      await expectGuestFallback(req());
+    }
+    providerMocks.generateContent.mockClear();
+    const response = makeResponse();
+    await handler(req(), response);
+    expect(response.statusCode).toBe(403);
+    expect(JSON.parse(responseText(response)).error).toBe('guest_quota_exceeded');
+    expect(providerMocks.generateContent).not.toHaveBeenCalled();
   });
 
-  it('signature from an unknown key → 401, provider untouched', async () => {
+  it('malformed Authorization header → guest channel, never account privileges', async () => {
+    await expectGuestFallback(makeRequest(normalBody, { authorization: 'Bearer' }));
+    await expectGuestFallback(makeRequest(normalBody, { authorization: 'Basic dXNlcjpwYXNz' }));
+    await expectGuestFallback(makeRequest(normalBody, { authorization: 'Bearer not-a-jwt' }));
+  });
+
+  it('signature from an unknown key → guest channel, never account privileges', async () => {
     const token = makeIdToken(validClaims(), roguePair.privateKey, 'rogue-kid');
-    await expectRejected(makeRequest(normalBody, { authorization: `Bearer ${token}` }));
+    await expectGuestFallback(makeRequest(normalBody, { authorization: `Bearer ${token}` }));
   });
 
-  it('expired token → 401, provider untouched', async () => {
+  it('expired token → guest channel, never account privileges', async () => {
     const token = makeIdToken(validClaims({ exp: Math.floor(Date.now() / 1000) - 10 }));
-    await expectRejected(makeRequest(normalBody, { authorization: `Bearer ${token}` }));
+    await expectGuestFallback(makeRequest(normalBody, { authorization: `Bearer ${token}` }));
   });
 
-  it('wrong issuer or audience → 401, provider untouched', async () => {
+  it('wrong issuer or audience → guest channel, never account privileges', async () => {
     const wrongIss = makeIdToken(validClaims({ iss: 'https://securetoken.google.com/other-project' }));
-    await expectRejected(makeRequest(normalBody, { authorization: `Bearer ${wrongIss}` }));
+    await expectGuestFallback(makeRequest(normalBody, { authorization: `Bearer ${wrongIss}` }));
     const wrongAud = makeIdToken(validClaims({ aud: 'other-project' }));
-    await expectRejected(makeRequest(normalBody, { authorization: `Bearer ${wrongAud}` }));
+    await expectGuestFallback(makeRequest(normalBody, { authorization: `Bearer ${wrongAud}` }));
   });
 
   it('missing auth_time → 401, provider untouched', async () => {
     const claims = validClaims();
     delete claims.auth_time;
     const token = makeIdToken(claims);
-    await expectRejected(makeRequest(normalBody, { authorization: `Bearer ${token}` }));
+    await expectGuestFallback(makeRequest(normalBody, { authorization: `Bearer ${token}` }));
   });
 
   it('non-numeric auth_time → 401, provider untouched', async () => {
     const asString = makeIdToken(validClaims({ auth_time: 'yesterday' }));
-    await expectRejected(makeRequest(normalBody, { authorization: `Bearer ${asString}` }));
+    await expectGuestFallback(makeRequest(normalBody, { authorization: `Bearer ${asString}` }));
     const asFloatInfinity = makeIdToken(validClaims({ auth_time: Number.POSITIVE_INFINITY }));
     // JSON.stringify drops Infinity → payload has no valid finite number either way.
-    await expectRejected(makeRequest(normalBody, { authorization: `Bearer ${asFloatInfinity}` }));
+    await expectGuestFallback(makeRequest(normalBody, { authorization: `Bearer ${asFloatInfinity}` }));
   });
 
   it('future auth_time → 401, provider untouched', async () => {
     const token = makeIdToken(validClaims({ auth_time: Math.floor(Date.now() / 1000) + 600 }));
-    await expectRejected(makeRequest(normalBody, { authorization: `Bearer ${token}` }));
+    await expectGuestFallback(makeRequest(normalBody, { authorization: `Bearer ${token}` }));
   });
 
   it('AC6: valid authenticated token passes the gate and reaches the provider', async () => {
@@ -279,7 +304,7 @@ describe('/api/ai authentication boundary (real verifier)', () => {
         exp: Math.floor(Date.now() / 1000) + 3000,
       });
       const refreshedToken = makeIdToken(stillValidClaims);
-      await expectRejected(makeRequest(normalBody, { authorization: `Bearer ${refreshedToken}` }));
+      await expectGuestFallback(makeRequest(normalBody, { authorization: `Bearer ${refreshedToken}` }));
     } finally {
       vi.useRealTimers();
     }

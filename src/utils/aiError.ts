@@ -12,6 +12,11 @@ export function safeAiErrorMessage(error: unknown, lang: Lang): string {
       ? '请先验证邮箱后再使用 AI 功能（请查收验证邮件）。'
       : 'Please verify your email to use AI features (check your inbox).';
   }
+  if (code === 'guest_quota_exceeded') {
+    return lang === 'zh'
+      ? '今日游客 AI 额度已用完（3 次/天），登录后可继续使用。'
+      : 'Daily guest AI quota reached (3/day) — sign in to continue.';
+  }
   if (code === 'quota_exceeded') {
     return lang === 'zh'
       ? '今日 AI 使用次数已达上限，明天再来。'

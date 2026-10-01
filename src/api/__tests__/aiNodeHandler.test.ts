@@ -60,6 +60,9 @@ function makeRequest(body: unknown, headers: Record<string, string> = {}) {
       'content-type': 'application/json',
       origin: 'https://echo-learn.uk',
       authorization: 'Bearer valid-token',
+      // Random per-request IP so the guest daily counter never couples
+      // unrelated test cases into one bucket (guests share one counter).
+      'x-forwarded-for': Math.random().toString(),
       ...headers,
     },
     body,
@@ -162,11 +165,27 @@ describe('/api/ai Node runtime boundary', () => {
     expect(responseText(oversized)).toContain('Request body too large');
   });
 
-  it('rejects unauthenticated requests with 401 before any provider call', async () => {
+  it('serves tokenless guests through the limited guest channel', async () => {
+    providerMocks.generateContent.mockResolvedValue({ text: 'guest reached provider' });
     const response = makeResponse();
-    await handler(makeRequest(normalBody, { authorization: '' }), response);
-    expect(response.statusCode).toBe(401);
-    expect(responseText(response)).toContain('Authentication required');
+    await handler(makeRequest(normalBody, { authorization: '', 'x-forwarded-for': '203.0.113.55' }), response);
+    expect(response.statusCode).toBe(200);
+    expect(JSON.parse(responseText(response)).choices[0].message.content).toBe('guest reached provider');
+  });
+
+  it('rejects guests past the 3/day cap with 403 guest_quota_exceeded', async () => {
+    const ip = '203.0.113.77';
+    for (let i = 0; i < 3; i++) {
+      providerMocks.generateContent.mockResolvedValue({ text: 'ok' });
+      const ok = makeResponse();
+      await handler(makeRequest(normalBody, { authorization: '', 'x-forwarded-for': ip }), ok);
+      expect(ok.statusCode).toBe(200);
+    }
+    providerMocks.generateContent.mockClear();
+    const rejected = makeResponse();
+    await handler(makeRequest(normalBody, { authorization: '', 'x-forwarded-for': ip }), rejected);
+    expect(rejected.statusCode).toBe(403);
+    expect(JSON.parse(responseText(rejected)).error).toBe('guest_quota_exceeded');
     expect(providerMocks.generateContent).not.toHaveBeenCalled();
     expect(providerMocks.generateContentStream).not.toHaveBeenCalled();
   });

@@ -1259,8 +1259,10 @@ const StudyPage: React.FC = () => {
   );
 
   // ── Analyze transcript ──────────────────────────────────────
+  // No hard login gate: guests run AI analysis against the server's limited
+  // guest channel (3/day), and the quota error is where the sign-in prompt
+  // appears — after they have seen the value, not before.
   const handleAnalyze = useCallback(async () => {
-    if (!user) { showLoginToast(); return; }
     if (sentenceLines.length === 0) return;
     const text = sentenceLines.map((l) => l.text).join(' ');
 
@@ -1287,12 +1289,15 @@ const StudyPage: React.FC = () => {
       persistAnalysis(result);
       trackEvent('ai_analysis_used');
     } catch (err) {
+      if (err && typeof err === 'object' && (err as { code?: unknown }).code === 'guest_quota_exceeded') {
+        showLoginToast();
+      }
       setAnalysisError(safeAiErrorMessage(err, lang));
     } finally {
       setAnalyzing(false);
       setStreamChars(0);
     }
-  }, [user, sentenceLines, cefrMin, cefrMax, vocabCount, sentenceCount, persistAnalysis, lang, showLoginToast]);
+  }, [sentenceLines, cefrMin, cefrMax, vocabCount, sentenceCount, persistAnalysis, lang, showLoginToast]);
 
   // ── Vocab / sentence handlers ─────────────────────────────
   // Saving is a core guest-mode feature (README: data stays on device).

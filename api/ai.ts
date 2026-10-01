@@ -6,13 +6,13 @@
  * Supports SSE streaming (pipes the response body through).
  *
  * Hardening (pre-launch):
- *  - Authenticated-only: valid Firebase ID token required, with the same
- *    `email_verified` baseline as the Firestore rules (throwaway unverified
- *    accounts cannot spend provider quota).
- *  - Per-IP in-memory rate limiting + per-uid daily cap (best-effort:
- *    serverless instances are ephemeral/distributed, so this throttles casual
- *    abuse rather than guaranteeing a global cap. Use Vercel KV / Upstash for
- *    strict limits.)
+ *  - Two channels: verified accounts get the full capability (200/day per
+ *    uid); guests get 3 calls/day per IP (GUEST_AI_CONVERSION_V1) so new
+ *    users can try AI before registering.
+ *  - Per-IP in-memory rate limiting + per-uid/per-guest daily caps
+ *    (best-effort: serverless instances are ephemeral/distributed, so this
+ *    throttles casual abuse rather than guaranteeing a global cap. Use
+ *    Vercel KV / Upstash for strict limits.)
  *  - Request body size cap.
  *  - Payload field whitelist + model whitelist + max_tokens cap, so callers
  *    cannot point the proxy at expensive models or unbounded generations.
@@ -82,29 +82,35 @@ function getClientIp(request: Request): string {
   return request.headers.get('x-real-ip') || 'unknown';
 }
 
-// ── Per-uid daily cap (per serverless instance, best-effort) ──
-// Bounds the spend of a single farmed/leaked account even when the per-IP
-// limiter above is evaded by IP rotation. 200 calls/day is far above any
-// real learner's usage but caps scripted abuse at a bounded cost.
+// ── Daily cap (per serverless instance, best-effort) ──────────
+// Bounds the spend of a single farmed/leaked account or a scripted guest
+// even when the per-IP limiter above is evaded by IP rotation. Limits are
+// far above real usage but cap scripted abuse at a bounded cost.
+
+function createDailyCounter(limit: number) {
+  const counters = new Map<string, { day: string; count: number }>();
+  return (key: string): boolean => {
+    const day = new Date().toISOString().slice(0, 10);
+    const entry = counters.get(key);
+    if (!entry || entry.day !== day) {
+      if (counters.size >= 10000) {
+        for (const [k, v] of counters) {
+          if (v.day !== day) counters.delete(k);
+        }
+      }
+      counters.set(key, { day, count: 1 });
+      return false;
+    }
+    entry.count += 1;
+    return entry.count > limit;
+  };
+}
 
 const UID_DAILY_LIMIT = 200;
-const uidDayCounters = new Map<string, { day: string; count: number }>();
+const isUidOverQuota = createDailyCounter(UID_DAILY_LIMIT);
 
-function isUidOverQuota(uid: string): boolean {
-  const day = new Date().toISOString().slice(0, 10);
-  const entry = uidDayCounters.get(uid);
-  if (!entry || entry.day !== day) {
-    if (uidDayCounters.size >= 10000) {
-      for (const [k, v] of uidDayCounters) {
-        if (v.day !== day) uidDayCounters.delete(k);
-      }
-    }
-    uidDayCounters.set(uid, { day, count: 1 });
-    return false;
-  }
-  entry.count += 1;
-  return entry.count > UID_DAILY_LIMIT;
-}
+const GUEST_DAILY_LIMIT = 3;
+const isGuestOverQuota = createDailyCounter(GUEST_DAILY_LIMIT);
 
 // ── CORS ──────────────────────────────────────────────────────
 
@@ -434,18 +440,18 @@ async function handleWebRequest(request: Request): Promise<Response> {
   }
 
   // Authentication trust boundary — must run before any provider fetch.
-  // AI enrichment is an authenticated-only capability ("Sign in to use AI");
-  // Origin/CORS/rate limits are not identity, so this gate is the only thing
-  // that guarantees unauthenticated requests can never spend provider keys.
+  // Two channels share the CORS allowlist and the per-IP burst limiter:
+  //   verified accounts → the full capability (200 calls/day per uid);
+  //   unauthenticated guests → a limited taste (3 calls/day per IP, see
+  //   GUEST_DAILY_LIMIT) so new users can try AI before registering.
+  // Origin/CORS/rate limits are not identity, so the uid/guest counters are
+  // what bounds unbounded prompting; both are instance-local best-effort.
   const identity = await verifyFirebaseIdToken(request.headers.get('authorization'));
-  if (!identity) {
-    return jsonResponse({ error: 'Authentication required' }, 401, origin);
-  }
 
   // Verified-email gate — the same baseline the Firestore rules enforce. A
   // registered-but-unverified account must not be able to spend provider
   // quota for free.
-  if (!identity.emailVerified) {
+  if (identity && !identity.emailVerified) {
     return jsonResponse(
       { error: 'email_not_verified', message: 'Email verification required.' },
       403,
@@ -458,9 +464,17 @@ async function handleWebRequest(request: Request): Promise<Response> {
     return jsonResponse({ error: 'Too many requests, please slow down' }, 429, origin);
   }
 
-  // Per-uid daily quota
-  if (isUidOverQuota(identity.uid)) {
-    return jsonResponse({ error: 'quota_exceeded', message: 'Daily AI quota reached.' }, 429, origin);
+  if (identity) {
+    // Per-uid daily quota
+    if (isUidOverQuota(identity.uid)) {
+      return jsonResponse({ error: 'quota_exceeded', message: 'Daily AI quota reached.' }, 429, origin);
+    }
+  } else if (isGuestOverQuota(getClientIp(request))) {
+    return jsonResponse(
+      { error: 'guest_quota_exceeded', message: 'Daily guest quota reached — sign in for more.' },
+      403,
+      origin,
+    );
   }
 
   // Reject obviously oversized bodies before reading them.
