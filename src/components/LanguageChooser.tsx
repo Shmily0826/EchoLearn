@@ -1,6 +1,6 @@
 import { useState } from 'react';
 import { useI18n } from '../i18n/I18nContext';
-import { TOUR_START_EVENT, TOUR_LANG_CHOSEN_KEY, TOUR_SKIPPED_KEY } from './tourEvents';
+import { TOUR_LANG_CHOSEN_KEY, TOUR_SKIPPED_KEY, dispatchTourStart } from './tourEvents';
 
 /**
  * First-ever-visit language picker. Shows a modal before anything else so the
@@ -26,7 +26,8 @@ const LanguageChooser: React.FC = () => {
     localStorage.setItem(TOUR_LANG_CHOSEN_KEY, '1');
     setOpen(false);
     // Defer so React re-renders with the new language before the tour reads it.
-    window.setTimeout(() => window.dispatchEvent(new Event(TOUR_START_EVENT)), 60);
+    // Non-force: a pre-completed tour (tests, replay users) stays completed.
+    window.setTimeout(() => dispatchTourStart(false), 60);
   };
 
   const skip = () => {

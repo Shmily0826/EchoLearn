@@ -269,7 +269,10 @@ const FirstTimeTour: React.FC = () => {
       }
     };
 
-    const handler = () => startTour(true);
+    const handler = (event: Event) => {
+      const force = !(event instanceof CustomEvent) || event.detail?.force !== false;
+      startTour(force);
+    };
     window.addEventListener(TOUR_START_EVENT, handler);
 
     // Auto-start on the Dashboard for a first-time user. The language chooser

@@ -40,8 +40,21 @@ export async function enterGuestMode(page: Page) {
     await expect(englishButton).toBeHidden();
   }
 
-  // Choosing or skipping the language no longer starts a blocking tour.
+  // ── FTUE tour suppression (specs that are not about the tour) ──
+  // The tour auto-starts after a language choice (chooser dispatch) and via
+  // the 700ms Dashboard timer. Tests opt out the way the app allows: close
+  // any popover that opened, then write the completion flag so no pending
+  // timer can open one mid-test (startTour re-reads the flag at fire time).
+  try {
+    await page.locator('.driver-popover').waitFor({ state: 'visible', timeout: 3_000 });
+    await page.keyboard.press('Escape');
+  } catch {
+    /* no tour opened for this flow */
+  }
+  await page.evaluate(() => localStorage.setItem('echolearn-tour-completed-v1', '1'));
+  await expect(page.locator('.driver-popover')).toHaveCount(0);
+  await expect(page.locator('.driver-overlay')).toHaveCount(0);
+
   // Keep this helper focused on the stable app-shell navigation invariant.
   await expect(studyNav).toBeVisible();
-  await expect(page.locator('.driver-overlay')).toHaveCount(0);
 }
