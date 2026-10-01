@@ -5,6 +5,7 @@ import {
   loadCaptionDiagnostics,
   type CaptionDiagnosticsAggregate,
 } from '../services/captionDiagnostics';
+import { trackCaptionFailed } from '../services/analytics';
 
 /**
  * Caption request lifecycle for the Study page.
@@ -209,6 +210,8 @@ export function useCaptionRequest() {
         })
         .catch((err: unknown) => {
           if (handle.id !== idRef.current) return;
+          // Funnel telemetry: every caption-pipeline failure converges here.
+          trackCaptionFailed({ code: errorCodeOf(err) ?? 'unknown' });
           setError(
             opts.errorMessage
               ? opts.errorMessage(err)

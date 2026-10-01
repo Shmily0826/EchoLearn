@@ -3,6 +3,7 @@ import { BrowserRouter, useLocation, useNavigate } from 'react-router-dom';
 import { App as CapApp } from '@capacitor/app';
 import { StatusBar, Style } from '@capacitor/status-bar';
 import { isCapacitor } from './utils/platform';
+import { trackSessionStart } from './services/analytics';
 import { AuthProvider, useAuth } from './contexts/AuthContext';
 import { I18nProvider, useI18n } from './i18n/I18nContext';
 import { useAntiTranslate } from './hooks/useAntiTranslate';
@@ -60,6 +61,11 @@ function AppContent({ onLoginRequest }: { onLoginRequest?: () => void }) {
       return new Set(routes).add(pathname);
     });
   }, [pathname]);
+
+  // Return-cohort telemetry: emit once per mount with an anonymous device id.
+  useEffect(() => {
+    trackSessionStart();
+  }, []);
 
   // Handle Android back button and status bar in Capacitor
   useEffect(() => {

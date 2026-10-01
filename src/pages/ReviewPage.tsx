@@ -3,6 +3,7 @@ import { useNavigate } from 'react-router-dom';
 import { useI18n } from '../i18n/I18nContext';
 import { useAuth } from '../contexts/AuthContext';
 import { pushItemsToCloud } from '../services/firestoreSync';
+import { trackReviewCompleted } from '../services/analytics';
 import {
   loadVocabulary,
   loadSentences,
@@ -139,9 +140,18 @@ const ReviewPage: React.FC = () => {
       setCurrentIdx((i) => i + 1);
       setRevealed(false);
     } else {
+      // Session complete — the retention-loop signal the funnel needs: did a
+      // device actually finish a review session, and how did it go?
+      if (doneIds.size > 0) {
+        trackReviewCompleted({
+          cards: doneIds.size,
+          remembered: stats.remembered,
+          forgot: stats.forgot,
+        });
+      }
       setSessionActive(false);
     }
-  }, [currentIdx, queue.length]);
+  }, [currentIdx, queue.length, doneIds, stats]);
 
   const handleRemember = useCallback(() => {
     if (!currentCard) return;

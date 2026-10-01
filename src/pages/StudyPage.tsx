@@ -25,7 +25,7 @@ import {
 import { lemmatize } from '../utils/lemmatizer';
 import { analyzeTranscript } from '../services/aiAnalysis';
 import { safeAiErrorMessage } from '../utils/aiError';
-import { trackEvent } from '../services/analytics';
+import { trackEvent, trackFirstVideoLoaded, trackFirstItemSaved } from '../services/analytics';
 import {
   fetchYouTubeTranscript,
   TRANSCRIPT_ERROR_CODES,
@@ -738,7 +738,10 @@ const StudyPage: React.FC = () => {
       };
       saveCurrentSession(updated);
       setSession(updated);
-      if (!session?.id) trackEvent('video_studied', { platform });
+      if (!session?.id) {
+        trackEvent('video_studied', { platform });
+        trackFirstVideoLoaded();
+      }
       triggerSessionSync();
     },
     [session, platform, triggerSessionSync],
@@ -828,7 +831,10 @@ const StudyPage: React.FC = () => {
         platform: 'bilibili',
         biliPage: pg,
       });
-      if (!session) trackEvent('video_studied', { platform: 'bilibili' });
+      if (!session) {
+        trackEvent('video_studied', { platform: 'bilibili' });
+        trackFirstVideoLoaded();
+      }
       setSession(fresh);
       // Clear the input as soon as a valid video starts loading, so the next
       // paste is always clean and the user gets immediate "click accepted"
@@ -922,7 +928,10 @@ const StudyPage: React.FC = () => {
         url: urlInput.trim(),
         platform: 'youtube',
       });
-      if (!session) trackEvent('video_studied', { platform: 'youtube' });
+      if (!session) {
+        trackEvent('video_studied', { platform: 'youtube' });
+        trackFirstVideoLoaded();
+      }
       setSession(fresh);
       // Clear the input as soon as a valid video starts loading (see bilibili
       // branch for rationale).
@@ -1295,6 +1304,7 @@ const StudyPage: React.FC = () => {
     if (saveToastTimer.current) clearTimeout(saveToastTimer.current);
     saveToastTimer.current = setTimeout(() => setSaveToast(null), 4500);
     trackEvent('word_saved');
+    trackFirstItemSaved();
     triggerCloudSync();
     // Every save path (AI, transcript, popup and quick-add) is enriched the
     // same way: English definition is canonical; Chinese is a learning aid.
@@ -1312,6 +1322,7 @@ const StudyPage: React.FC = () => {
     if (saveToastTimer.current) clearTimeout(saveToastTimer.current);
     saveToastTimer.current = setTimeout(() => setSaveToast(null), 4500);
     trackEvent('sentence_saved');
+    trackFirstItemSaved();
     triggerCloudSync();
   }, [triggerCloudSync, setSentences]);
 

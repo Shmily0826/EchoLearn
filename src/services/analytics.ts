@@ -29,6 +29,13 @@ import { isAnalyticsSuppressed } from '../utils/analyticsSuppression';
  *   - word_saved            : a vocabulary item was saved
  *   - sentence_saved        : a sentence was saved
  *   - ai_analysis_used      : an AI transcript analysis completed
+ *
+ * Funnel events (2026-10 audit P0) — answer what the set above could not:
+ *   - session_start         : app opened, with anon_id + days_since_first
+ *   - first_video_loaded    : the device's very first video import
+ *   - caption_failed        : the caption pipeline failed for this load
+ *   - first_item_saved      : the device's very first vocabulary/sentence save
+ *   - review_completed      : a Review session finished (cards, accuracy)
  */
 
 type EventParams = Record<string, string | number | boolean>;
@@ -72,4 +79,73 @@ export function trackEvent(name: string, props?: EventParams): void {
   } catch {
     /* analytics is non-critical; never let it break the app */
   }
+}
+
+// ── Funnel events (2026-10 audit P0) ──────────────────────────
+// These answer three questions the original event set could not: does the
+// caption pipeline work for real users, do they reach their first save, and
+// do they come back to review. All identifiers are anonymous device ids.
+
+const ANON_ID_KEY = 'echolearn_anon_id';
+const FIRST_SEEN_KEY = 'echolearn_first_seen_ms';
+
+/** Stable per-device anonymous id — never a user id, never carries PII. */
+export function getAnonId(): string {
+  try {
+    let id = localStorage.getItem(ANON_ID_KEY);
+    if (!id) {
+      id = typeof crypto?.randomUUID === 'function'
+        ? crypto.randomUUID()
+        : `anon-${Date.now()}-${Math.random().toString(36).slice(2)}`;
+      localStorage.setItem(ANON_ID_KEY, id);
+    }
+    return id;
+  } catch {
+    return 'anon-unavailable';
+  }
+}
+
+/** Emits once per app mount: the return-cohort signal (days since first seen). */
+export function trackSessionStart(): void {
+  let firstSeen = 0;
+  try {
+    firstSeen = Number(localStorage.getItem(FIRST_SEEN_KEY)) || 0;
+    if (!firstSeen) {
+      firstSeen = Date.now();
+      localStorage.setItem(FIRST_SEEN_KEY, String(firstSeen));
+    }
+  } catch {
+    /* storage unavailable — still emit, cohort just stays 0 */
+  }
+  trackEvent('session_start', {
+    anon_id: getAnonId(),
+    days_since_first: firstSeen ? Math.floor((Date.now() - firstSeen) / 86_400_000) : 0,
+  });
+}
+
+/** First-ever one-shot events, deduped by a localStorage flag. */
+function trackFirstEver(flagKey: string, event: string): void {
+  try {
+    if (localStorage.getItem(flagKey)) return;
+    localStorage.setItem(flagKey, '1');
+  } catch {
+    return; // cannot dedupe → do not spam the funnel on every load
+  }
+  trackEvent(event);
+}
+
+export function trackFirstVideoLoaded(): void {
+  trackFirstEver('echolearn_funnel_first_video', 'first_video_loaded');
+}
+
+export function trackFirstItemSaved(): void {
+  trackFirstEver('echolearn_funnel_first_save', 'first_item_saved');
+}
+
+export function trackCaptionFailed(props?: EventParams): void {
+  trackEvent('caption_failed', props);
+}
+
+export function trackReviewCompleted(props?: EventParams): void {
+  trackEvent('review_completed', props);
 }
