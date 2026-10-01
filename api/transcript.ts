@@ -13,6 +13,8 @@
  * Returns: JSON with transcript lines
  */
 
+import { resolveAppOrigin } from './_shared/cors.js';
+
 // Consent cookie to help bypass YouTube's bot wall
 const CONSENT_COOKIE =
   'CONSENT=PENDING+987; SOCS=CAISNQgDEitib3FfaWRlbnRpdHlmcm9udGVuZHVpc2VydmVyXzIwMjMwODI5LjA3X3AxGgJlbiACGgYIgJnSmgY';
@@ -72,21 +74,7 @@ function isRateLimited(ip: string): boolean {
   return false;
 }
 
-// Origins allowed to call this endpoint via CORS.
-const ALLOWED_ORIGINS = [
-  'https://app.echo-learn.uk',
-  'https://echo-learn.uk',
-  'http://localhost:5173',
-  'http://localhost:4173',
-  'http://127.0.0.1:5173',
-];
-
-function resolveOrigin(origin: string | undefined): string | null {
-  if (!origin) return null;
-  if (ALLOWED_ORIGINS.includes(origin)) return origin;
-  if (origin.endsWith('.vercel.app')) return origin; // Vercel preview deployments
-  return null;
-}
+// Origins allowed to call this endpoint via CORS: see api/_shared/cors.ts.
 
 function isUsableTranscript(data: unknown): data is {
   lines: Array<Record<string, unknown>>;
@@ -539,7 +527,7 @@ export default async function handler(req: any, res: any): Promise<void> {
   res.setHeader(TRACE_HEADER, traceId);
   logTranscriptEvent('request_start', { traceId, method: req.method });
   // CORS headers (restricted to the app's known origins)
-  const allowed = resolveOrigin(req.headers?.origin as string | undefined);
+  const allowed = resolveAppOrigin(req.headers?.origin as string | undefined);
   if (allowed) res.setHeader('Access-Control-Allow-Origin', allowed);
   res.setHeader('Access-Control-Allow-Methods', 'GET, OPTIONS');
   res.setHeader('Access-Control-Allow-Headers', 'Content-Type');

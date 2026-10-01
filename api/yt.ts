@@ -13,6 +13,8 @@
  */
 export const config = { runtime: 'edge' };
 
+import { resolveAppOrigin } from './_shared/cors.js';
+
 // Desktop browser UA for page scraping (GET requests)
 const BROWSER_UA =
   'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/125.0.0.0 Safari/537.36';
@@ -167,21 +169,7 @@ function isAllowedHost(hostname: string): boolean {
   );
 }
 
-// Origins allowed to call this endpoint via CORS.
-const ALLOWED_ORIGINS = [
-  'https://app.echo-learn.uk',
-  'https://echo-learn.uk',
-  'http://localhost:5173',
-  'http://localhost:4173',
-  'http://127.0.0.1:5173',
-];
-
-function resolveOrigin(origin: string | null): string | null {
-  if (!origin) return null;
-  if (ALLOWED_ORIGINS.includes(origin)) return origin;
-  if (origin.endsWith('.vercel.app')) return origin; // Vercel preview deployments
-  return null;
-}
+// Origins allowed to call this endpoint via CORS: see api/_shared/cors.ts.
 
 function corsHeaders(origin: string | null): Record<string, string> {
   const headers: Record<string, string> = {
@@ -189,7 +177,7 @@ function corsHeaders(origin: string | null): Record<string, string> {
     'Access-Control-Allow-Headers': 'Content-Type, Authorization, X-YouTube-Client-Name, X-YouTube-Client-Version',
     'Access-Control-Max-Age': '86400',
   };
-  const allowed = resolveOrigin(origin);
+  const allowed = resolveAppOrigin(origin);
   if (allowed) headers['Access-Control-Allow-Origin'] = allowed;
   return headers;
 }

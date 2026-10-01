@@ -17,6 +17,8 @@
  */
 export const config = { runtime: 'edge' };
 
+import { resolveAppOrigin } from './_shared/cors.js';
+
 const YT_BASE = 'https://www.googleapis.com/youtube/v3';
 
 // ── Security configuration ────────────────────────────────────
@@ -32,15 +34,6 @@ const ALLOWED_ENDPOINTS = ['channels', 'playlistItems', 'search'];
 const ALLOWED_PARAMS = [
   'part', 'id', 'forHandle', 'playlistId', 'maxResults',
   'pageToken', 'q', 'type', 'key',
-];
-
-/** Origins allowed to call this endpoint via CORS. */
-const ALLOWED_ORIGINS = [
-  'https://app.echo-learn.uk',
-  'https://echo-learn.uk',
-  'http://localhost:5173',
-  'http://localhost:4173',
-  'http://127.0.0.1:5173',
 ];
 
 // ── In-memory rate limiter (per Edge instance) ────────────────
@@ -83,20 +76,13 @@ function getClientIp(request: Request): string {
 
 // ── CORS helpers ──────────────────────────────────────────────
 
-function resolveOrigin(origin: string | null): string | null {
-  if (!origin) return null;
-  if (ALLOWED_ORIGINS.includes(origin)) return origin;
-  if (origin.endsWith('.vercel.app')) return origin;
-  return null;
-}
-
 function corsHeaders(origin: string | null): Record<string, string> {
   const headers: Record<string, string> = {
     'Access-Control-Allow-Methods': 'GET, OPTIONS',
     'Access-Control-Allow-Headers': 'Content-Type',
     'Access-Control-Max-Age': '86400',
   };
-  const allowed = resolveOrigin(origin);
+  const allowed = resolveAppOrigin(origin);
   if (allowed) headers['Access-Control-Allow-Origin'] = allowed;
   return headers;
 }

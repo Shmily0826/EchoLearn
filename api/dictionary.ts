@@ -30,6 +30,7 @@ export const config = { runtime: 'edge' };
 import { lemmatize } from '../src/utils/lemmatizer';
 import type { DictionaryLemmaProvenance } from '../src/types';
 import { translateDictionaryDefinition, type DictionaryTranslationStatus } from './_shared/dictionaryTranslation';
+import { resolveAppOrigin } from './_shared/cors.js';
 
 // ── Config ────────────────────────────────────────────────────
 
@@ -56,14 +57,6 @@ const DATAMUSE_TIMEOUT_MS = 3000;
 const ALLOWED_TARGETS = new Set([
   'en', 'en-US', 'zh-CN', 'zh', 'ja', 'es', 'fr', 'de', 'ko', 'ru', 'pt', 'it',
 ]);
-
-const ALLOWED_ORIGINS = [
-  'https://app.echo-learn.uk',
-  'https://echo-learn.uk',
-  'http://localhost:5173',
-  'http://localhost:4173',
-  'http://127.0.0.1:5173',
-];
 
 // ── In-memory rate limiter (per Edge instance, best-effort) ──
 
@@ -93,19 +86,13 @@ function getClientIp(request: Request): string {
 
 // ── CORS ──────────────────────────────────────────────────────
 
-function resolveOrigin(origin: string | null): string | null {
-  if (!origin) return null;
-  if (ALLOWED_ORIGINS.includes(origin)) return origin;
-  if (origin.endsWith('.vercel.app')) return origin;
-  return null;
-}
 function corsHeaders(origin: string | null): Record<string, string> {
   const headers: Record<string, string> = {
     'Access-Control-Allow-Methods': 'GET, OPTIONS',
     'Access-Control-Allow-Headers': 'Content-Type',
     'Access-Control-Max-Age': '86400',
   };
-  const allowed = resolveOrigin(origin);
+  const allowed = resolveAppOrigin(origin);
   if (allowed) headers['Access-Control-Allow-Origin'] = allowed;
   return headers;
 }
