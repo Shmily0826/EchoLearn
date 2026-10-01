@@ -1,5 +1,6 @@
 import type { CaptionDiagnostics, TranscriptLine, BiliPart } from '../types';
 import { fetchWithTimeout } from '../utils/resilientFetch';
+import { aiAuthHeaders } from './apiAuth';
 
 /**
  * Bilibili transcript fetcher.
@@ -188,7 +189,7 @@ export async function fetchBilibiliTranscript(
 
   for (const [index, endpoint] of endpoints.entries()) {
     try {
-      const candidate = await fetchWithTimeout(endpoint.url, { timeoutMs: endpoint.timeoutMs });
+      const candidate = await fetchWithTimeout(endpoint.url, { timeoutMs: endpoint.timeoutMs, headers: await aiAuthHeaders() });
       const body = await candidate.text().catch(() => '');
       if (candidate.ok) {
         let data: TranscriptFetchResult & { error?: unknown; code?: unknown; recovery?: unknown };

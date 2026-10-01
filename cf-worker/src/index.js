@@ -299,7 +299,6 @@ const ALLOWED_ORIGINS = [
 function resolveOrigin(origin) {
   if (!origin) return null;
   if (ALLOWED_ORIGINS.includes(origin)) return origin;
-  if (origin.endsWith('.vercel.app')) return origin; // Vercel preview deployments
   return null;
 }
 
@@ -357,6 +356,108 @@ function isRateLimited(ip) {
   if (hits.length >= RATE_LIMIT_MAX) return true;
   hits.push(now);
   return false;
+}
+
+// ── Identity verification (paid routes) ───────────────────────
+// The Firebase Web API key is a public identifier (it ships in the client
+// bundle). Verification goes through the Identity Toolkit accounts:lookup
+// REST endpoint, which fully validates the ID token (signature, expiry,
+// issuer, audience) and returns the uid + emailVerified — the same trust
+// boundary /api/ai enforces with its Node-side JWKS verifier.
+
+const IDENTITY_CACHE_TTL_MS = 10 * 60 * 1000; // tokens live ~1h; cache 10min
+const identityCache = new Map(); // token -> { until, uid, emailVerified }
+
+/**
+ * Verifies the `Authorization: Bearer <Firebase ID token>` header.
+ * Returns { uid, emailVerified } or null (missing/invalid/unreachable).
+ * Never throws.
+ */
+async function verifyIdToken(request, env) {
+  const authz = request.headers.get('Authorization') || '';
+  if (!authz.startsWith('Bearer ')) return null;
+  const token = authz.slice('Bearer '.length).trim();
+  if (!token || token.length > 4096) return null;
+  if (!env.FIREBASE_WEB_API_KEY) return null;
+
+  const now = Date.now();
+  const cached = identityCache.get(token);
+  if (cached && cached.until > now) {
+    return { uid: cached.uid, emailVerified: cached.emailVerified };
+  }
+
+  try {
+    const resp = await fetch(
+      `https://identitytoolkit.googleapis.com/v1/accounts:lookup?key=${env.FIREBASE_WEB_API_KEY}`,
+      {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ idToken: token }),
+      },
+    );
+    if (!resp.ok) return null;
+    const data = await resp.json();
+    const user = data && Array.isArray(data.users) && data.users[0];
+    if (!user || !user.localId) return null;
+    const identity = { uid: user.localId, emailVerified: user.emailVerified === true };
+    if (identityCache.size >= 1000) identityCache.clear();
+    identityCache.set(token, { until: now + IDENTITY_CACHE_TTL_MS, ...identity });
+    return identity;
+  } catch {
+    return null;
+  }
+}
+
+// ── Global daily quota (KV, shared across all isolates/PoPs) ──
+// Approximate (KV is eventually consistent) — tight enough to bound abuse,
+// not a billing-grade meter. ASR ops cost real money (VPS yt-dlp + ffmpeg +
+// Groq Whisper), so the caps are deliberately modest.
+
+const ASR_DAILY_LIMIT_AUTH = 30; // verified accounts, per uid per day
+const ASR_DAILY_LIMIT_GUEST = 3; // anonymous visitors, per IP per day
+
+async function hasDailyQuota(env, bucket, limit) {
+  if (!env.QUOTAS) return true; // fail open when the binding is absent (local dev)
+  const day = new Date().toISOString().slice(0, 10);
+  const key = `${bucket}:${day}`;
+  try {
+    const current = parseInt((await env.QUOTAS.get(key)) || '0', 10);
+    if (current >= limit) return false;
+    await env.QUOTAS.put(key, String(current + 1), { expirationTtl: 172800 });
+    return true;
+  } catch {
+    return true; // a KV hiccup must never take captions/ASR down
+  }
+}
+
+/**
+ * Gate for paid routes (ASR / audio). With a token: verified uid gets the
+ * auth cap, unverified gets 403 (matching /api/ai and the Firestore rules),
+ * invalid tokens get 401 so client bugs surface. Without a token: the guest
+ * cap keyed by IP. Returns a Response to reject, or null to proceed.
+ */
+async function paidRouteGuard(request, env) {
+  const authz = request.headers.get('Authorization');
+  if (authz) {
+    const identity = await verifyIdToken(request, env);
+    if (!identity) {
+      return jsonResponse({ error: 'invalid_token', message: 'Invalid auth token.' }, 401);
+    }
+    if (!identity.emailVerified) {
+      return jsonResponse({ error: 'email_not_verified', message: 'Verify your email to use ASR.' }, 403);
+    }
+    const ok = await hasDailyQuota(env, `asr:uid:${identity.uid}`, ASR_DAILY_LIMIT_AUTH);
+    if (!ok) {
+      return jsonResponse({ error: 'quota_exceeded', message: 'Daily ASR quota reached. It resets at midnight UTC.' }, 429);
+    }
+    return null;
+  }
+  const ip = request.headers.get('cf-connecting-ip') || 'unknown';
+  const ok = await hasDailyQuota(env, `asr:guest:${ip}`, ASR_DAILY_LIMIT_GUEST);
+  if (!ok) {
+    return jsonResponse({ error: 'quota_exceeded', message: 'Daily guest quota reached. Sign in for a higher limit.' }, 429);
+  }
+  return null;
 }
 
 // ── Instance health tracker (per-isolate, best-effort) ─────────
@@ -421,6 +522,19 @@ export default {
     }
 
     const url = new URL(request.url);
+
+    // Paid routes (VPS yt-dlp/ffmpeg + Groq Whisper) require identity/quota.
+    // Media elements cannot send headers, so /api/audio always takes the
+    // guest path; everything else is gated per-request below.
+    const isPaidRoute =
+      url.pathname === '/api/audio' ||
+      url.pathname === '/api/audio-transcribe' ||
+      ((url.pathname === '/api/transcript' || url.pathname === '/api/bilibili') &&
+        url.searchParams.get('allowAsr') === '1');
+    if (isPaidRoute) {
+      const rejection = await paidRouteGuard(request, env);
+      if (rejection) return withCors(rejection, origin);
+    }
 
     try {
       let response;

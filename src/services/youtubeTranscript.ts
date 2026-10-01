@@ -15,6 +15,7 @@
 
 import type { CaptionDiagnostics, TranscriptLine } from '../types';
 import { fetchWithTimeout } from '../utils/resilientFetch';
+import { aiAuthHeaders } from './apiAuth';
 import {
   mergeCaptionDiagnostics,
   normalizeCaptionDiagnostics,
@@ -783,6 +784,9 @@ export async function fetchYouTubeServerTranscript(
   const endpoints = options.allowAsr
     ? [{ url: workerUrl, label: 'CF Worker', timeoutMs: WORKER_TIMEOUT_MS }]
     : [{ url: vercelUrl, label: 'Vercel server API', timeoutMs: VERCEL_TIMEOUT_MS }];
+  // The Worker gates ASR/audio behind identity + a daily quota; guests (empty
+  // headers) get a small per-IP allowance. Same-origin Vercel calls ignore it.
+  const authHeaders = await aiAuthHeaders();
   let deferredWorkerTimeout: YouTubeTranscriptError | undefined;
   let deferredWorkerAsrRequired: YouTubeTranscriptError | undefined;
 
@@ -798,7 +802,7 @@ export async function fetchYouTubeServerTranscript(
   for (let index = 0; index < endpoints.length; index++) {
     const endpoint = endpoints[index];
     try {
-      const res = await fetchWithTimeout(endpoint.url, { timeoutMs: endpoint.timeoutMs });
+      const res = await fetchWithTimeout(endpoint.url, { timeoutMs: endpoint.timeoutMs, headers: authHeaders });
       if (res.ok) {
         const data = (await res.json()) as TranscriptFetchResult;
         reportDiagnostics(data.diagnostics);

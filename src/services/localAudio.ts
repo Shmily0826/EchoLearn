@@ -1,4 +1,5 @@
 import { CF_WORKER_URL } from './youtubeTranscript';
+import { aiAuthHeaders } from './apiAuth';
 import type { TranscriptLine } from '../types';
 import { parseSrtTranscript, parseVttTranscript } from '../utils/transcriptParser';
 
@@ -51,17 +52,21 @@ export interface LocalAudioTranscript {
   source?: string;
 }
 
-export function transcribeLocalAudio(
+export async function transcribeLocalAudio(
   file: File,
   onUploadProgress?: (percent: number) => void,
   onUploadComplete?: () => void,
 ): Promise<LocalAudioTranscript> {
   const validationError = validateLocalAudio(file);
   if (validationError) return Promise.reject(validationError);
+  // The Worker gates transcription behind identity + a daily quota; guests
+  // (no header) get a small per-IP allowance.
+  const authHeaders = await aiAuthHeaders();
   return new Promise((resolve, reject) => {
     const xhr = new XMLHttpRequest();
     xhr.open('POST', `${CF_WORKER_URL}/api/audio-transcribe`);
     xhr.timeout = 120000;
+    if (authHeaders.Authorization) xhr.setRequestHeader('Authorization', authHeaders.Authorization);
     xhr.upload.onprogress = (event) => {
       if (event.lengthComputable) onUploadProgress?.(Math.round((event.loaded / event.total) * 100));
     };
