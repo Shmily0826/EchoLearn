@@ -4,6 +4,7 @@ import { describe, expect, it, vi } from 'vitest';
 // tests exercise only its response validator and one-check contract.
 import {
   classifyTranscriptAcquisition,
+  main,
   runCheck,
   validateCaptionResponse,
 // @ts-expect-error The monitor is plain JavaScript; this import is test-only.
@@ -12,6 +13,53 @@ import {
 import { createPaidProviderGuard, resolvePaidProviderPolicy } from '../../../scripts/paid-provider-guard.mjs';
 
 describe('caption pipeline health check', () => {
+  it('returns BLOCKED when a required paid probe is skipped and prints honest totals', async () => {
+    const fetchMock = vi.fn(async (url: string) => url.includes('warn.test')
+      ? new Response('', { status: 503 })
+      : Response.json({ lines: [{ text: 'caption' }] }));
+    vi.stubGlobal('fetch', fetchMock);
+    const output: string[] = [];
+    try {
+      const exitCode = await main({
+        env: {},
+        checks: [
+          { name: 'control', url: 'https://control.test', retries: 0 },
+          { name: 'known degradation', url: 'https://warn.test', retries: 0, warnOnly: true },
+          { name: 'paid control', url: 'https://paid.test', retries: 0, paidProvider: true },
+        ],
+        log: (line: string) => output.push(line),
+      });
+
+      expect(exitCode).toBe(2);
+      expect(output).toContain('BLOCKED  paid control (paid provider opt-in/cap not configured)');
+      expect(output).toContain('Monitor summary: PASS 1, WARN 1, BLOCKED 1, FAIL 0');
+      expect(output.join('\n')).not.toContain('All 3 checks passed');
+      expect(fetchMock).toHaveBeenCalledTimes(2);
+      expect(fetchMock.mock.calls.map(([url]) => url)).not.toContain('https://paid.test');
+    } finally {
+      vi.unstubAllGlobals();
+    }
+  });
+
+  it('returns FAIL ahead of BLOCKED when a live control fails', async () => {
+    vi.stubGlobal('fetch', vi.fn(async () => new Response('', { status: 503 })));
+    const output: string[] = [];
+    try {
+      const exitCode = await main({
+        env: {},
+        checks: [
+          { name: 'failed control', url: 'https://fail.test', retries: 0 },
+          { name: 'paid control', url: 'https://paid.test', paidProvider: true },
+        ],
+        log: (line: string) => output.push(line),
+      });
+      expect(exitCode).toBe(1);
+      expect(output).toContain('Monitor summary: PASS 0, WARN 0, BLOCKED 1, FAIL 1');
+    } finally {
+      vi.unstubAllGlobals();
+    }
+  });
+
   it('blocks the paid-capable Vercel check by default before fetch', async () => {
     const fetchMock = vi.fn();
     vi.stubGlobal('fetch', fetchMock);

@@ -10,7 +10,7 @@
  *   node scripts/health-check.mjs          # run all checks once
  *   npm run health
  *
- * Exit code 0 = all checks passed, 1 = at least one failed.
+ * Exit code 0 = no failures or blocked checks, 1 = failed, 2 = blocked.
  * Designed to run from GitHub Actions on a schedule (see
  * .github/workflows/uptime-monitor.yml); failures there trigger GitHub's
  * workflow-failure email notifications.
@@ -240,52 +240,53 @@ export async function runCheck(check, { paidProviderGuard } = {}) {
   return { ok: false, reason: lastReason };
 }
 
-export async function main() {
+export async function main({ checks = CHECKS, env = process.env, log = console.log } = {}) {
 let policy;
 try {
-  policy = resolvePaidProviderPolicy();
+  policy = resolvePaidProviderPolicy(env);
 } catch (error) {
-  console.log(`CONFIG BLOCKED  ${error instanceof Error ? error.message : String(error)}`);
-  return 1;
+  log(`CONFIG BLOCKED  ${error instanceof Error ? error.message : String(error)}`);
+  log('Monitor summary: PASS 0, WARN 0, BLOCKED 1, FAIL 0');
+  return 2;
 }
 const paidProviderGuard = createPaidProviderGuard(policy);
+let passed = 0;
 let failures = 0;
 let warnings = 0;
-for (const check of CHECKS) {
+let blocked = 0;
+for (const check of checks) {
   if (check.paidProvider && !policy.enabled) {
-    console.log(`BLOCKED  ${check.name} (paid provider opt-in/cap not configured)`);
+    blocked += 1;
+    log(`BLOCKED  ${check.name} (paid provider opt-in/cap not configured)`);
     continue;
   }
   const result = await runCheck(check, { paidProviderGuard });
   if (result.ok) {
+    passed += 1;
     const evidence = result.acquisitionEvidence
       ? ` [cache=${result.cacheState}; acquisition=${result.acquisitionEvidence}]`
       : '';
-    console.log(`PASS  ${check.name} (${result.ms}ms)${evidence}`);
+    log(`PASS  ${check.name} (${result.ms}ms)${evidence}`);
   } else if (check.warnOnly) {
     // Degraded but not user-affecting — printed for trend visibility, never
     // counted as a failure (see the warnOnly note on the iG9 control).
     warnings += 1;
-    console.log(`WARN  ${check.name} (known-degraded; not failing the run)`);
-    console.log(`      ↳ ${result.reason}`);
+    log(`WARN  ${check.name} (known-degraded; not failing the run)`);
+    log(`      ↳ ${result.reason}`);
   } else {
     failures += 1;
-    console.log(`FAIL  ${check.name}`);
-    console.log(`      ↳ ${result.reason}`);
+    log(`FAIL  ${check.name}`);
+    log(`      ↳ ${result.reason}`);
   }
 }
 
-console.log('='.repeat(72));
+log('='.repeat(72));
+log(`Monitor summary: PASS ${passed}, WARN ${warnings}, BLOCKED ${blocked}, FAIL ${failures}`);
 if (failures > 0) {
-  console.log(`${failures}/${CHECKS.length} checks FAILED`);
+  log(`${failures} check(s) failed`);
   return 1;
 }
-// Never claim a clean sweep while something degraded — the warning is the
-// whole reason this run is not red, so it belongs in the summary line.
-const warnNote = warnings > 0
-  ? ` (${warnings} known-degraded warning${warnings === 1 ? '' : 's'})`
-  : '';
-console.log(`All ${CHECKS.length} checks passed${warnNote}`);
+if (blocked > 0) return 2;
 return 0;
 }
 

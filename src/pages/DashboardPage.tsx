@@ -24,7 +24,7 @@ import {
   savePageToken,
   clearPageToken,
 } from '../utils/storage';
-import { getRecentVideosFromChannel, hasApiKey } from '../services/youtubeApi';
+import { getRecentVideosFromChannel, hasApiKey, YouTubeApiError } from '../services/youtubeApi';
 import { selectDueCards, reviewWindowEnd } from '../utils/reviewSchedule';
 import { useI18n } from '../i18n/I18nContext';
 import { useAuth } from '../contexts/AuthContext';
@@ -371,25 +371,22 @@ const DashboardPage: React.FC = () => {
       const result = await getRecentVideosFromChannel(input, 10, pageToken);
 
       if (result.videos.length === 0) {
-        // If we got no results with a pageToken, the page may have expired — reset and retry
-        if (pageToken) {
-          clearPageToken(channelKey);
-          const retryResult = await getRecentVideosFromChannel(input, 10);
-          if (retryResult.videos.length === 0) {
-            setCheckMessage(t('dash.noVideos'));
-            setCheckSuccess(false);
-            return;
-          }
-          return handleVideosResult(retryResult, channelKey, input);
-        }
+        if (pageToken) clearPageToken(channelKey);
         setCheckMessage(t('dash.noVideos'));
         setCheckSuccess(false);
         return;
       }
 
       handleVideosResult(result, channelKey, input);
-    } catch {
-      setCheckMessage(t('dash.fetchError'));
+    } catch (error) {
+      const messageKey = error instanceof YouTubeApiError
+        ? error.code === 'quota_exceeded'
+          ? 'dash.youtubeQuota'
+          : error.code === 'rate_limited'
+            ? 'dash.youtubeRateLimit'
+            : 'dash.youtubeProviderError'
+        : 'dash.youtubeProviderError';
+      setCheckMessage(t(messageKey));
       setCheckSuccess(false);
     } finally {
       setCheckLoading(false);

@@ -26,6 +26,9 @@ const YT_BASE = 'https://www.googleapis.com/youtube/v3';
 /** Rate limit: max requests per IP per window. */
 const RATE_LIMIT_WINDOW_MS = 60_000;
 const RATE_LIMIT_MAX = 30;
+// Ponytail: per-instance short-window throttling limits bursts; shared storage
+// would be required for a global quota ceiling.
+const SEARCH_RATE_LIMIT_MAX = 3;
 
 /** YouTube Data API endpoints this proxy is allowed to call. */
 const ALLOWED_ENDPOINTS = ['channels', 'playlistItems', 'search'];
@@ -49,7 +52,7 @@ function pruneBuckets(cutoff: number): void {
   }
 }
 
-function isRateLimited(ip: string): boolean {
+function isRateLimited(ip: string, limit = RATE_LIMIT_MAX): boolean {
   const now = Date.now();
   const cutoff = now - RATE_LIMIT_WINDOW_MS;
   pruneBuckets(cutoff);
@@ -61,7 +64,7 @@ function isRateLimited(ip: string): boolean {
   }
   // Prune old hits for this IP
   while (hits.length > 0 && hits[0] <= cutoff) hits.shift();
-  if (hits.length >= RATE_LIMIT_MAX) return true;
+  if (hits.length >= limit) return true;
   hits.push(now);
   return false;
 }
@@ -72,6 +75,10 @@ function getClientIp(request: Request): string {
     request.headers.get('x-real-ip') ||
     'unknown'
   );
+}
+
+function isSearchRateLimited(ip: string): boolean {
+  return isRateLimited(`search:${ip}`, SEARCH_RATE_LIMIT_MAX);
 }
 
 // ── CORS helpers ──────────────────────────────────────────────
@@ -120,6 +127,22 @@ export default async function handler(request: Request): Promise<Response> {
     );
   }
 
+  if (endpoint === 'search') {
+    const query = url.searchParams.get('q')?.trim() ?? '';
+    if (url.searchParams.get('type') !== 'channel' || url.searchParams.get('maxResults') !== '1' || query.length < 2 || query.length > 100) {
+      return new Response(
+        JSON.stringify({ error: 'Search is restricted to one channel result and a query of 2–100 characters.' }),
+        { status: 400, headers: { ...corsHeaders(origin), 'Content-Type': 'application/json' } },
+      );
+    }
+    if (isSearchRateLimited(ip)) {
+      return new Response(
+        JSON.stringify({ error: 'YouTube channel search rate limit exceeded. Please slow down.' }),
+        { status: 429, headers: { ...corsHeaders(origin), 'Content-Type': 'application/json' } },
+      );
+    }
+  }
+
   // Build forwarded query params (whitelist only, inject server-side key)
   const apiKey = process.env.YOUTUBE_API_KEY || '';
   if (!apiKey) {
@@ -149,7 +172,7 @@ export default async function handler(request: Request): Promise<Response> {
       headers: {
         ...corsHeaders(origin),
         'Content-Type': 'application/json',
-        'Cache-Control': 'public, max-age=300', // 5 min cache for channel/video data
+        'Cache-Control': response.ok ? 'public, max-age=300' : 'no-store',
       },
     });
   } catch (err) {
