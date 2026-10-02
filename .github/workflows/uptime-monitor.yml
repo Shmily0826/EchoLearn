@@ -21,6 +21,18 @@ jobs:
   health-check:
     runs-on: ubuntu-latest
     timeout-minutes: 10
+    # The dQ caption control is the only check flagged `paidProvider`, and it
+    # runs with `retries: 0`, so one invocation per run is exactly what it
+    # needs — two runs a day means at most two paid calls a day. dQ has
+    # native captions, so the probe never reaches ASR.
+    #
+    # Without these the guard resolves to { enabled: false }, the control
+    # reports BLOCKED, and health-check.mjs exits 2 — which makes every
+    # scheduled run report red even when nothing is actually broken.
+    # Plain values, not secrets: they encode policy, not credentials.
+    env:
+      ECHOLEARN_ALLOW_PAID_PROVIDER: '1'
+      ECHOLEARN_PAID_MAX_INVOCATIONS: '1'
     steps:
       - uses: actions/checkout@v4
 

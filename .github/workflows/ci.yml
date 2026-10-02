@@ -25,6 +25,11 @@ jobs:
         with:
           python-version: '3.12'
       - run: node --test cf-worker/test/audioTranscribe.test.mjs cf-worker/test/bilibili.test.mjs
+      # The reliability-baseline suite is node:test + .mjs, so vitest's include
+      # (ts/tsx only) never picks it up and nothing else ran it. Unquoted glob
+      # so the shell expands it; pass the files explicitly on shells that do
+      # not glob (cmd.exe).
+      - run: node --test scripts/reliability-baseline/*.test.mjs
       # Import-time deps of the VPS test suite: test_main.py imports the real
       # yt_dlp.parse_options to assert CLI option semantics, so the package
       # (not a mock) is required.
