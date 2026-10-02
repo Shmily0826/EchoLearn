@@ -25,8 +25,10 @@ jobs:
         with:
           python-version: '3.12'
       - run: node --test cf-worker/test/audioTranscribe.test.mjs cf-worker/test/bilibili.test.mjs
-      # VPS tests mock yt-dlp/provider calls; install only the import-time API deps.
-      - run: python -m pip install 'fastapi>=0.110' 'python-multipart>=0.0.9'
+      # Import-time deps of the VPS test suite: test_main.py imports the real
+      # yt_dlp.parse_options to assert CLI option semantics, so the package
+      # (not a mock) is required.
+      - run: python -m pip install 'fastapi>=0.110' 'python-multipart>=0.0.9' 'yt-dlp'
       - run: python -m unittest discover -s vps-ytdlp -p 'test*.py'
 
   test:
