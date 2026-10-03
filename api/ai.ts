@@ -47,6 +47,28 @@ const ALLOWED_MODELS = ['deepseek-v4-flash'];
 /** Hard cap on max_tokens even if the client requests more. */
 const MAX_TOKENS_CAP = 8192;
 
+/**
+ * Wall-clock cap on waiting for the AI provider to answer (time-to-first-byte).
+ * The client sets no timeout of its own, so this is the only bound on a hung
+ * provider call — without it a stalled upstream holds the function open for the
+ * platform default (300s under Fluid compute). It deliberately bounds the wait
+ * for response headers only: once headers arrive, the stream tail is the
+ * function maxDuration's business, and aborting mid-stream would truncate a
+ * legitimate long generation. AI_DEADLINE_MS exists for tests and ops tuning.
+ */
+const AI_DEADLINE_MS_DEFAULT = 60_000;
+
+function aiDeadlineMs(): number {
+  const parsed = Number(process.env.AI_DEADLINE_MS);
+  return Number.isFinite(parsed) && parsed > 0 ? parsed : AI_DEADLINE_MS_DEFAULT;
+}
+
+function deadlineSignal(ms: number): { signal: AbortSignal; cancel: () => void } {
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), ms);
+  return { signal: controller.signal, cancel: () => clearTimeout(timer) };
+}
+
 // ── In-memory rate limiter (per serverless instance) ──────────
 
 const buckets = new Map<string, number[]>();
@@ -327,24 +349,43 @@ async function handleGemini(body: SanitizedBody, stream: boolean, origin: string
   };
 
   if (!stream) {
+    const deadline = deadlineSignal(aiDeadlineMs());
     try {
-      const response = await ai.models.generateContent(params);
+      const response = await ai.models.generateContent({
+        ...params,
+        config: { ...params.config, abortSignal: deadline.signal },
+      });
       const content = response.text?.trim() || '';
       if (!content) return jsonResponse({ error: 'Gemini returned empty output' }, 502, origin);
       return jsonResponse(openAiJsonResponse(content), 200, origin);
     } catch (err) {
+      // The deadline is the only thing that fires this signal, so an aborted
+      // signal is unambiguously our timeout — answer with the status that says
+      // "retry", not the 502 that says "provider broke".
+      if (deadline.signal.aborted) {
+        return jsonResponse({ error: 'AI provider timed out' }, 504, origin);
+      }
       const status = (err as { status?: number })?.status;
       const code = status === 429 ? 429 : 502;
       const message = err instanceof Error ? err.message : 'Gemini request failed';
       return jsonResponse({ error: `Gemini API error: ${message.slice(0, 300)}` }, code, origin);
+    } finally {
+      deadline.cancel();
     }
   }
 
   const encoder = new TextEncoder();
   const streamBody = new ReadableStream<Uint8Array>({
     async start(controller) {
+      const deadline = deadlineSignal(aiDeadlineMs());
       try {
-        const response = await ai.models.generateContentStream(params);
+        const response = await ai.models.generateContentStream({
+          ...params,
+          config: { ...params.config, abortSignal: deadline.signal },
+        });
+        // Headers arrived within the deadline; the stream tail is bounded by
+        // the function maxDuration, not by this signal.
+        deadline.cancel();
         for await (const chunk of response) {
           const text = chunk.text || '';
           if (text) {
@@ -354,8 +395,11 @@ async function handleGemini(body: SanitizedBody, stream: boolean, origin: string
         controller.enqueue(encoder.encode('data: [DONE]\n\n'));
         controller.close();
       } catch (err) {
-        const message = err instanceof Error ? err.message : 'Gemini request failed';
-        controller.enqueue(encoder.encode(`data: ${JSON.stringify({ error: `Gemini API error: ${message.slice(0, 300)}` })}\n\n`));
+        deadline.cancel();
+        const payload = deadline.signal.aborted
+          ? { error: 'AI provider timed out' }
+          : { error: `Gemini API error: ${(err instanceof Error ? err.message : 'Gemini request failed').slice(0, 300)}` };
+        controller.enqueue(encoder.encode(`data: ${JSON.stringify(payload)}\n\n`));
         controller.close();
       }
     },
@@ -511,14 +555,26 @@ async function handleWebRequest(request: Request): Promise<Response> {
       return jsonResponse({ error: 'AI service not configured' }, 500, origin);
     }
 
-    const response = await fetch(DEEPSEEK_API_URL, {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        Authorization: `Bearer ${apiKey}`,
-      },
-      body: JSON.stringify(sanitized),
-    });
+    const deadline = deadlineSignal(aiDeadlineMs());
+    let response: Response;
+    try {
+      response = await fetch(DEEPSEEK_API_URL, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          Authorization: `Bearer ${apiKey}`,
+        },
+        body: JSON.stringify(sanitized),
+        signal: deadline.signal,
+      });
+    } catch (err) {
+      if (deadline.signal.aborted) {
+        return jsonResponse({ error: 'AI provider timed out' }, 504, origin);
+      }
+      throw err;
+    } finally {
+      deadline.cancel();
+    }
 
     // Pipe the response body through (supports SSE streaming)
     const responseHeaders = new Headers();

@@ -3,6 +3,9 @@
   "functions": {
     "api/transcript.ts": {
       "maxDuration": 30
+    },
+    "api/ai.ts": {
+      "maxDuration": 120
     }
   },
   "headers": [

@@ -106,6 +106,7 @@ describe('/api/ai Node runtime boundary', () => {
     delete process.env.GEMINI_API_KEY;
     delete process.env.DEEPSEEK_API_KEY;
     vi.unstubAllGlobals();
+    vi.unstubAllEnvs();
   });
 
   it('handles Node-style headers and writes a normal Gemini response', async () => {
@@ -295,5 +296,73 @@ describe('/api/ai Node runtime boundary', () => {
     expect(response.statusCode).toBe(200);
     const forwarded = JSON.parse(fetchMock.mock.calls[0][1].body);
     expect(forwarded.model).toBe('deepseek-v4-flash');
+  });
+
+  // ── Provider deadline (time-to-first-byte) ────────────────────
+
+  it('answers 504 when Gemini misses the time-to-first-byte deadline', async () => {
+    vi.stubEnv('AI_DEADLINE_MS', '30');
+    providerMocks.generateContent.mockImplementation(({ config }: { config?: { abortSignal?: AbortSignal } }) =>
+      new Promise((_, reject) => {
+        config?.abortSignal?.addEventListener('abort', () => {
+          const err = new Error('The operation was aborted');
+          err.name = 'AbortError';
+          reject(err);
+        });
+      }));
+    const response = makeResponse();
+
+    await handler(makeRequest(normalBody), response);
+
+    expect(response.statusCode).toBe(504);
+    expect(JSON.parse(responseText(response)).error).toBe('AI provider timed out');
+    expect(response.ended).toBe(true);
+  });
+
+  it('answers 504 when DeepSeek misses the time-to-first-byte deadline', async () => {
+    process.env.AI_PROVIDER = 'deepseek';
+    process.env.DEEPSEEK_API_KEY = 'test-deepseek-key';
+    vi.stubEnv('AI_DEADLINE_MS', '30');
+    vi.stubGlobal('fetch', vi.fn((_url: string | URL | Request, init?: RequestInit) =>
+      new Promise((_, reject) => {
+        init?.signal?.addEventListener('abort', () => {
+          const err = new Error('This operation was aborted');
+          err.name = 'AbortError';
+          reject(err);
+        });
+      })));
+    const response = makeResponse();
+
+    await handler(makeRequest(normalBody), response);
+
+    expect(response.statusCode).toBe(504);
+    expect(JSON.parse(responseText(response)).error).toBe('AI provider timed out');
+    expect(response.ended).toBe(true);
+  });
+
+  it('does not truncate a provider stream that answered within the deadline', async () => {
+    process.env.AI_PROVIDER = 'deepseek';
+    process.env.DEEPSEEK_API_KEY = 'test-deepseek-key';
+    vi.stubEnv('AI_DEADLINE_MS', '30');
+    vi.stubGlobal('fetch', vi.fn().mockResolvedValue(new Response(
+      new ReadableStream<Uint8Array>({
+        async start(controller) {
+          // Headers immediately, body well past the deadline: the signal
+          // bounds the wait for headers only, never the stream tail.
+          await new Promise((resolve) => setTimeout(resolve, 150));
+          controller.enqueue(new TextEncoder().encode(
+            JSON.stringify({ choices: [{ message: { role: 'assistant', content: 'slow body, full answer' } }] }),
+          ));
+          controller.close();
+        },
+      }),
+      { status: 200, headers: { 'Content-Type': 'application/json' } },
+    )));
+    const response = makeResponse();
+
+    await handler(makeRequest(normalBody), response);
+
+    expect(response.statusCode).toBe(200);
+    expect(JSON.parse(responseText(response)).choices[0].message.content).toBe('slow body, full answer');
   });
 });
