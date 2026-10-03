@@ -172,6 +172,18 @@ class RequestBodyTooLargeError extends Error {
   }
 }
 
+/**
+ * The Vercel Node runtime pre-parses JSON bodies: on a parse failure it errors
+ * the request stream instead of handing the raw text to the handler. Without
+ * this type such a request surfaced as 502 "AI proxy error", which reads like
+ * the provider broke rather than the client sending malformed JSON.
+ */
+class RequestBodyInvalidError extends Error {
+  constructor() {
+    super('Invalid JSON body');
+  }
+}
+
 function nodeHeader(request: NodeRequest, name: string): string | undefined {
   const value = request.headers?.[name.toLowerCase()];
   if (Array.isArray(value)) return value.join(', ');
@@ -195,11 +207,18 @@ async function readNodeBody(request: NodeRequest): Promise<string> {
   if (request[Symbol.asyncIterator]) {
     const chunks: string[] = [];
     let size = 0;
-    for await (const chunk of request as AsyncIterable<Uint8Array | string>) {
-      const text = typeof chunk === 'string' ? chunk : new TextDecoder().decode(chunk);
-      size += text.length;
-      if (size > MAX_BODY_BYTES) throw new RequestBodyTooLargeError();
-      chunks.push(text);
+    try {
+      for await (const chunk of request as AsyncIterable<Uint8Array | string>) {
+        const text = typeof chunk === 'string' ? chunk : new TextDecoder().decode(chunk);
+        size += text.length;
+        if (size > MAX_BODY_BYTES) throw new RequestBodyTooLargeError();
+        chunks.push(text);
+      }
+    } catch (err) {
+      if (err instanceof RequestBodyTooLargeError) throw err;
+      // Any other stream failure before a complete body is the runtime
+      // rejecting the client's body (see RequestBodyInvalidError).
+      throw new RequestBodyInvalidError();
     }
     return chunks.join('');
   }
@@ -218,7 +237,7 @@ async function readNodeBody(request: NodeRequest): Promise<string> {
       chunks.push(text);
     });
     request.on?.('end', () => resolve(chunks.join('')));
-    request.on?.('error', (error) => reject(error));
+    request.on?.('error', () => reject(new RequestBodyInvalidError()));
   });
 }
 
@@ -601,6 +620,10 @@ export default async function handler(request: NodeRequest, response: NodeRespon
   } catch (err) {
     if (err instanceof RequestBodyTooLargeError) {
       writeNodeError(response, 413, err.message, nodeHeader(request, 'origin') || null);
+      return;
+    }
+    if (err instanceof RequestBodyInvalidError) {
+      writeNodeError(response, 400, err.message, nodeHeader(request, 'origin') || null);
       return;
     }
     const message = err instanceof Error ? err.message : 'AI proxy error';

@@ -365,4 +365,57 @@ describe('/api/ai Node runtime boundary', () => {
     expect(response.statusCode).toBe(200);
     expect(JSON.parse(responseText(response)).choices[0].message.content).toBe('slow body, full answer');
   });
+
+  // ── Runtime body-stream failures (invalid JSON never reaches the parser) ──
+
+  function makeStreamRequest(onFn: NonNullable<Parameters<typeof handler>[0]['on']>): Parameters<typeof handler>[0] {
+    return {
+      method: 'POST',
+      url: '/api/ai',
+      headers: {
+        host: 'echo-learn.uk',
+        'content-type': 'application/json',
+        origin: 'https://echo-learn.uk',
+        'x-forwarded-for': '203.0.113.201',
+      },
+      on: onFn,
+    } as Parameters<typeof handler>[0];
+  }
+
+  it('answers 400 when the runtime body stream reports invalid JSON (on-error branch)', async () => {
+    const response = makeResponse();
+    // No `body` field and no asyncIterator → readNodeBody subscribes via `on`;
+    // the Vercel runtime emits its JSON parse failure through that stream.
+    const request = makeStreamRequest((event, listener) => {
+      if (event === 'error') setImmediate(() => listener(new Error('Invalid JSON')));
+      return request;
+    });
+
+    await handler(request, response);
+
+    expect(response.statusCode).toBe(400);
+    expect(responseText(response)).toContain('Invalid JSON body');
+  });
+
+  it('answers 400 when an iterated body stream fails before completing', async () => {
+    const response = makeResponse();
+    const request = {
+      method: 'POST',
+      url: '/api/ai',
+      headers: {
+        host: 'echo-learn.uk',
+        'content-type': 'application/json',
+        origin: 'https://echo-learn.uk',
+        'x-forwarded-for': '203.0.113.202',
+      },
+      [Symbol.asyncIterator]: async function* () {
+        throw new Error('Invalid JSON');
+      },
+    } as Parameters<typeof handler>[0];
+
+    await handler(request, response);
+
+    expect(response.statusCode).toBe(400);
+    expect(responseText(response)).toContain('Invalid JSON body');
+  });
 });
