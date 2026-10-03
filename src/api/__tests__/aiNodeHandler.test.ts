@@ -408,9 +408,11 @@ describe('/api/ai Node runtime boundary', () => {
         origin: 'https://echo-learn.uk',
         'x-forwarded-for': '203.0.113.202',
       },
-      [Symbol.asyncIterator]: async function* () {
-        throw new Error('Invalid JSON');
-      },
+      [Symbol.asyncIterator]: () => ({
+        next: async () => {
+          throw new Error('Invalid JSON');
+        },
+      }),
     } as Parameters<typeof handler>[0];
 
     await handler(request, response);
