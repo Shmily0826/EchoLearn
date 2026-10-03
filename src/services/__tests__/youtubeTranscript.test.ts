@@ -424,3 +424,84 @@ describe('fetchYouTubeTranscript provider order and failure classification', () 
     vi.useRealTimers();
   });
 });
+
+// The caption-only fallback chain carries a cooperative aggregate budget:
+// once ~30s have elapsed (the Vercel arm alone is sized to 22s), the
+// remaining client-side strategies are skipped and the deferred server
+// outcome is what surfaces. Without the gate a full failure walk stacked
+// 22s + unbounded raw fetches in front of the learner.
+describe('caption fallback aggregate budget', () => {
+  it('skips the remaining client strategies once the caption budget is exhausted', async () => {
+    const start = 1_000_000;
+    let consumed = 0;
+    const nowSpy = vi.spyOn(Date, 'now').mockImplementation(() => start + consumed);
+    // The Vercel arm answers a provider timeout (deferred, not fatal); the
+    // budget clock jumps past 30s while that request is in flight.
+    fetchMock.mockImplementationOnce(async () => {
+      consumed = 31_000;
+      return response({ error: 'upstream timeout', code: 'provider_timeout' }, 504);
+    });
+
+    try {
+      await expect(fetchYouTubeTranscript('budget-video', 'en')).rejects.toMatchObject({
+        name: 'YouTubeTranscriptError',
+        code: 'provider_timeout',
+      });
+      // InnerTube, web scraping and the npm fallback never fetched anything.
+      expect(fetchMock).toHaveBeenCalledTimes(1);
+      expect(String(fetchMock.mock.calls[0][0])).toBe('/api/transcript?videoId=budget-video&lang=en');
+    } finally {
+      nowSpy.mockRestore();
+    }
+  });
+
+  it('still walks the client strategies while the budget lasts', async () => {
+    const nowSpy = vi.spyOn(Date, 'now').mockReturnValue(1_000_000);
+    // Vercel returns a deferred provider timeout; the budget is not exhausted,
+    // so the InnerTube strategy must still get its bounded attempt.
+    fetchMock.mockImplementation(async (_url, init) => {
+      // Every strategy's fetch must be bounded: reject on the signal.
+      const signal = init?.signal as AbortSignal | undefined;
+      return new Promise<Response>((_resolve, reject) => {
+        signal?.addEventListener('abort', () => reject(Object.assign(new Error('aborted'), { name: 'AbortError' })));
+      });
+    });
+
+    try {
+      vi.useFakeTimers();
+      const request = fetchYouTubeTranscript('walk-video', 'en');
+      const rejection = expect(request).rejects.toMatchObject({ code: 'provider_timeout' });
+      // Vercel 22s + two bounded client attempts (8s each) + npm race (8s)
+      // ≈ the worst case; nothing may hang past 46s.
+      await vi.advanceTimersByTimeAsync(22_000);
+      await vi.advanceTimersByTimeAsync(8_000);
+      await vi.advanceTimersByTimeAsync(8_000);
+      await vi.advanceTimersByTimeAsync(8_000);
+      await vi.advanceTimersByTimeAsync(1);
+      await rejection;
+      // More than one endpoint was attempted: the chain was still alive.
+      expect(fetchMock.mock.calls.length).toBeGreaterThan(1);
+    } finally {
+      vi.useRealTimers();
+      nowSpy.mockRestore();
+    }
+  });
+
+  it('bounds a hung npm fallback with the per-strategy race', async () => {
+    vi.mocked(YoutubeTranscript.fetchTranscript).mockReset().mockImplementation(() => new Promise(() => {}));
+    // Vercel answers empty, InnerTube and web scraping fail fast, so the
+    // chain reaches the npm strategy; its hung fetch must lose the race.
+    fetchMock.mockResolvedValue(response({ lines: [] }));
+
+    vi.useFakeTimers();
+    try {
+      const request = fetchYouTubeTranscript('npm-video', 'en');
+      const rejection = expect(request).rejects.toThrow('Unable to fetch captions');
+      await vi.advanceTimersByTimeAsync(8_000);
+      await rejection;
+      expect(YoutubeTranscript.fetchTranscript).toHaveBeenCalledTimes(1);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+});

@@ -249,12 +249,29 @@ function parseXmlTimedText(xml: string): TranscriptLine[] {
 
 // ── Fetch helpers ──────────────────────────────────────────────
 
+/**
+ * Per-request bound for the client-side caption strategies (InnerTube, page
+ * scraping, caption-content downloads). These were unbounded raw fetches, so
+ * one stalled connection hung the fallback chain for the browser's default
+ * timeout; 8s admits any healthy small GET while keeping the whole walk
+ * inside the aggregate budget checked between strategies.
+ */
+const CAPTION_FETCH_TIMEOUT_MS = 8000;
+
+/**
+ * Caption-only total budget across the fallback chain. The Vercel arm alone
+ * is sized to 22s (a measured ~14.4s Supadata positive plus margin), so 30s
+ * admits it plus one more bounded attempt; whatever remains is skipped.
+ * Explicit ASR is exempt — it is a single Worker request with a 90s budget.
+ */
+const CAPTION_AGGREGATE_BUDGET_MS = 30_000;
+
 function sleep(ms: number): Promise<void> {
   return new Promise((resolve) => setTimeout(resolve, ms));
 }
 
 async function fetchText(url: string, init?: RequestInit): Promise<string> {
-  const res = await fetch(url, init);
+  const res = await fetchWithTimeout(url, { ...init, timeoutMs: CAPTION_FETCH_TIMEOUT_MS });
   if (res.status === 429) {
     throw new Error('RATE_LIMITED');
   }
@@ -449,10 +466,11 @@ async function fetchViaInnerTubeClient(
     };
   }
 
-  const res = await fetch(apiUrl, {
+  const res = await fetchWithTimeout(apiUrl, {
     method: 'POST',
     headers: innerTubeHeaders(clientName, clientVersion),
     body: JSON.stringify(body),
+    timeoutMs: CAPTION_FETCH_TIMEOUT_MS,
   });
 
   if (!res.ok) {
@@ -1008,6 +1026,11 @@ async function _fetchYouTubeTranscriptImpl(
   const errors: string[] = [];
   let deferredServerError: YouTubeTranscriptError | undefined;
   let serverDiagnostics: CaptionDiagnostics | undefined;
+  // Cooperative aggregate deadline: checked between strategies, so the worst
+  // case overshoot is one in-flight bounded request, never an unbounded walk.
+  const startedAt = Date.now();
+  const captionBudgetExhausted = () =>
+    !options.allowAsr && Date.now() - startedAt >= CAPTION_AGGREGATE_BUDGET_MS;
 
   // Strategy 0: Explicit local proxy (opt-in; no production default probe).
   if (getLocalProxyUrl()) {
@@ -1067,40 +1090,60 @@ async function _fetchYouTubeTranscriptImpl(
   }
 
   // Strategy 2: InnerTube API via Edge Function proxy.
-  try {
-    const innerTubeResult = await fetchViaInnerTube(videoId, lang);
-    if (innerTubeResult) return mergeResultDiagnostics(innerTubeResult, serverDiagnostics);
-    errors.push('InnerTube API returned no captions');
-  } catch (err) {
-    if (err instanceof Error && err.message.includes('rate-limiting')) {
-      throw err;
+  if (captionBudgetExhausted()) {
+    errors.push('Skipped InnerTube API: caption budget exhausted');
+  } else {
+    try {
+      const innerTubeResult = await fetchViaInnerTube(videoId, lang);
+      if (innerTubeResult) return mergeResultDiagnostics(innerTubeResult, serverDiagnostics);
+      errors.push('InnerTube API returned no captions');
+    } catch (err) {
+      if (err instanceof Error && err.message.includes('rate-limiting')) {
+        throw err;
+      }
+      errors.push(
+        `InnerTube: ${err instanceof Error ? err.message : 'failed'}`,
+      );
     }
-    errors.push(
-      `InnerTube: ${err instanceof Error ? err.message : 'failed'}`,
-    );
   }
 
   // Strategy 3: Web page scraping via Edge Function proxy
-  try {
-    const webResult = await fetchViaWebPage(videoId, lang);
-    if (webResult) return mergeResultDiagnostics(webResult, serverDiagnostics);
-    errors.push('Web page scraping found no captions');
-  } catch (err) {
-    if (err instanceof Error && err.message.includes('rate-limiting')) {
-      throw err;
+  if (captionBudgetExhausted()) {
+    errors.push('Skipped web scraping: caption budget exhausted');
+  } else {
+    try {
+      const webResult = await fetchViaWebPage(videoId, lang);
+      if (webResult) return mergeResultDiagnostics(webResult, serverDiagnostics);
+      errors.push('Web page scraping found no captions');
+    } catch (err) {
+      if (err instanceof Error && err.message.includes('rate-limiting')) {
+        throw err;
+      }
+      errors.push(
+        `Web scraping: ${err instanceof Error ? err.message : 'failed'}`,
+      );
     }
-    errors.push(
-      `Web scraping: ${err instanceof Error ? err.message : 'failed'}`,
-    );
   }
 
-  // Strategy 4: npm package client-side (last resort, likely CORS-blocked)
-  try {
-    const npmResult = await fetchViaNpmPackage(videoId, lang);
-    if (npmResult) return mergeResultDiagnostics(npmResult, serverDiagnostics);
-    errors.push('NPM package fallback returned no captions');
-  } catch {
-    errors.push('NPM package fallback failed');
+  // Strategy 4: npm package client-side (last resort, likely CORS-blocked).
+  // The library accepts no abort signal, so race it: a stalled client-side
+  // fetch must not extend the caption wait past the budget.
+  if (captionBudgetExhausted()) {
+    errors.push('Skipped NPM fallback: caption budget exhausted');
+  } else {
+    let npmTimer: ReturnType<typeof setTimeout> | undefined;
+    try {
+      const npmResult = await Promise.race([
+        fetchViaNpmPackage(videoId, lang),
+        new Promise<null>((resolve) => {
+          npmTimer = setTimeout(() => resolve(null), CAPTION_FETCH_TIMEOUT_MS);
+        }),
+      ]).finally(() => clearTimeout(npmTimer));
+      if (npmResult) return mergeResultDiagnostics(npmResult, serverDiagnostics);
+      errors.push('NPM package fallback returned no captions');
+    } catch {
+      errors.push('NPM package fallback failed');
+    }
   }
 
   if (deferredServerError) throw deferredServerError;
