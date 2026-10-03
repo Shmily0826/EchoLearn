@@ -12,7 +12,7 @@ vi.mock('recharts', () => {
 });
 vi.mock('../../i18n/I18nContext', () => ({ useI18n: () => ({ t: (key: string) => key, lang: 'en' }) }));
 vi.mock('../../contexts/AuthContext', () => ({ useAuth: () => ({ user: null }) }));
-vi.mock('../../services/youtubeApi', () => ({ getRecentVideosFromChannel: vi.fn(), hasApiKey: () => false }));
+vi.mock('../../services/youtubeApi', () => ({ getRecentVideosFromChannel: vi.fn() }));
 vi.mock('../../services/sessionDeletionSync', () => ({ syncDeletedSessions: vi.fn() }));
 vi.mock('../../config/targetChannel', () => ({ TARGET_CHANNEL: { input: 'test' } }));
 

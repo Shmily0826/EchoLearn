@@ -30,6 +30,12 @@ const RATE_LIMIT_MAX = 30;
 // would be required for a global quota ceiling.
 const SEARCH_RATE_LIMIT_MAX = 3;
 
+// Response caching. Browser stays short so a just-added channel shows up;
+// the shared CDN layer is what removes the repeat cost of a query everyone
+// else already ran. Mirrors api/transcript.ts's split.
+const BROWSER_CACHE_CONTROL = 'public, max-age=300';
+const CDN_CACHE_CONTROL = 'public, s-maxage=1800, stale-while-revalidate=3600';
+
 /** YouTube Data API endpoints this proxy is allowed to call. */
 const ALLOWED_ENDPOINTS = ['channels', 'playlistItems', 'search'];
 
@@ -146,8 +152,11 @@ export default async function handler(request: Request): Promise<Response> {
   // Build forwarded query params (whitelist only, inject server-side key)
   const apiKey = process.env.YOUTUBE_API_KEY || '';
   if (!apiKey) {
+    // `code` is the machine-readable half: the client cannot know whether the
+    // server holds a key, so it reacts to being told, rather than guessing
+    // from a hardcoded constant.
     return new Response(
-      JSON.stringify({ error: 'YouTube API key not configured on server.' }),
+      JSON.stringify({ error: 'YouTube API key not configured on server.', code: 'not_configured' }),
       { status: 500, headers: { ...corsHeaders(origin), 'Content-Type': 'application/json' } },
     );
   }
@@ -172,7 +181,15 @@ export default async function handler(request: Request): Promise<Response> {
       headers: {
         ...corsHeaders(origin),
         'Content-Type': 'application/json',
-        'Cache-Control': response.ok ? 'public, max-age=300' : 'no-store',
+        'Cache-Control': response.ok ? BROWSER_CACHE_CONTROL : 'no-store',
+        // Browser-only caching left the expensive case untouched: a misspelled
+        // or deleted handle costs 100 quota units per caller, per device. The
+        // CDN directive turns the empty/negative result into one fetch shared
+        // by everyone. Needs `Vary: Origin` because the CORS header echoes a
+        // specific allowlisted origin and must not be replayed to another one.
+        ...(response.ok
+          ? { 'Vercel-CDN-Cache-Control': CDN_CACHE_CONTROL, Vary: 'Origin' }
+          : {}),
       },
     });
   } catch (err) {

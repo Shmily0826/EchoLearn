@@ -24,7 +24,7 @@ import {
   savePageToken,
   clearPageToken,
 } from '../utils/storage';
-import { getRecentVideosFromChannel, hasApiKey, YouTubeApiError } from '../services/youtubeApi';
+import { getRecentVideosFromChannel, YouTubeApiError } from '../services/youtubeApi';
 import { selectDueCards, reviewWindowEnd } from '../utils/reviewSchedule';
 import { useI18n } from '../i18n/I18nContext';
 import { useAuth } from '../contexts/AuthContext';
@@ -337,12 +337,9 @@ const DashboardPage: React.FC = () => {
 
   // ── Fetch recent videos from configured channel ───────────
   const handleCheckLatest = useCallback(async () => {
-    if (!hasApiKey()) {
-      setCheckMessage(t('dash.apiKeyMsg'));
-      setCheckSuccess(false);
-      return;
-    }
-
+    // No client-side "is the key configured?" pre-check: the key lives on the
+    // server, so the honest signal is the proxy's typed `not_configured`
+    // error, handled below. A boolean constant here could only ever lie.
     setCheckLoading(true);
     setCheckMessage(null);
 
@@ -384,7 +381,9 @@ const DashboardPage: React.FC = () => {
           ? 'dash.youtubeQuota'
           : error.code === 'rate_limited'
             ? 'dash.youtubeRateLimit'
-            : 'dash.youtubeProviderError'
+            : error.code === 'not_configured'
+              ? 'dash.apiKeyMsg'
+              : 'dash.youtubeProviderError'
         : 'dash.youtubeProviderError';
       setCheckMessage(t(messageKey));
       setCheckSuccess(false);

@@ -7,7 +7,7 @@ import type { ChannelVideo } from '../types';
  */
 const PROXY = '/api/youtube';
 
-export type YouTubeApiFailure = 'quota_exceeded' | 'rate_limited' | 'provider_failure';
+export type YouTubeApiFailure = 'quota_exceeded' | 'rate_limited' | 'provider_failure' | 'not_configured';
 
 export class YouTubeApiError extends Error {
   readonly code: YouTubeApiFailure;
@@ -17,7 +17,9 @@ export class YouTubeApiError extends Error {
       ? 'YouTube API quota exceeded'
       : code === 'rate_limited'
         ? 'YouTube API rate limit exceeded'
-        : 'YouTube API provider failed');
+        : code === 'not_configured'
+          ? 'YouTube API is not configured on the server'
+          : 'YouTube API provider failed');
     this.name = 'YouTubeApiError';
     this.code = code;
   }
@@ -36,15 +38,6 @@ type YouTubeItem = {
 };
 
 type YouTubeResponse = { items?: YouTubeItem[]; nextPageToken?: string };
-
-/**
- * Whether the YouTube Data API is available.
- * Since the key is now server-side, we optimistically return true.
- * The proxy will return an error if the key is not configured.
- */
-export function hasApiKey(): boolean {
-  return true;
-}
 
 /**
  * Fetch the video title (and optionally channel name) via YouTube oEmbed API.
@@ -77,9 +70,17 @@ async function proxyFetch(endpoint: string, params: Record<string, string>): Pro
     if (!response.ok) {
       let code: YouTubeApiFailure = response.status === 429 ? 'rate_limited' : 'provider_failure';
       try {
-        const body = await response.clone().json() as { error?: { errors?: Array<{ reason?: string }> } };
+        const body = await response.clone().json() as {
+          code?: string;
+          error?: { errors?: Array<{ reason?: string }> };
+        };
         const reasons = body.error?.errors?.map((error) => error.reason) ?? [];
-        if (reasons.some((reason) => ['quotaExceeded', 'dailyLimitExceeded'].includes(reason ?? ''))) {
+        if (body.code === 'not_configured') {
+          // The proxy is up but holds no API key. This is a server
+          // misconfiguration, not a transient provider failure — surface it
+          // so the UI can explain instead of retrying something that cannot work.
+          code = 'not_configured';
+        } else if (reasons.some((reason) => ['quotaExceeded', 'dailyLimitExceeded'].includes(reason ?? ''))) {
           code = 'quota_exceeded';
         } else if (reasons.some((reason) => ['rateLimitExceeded', 'userRateLimitExceeded'].includes(reason ?? ''))) {
           code = 'rate_limited';

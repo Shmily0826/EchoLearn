@@ -52,6 +52,45 @@ describe('YouTube channel lookup', () => {
       .rejects.toMatchObject({ name: 'YouTubeApiError', code: 'quota_exceeded' });
   });
 
+  it('lets the shared CDN cache a successful lookup, but never a failure', async () => {
+    vi.stubEnv('YOUTUBE_API_KEY', 'test-key');
+    const call = (ip: string) => handler(new Request(
+      'https://app.test/api/youtube?endpoint=channels&part=snippet&forHandle=%40channel',
+      { headers: { 'x-forwarded-for': ip } },
+    ));
+
+    vi.stubGlobal('fetch', vi.fn(async () => Response.json({ items: [] })));
+    const cached = await call(`cdn-ok-${Date.now()}`);
+    expect(cached.headers.get('Vercel-CDN-Cache-Control')).toContain('s-maxage');
+    expect(cached.headers.get('Vary')).toBe('Origin');
+
+    vi.stubGlobal('fetch', vi.fn(async () => Response.json({ error: 'upstream' }, { status: 500 })));
+    const uncached = await call(`cdn-fail-${Date.now()}`);
+    expect(uncached.headers.get('Vercel-CDN-Cache-Control')).toBeNull();
+  });
+
+  it('announces a missing server key with a machine-readable code', async () => {
+    vi.stubEnv('YOUTUBE_API_KEY', '');
+
+    const response = await handler(new Request(
+      'https://app.test/api/youtube?endpoint=channels&part=snippet&forHandle=%40channel',
+      { headers: { 'x-forwarded-for': `no-key-${Date.now()}` } },
+    ));
+
+    expect(response.status).toBe(500);
+    expect((await response.json()).code).toBe('not_configured');
+  });
+
+  it('surfaces an unconfigured server key as not_configured, not a generic failure', async () => {
+    vi.stubGlobal('fetch', vi.fn(async () => Response.json(
+      { error: 'YouTube API key not configured on server.', code: 'not_configured' },
+      { status: 500 },
+    )));
+
+    await expect(getRecentVideosFromChannel('@channel'))
+      .rejects.toMatchObject({ name: 'YouTubeApiError', code: 'not_configured' });
+  });
+
   it('keeps a successful empty lookup distinct from provider failure', async () => {
     vi.stubGlobal('fetch', vi.fn(async () => Response.json({ items: [] })));
 
