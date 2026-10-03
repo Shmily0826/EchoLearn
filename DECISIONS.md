@@ -15,7 +15,7 @@ This file retains durable architecture, product, and operational decisions with 
 ## CURRENT DECISION SUMMARY — 2026-10-03 ADDENDUM
 - **Direct push convention (user-approved 2026-10-03):** agents push directly to `main` on EchoLearn; the per-push explicit-authorization clauses in the historical entries below are superseded **for pushes only**. Every push must remain deploy-safe (push triggers Vercel auto-deploy). See D-015.
 - **2026-10-02 assurance remediation accepted:** three code batches (`d5bd104`..`1dc3ea0`) closed the reliability/incident findings of the second multi-agent review; durable outcomes recorded as D-016 (fail-closed quota gate) and D-017 (Vercel platform facts & cache/deadline policy). Evidence lives in `PROGRESS.md` under `ECHO-20261002-ENG-ASSURANCE-REMEDIATION`.
-- **Still open by decision, not omission:** H-2 shared-storage quota (pending one week of Google Cloud quota-alert data), the first-run tour `onDestroyed` defect (product fix, priority unset), caption-fallback aggregate deadline (design pending), CSP + App Check (dedicated session).
+- **Still open by decision, not omission:** H-2 shared-storage quota (pending one week of Google Cloud quota-alert data), the caption-fallback aggregate deadline (design pending), CSP + App Check (dedicated session). Correction 2026-10-03: the first-run tour defects (auto-start + `onDestroyed` hand-over) were already fixed in `dcb3937`/`27ae395` — an earlier draft of this addendum wrongly listed them as open.
 
 ## D-015 - Agents push directly to main (convention change)
 - Date: 2026-10-03
