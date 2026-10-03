@@ -397,6 +397,30 @@ describe('/api/ai Node runtime boundary', () => {
     expect(responseText(response)).toContain('Invalid JSON body');
   });
 
+  it('answers 400 when the Vercel lazy body getter throws on parse failure', async () => {
+    // The production shape: setLazyProp defines `req.body` as a getter whose
+    // getBodyParser throws ApiError(400, 'Invalid JSON') on first access.
+    const response = makeResponse();
+    const request = {
+      method: 'POST',
+      url: '/api/ai',
+      headers: {
+        host: 'echo-learn.uk',
+        'content-type': 'application/json',
+        origin: 'https://echo-learn.uk',
+        'x-forwarded-for': '203.0.113.203',
+      },
+      get body(): never {
+        throw new Error('Invalid JSON');
+      },
+    } as Parameters<typeof handler>[0];
+
+    await handler(request, response);
+
+    expect(response.statusCode).toBe(400);
+    expect(responseText(response)).toContain('Invalid JSON body');
+  });
+
   it('answers 400 when an iterated body stream fails before completing', async () => {
     const response = makeResponse();
     const request = {

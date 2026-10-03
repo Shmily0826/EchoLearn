@@ -198,10 +198,19 @@ function bodyValueToText(body: unknown): string {
 }
 
 async function readNodeBody(request: NodeRequest): Promise<string> {
-  if (request.body !== undefined) {
-    const body = bodyValueToText(request.body);
-    if (body.length > MAX_BODY_BYTES) throw new RequestBodyTooLargeError();
-    return body;
+  // `request.body` is a Vercel lazy getter (setLazyProp): for JSON content
+  // types it throws ApiError(400, 'Invalid JSON') when the runtime cannot
+  // parse the body — surface that as the typed client error, not a 502.
+  let body: unknown;
+  try {
+    body = request.body;
+  } catch {
+    throw new RequestBodyInvalidError();
+  }
+  if (body !== undefined) {
+    const bodyText = bodyValueToText(body);
+    if (bodyText.length > MAX_BODY_BYTES) throw new RequestBodyTooLargeError();
+    return bodyText;
   }
 
   if (request[Symbol.asyncIterator]) {
