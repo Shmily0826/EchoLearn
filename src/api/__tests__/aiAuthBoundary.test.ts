@@ -225,14 +225,14 @@ describe('/api/ai authentication boundary (real verifier)', () => {
     await expectGuestFallback(makeRequest(normalBody, { authorization: `Bearer ${wrongAud}` }));
   });
 
-  it('missing auth_time → 401, provider untouched', async () => {
+  it('missing auth_time → guest channel, never account privileges', async () => {
     const claims = validClaims();
     delete claims.auth_time;
     const token = makeIdToken(claims);
     await expectGuestFallback(makeRequest(normalBody, { authorization: `Bearer ${token}` }));
   });
 
-  it('non-numeric auth_time → 401, provider untouched', async () => {
+  it('non-numeric auth_time → guest channel, never account privileges', async () => {
     const asString = makeIdToken(validClaims({ auth_time: 'yesterday' }));
     await expectGuestFallback(makeRequest(normalBody, { authorization: `Bearer ${asString}` }));
     const asFloatInfinity = makeIdToken(validClaims({ auth_time: Number.POSITIVE_INFINITY }));
@@ -240,7 +240,7 @@ describe('/api/ai authentication boundary (real verifier)', () => {
     await expectGuestFallback(makeRequest(normalBody, { authorization: `Bearer ${asFloatInfinity}` }));
   });
 
-  it('future auth_time → 401, provider untouched', async () => {
+  it('future auth_time → guest channel, never account privileges', async () => {
     const token = makeIdToken(validClaims({ auth_time: Math.floor(Date.now() / 1000) + 600 }));
     await expectGuestFallback(makeRequest(normalBody, { authorization: `Bearer ${token}` }));
   });
