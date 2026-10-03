@@ -11,6 +11,38 @@ This file retains durable architecture, product, and operational decisions with 
 - **Auth-gated capability testing (2026-09-16):** AI Analyze, bulk translation and authenticated persistence cannot be reached by the guest E2E suites by construction. Cover them in two layers: an intercepted-identity fixture in CI, plus a manual on-demand run against a real dedicated test account. See D-009 for the boundary.
 - `REAL_LEARNING_SESSION_UX_V2` is the next substantive product-direction candidate, not yet accepted implementation scope.
 - No proven high-value engineering bug is currently active. Current evidence-dependent follow-up remains limited to Supadata cost/billing review, Invidious/Piped health and pruning, and low-priority consolidation leftovers.
+
+## CURRENT DECISION SUMMARY — 2026-10-03 ADDENDUM
+- **Direct push convention (user-approved 2026-10-03):** agents push directly to `main` on EchoLearn; the per-push explicit-authorization clauses in the historical entries below are superseded **for pushes only**. Every push must remain deploy-safe (push triggers Vercel auto-deploy). See D-015.
+- **2026-10-02 assurance remediation accepted:** three code batches (`d5bd104`..`1dc3ea0`) closed the reliability/incident findings of the second multi-agent review; durable outcomes recorded as D-016 (fail-closed quota gate) and D-017 (Vercel platform facts & cache/deadline policy). Evidence lives in `PROGRESS.md` under `ECHO-20261002-ENG-ASSURANCE-REMEDIATION`.
+- **Still open by decision, not omission:** H-2 shared-storage quota (pending one week of Google Cloud quota-alert data), the first-run tour `onDestroyed` defect (product fix, priority unset), caption-fallback aggregate deadline (design pending), CSP + App Check (dedicated session).
+
+## D-015 - Agents push directly to main (convention change)
+- Date: 2026-10-03
+- Status: ACTIVE
+- Decision: The user authorized agents to execute `git push origin main` themselves on EchoLearn. The earlier convention "commit, push, and deploy require explicit authorization" is superseded for pushes; commits without push remain allowed; destructive git operations (reset / stash / clean / force-push) still require explicit authorization.
+- Rationale: The user retired the redundant handoff after the first agent push (`e17b2a6`) was audited clean end to end; a push that is not deploy-safe violates this decision regardless of who executes it.
+- Supersedes: the push clauses in HISTORICAL ECHO-20260905-2125 and similar historical boundary notes (they remain accurate history for their dates).
+- Superseded by: None recorded.
+
+## D-016 - The paid-route quota gate fails closed, and an outage is not "over quota"
+- Date: 2026-10-03
+- Status: ACTIVE
+- Decision: The CF Worker daily ASR quota gate (`hasDailyQuota`) refuses when it cannot decide: a missing KV binding and a KV read error both answer **503 `quota_unavailable`** (retryable), while genuine over-limit answers 429 `quota_exceeded`. The get-then-put race stays in place and documented — Cloudflare KV has no atomic increment, so the gate is a rate-shaper, not a billing-grade meter.
+- Rationale: A storage outage must not silently remove the only ceiling on paid ASR spend; but "cannot check" is a different claim than "you are over limit" and must not look permanent to clients. The gate's only caller guards explicitly paid routes (ASR/audio), so refusing costs a degraded premium feature and never the free caption path.
+- Evidence: `0d44949`; `cf-worker/test/quotaGuard.test.mjs` (4 cases); cf-worker suite 15/15.
+- Supersedes: the fail-open rationale previously inside `hasDailyQuota` ("a KV hiccup must never take captions down" — written before Option B made the Worker ASR-only).
+- Superseded by: None recorded.
+
+## D-017 - Vercel platform facts and the cache/deadline policy built on them
+- Date: 2026-10-03
+- Status: ACTIVE
+- Decision: Record three production-verified platform facts and the policies that depend on them. (1) **Fluid compute is on with a 300s default maxDuration** (Hobby maximum is also 300s), so code-level deadlines are the reachable bound: `/api/ai` carries a 60s time-to-first-byte deadline answering 504 `AI provider timed out`, cancelled once headers arrive so streams are never truncated mid-generation, with `maxDuration: 120` covering the stream tail and a defensive `maxDuration: 200` on `api/bilibili.ts`. (2) **Vercel overwrites client-supplied `x-forwarded-for`** before functions see it (gate-oracle probe: a spoofed header derived the same rate-limit key as the real client IP), so leftmost-keyed client-IP limits are sound and H-1-class findings are recorded, not fixed. (3) Plain `Cache-Control: s-maxage` DOES drive Vercel's CDN for functions (the browser-facing header gets rewritten to `max-age=0, must-revalidate` — that rewrite is normal); `/api/youtube` successes carry `Vercel-CDN-Cache-Control: s-maxage=1800, stale-while-revalidate=3600` plus `Vary: Origin` as a CDN negative-result cache, failures stay `no-store`, and any CORS-echoing cached response must always send `Vary: Origin`.
+- Rationale: These facts reverse the 10-02 report's H-7 premise ("the platform kills long requests first"), settle H-1's severity, and prevent re-litigating either with wrong premises.
+- Evidence: production probes 2026-10-03 (CDN MISS→HIT with per-Origin MISS; uncached bilibili audio 200/47.3s; the 5-probe guest-quota oracle), Vercel duration docs (updated 2026-08).
+- Supersedes: None recorded.
+- Superseded by: None recorded.
+
 ## D-001 — Documentation source-of-truth ownership
 
 - Date: 2026-09-01

@@ -5,6 +5,16 @@
 > production evidence and does not establish a permanent property of all
 > videos, providers, or future Cloudflare egress.
 
+> **Status update 2026-10-03.** The direction below was approved and executed
+> as **Option B on 2026-09-07**: the Worker left the caption hot path
+> (Vercel server API first; the Worker is kept for explicit ASR only), and its
+> paid routes gained identity + KV daily quotas on 2026-10-01 (`f7472ef`),
+> hardened to fail closed on 2026-10-03 (`0d44949`). The §1 evidence reflects
+> the 2026-09-06 measurement window only — the SCRAPE_API_KEY/ScrapingBee and
+> Supadata premises have since drifted, so older backlog references to
+> `WORKER_FATE_DECISION` are stale. Treat this document as decision material,
+> not current state; current state lives in `PROGRESS.md`.
+
 ## 1. Evidence
 
 ### Directly measured
