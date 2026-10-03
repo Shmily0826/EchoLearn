@@ -24,7 +24,10 @@ jobs:
       - uses: actions/setup-python@v5
         with:
           python-version: '3.12'
-      - run: node --test cf-worker/test/audioTranscribe.test.mjs cf-worker/test/bilibili.test.mjs
+      # Glob, not a file list: naming files one by one is how the earlier
+      # .mjs suites went unrun for weeks. New Worker tests are picked up
+      # automatically.
+      - run: node --test cf-worker/test/*.test.mjs
       # The reliability-baseline suite is node:test + .mjs, so vitest's include
       # (ts/tsx only) never picks it up and nothing else ran it. Unquoted glob
       # so the shell expands it; pass the files explicitly on shells that do

@@ -2,7 +2,19 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import worker from '../src/index.js';
 
-const env = { YTDLP_API_URL: 'https://vps.test', YTDLP_API_KEY: 'server-key' };
+// /api/audio-transcribe is a paid route, so it goes through the daily quota
+// gate. That gate fails closed when the binding is missing, meaning an env
+// without QUOTAS answers 503 before any handler logic runs — so the stub is
+// part of a realistic env, not an accommodation.
+function quotaKv() {
+  const store = new Map();
+  return {
+    get: async (key) => store.get(key) ?? null,
+    put: async (key, value) => { store.set(key, value); },
+  };
+}
+
+const env = { YTDLP_API_URL: 'https://vps.test', YTDLP_API_KEY: 'server-key', QUOTAS: quotaKv() };
 
 function json(payload, status = 200) {
   return new Response(JSON.stringify(payload), { status, headers: { 'content-type': 'application/json' } });

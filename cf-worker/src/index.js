@@ -417,16 +417,30 @@ const ASR_DAILY_LIMIT_AUTH = 30; // verified accounts, per uid per day
 const ASR_DAILY_LIMIT_GUEST = 3; // anonymous visitors, per IP per day
 
 async function hasDailyQuota(env, bucket, limit) {
-  if (!env.QUOTAS) return true; // fail open when the binding is absent (local dev)
+  // Returns 'ok' | 'exceeded' | 'unavailable' so the caller can answer with a
+  // truthful status: a storage outage is not the same thing as "you hit your
+  // quota", and should not look permanent to the client.
+  //
+  // Fails closed. The only caller is paidRouteGuard, whose buckets are
+  // asr:uid: / asr:guest: — this gate guards explicitly paid ASR only and
+  // never the free caption path. So when KV is unreachable the cost of
+  // refusing is a degraded premium feature; the cost of allowing is that a
+  // storage outage becomes an unbounded ASR bill. Refuse.
+  //
+  // Known residual: get-then-put is not atomic, so concurrent requests can
+  // each read the same count and undercount. KV has no atomic increment, so
+  // this stays a rate-shaper, not a billing-grade meter — the caps are set
+  // low enough (30/day auth, 3/day guest) that the overshoot is bounded.
+  if (!env.QUOTAS) return 'unavailable'; // a missing binding is a misconfiguration, not a free pass
   const day = new Date().toISOString().slice(0, 10);
   const key = `${bucket}:${day}`;
   try {
     const current = parseInt((await env.QUOTAS.get(key)) || '0', 10);
-    if (current >= limit) return false;
+    if (current >= limit) return 'exceeded';
     await env.QUOTAS.put(key, String(current + 1), { expirationTtl: 172800 });
-    return true;
+    return 'ok';
   } catch {
-    return true; // a KV hiccup must never take captions/ASR down
+    return 'unavailable';
   }
 }
 
@@ -446,18 +460,33 @@ async function paidRouteGuard(request, env) {
     if (!identity.emailVerified) {
       return jsonResponse({ error: 'email_not_verified', message: 'Verify your email to use ASR.' }, 403);
     }
-    const ok = await hasDailyQuota(env, `asr:uid:${identity.uid}`, ASR_DAILY_LIMIT_AUTH);
-    if (!ok) {
+    const quota = await hasDailyQuota(env, `asr:uid:${identity.uid}`, ASR_DAILY_LIMIT_AUTH);
+    if (quota === 'unavailable') return quotaUnavailableResponse();
+    if (quota === 'exceeded') {
       return jsonResponse({ error: 'quota_exceeded', message: 'Daily ASR quota reached. It resets at midnight UTC.' }, 429);
     }
     return null;
   }
   const ip = request.headers.get('cf-connecting-ip') || 'unknown';
-  const ok = await hasDailyQuota(env, `asr:guest:${ip}`, ASR_DAILY_LIMIT_GUEST);
-  if (!ok) {
+  const quota = await hasDailyQuota(env, `asr:guest:${ip}`, ASR_DAILY_LIMIT_GUEST);
+  if (quota === 'unavailable') return quotaUnavailableResponse();
+  if (quota === 'exceeded') {
     return jsonResponse({ error: 'quota_exceeded', message: 'Daily guest quota reached. Sign in for a higher limit.' }, 429);
   }
   return null;
+}
+
+/**
+ * KV is unreachable, so the quota gate cannot decide. Refusing is the safe
+ * answer (a storage outage must not become an unbounded ASR bill), but it is
+ * not the same thing as the caller being over quota — say so, with a status
+ * the client can retry on rather than a permanent-looking 429.
+ */
+function quotaUnavailableResponse() {
+  return jsonResponse(
+    { error: 'quota_unavailable', message: 'Quota service temporarily unavailable. Please retry.' },
+    503,
+  );
 }
 
 // ── Instance health tracker (per-isolate, best-effort) ─────────
