@@ -767,6 +767,10 @@ export default async function handler(request: Request): Promise<Response> {
       headers: {
         'Content-Type': 'application/json',
         'Cache-Control': 's-maxage=86400, stale-while-revalidate=604800',
+        // The CDN caches this response, and corsHeaders echoes a specific
+        // allowlisted origin — without Vary: Origin the cached CORS header
+        // would be replayed to requests from every other origin.
+        'Vary': 'Origin',
         ...diagHeaders(mw.source),
         ...corsHeaders(origin),
       },
@@ -835,6 +839,8 @@ export default async function handler(request: Request): Promise<Response> {
     headers: {
       'Content-Type': 'application/json',
       'Cache-Control': 's-maxage=86400, stale-while-revalidate=604800',
+      // Same CDN-cache/CORS-echo pairing as the MW tier above — see the note there.
+      'Vary': 'Origin',
       ...diagHeaders(response.source),
       ...corsHeaders(origin),
     },

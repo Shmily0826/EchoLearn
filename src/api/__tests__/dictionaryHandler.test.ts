@@ -59,4 +59,29 @@ describe('dictionary handler — Datamuse semantic payload', () => {
     expect(body.lemma_provenance).toBe('provider-confirmed');
     expect(fetchMock).toHaveBeenCalledTimes(1);
   });
+
+  it('marks both CDN-cached tiers with Vary: Origin so the echoed CORS origin never replays', async () => {
+    vi.stubEnv('MW_LEARNERS_KEY', 'test-key');
+    fetchMock.mockResolvedValue(new Response(JSON.stringify([{
+      meta: { stems: ['run'] },
+      hwi: { hw: 'run' },
+      fl: 'verb',
+      shortdef: ['to move quickly'],
+    }])));
+    const mwResponse = await handler(new Request('https://echo.test/api/dictionary?word=run&target=en'));
+    expect(mwResponse.status).toBe(200);
+    expect(mwResponse.headers.get('cache-control')).toContain('s-maxage');
+    expect(mwResponse.headers.get('vary')).toContain('Origin');
+
+    vi.stubEnv('MW_LEARNERS_KEY', '');
+    fetchMock.mockResolvedValue(new Response(JSON.stringify([{
+      word: 'cat',
+      defs: ['n\ta small pet animal'],
+      tags: ['ipa_pron:kæt'],
+    }])));
+    const datamuseResponse = await handler(new Request('https://echo.test/api/dictionary?word=cat&target=en'));
+    expect(datamuseResponse.status).toBe(200);
+    expect(datamuseResponse.headers.get('cache-control')).toContain('s-maxage');
+    expect(datamuseResponse.headers.get('vary')).toContain('Origin');
+  });
 });
