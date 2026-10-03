@@ -6,6 +6,9 @@
     },
     "api/ai.ts": {
       "maxDuration": 120
+    },
+    "api/bilibili.ts": {
+      "maxDuration": 200
     }
   },
   "headers": [
