@@ -300,20 +300,10 @@ test.describe('AI Analyze (authenticated)', () => {
   });
 
   /**
-   * The `startTime: 0` sentinel, end to end.
-   *
-   * `1e63804` and `f49afed` guarded the two render sites separately at unit
-   * level; nothing joined them up. This is the real path: a suggestion the
-   * aligner cannot place has to travel AIAnalysisPanel → storage → SentenceList
-   * → SentencesPage without ever becoming a clickable `@0:00` that jumps the
-   * learner to the start of the video.
-   *
-   * The page-level assertions are deliberately unscoped-but-visible rather than
-   * component-scoped: `src/App.tsx` keeps visited routes mounted under
-   * `display:none`, so a query without `filter({ visible: true })` can read a
-   * hidden copy and pass while the learner sees the chip.
+   * Grounding filter, end to end. An invented sentence from AI must be removed
+   * before it reaches the learner's panel or saved sentence list.
    */
-  test('a suggestion the aligner cannot place never becomes a @0:00 the learner can click', async ({ context, page }) => {
+  test('filters a sentence suggestion that cannot be grounded in the transcript', async ({ context, page }) => {
     const unplaceable = {
       text: 'This suggested sentence is invented for the test and appears nowhere in the recorded transcript.',
       meaningCn: '一句为测试编造、字幕里并不存在的句子。',
@@ -327,48 +317,45 @@ test.describe('AI Analyze (authenticated)', () => {
     await reachStudy(page);
     await analyze(page);
 
-    // 1. The panel offers a seek control only for the text it could align.
+    // The unmatched sentence is filtered before rendering; the grounded cue
+    // remains navigable and the panel explains that one suggestion was dropped.
     await expect(aiPanel(page).locator('[data-testid="ai-sentence-seek"]')).toHaveText(['@0:43']);
-
-    // 2. Save both, then prove the stored moments are what the assertion below
-    //    depends on. Without this the render checks could pass vacuously — an
-    //    empty list shows no `@0:00` either.
+    await expect(aiPanel(page).locator('[data-testid="ai-sentence-card"]')).toHaveCount(1);
+    await expect(aiPanel(page)).toContainText(/1 .*filtered|1 .*removed/i);
     const cards = aiPanel(page).locator('[data-testid="ai-sentence-card"]');
-    await expect(cards).toHaveCount(2);
-    for (const index of [0, 1]) {
-      await cards.nth(index).getByRole('button', { name: '+ Add', exact: true }).click();
-      await expect(cards.nth(index).locator('[data-testid="ai-sentence-saved"]')).toBeVisible({ timeout: 10_000 });
-    }
+    await cards.first().getByRole('button', { name: '+ Add', exact: true }).click();
+    await expect(cards.first().locator('[data-testid="ai-sentence-saved"]')).toBeVisible({ timeout: 10_000 });
     await expect
       .poll(() => page.evaluate(() => JSON.parse(localStorage.getItem('echolearn_sentences') ?? '[]').length), {
-        message: 'neither saved sentence reached storage',
+        message: 'the grounded sentence did not reach storage',
         timeout: 10_000,
       })
-      .toBe(2);
+      .toBe(1);
     const stored: Array<{ text: string; startTime: number }> = await page.evaluate(
       () => JSON.parse(localStorage.getItem('echolearn_sentences') ?? '[]'),
     );
-    const moments = Object.fromEntries(stored.map((item) => [item.text, item.startTime]));
-    expect(moments[unplaceable.text], 'an unplaced suggestion must store the 0 sentinel').toBe(0);
-    expect(moments[grounded.text], 'the placed suggestion lost its aligned moment').toBeGreaterThan(40);
+    expect(stored.map((item) => item.text)).toEqual([grounded.text]);
+    expect(stored[0].startTime, 'the placed suggestion lost its aligned moment').toBeGreaterThan(40);
 
     await page.getByRole('button', { name: 'Close panel', exact: true }).click();
     await expect(aiPanel(page)).toBeHidden({ timeout: 10_000 });
 
-    // 3. The Sentences page: its own chip, not a copy of the Study list.
+    // The Sentences page only receives the grounded sentence.
     await page.locator('a[href="/sentences"]').filter({ visible: true }).first().click();
     await page.waitForURL(/\/sentences$/, { timeout: 20_000 });
-    await expect(page.getByText(unplaceable.text).filter({ visible: true }).first()).toBeVisible({ timeout: 10_000 });
+    await expect(page.getByText(grounded.text).filter({ visible: true }).first()).toBeVisible({ timeout: 10_000 });
+    await expect(page.getByText(unplaceable.text).filter({ visible: true })).toHaveCount(0);
     await expect(page.getByText(/^@\d{1,2}:\d{2}$/).filter({ visible: true })).toHaveText(['@0:43']);
 
-    // 4. Study's saved-sentence list, where `@0:00` used to be clickable.
+    // Study's saved-sentence list preserves that same grounded-only result.
     await page.locator('a[href="/study"]').filter({ visible: true }).first().click();
     await page.waitForURL(/\/study$/, { timeout: 20_000 });
     // The save toast overlays the lower left for 4.5 s; wait it out rather than
     // racing the tab button underneath it.
     await expect(page.getByText(/Saved to Sentences|已保存到句子/).filter({ visible: true })).toBeHidden({ timeout: 15_000 });
     await page.getByRole('button', { name: /Key Sentences|重点句子/ }).filter({ visible: true }).first().click();
-    await expect(page.getByText(unplaceable.text).filter({ visible: true }).first()).toBeVisible({ timeout: 10_000 });
+    await expect(page.getByText(grounded.text).filter({ visible: true }).first()).toBeVisible({ timeout: 10_000 });
+    await expect(page.getByText(unplaceable.text).filter({ visible: true })).toHaveCount(0);
     await expect(page.getByText(/^@\d{1,2}:\d{2}$/).filter({ visible: true })).toHaveText(['@0:43']);
   });
 

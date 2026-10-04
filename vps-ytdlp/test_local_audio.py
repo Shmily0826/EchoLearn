@@ -1,4 +1,5 @@
 import asyncio
+import os
 import tempfile
 import unittest
 from unittest.mock import patch
@@ -60,12 +61,15 @@ class LocalAudioTests(unittest.TestCase):
             asyncio.run(main.audio_transcribe(Request(Upload(b"x" * (25 * 1024 * 1024 + 1)), "test-vps")))
 
     def test_upload_rejects_missing_timed_segments(self):
-        with tempfile.NamedTemporaryFile(suffix=".wav") as audio:
+        with tempfile.NamedTemporaryFile(suffix=".wav", delete=False) as audio:
             audio.write(b"wav")
-            audio.flush()
+            audio_path = audio.name
+        try:
             with patch.object(main.urllib.request, "urlopen", return_value=GroqResponse({"text": "hello", "segments": []})):
                 with self.assertRaisesRegex(HTTPException, "no timed speech"):
-                    main._groq_transcribe(audio.name, upload_name="lesson.wav", upload_content_type="audio/wav", require_timed_segments=True)
+                    main._groq_transcribe(audio_path, upload_name="lesson.wav", upload_content_type="audio/wav", require_timed_segments=True)
+        finally:
+            os.unlink(audio_path)
 
     def test_upload_returns_timed_transcript(self):
         payload = {"language": "en", "segments": [{"start": 1, "end": 2, "text": "hello"}]}

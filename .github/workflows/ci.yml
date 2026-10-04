@@ -1,9 +1,9 @@
 # Quality gate on every push to main and every PR:
 # unit tests → type check + build → lint → E2E golden path.
 #
-# The E2E job runs the local vite dev server (started by playwright's
-# webServer config) and uses the Study page's bundled sample transcript, so
-# it needs no external services or credentials.
+# E2E runs against local servers and deterministic fixtures; it needs no
+# external services or credentials. The integrated journey uses Vite preview
+# so its service-worker/offline checks exercise the production build.
 
 name: CI
 
@@ -78,5 +78,21 @@ jobs:
           cache: npm
       - run: npm ci
       - run: npm run build
+      - name: Start production preview for E2E
+        run: npm run preview -- --host 127.0.0.1 --port 5278 > /tmp/echolearn-preview.log 2>&1 &
+      - name: Health-check production preview
+        run: |
+          node --input-type=module -e '
+            const url = "http://127.0.0.1:5278/";
+            for (let attempt = 0; attempt < 30; attempt += 1) {
+              try {
+                const response = await fetch(url);
+                if (response.ok) process.exit(0);
+              } catch {}
+              await new Promise((resolve) => setTimeout(resolve, 1000));
+            }
+            console.error(`Production preview did not become healthy: ${url}`);
+            process.exit(1);
+          '
       - run: npx playwright install --with-deps chromium webkit
       - run: npx playwright test --shard=${{ matrix.shard }}/2

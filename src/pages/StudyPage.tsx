@@ -140,6 +140,10 @@ const StudyPage: React.FC = () => {
 
   // ── Session state ──────────────────────────────────────────
   const [session, setSession] = useState<VideoStudySession | null>(null);
+  const sessionRef = useRef(session);
+  useEffect(() => {
+    sessionRef.current = session;
+  }, [session]);
 
   // Video state
   const [urlInput, setUrlInput] = useState('');
@@ -1214,12 +1218,13 @@ const StudyPage: React.FC = () => {
             const sLines = normalizeTranscriptToSentences(lines);
             setRawBlocks(lines);
             setSentenceLines(sLines);
-            setSession((prev) => {
-              if (!prev) return prev;
-              const updated = attachTranscriptToSession({ ...prev, biliPage: part }, lines, sLines, Date.now(), res);
+            const current = sessionRef.current;
+            if (current) {
+              const updated = attachTranscriptToSession({ ...current, biliPage: part }, lines, sLines, Date.now(), res);
               saveCurrentSession(updated);
-              return updated;
-            });
+              sessionRef.current = updated;
+              setSession(updated);
+            }
             return {
               count: lines.length,
               source: res.source ?? null,

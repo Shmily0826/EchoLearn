@@ -46,3 +46,14 @@ test.describe('signed-in session fixture', () => {
     }
   });
 });
+
+test('the fabricated Firebase session survives a page reload', async ({ context, page }) => {
+  await openSignedInApp(context, page);
+  await page.reload({ waitUntil: 'domcontentloaded' });
+
+  await expect(page.getByRole('button', { name: /^(Try without login|先体验一下)$/ })).toBeHidden({ timeout: 20_000 });
+  await expect(page.locator('a[href="/study"]').filter({ visible: true }).first()).toBeVisible({ timeout: 20_000 });
+  await page.locator('a[href="/settings"]').filter({ visible: true }).first().click();
+  await page.waitForURL(/\/settings$/, { timeout: 20_000 });
+  await expect(page.getByText(SYNTHETIC_IDENTITY.email).first()).toBeVisible({ timeout: 20_000 });
+});

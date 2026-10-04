@@ -163,9 +163,16 @@ test.describe('Bilibili subtitle reliability', () => {
     await page.getByRole('button', { name: 'Audio mode', exact: true }).click();
     const partSelect = page.locator('#bili-part-select');
     await expect(partSelect).toBeVisible({ timeout: 15_000 });
+    const renderPhaseWarnings: string[] = [];
+    page.on('console', (message) => {
+      if (/Cannot update a component .* while rendering a different component/.test(message.text())) {
+        renderPhaseWarnings.push(message.text());
+      }
+    });
     await partSelect.selectOption('2');
     await expect(visibleText(page, 'Part two caption')).toBeVisible({ timeout: 20_000 });
     await expect(partSelect).toHaveValue('2');
+    expect(renderPhaseWarnings).toEqual([]);
 
     await page.reload();
     await enterGuestMode(page);

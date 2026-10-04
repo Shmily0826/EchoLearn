@@ -17,6 +17,9 @@ export default defineConfig({
     // Local validation fallback when the Playwright browser bundle is absent.
     // CI/default behavior remains unchanged unless explicitly requested.
     channel: process.env.ECHOLEARN_E2E_BROWSER_CHANNEL || undefined,
+    launchOptions: process.env.ECHOLEARN_E2E_EXECUTABLE_PATH
+      ? { executablePath: process.env.ECHOLEARN_E2E_EXECUTABLE_PATH }
+      : undefined,
   },
   projects: [
     {
