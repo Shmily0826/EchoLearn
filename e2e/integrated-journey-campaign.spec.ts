@@ -80,7 +80,7 @@ test('integrated journey: continuous learning across an interruption keeps every
   await importer.getByTestId('local-media-audio-input').setInputFiles({ name: 'journey.wav', mimeType: 'audio/wav', buffer: wav });
   await importer.getByTestId('local-media-subtitle-input').setInputFiles({ name: 'journey.srt', mimeType: 'application/x-subrip', buffer: Buffer.from(srt, 'utf8') });
   await importer.getByRole('button', { name: 'Open in Study' }).click();
-  await page.getByText('The fixture preamble begins the lesson.').first().waitFor({ state: 'visible', timeout: 10000 });
+  await page.getByText('The fixture preamble begins the lesson.').filter({ visible: true }).first().waitFor({ state: 'visible', timeout: 10000 });
 
   // change speed mid-session
   await page.getByRole('button', { name: '1.25x' }).first().click();
