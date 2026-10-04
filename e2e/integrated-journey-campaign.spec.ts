@@ -101,16 +101,8 @@ test('integrated journey: continuous learning across an interruption keeps every
   // return; the session must be exactly where the learner left it
   await page.locator('a[href="/study"]').filter({ visible: true }).first().click();
   await page.waitForTimeout(1200);
-  const returned = await page.evaluate(() => {
-    const t = document.querySelector('main')?.innerText ?? '';
-    return {
-      sameSession: /journey\.wav/.test(t),
-      hasTranscript: /fixture preamble/.test(t),
-      savedHighlight: true,
-    };
-  });
-  expect(returned.sameSession).toBe(true);
-  expect(returned.hasTranscript).toBe(true);
+  await expect(page.getByRole('textbox', { name: 'Session title...' }).filter({ visible: true }).first()).toHaveValue('journey.wav');
+  await expect(page.locator('[role=button][aria-label="Look up fixture"]:visible').first()).toBeVisible();
 
   // ── controlled interruption: go offline, KEEP LEARNING ──
   await context.setOffline(true);
