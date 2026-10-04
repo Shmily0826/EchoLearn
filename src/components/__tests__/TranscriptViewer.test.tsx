@@ -73,6 +73,23 @@ describe('TranscriptViewer line interactions', () => {
     expect(onSeekTo).toHaveBeenCalledWith(90);
   });
 
+  it('renders fabricated (plain-text) timelines as --:-- and refuses to seek on them', () => {
+    const syntheticLines: TranscriptLine[] = [
+      { text: 'First pasted sentence.', start: 0, end: 5, timeProvenance: 'synthetic' },
+      { text: 'Second pasted sentence.', start: 5, end: 10, timeProvenance: 'synthetic' },
+    ];
+    const { onSelectLine, onSeekTo } = renderViewer({ lines: syntheticLines });
+    // No fake @m:ss label may appear for a timeline the app invented.
+    expect(screen.queryByText('0:00')).toBeNull();
+    expect(screen.getAllByText('--:--')).toHaveLength(2);
+
+    // Sentence text is tokenized into per-word spans — reach the row via its
+    // timestamp label instead.
+    fireEvent.click(screen.getAllByText('--:--')[1].closest('[data-transcript-line]')!);
+    expect(onSelectLine).toHaveBeenCalledWith(syntheticLines[1]);
+    expect(onSeekTo).not.toHaveBeenCalled();
+  });
+
   it('saves the clicked line as a sentence carrying its confirmed moment', () => {
     const { onAddSentence } = renderViewer();
     fireEvent.click(screen.getAllByLabelText('study.saveSentenceBookmark')[1]); // second line, start=90

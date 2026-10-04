@@ -317,6 +317,9 @@ function mergeSessions(
         winner.transcriptLines && winner.transcriptLines.length > 0
           ? winner.transcriptLines
           : localItem?.transcriptLines ?? [],
+      // Identity is small enough to sync (unlike the transcript itself), so
+      // the cloud copy still records WHICH transcript this session last had.
+      transcriptMeta: winner.transcriptMeta ?? localItem?.transcriptMeta,
       aiAnalysis: winner.aiAnalysis ?? localItem?.aiAnalysis,
     }),
   );

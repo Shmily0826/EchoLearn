@@ -693,3 +693,66 @@ describe('api/transcript server fallback', () => {
     });
   });
 });
+
+describe('api/transcript language gate', () => {
+  it('rejects a non-English VPS answer and falls through to the next provider', async () => {
+    vi.stubEnv('SUPADATA_API_KEY', 'test-supadata-key');
+    fetchMock.mockResolvedValueOnce(response({ lines: [{ text: '中文字幕' }], language: 'zh-Hans' }));
+    fetchMock.mockResolvedValueOnce(response({
+      content: [{ text: 'english line', offset: 0, duration: 1_000 }],
+      lang: 'en',
+    }));
+
+    const res = makeRes();
+    await handler(makeReq('video-gate-fallthrough'), res);
+
+    expect(res.statusCode).toBe(200);
+    const body = JSON.parse(res.body);
+    expect(body.source).toBe('supadata');
+    expect(body.language).toBe('en');
+    // The VPS upstream was still consulted first, with the requested lang.
+    expect(String(fetchMock.mock.calls[0][0])).toContain('lang=en');
+  });
+
+  it('returns captions_not_found when every provider answers in another language', async () => {
+    vi.stubEnv('SUPADATA_API_KEY', 'test-supadata-key');
+    fetchMock.mockResolvedValueOnce(response({ lines: [{ text: '中文字幕' }], language: 'zh-Hans' }));
+    fetchMock.mockResolvedValueOnce(response({
+      content: [{ text: '中文字幕', offset: 0, duration: 1_000 }],
+      lang: 'zh',
+    }));
+    vi.mocked(YoutubeTranscript.fetchTranscript).mockResolvedValueOnce([
+      { text: '中文字幕', offset: 0, duration: 1, lang: 'zh' },
+    ]);
+
+    const res = makeRes();
+    await handler(makeReq('video-gate-all-zh'), res);
+
+    expect(res.statusCode).toBe(404);
+    const body = JSON.parse(res.body);
+    expect(body.code).toBe('captions_not_found');
+    // The Chinese answer must not leak through the gate as a 200.
+    expect(body.lines).toBeUndefined();
+  });
+
+  it('does not gate when a non-English language was requested', async () => {
+    fetchMock.mockResolvedValueOnce(response({ lines: [{ text: '中文字幕' }], language: 'zh-Hans' }));
+
+    const res = makeRes();
+    await handler(makeReq('video-gate-zh-request', false, 'zh'), res);
+
+    expect(res.statusCode).toBe(200);
+    expect(JSON.parse(res.body).language).toBe('zh-Hans');
+    expect(YoutubeTranscript.fetchTranscript).not.toHaveBeenCalled();
+  });
+
+  it('accepts an English answer with a regional variant code', async () => {
+    fetchMock.mockResolvedValueOnce(response({ lines: [{ text: 'hello' }], language: 'en-GB' }));
+
+    const res = makeRes();
+    await handler(makeReq('video-gate-en-gb'), res);
+
+    expect(res.statusCode).toBe(200);
+    expect(JSON.parse(res.body).source).toBe('vps');
+  });
+});

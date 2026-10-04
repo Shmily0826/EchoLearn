@@ -14,6 +14,12 @@ import { parseYouTubeId, parseStartTime } from '../utils/youtube';
 import { detectPlatform, parseBilibiliId, parseBilibiliStartTime, parseBilibiliPage, hasInvalidBilibiliPage } from '../utils/bilibili';
 import { normalizeTranscriptToSentences } from '../utils/transcriptNormalizer';
 import { matchSuggestionToLineStart } from '../utils/matchTranscriptLine';
+import {
+  buildTranscriptMeta,
+  currentTranscriptId,
+  dropUngroundedSuggestions,
+  isAnalysisStale,
+} from '../utils/transcriptIdentity';
 import { transcriptSourceLabel } from '../utils/captionSource';
 import {
   attachTranscriptToSession,
@@ -435,18 +441,26 @@ const StudyPage: React.FC = () => {
       // Migrate: use transcriptData if available, else treat legacy transcriptLines as rawBlocks
       const transcriptData = saved.transcriptData;
       const hasTranscriptData = hasUsableTranscriptData(transcriptData);
+      const restoredRawBlocks: TranscriptLine[] = [];
+      const restoredSentenceLines: TranscriptLine[] = [];
       if (transcriptData && hasTranscriptData) {
+        restoredRawBlocks.push(...transcriptData.rawBlocks);
+        restoredSentenceLines.push(...transcriptData.sentenceLines);
         setRawBlocks(transcriptData.rawBlocks);
         setSentenceLines(transcriptData.sentenceLines);
       } else if ((saved.transcriptLines?.length ?? 0) > 0) {
         const blocks = saved.transcriptLines;
         const sLines = normalizeTranscriptToSentences(blocks);
+        restoredRawBlocks.push(...blocks);
+        restoredSentenceLines.push(...sLines);
         setRawBlocks(blocks);
         setSentenceLines(sLines);
       }
 
-      // Restore saved AI analysis
-      if (saved.aiAnalysis) {
+      // Restore saved AI analysis — unless it was produced from a different
+      // transcript than the one restored here (bound via transcriptId; legacy
+      // analyses carry no id and keep today's restore behavior).
+      if (saved.aiAnalysis && !isAnalysisStale(saved.aiAnalysis, restoredRawBlocks, restoredSentenceLines)) {
         setAnalysis(saved.aiAnalysis);
       }
 
@@ -473,29 +487,22 @@ const StudyPage: React.FC = () => {
               ? fetchBilibiliTranscript(saved.youtubeId, undefined, saved.biliPage)
               : fetchYouTubeTranscript(saved.youtubeId),
           {
-            onSuccess: (res) => {
-              const lines = res.lines;
-              if (lines.length > 0) {
-                const sLines = normalizeTranscriptToSentences(lines);
-                setRawBlocks(lines);
-                setSentenceLines(sLines);
-                const updated: VideoStudySession = {
-                  ...saved,
-                  transcriptLines: lines,
-                  transcriptData: { rawBlocks: lines, sentenceLines: sLines },
-                  captionSource: res.source,
-                  captionDiagnostics: res.diagnostics,
-                  updatedAt: Date.now(),
-                };
-                saveCurrentSession(updated);
-                setSession(updated);
-                return {
-                  count: lines.length,
-                  source: res.source ?? null,
-                  diagnostics: res.diagnostics,
-                };
-              }
-            },
+          onSuccess: (res) => {
+            const lines = res.lines;
+            if (lines.length > 0) {
+              const sLines = normalizeTranscriptToSentences(lines);
+              setRawBlocks(lines);
+              setSentenceLines(sLines);
+              const updated = attachTranscriptToSession(saved, lines, sLines, Date.now(), res);
+              saveCurrentSession(updated);
+              setSession(updated);
+              return {
+                count: lines.length,
+                source: res.source ?? null,
+                diagnostics: res.diagnostics,
+              };
+            }
+          },
           },
         );
       }
@@ -570,12 +577,18 @@ const StudyPage: React.FC = () => {
 
     const transcriptData = saved.transcriptData;
     const hasTranscriptData = hasUsableTranscriptData(transcriptData);
+    const restoredRawBlocks: TranscriptLine[] = [];
+    const restoredSentenceLines: TranscriptLine[] = [];
     if (transcriptData && hasTranscriptData) {
+      restoredRawBlocks.push(...transcriptData.rawBlocks);
+      restoredSentenceLines.push(...transcriptData.sentenceLines);
       setRawBlocks(transcriptData.rawBlocks);
       setSentenceLines(transcriptData.sentenceLines);
     } else if ((saved.transcriptLines?.length ?? 0) > 0) {
       const blocks = saved.transcriptLines;
       const sLines = normalizeTranscriptToSentences(blocks);
+      restoredRawBlocks.push(...blocks);
+      restoredSentenceLines.push(...sLines);
       setRawBlocks(blocks);
       setSentenceLines(sLines);
     } else {
@@ -584,7 +597,9 @@ const StudyPage: React.FC = () => {
       setSentenceLines([]);
     }
 
-    if (saved.aiAnalysis) {
+    // Same transcript-identity rule as the mount restore: an analysis bound to
+    // a different transcript must not come back with the replaced one.
+    if (saved.aiAnalysis && !isAnalysisStale(saved.aiAnalysis, restoredRawBlocks, restoredSentenceLines)) {
       setAnalysis(saved.aiAnalysis);
     }
 
@@ -616,14 +631,7 @@ const StudyPage: React.FC = () => {
               const sLines = normalizeTranscriptToSentences(lines);
               setRawBlocks(lines);
               setSentenceLines(sLines);
-                const updated: VideoStudySession = {
-                  ...saved,
-                  transcriptLines: lines,
-                  transcriptData: { rawBlocks: lines, sentenceLines: sLines },
-                  captionSource: res.source,
-                  captionDiagnostics: res.diagnostics,
-                  updatedAt: Date.now(),
-                };
+                const updated = attachTranscriptToSession(saved, lines, sLines, Date.now(), res);
                 saveCurrentSession(updated);
                 setSession(updated);
                 return {
@@ -700,6 +708,11 @@ const StudyPage: React.FC = () => {
     const map = new Map<string, number>();
     if (!analysis) return map;
     const alignmentLines = rawBlocks.length > 0 ? rawBlocks : sentenceLines;
+    // A fabricated timeline (plain-text paste) has no real moments to jump to;
+    // a "matched" timestamp on it would just be idx*5 arithmetic, so offer none.
+    if (alignmentLines.length > 0 && alignmentLines.every((l) => l.timeProvenance === 'synthetic')) {
+      return map;
+    }
     for (const sug of analysis.sentenceSuggestions) {
       const start = matchSuggestionToLineStart(sug.text, alignmentLines);
       if (typeof start === 'number') map.set(sug.text, start);
@@ -728,6 +741,7 @@ const StudyPage: React.FC = () => {
         title,
         transcriptLines: raw, // legacy compat
         transcriptData: { rawBlocks: raw, sentenceLines: sLines },
+        transcriptMeta: buildTranscriptMeta(raw, { source: session?.captionSource }),
         ...(session?.sourceType === 'local_audio' ? { sourceType: session.sourceType, localMediaId: session.localMediaId } : {}),
         captionSource: session?.captionSource,
         captionDiagnostics: session?.captionDiagnostics,
@@ -990,6 +1004,7 @@ const StudyPage: React.FC = () => {
       title: file.name,
       transcriptLines: lines,
       transcriptData: { rawBlocks: lines, sentenceLines },
+      transcriptMeta: buildTranscriptMeta(lines, { source: 'local_audio' }),
       captionSource: 'local_audio',
       createdAt: now,
       updatedAt: now,
@@ -1042,6 +1057,7 @@ const StudyPage: React.FC = () => {
       // intentionally omits; the learner explicitly pairs them via this flow.
       transcriptLines: lines,
       transcriptData: { rawBlocks: lines, sentenceLines: restoredSentenceLines },
+      transcriptMeta: buildTranscriptMeta(lines, { source: 'local_audio' }),
       captionSource: 'local_audio',
       updatedAt: now,
     };
@@ -1059,7 +1075,13 @@ const StudyPage: React.FC = () => {
     setLocalAudioUrl(localUrl);
     setRawBlocks(lines);
     setSentenceLines(restoredSentenceLines);
-    if (restored.aiAnalysis) setAnalysis(restored.aiAnalysis);
+    // The learner just paired a (possibly different) subtitle with this
+    // session; an analysis bound to the previous transcript must not surface.
+    if (restored.aiAnalysis && !isAnalysisStale(restored.aiAnalysis, lines, restoredSentenceLines)) {
+      setAnalysis(restored.aiAnalysis);
+    } else if (restored.aiAnalysis) {
+      setAnalysis(null);
+    }
     setStartTime(restored.lastPosition && restored.lastPosition > 10 ? restored.lastPosition : undefined);
     clearCaptionError();
   }, [clearCaptionError, session]);
@@ -1111,16 +1133,14 @@ const StudyPage: React.FC = () => {
             setRawBlocks(lines);
             setSentenceLines(sLines);
             if (session) {
-              const updated = {
-                ...session,
-                transcriptLines: lines,
-                transcriptData: { rawBlocks: lines, sentenceLines: sLines },
-                captionSource: res.source,
-                captionDiagnostics: res.diagnostics,
-              };
+              const updated = attachTranscriptToSession(session, lines, sLines, Date.now(), res);
               saveCurrentSession(updated);
               setSession(updated);
             }
+            // The transcript was just replaced — the displayed analysis (if any)
+            // belongs to the previous one. Clearing here is the user-visible
+            // half of the transcriptId binding.
+            setAnalysis(null);
             return {
               count: lines.length,
               source: res.source ?? null,
@@ -1152,13 +1172,7 @@ const StudyPage: React.FC = () => {
           setRawBlocks(res.lines);
           setSentenceLines(sLines);
           if (session) {
-            const updated = {
-              ...session,
-              transcriptLines: res.lines,
-              transcriptData: { rawBlocks: res.lines, sentenceLines: sLines },
-              captionSource: res.source,
-              captionDiagnostics: res.diagnostics,
-            };
+            const updated = attachTranscriptToSession(session, res.lines, sLines, Date.now(), res);
             saveCurrentSession(updated);
             setSession(updated);
           }
@@ -1202,14 +1216,7 @@ const StudyPage: React.FC = () => {
             setSentenceLines(sLines);
             setSession((prev) => {
               if (!prev) return prev;
-              const updated = {
-                ...prev,
-                biliPage: part,
-                transcriptLines: lines,
-                transcriptData: { rawBlocks: lines, sentenceLines: sLines },
-                captionSource: res.source,
-                captionDiagnostics: res.diagnostics,
-              };
+              const updated = attachTranscriptToSession({ ...prev, biliPage: part }, lines, sLines, Date.now(), res);
               saveCurrentSession(updated);
               return updated;
             });
@@ -1285,8 +1292,22 @@ const StudyPage: React.FC = () => {
         (chunk) => setStreamChars((prev) => prev + chunk.length),
         lang,
       );
-      setAnalysis(result);
-      persistAnalysis(result);
+      // Re-anchor the probabilistic output to our own input: a suggested
+      // "quote" that cannot be matched back to the transcript it claims to
+      // come from (same matcher and threshold as the seek alignment) is
+      // dropped instead of being stored as learning material.
+      const grounded = dropUngroundedSuggestions(result, rawBlocks, sentenceLines);
+      const droppedCount = result.sentenceSuggestions.length - grounded.sentenceSuggestions.length;
+      const notice = droppedCount > 0 ? t('ai.ungroundedFiltered', { count: droppedCount }) : '';
+      const bound: AIAnalysisResult = {
+        ...grounded,
+        // Bind the analysis to this transcript so a later replacement (reload,
+        // ASR, import) is detected as stale instead of silently pairing.
+        transcriptId: currentTranscriptId(rawBlocks, sentenceLines),
+        ...(notice ? { note: grounded.note ? `${grounded.note} ${notice}` : notice } : {}),
+      };
+      setAnalysis(bound);
+      persistAnalysis(bound);
       trackEvent('ai_analysis_used');
     } catch (err) {
       if (err && typeof err === 'object' && (err as { code?: unknown }).code === 'guest_quota_exceeded') {
@@ -1297,7 +1318,7 @@ const StudyPage: React.FC = () => {
       setAnalyzing(false);
       setStreamChars(0);
     }
-  }, [sentenceLines, cefrMin, cefrMax, vocabCount, sentenceCount, persistAnalysis, lang, showLoginToast]);
+  }, [sentenceLines, rawBlocks, cefrMin, cefrMax, vocabCount, sentenceCount, persistAnalysis, lang, showLoginToast, t]);
 
   // ── Vocab / sentence handlers ─────────────────────────────
   // Saving is a core guest-mode feature (README: data stays on device).

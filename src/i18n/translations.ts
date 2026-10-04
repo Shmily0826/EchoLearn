@@ -552,6 +552,7 @@ const translations: Record<string, Record<Lang, string>> = {
   'ai.localReasonVocab': { en: '{level}-level vocabulary.', zh: '{level} 级别词汇。' },
   'ai.localReasonClause': { en: 'Contains useful clause structure.', zh: '包含有用的从句结构。' },
   'ai.localReasonExample': { en: 'Good example sentence.', zh: '好的例句。' },
+  'ai.ungroundedFiltered': { en: '{count} suggested sentence(s) could not be found in the transcript and were removed.', zh: '已过滤 {count} 条未能在字幕中找到的建议句。' },
 
   // ── TranscriptViewer (word popup) ─────────────────────────
   'transcript.wordSaved':  { en: 'Already in vocab', zh: '已在生词本中' },

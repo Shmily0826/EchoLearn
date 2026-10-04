@@ -6,6 +6,7 @@ These tests mock Groq and never contact external services.
 import asyncio
 import io
 import json
+import os
 import tempfile
 import threading
 import time
@@ -1018,6 +1019,79 @@ class CaptionExtractionTracingTests(unittest.TestCase):
             (empty_events[-1]["outcome"], empty_events[-1]["result"]),
             ("no_caption", "empty"),
         )
+
+
+class LanguageGateTests(unittest.TestCase):
+    """The English gate (ECHOLEARN_ENGLISH_GATE), generalized beyond Bilibili.
+
+    `_read_subtitle_file` prefers human captions over auto captions BEFORE
+    language, so a YouTube video with human Chinese subtitles plus auto English
+    ones selects the Chinese track (pinned below). The gate is what stops that
+    track from being served as an English-learning transcript.
+    """
+
+    def setUp(self):
+        self.api_key = main.YTDLP_API_KEY
+        main.YTDLP_API_KEY = ""
+
+    def tearDown(self):
+        main.YTDLP_API_KEY = self.api_key
+
+    @staticmethod
+    def _zh_result():
+        return (
+            [{"id": "yt_1", "start": 0.0, "end": 1.0, "text": "你好世界"}],
+            "zh-Hans",
+            False,
+            None,
+        )
+
+    def test_youtube_human_chinese_answer_is_rejected_for_an_english_request(self):
+        with patch.object(main, "_cache_get", return_value=None), patch.object(
+            main, "_run_ytdlp", return_value=self._zh_result()
+        ) as run:
+            response = main._transcript_response(video_id="dQw4w9WgXcQ", lang="en")
+
+        self.assertEqual(response.status_code, 404)
+        self.assertEqual(json.loads(response.body)["code"], "captions_not_found")
+        run.assert_called_once()
+
+    def test_chinese_answer_is_served_when_chinese_was_requested(self):
+        with patch.object(main, "_cache_get", return_value=None), patch.object(
+            main, "_run_ytdlp", return_value=self._zh_result()
+        ):
+            response = main._transcript_response(video_id="dQw4w9WgXcQ", lang="zh")
+
+        self.assertEqual(response.status_code, 200)
+        body = json.loads(response.body)
+        self.assertEqual(body["language"], "zh-Hans")
+        self.assertEqual(body["lines"][0]["text"], "你好世界")
+
+    def test_bilibili_chinese_answer_still_rejected_for_an_english_request(self):
+        with patch.object(main, "_cache_get", return_value=None), patch.object(
+            main, "_run_ytdlp", return_value=self._zh_result()
+        ):
+            response = main._transcript_response(
+                url="https://www.bilibili.com/video/BV1xx411c7mD", lang="en"
+            )
+
+        self.assertEqual(response.status_code, 404)
+        self.assertEqual(json.loads(response.body)["code"], "captions_not_found")
+
+    def test_selection_prefers_human_track_over_auto_english(self):
+        """Documents WHY the gate exists: human beats auto before language."""
+        zh_vtt = "WEBVTT\n\n00:00:01.000 --> 00:00:03.000\n你好世界\n"
+        en_vtt = "WEBVTT\n\n00:00:01.000 --> 00:00:03.000\nHello world\n"
+        with tempfile.TemporaryDirectory() as td:
+            with open(os.path.join(td, "dQw4w9WgXcQ.zh-Hans.vtt"), "w", encoding="utf-8") as fh:
+                fh.write(zh_vtt)
+            with open(os.path.join(td, "dQw4w9WgXcQ.en-orig.vtt"), "w", encoding="utf-8") as fh:
+                fh.write(en_vtt)
+            lines, language, is_auto, bvid = main._read_subtitle_file(td)
+
+        self.assertIsNone(bvid)
+        self.assertEqual((language, is_auto), ("zh-Hans", False))
+        self.assertEqual(lines[0]["text"], "你好世界")
 
 
 if __name__ == "__main__":

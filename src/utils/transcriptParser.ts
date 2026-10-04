@@ -171,6 +171,11 @@ export function parseTimestampedTranscript(rawText: string): TranscriptLine[] {
 
 /**
  * Parse plain text — split by sentences, each gets 5 seconds.
+ *
+ * The times are FABRICATED: plain text carries no timing at all, so `idx * 5`
+ * is only a stable internal ordering. Lines are marked `timeProvenance:
+ * 'synthetic'` so the UI never presents them as measured moments — every row
+ * would otherwise render a plausible-looking @m:ss that seeks to nowhere.
  */
 export function parsePlainTextTranscript(rawText: string): TranscriptLine[] {
   const lines: TranscriptLine[] = [];
@@ -189,6 +194,7 @@ export function parsePlainTextTranscript(rawText: string): TranscriptLine[] {
       start: idx * 5,
       end: (idx + 1) * 5,
       text: sentence,
+      timeProvenance: 'synthetic',
     });
   });
 

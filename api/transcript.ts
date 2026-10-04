@@ -87,6 +87,24 @@ function isUsableTranscript(data: unknown): data is {
   return Array.isArray(candidate.lines) && candidate.lines.length > 0;
 }
 
+/**
+ * Language gate: EchoLearn is an English-learning product, so a transcript in
+ * any other language is not a usable answer even when the provider returned
+ * one. This mirrors the VPS gate (`ECHOLEARN_ENGLISH_GATE`, generalized from
+ * its Bilibili-only form): without it a YouTube video with human Chinese
+ * captions plus auto-generated English ones is served in Chinese, because the
+ * VPS prefers real captions over ASR before language is considered. The gate
+ * applies only to callers that EXPLICITLY requested English (the app always
+ * does); a request with no `lang` parameter keeps the unfiltered contract
+ * pinned by the Supadata tests. A provider that declares no language is never
+ * rejected.
+ */
+function rejectsRequestedLanguage(data: { language?: unknown }, requestedLang: string | undefined): boolean {
+  if (!requestedLang || !requestedLang.toLowerCase().startsWith('en')) return false;
+  const language = typeof data.language === 'string' ? data.language.trim().toLowerCase() : '';
+  return language !== '' && !language.startsWith('en');
+}
+
 const TRANSCRIPT_FAILURE_CODES = {
   CAPTIONS_NOT_FOUND: 'captions_not_found',
   ACQUISITION_BLOCKED: 'youtube_acquisition_blocked',
@@ -357,6 +375,23 @@ async function fetchSupadataTranscript(
       return { data: null, failure, diagnostics: supadataDiagnostics(true, 'failure') };
     }
 
+    if (rejectsRequestedLanguage(data, requestedLang)) {
+      const failure = failureForCode(TRANSCRIPT_FAILURE_CODES.CAPTIONS_NOT_FOUND);
+      logCaptionMetric({ event: 'caption_provider_result', provider: 'supadata', outcome: 'failure' });
+      logTranscriptEvent('provider_result', {
+        traceId,
+        provider: 'supadata',
+        outcome: failure.code,
+        latencyMs: Date.now() - startedAt,
+        status: upstream.status,
+        reason: 'non_english_rejected',
+        language: data.language,
+      });
+      // "Had captions, none of them usable" — the same outcome shape as the
+      // provider answering 206, not a transport failure.
+      return { data: null, failure, diagnostics: supadataDiagnostics(true, 'unavailable') };
+    }
+
     logTranscriptEvent('provider_result', {
       traceId,
       provider: 'supadata',
@@ -460,6 +495,7 @@ async function fetchVpsTranscript(
   apiKey: string,
   traceId: string,
   deadlineAt: number,
+  requestedLang?: string,
 ): Promise<{ data: Record<string, unknown> | null; failure?: TranscriptFailure }> {
   const controller = new AbortController();
   const timeoutMs = Math.min(VPS_TIMEOUT_MS, remainingTranscriptBudget(deadlineAt));
@@ -496,6 +532,12 @@ async function fetchVpsTranscript(
       const failure = failureForCode(TRANSCRIPT_FAILURE_CODES.CAPTIONS_NOT_FOUND);
       logCaptionMetric({ event: 'caption_provider_result', provider: 'vps', outcome: 'failure' });
       logTranscriptEvent('vps_result', { traceId, videoId, status: upstream.status, usable: false, reason: 'empty_or_malformed', error: failure.code });
+      return { data: null, failure };
+    }
+    if (rejectsRequestedLanguage(data, requestedLang)) {
+      const failure = failureForCode(TRANSCRIPT_FAILURE_CODES.CAPTIONS_NOT_FOUND);
+      logCaptionMetric({ event: 'caption_provider_result', provider: 'vps', outcome: 'failure' });
+      logTranscriptEvent('vps_result', { traceId, videoId, status: upstream.status, usable: false, reason: 'non_english_rejected', language: data.language, error: failure.code });
       return { data: null, failure };
     }
     logTranscriptEvent('vps_result', { traceId, videoId, status: upstream.status, usable: true, lineCount: data.lines.length });
@@ -578,7 +620,7 @@ export default async function handler(req: any, res: any): Promise<void> {
     // failures. It calls the VPS caption transcript route, not /api/asr;
     // frontend structured Worker outcomes stop before reaching this endpoint.
     if (vpsKey) {
-      const vpsOutcome = await fetchVpsTranscript(videoId, lang, vpsKey, traceId, deadlineAt);
+      const vpsOutcome = await fetchVpsTranscript(videoId, lang, vpsKey, traceId, deadlineAt, requestedLang);
       vpsFailure = vpsOutcome.failure;
       if (vpsOutcome.data) {
         logCaptionMetric({ event: 'caption_final_result', finalProvider: 'vps' });
@@ -655,6 +697,12 @@ export default async function handler(req: any, res: any): Promise<void> {
 
       if (!result || result.length === 0) {
         logCaptionMetric({ event: 'caption_provider_result', provider: 'npm', outcome: 'failure' });
+        npmReturnedEmpty = true;
+      } else if (rejectsRequestedLanguage({ language: result[0]?.lang }, requestedLang)) {
+        // The library is asked for `lang` but does not guarantee it; a
+        // non-English answer must not become the final 200 either.
+        logCaptionMetric({ event: 'caption_provider_result', provider: 'npm', outcome: 'failure' });
+        logTranscriptEvent('provider_result', { traceId, provider: 'npm', outcome: 'captions_not_found', reason: 'non_english_rejected', language: result[0]?.lang });
         npmReturnedEmpty = true;
       } else {
         // Transform to our TranscriptLine format

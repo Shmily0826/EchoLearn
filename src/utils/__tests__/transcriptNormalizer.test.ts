@@ -134,3 +134,25 @@ describe('normalizeTranscriptToSentences', () => {
     }
   });
 });
+
+describe('normalizeTranscriptToSentences — synthetic timeline propagation', () => {
+  it('marks sentence lines synthetic when every raw block is synthetic', () => {
+    const synthetic = (start: number, end: number, text: string): TranscriptLine => ({
+      start, end, text, timeProvenance: 'synthetic',
+    });
+    const result = normalizeTranscriptToSentences([
+      synthetic(0, 5, 'First sentence. Second sentence here.'),
+      synthetic(10, 15, 'Third sentence.'),
+    ]);
+    expect(result.length).toBeGreaterThan(0);
+    expect(result.every((l) => l.timeProvenance === 'synthetic')).toBe(true);
+  });
+
+  it('leaves measured timelines unmarked', () => {
+    const result = normalizeTranscriptToSentences([
+      block(0, 2000, 'Hello world.'),
+      block(2000, 4000, 'How are you?'),
+    ]);
+    expect(result.every((l) => l.timeProvenance === undefined)).toBe(true);
+  });
+});

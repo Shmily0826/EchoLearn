@@ -374,6 +374,11 @@ export function normalizeTranscriptToSentences(
     }
   }
 
+  // A fabricated input timeline (plain-text paste) stays fabricated after
+  // normalization: interpolated sentence times derive from synthetic block
+  // times, so the UI must keep treating them as non-measured.
+  const syntheticInput = rawBlocks.every((block) => block.timeProvenance === 'synthetic');
+
   const result: TranscriptLine[] = [];
   for (const seg of finalSegments) {
     const t = seg.text.trim();
@@ -384,7 +389,13 @@ export function normalizeTranscriptToSentences(
       // Ensure a non-zero duration for degenerate (single-char) segments.
       e = Math.max(s + Math.max(t.split(/\s+/).length * 0.4, 1), s + 1);
     }
-    result.push({ id: nextSentenceId(), start: s, end: e, text: t });
+    result.push({
+      id: nextSentenceId(),
+      start: s,
+      end: e,
+      text: t,
+      ...(syntheticInput ? { timeProvenance: 'synthetic' as const } : {}),
+    });
   }
 
   return result;

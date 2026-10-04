@@ -294,16 +294,25 @@ const TranscriptViewer: React.FC<TranscriptViewerProps> = ({
               data-transcript-line={idx}
               data-selected-context={selectedLineStart === line.start ? 'true' : undefined}
               className={`${lineClass}${selectedLineStart === line.start ? ' ring-2 ring-indigo-300 dark:ring-indigo-700' : ''}`}
-              onClick={() => { onSelectLine?.(line); onSeekTo(line.start); }}
+              onClick={() => {
+                onSelectLine?.(line);
+                // A fabricated timeline (plain-text paste) must not pretend to
+                // know the media moment — selection still works, seeking doesn't.
+                if (line.timeProvenance !== 'synthetic') onSeekTo(line.start);
+              }}
             >
               <div className="flex items-start gap-2">
                 <div className="flex-1 min-w-0">
                   <span
                     className="text-[11px] font-mono mr-2 select-none cursor-pointer hover:text-indigo-600 transition-colors py-1 md:py-0"
                     style={{ color: isActive ? '#6366f1' : undefined }}
-                    onClick={(e) => { e.stopPropagation(); onSelectLine?.(line); onSeekTo(line.start); }}
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      onSelectLine?.(line);
+                      if (line.timeProvenance !== 'synthetic') onSeekTo(line.start);
+                    }}
                   >
-                    {formatTime(line.start)}
+                    {line.timeProvenance === 'synthetic' ? '--:--' : formatTime(line.start)}
                   </span>
                   <span className="text-[15px] leading-relaxed">
                     {wordTokensByLine[idx].map(({ text: token, saved }, i) => {

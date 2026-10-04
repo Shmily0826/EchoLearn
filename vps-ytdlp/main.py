@@ -429,6 +429,11 @@ def _is_english(language: Optional[str]) -> bool:
     return l in ("en", "ai-en") or l.startswith("en")
 
 
+def _wants_english(lang: Optional[str]) -> bool:
+    """Whether the caller asked for an English transcript (the language gate)."""
+    return (lang or "").lower().startswith("en")
+
+
 def _lang_rank(language: Optional[str]) -> int:
     """Sort rank for subtitle language: English first, then Chinese, then rest."""
     l = (language or "").lower()
@@ -2478,12 +2483,16 @@ def _transcript_response(
             status_code=502,
         )
 
-    # Bilibili videos often expose only a Chinese AI subtitle ("ai-zh"). The app
-    # is for English learners, so a Chinese-only transcript is useless for
-    # vocabulary work. Treat a non-English-only result as "no usable transcript"
-    # so the caller falls back to ASR (which returns an English transcript).
+    # The app is for English learners, so a transcript in any other language is
+    # useless for vocabulary work and must read as "no usable transcript" so the
+    # caller falls back (other providers, then explicit ASR, which returns an
+    # English transcript). Applies to EVERY site, not just Bilibili: YouTube
+    # serves human Chinese tracks that would otherwise outrank auto-generated
+    # English ones, because _read_subtitle_file prefers real captions over ASR
+    # before language is considered. Only enforced when English was requested.
     # Videos that DO carry an English/ai-en track are served directly (fast).
-    if result and _is_bilibili(clean_target) and not _is_english(result[1]):  # ECHOLEARN_BILI_ENGLISH_GATE
+    if result and _wants_english(lang) and not _is_english(result[1]):  # ECHOLEARN_ENGLISH_GATE
+        _trace_event("caption_non_english_rejected", language=result[1])
         result = None
 
     if not result:
