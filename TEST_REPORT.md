@@ -1,4 +1,7 @@
-# Current Validation Index
+# Historical validation index — through 2026-10-03
+
+For current test commands, validation status, and open acceptance checks, see the [testing guide](docs/TESTING.md). The entries below describe the evidence available on their recorded dates.
+
 - **2026-10-03 - `ECHO-20261002-ENG-ASSURANCE-REMEDIATION` reliability/cost gates hardened in three batches (10-02 → 10-03), all CI-green with key claims production-verified.** Batch 1 (`d5bd104`+`c5e196f`): `/api/youtube` search restricted to `type=channel`/`maxResults=1`/`q` 2–100 behind a 3/min/IP search limiter (worst ≈300 units/min/instance/IP vs 3000); typed client errors + honest i18n (`dash.youtubeQuota`/`dash.youtubeRateLimit`/`dash.youtubeProviderError`); health-check BLOCKED = exit 2 with a summary line; `worker-vps` CI job runs the 66 CF-Worker+VPS tests (57 python + 9 node). Monitor unblock (`e17b2a6`): `ECHOLEARN_ALLOW_PAID_PROVIDER='1'` + cap 1 for the dQ probe — run 37077161093 `PASS 6, WARN 1, BLOCKED 0, FAIL 0` with the probe genuinely executing (248ms, cache=MISS) — plus the 27 `scripts/reliability-baseline/*.test.mjs` cases that vitest's include never ran. Batch 2 (`0d44949`/`888712c`/`3dd7c73`): Worker quota gate fail-closed — KV outage answers **503 `quota_unavailable`**, genuine over-limit stays 429 (`quotaGuard.test.mjs` 4 cases; `audioTranscribe.test.mjs` had passed only through the old fail-open and gained a real KV stub); `hasApiKey()` deleted — proxy 500 carries `code:'not_configured'`, DashboardPage's degradation branch now reachable; `/api/youtube` successes carry `Vercel-CDN-Cache-Control: s-maxage=1800, swr=3600` + `Vary: Origin`, **production-proven** (nonexistent handle: MISS → repeat HIT = 0 units; different Origin: MISS with correct ACAO); three lying test names renamed, assertions untouched; falsified `SEARCH_RATE_LIMIT_MAX` 3→30 → red at the limiter assertion. Batch 3 (`22d4a4d`/`1dc3ea0`): 60s time-to-first-byte deadline on all `/api/ai` provider paths — **504 `AI provider timed out`**, signal cancelled on headers so stream tails are never truncated — plus `maxDuration: 120`; falsified 504→502 → both deadline tests red (`expected 502 to be 504`); dictionary's two CDN tiers gained `Vary: Origin` (probes: plain s-maxage DOES drive Vercel's CDN — MISS→HIT×3; the browser-facing `max-age=0, must-revalidate` rewrite is normal). H-7 premise reversed by probe: uncached bilibili audio 200/47.3s/16.6MB ⇒ Fluid 300s default ⇒ the code's 180s deadline is the reachable bound. Gates: Vitest **79 files / 1006 tests** (981→1006 across batches), cf-worker `node --test` **15/15**, reliability-baseline **27/27**, `tsc -b` + build PASS, lint 0 errors / 12 baseline warnings; CI runs 37076873040 / 37088599702 / 37090394200 all four jobs green. Quota probes spent ~2 YouTube units + one ~47s VPS ffmpeg cycle.
 
 - **2026-09-28 - `ECHO-20260928-JOURNEY-E2E-BATCH2` device migration + dashboard consistency + first-run tour; two product defects pinned.** **Device migration (`settings-device-migration-journey.spec.ts` 2/2, ~27s).** Export: `Vocabulary CSV` / `Sentences CSV` / `All Data (JSON)` each captured via `waitForEvent('download')`; All-Data JSON re-parsed (BOM stripped) → `version: 1`, `data.echolearn_vocabulary` length 2, `data.echolearn_sentences` length 1; toasts `Exported 2 vocabulary items to CSV.` / `Exported 1 sentences to CSV.` / `All data exported as JSON.` each asserted at click time (toasts replace one another). Backup: PAT `ghp_e2e-fake-token` entered in the real UI → `Save` → `Connected as e2e-user` (mocked `GET /user`) → `Save to Cloud` → `Data saved to cloud!`; the recorded `POST /gists` body's `echolearn-backup.json` content asserted to contain 2 words + 1 sentence. Migration: data keys wiped (guest/lang/dev-mode kept — the gist id is device-bound by design and there is no UI to enter an existing id, so a fully empty device cannot restore; recorded, not worked around silently) → `No words saved yet…` empty state → restore from the recorded backup → per-item survival on `id`/`word`/`context`/`sourceVideoId` + `2 words` on the Vocabulary page. Safety: HTTP 500 → toast `读取 Gist 失败 (500)` and `echolearn_vocabulary` byte-identical; corrupt body → error toast and storage byte-identical. Falsify reds: (a) backup missing one word → `Expected length: 2, Received: 1 … word morning must survive the round trip`; (b) failure payload replaced by a wiping restore → the untouched-storage assertion went red; both reverted → 2/2 green. **Dashboard consistency (`dashboard-consistency-journey.spec.ts` 4/4, ~13s).** States: all-mastered (90/180/365-day refreshers) → due 0, button disabled, `3 words · 3 mastered`; all-legacy (`nextReviewAt: 0`) → due 0 and rows provably not batch-rewritten after visiting Review + Dashboard; mixed (2 due + due-mastered refresher + future) → `3 == 3` across Dashboard stat, Review landing count and the walked queue (Reviewed == 3), Vocabulary `4 words · 1 mastered`; empty → `No items to review yet.` / `No words saved yet…` / Saved-Words stat `0`. Falsify: DashboardPage switched to its own algorithm (`nextReviewAt > 0`, no window) → `Expected: 0, Received: 3` (all-mastered), `Expected: 3, Received: 4` (mixed), `dashboard display must equal the built queue — Expected: 3, Received: 4`, empty-state stat red; reverted → 4/4 green. **First-run tour (`newcomer-first-run-journey.spec.ts` 1 passed / 2 fixme, ~8s).** Two real defects pinned as fixme instead of being silently fixed: (1) the tour never auto-starts — `89df463` deleted d0e7646's `setTimeout(() => startTour(false), 700)`; measured first-time guest choosing English → timeout on `.driver-popover-title`; (2) the dashboard tour's final Next click removes the driver popover but `onDestroyed` never runs — completion flag unset, URL stays `/`; an `onDestroyStarted` probe (driver stays open on the last step) proves the click reaches the destroy path, so the app callbacks are skipped inside destroy (mechanism inferred). The reachable part is pinned live: replay → 4 dashboard steps with exact titles (`Welcome to EchoLearn` → … → `Next: the Study page`) and `N of 4` progress, 1/1 green. Study-page tour steps remain uncovered — unreachable while defect 2 stands. Gates (all measured): `tsc -b` 0 errors; `eslint` 0 errors / 12 baseline warnings; `npm test` **981/981** (77 files); `npm run build` PASS; three specs together **6 passed / 2 skipped** (35.3s); full `npx playwright test` **608s / 10.1min**, **118 passed / 1 failed / 3 skipped** — the failure is the pre-existing Windows-WebKit `toBeFocused` gap (`mobile-pwa.spec.ts:101`), green in CI's Linux WebKit. Budget: 525s → 608s; the 12-minute trigger from the brief is close — tasks 4–7 must not join the main CI job without the task-7 split. `git status --porcelain -- src/` empty after all falsify reverts. Not claimed: Production, real devices, provider traffic (0 spent); nothing committed — awaiting authorization.
@@ -203,9 +206,12 @@ Before the fix the same probe on the same origin printed `idx=null scrollTop=0` 
 
 ## How to use this report
 
-Read this index first; then read only the latest relevant section/final classification for the subsystem. Use older sections for historical/root-cause evidence. Do not treat this document alone as live Git/Production truth.
+Use the [testing guide](docs/TESTING.md) for current commands and status. Use the dated sections here to trace historical results, root causes, and acceptance decisions.
 
-## CURRENT VALIDATION INDEX — 2026-09-16
+## Historical validation index — 2026-09-16
+
+This snapshot records the September 16 baseline. See the [testing guide](docs/TESTING.md) for current status.
+
 - **Local-only work is ahead of Production.** The two prior local commits (`2ae29c2` study playback context, `4156bcc` bulk translation stale list) plus the lifecycle closeout change below form the release train. No Production deployment is claimed; the entries below describe the local evidence and the last deployed state.
 - **Production AI configuration:** current primary is Gemini (`AI_PROVIDER=gemini`), manually verified in the Vercel Dashboard for Production scope on 2026-09-13. `GEMINI_MODEL` and `GEMINI_API_KEY` are configured in Production; no secret value is recorded. **Not re-verified since 2026-09-13.**
 - **Latest deployment:** Production serves the build of Git SHA `31d5f373f0647f105165c993bc473dfb160a8f20` (`31d5f37`). Serving is verified by bundle-marker discriminator (see 2026-09-14 section); Vercel control-plane status was not directly readable (local API token not authorized).
@@ -333,7 +339,9 @@ Read this index first; then read only the latest relevant section/final classifi
 - **Traffic boundary:** exactly three real DeepSeek calls were spent this cycle (one transient failure + two successes); no Supadata/ASR/Worker traffic; no Firestore mutation beyond the app's own designed cache write for the successful analysis (shared-cache design, authenticated write) and the user's own saved word. Guest-layer evidence came from the earlier same-day dogfood with zero provider calls.
 - **No commit, push, or deploy occurred in this cycle**; Production was tested as already deployed.
 
-## HISTORICAL Validation Index — 2026-09-10 alignment
+## Historical validation index — 2026-09-10 alignment
+
+See the [testing guide](docs/TESTING.md) for current commands and status.
 
 | Area | Current local evidence | GitHub | Production boundary |
 |---|---|---|---|
@@ -722,7 +730,9 @@ vitest 291/291（19 文件）· Playwright E2E 1/1 · CI 门禁（push/PR）· �
 - Vitest 4 的 `vi.fn` 泛型是**单函数签名**：`vi.fn<(input: RequestInfo | URL, init?: RequestInit) => Promise<Response>>()`（双泛型元组写法会挂 tsc）。
 - 不要用 `new Response()` mock Worker 响应来判断 `resp.url`——`Response.url` 只读且仅由真实 fetch 设置；用自定义 mockResponse 并以 `as unknown as Response` 断言。
 
-## 如何运行
+## 历史运行说明（2026 年 8 月）
+
+当前运行方法见[测试指南](docs/TESTING.md)。以下命令和耗时记录的是当时的测试环境。
 
 ```bash
 npm test        # = vitest run，约 0.3s 跑完
@@ -1597,7 +1607,7 @@ Batch 12C added safe correlation only. Provider order, timeout budgets, response
 - The same `uPRSigrDt0Q` fixture was requested once directly through the deployed Worker while a narrowly filtered Worker tail was active.
 - Trace ID: `f4cc9f91-14ed-4730-b5d2-8e7448d96f50`.
 - Worker events: `request_start` → `vps_transcript_start` → VPS transcript HTTP 404 → `vps_asr_start` → `vps_asr_result` HTTP 524 / unusable → remaining provider cascade → `request_finish` HTTP 404 with provider `none`.
-- VPS tracing recorded the transcript request finishing HTTP 404 after `24935ms`; no corresponding VPS `/api/asr` `request_finish` event appeared for the exact trace during the observation window. This is consistent with the Worker-facing upstream 524 occurring while the synchronous ASR operation exceeded the reachable request boundary.
+- VPS tracing recorded the transcript request finishing HTTP 404 after `24935ms`; no corresponding VPS `/api/asr` `request_finish` event appeared for the exact trace during the observation window. The Worker received the upstream 524 at approximately 125 seconds. This is consistent with the Worker-facing upstream 524 occurring while the synchronous ASR operation exceeded the reachable request boundary.
 - Worker response was HTTP 404 with `{"error":"No transcript available for this video"}` and a matching `X-EchoLearn-Trace-Id`. No successful ASR transcript or cache transition occurred.
 - The direct Worker probe did not create a Vercel fallback request, so duplicate ASR work was not introduced by that probe. No duplicate Groq call was confirmed.
 
@@ -1608,32 +1618,6 @@ Batch 12C added safe correlation only. Provider order, timeout budgets, response
 ### Batch 12E final classification
 
 **BATCH 12 INFRASTRUCTURE DECISION REQUIRED.** Production tracing now definitively proves that VPS ASR is invoked after the transcript 404, but the ASR request fails at the upstream 524 boundary before a transcript/cache result is returned. Batch 12 cannot close as complete without an infrastructure decision about the synchronous VPS ASR path or an explicitly approved asynchronous design.
-
-## Batch 12E — VPS ASR gate hypothesis verification (2026-08-27)
-
-### Dependency inspection
-
-- `fetchViaVpsAsr()` uses `YTDLP_API_URL`, optionally attaches `YTDLP_API_KEY`, and forwards the trace ID to `/api/asr`. It does not call Groq and does not consume Worker `GROQ_API_KEY`.
-- `fetchViaWhisper()` is the separate Worker-direct Groq path and still requires Worker `GROQ_API_KEY`.
-- Cloudflare secret names included `YTDLP_API_URL`, `YTDLP_API_KEY`, and `GROQ_API_KEY`; values were not read.
-- The active Worker deployment was `82f56538-b474-41b7-b560-c9ab168d65d4`.
-
-### Gate decision
-
-- The suspected gate defect was rejected. The Worker had the relevant secret bindings, and the production trace proved that the VPS ASR branch was entered after VPS transcript returned 404.
-- No Worker gate change was made. Worker-direct Whisper remains protected by its own `GROQ_API_KEY` requirement, while VPS ASR remains dependent on the VPS URL and optional forwarded API key only.
-
-### Same-fixture trace
-
-- The same `uPRSigrDt0Q` fixture was requested once directly through the deployed Worker while a narrowly filtered Worker tail was active.
-- Trace: `f4cc9f91-14ed-4730-b5d2-8e7448d96f50`.
-- Worker sequence: `request_start` → `vps_transcript_start` → transcript HTTP 404 → `vps_asr_start` → `vps_asr_result` HTTP 524 / unusable → provider cascade → final HTTP 404.
-- VPS transcript tracing recorded HTTP 404 after `24935ms`. No corresponding VPS ASR `request_finish` event appeared for the exact trace. The Worker received the upstream 524 at approximately 125 seconds.
-- The direct Worker response was HTTP 404 with no transcript. No successful ASR result or cache transition occurred, and no duplicate ASR/Groq call was confirmed.
-
-### Batch 12E final classification
-
-**BATCH 12 INFRASTRUCTURE DECISION REQUIRED.** The gate is not the defect: VPS ASR is definitely invoked, but the synchronous upstream request ends in HTTP 524 before producing a result. Resolving this requires an infrastructure/upstream-duration decision or an explicitly approved asynchronous design; no speculative code change was made.
 
 ## Batch 12F — direct VPS ASR timing proof (2026-08-27)
 
