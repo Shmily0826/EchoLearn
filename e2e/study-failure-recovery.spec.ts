@@ -71,34 +71,13 @@ async function routeTranscript(
 
   let call = 0;
   await page.route('**/yt-proxy/**', (route) => route.abort());
-  await page.route('**/api/transcript**', (route) => {
+  await page.route(/^http:\/\/(?:localhost|127\.0\.0\.1):5173\/api\/transcript\b/, async (route) => {
     const kind = typeof responses === 'function'
       ? responses()
       : responses[Math.min(call, responses.length - 1)];
     call += 1;
     if (responseDelayMs > 0) {
-      return new Promise<void>((resolve) => {
-        setTimeout(async () => {
-          if (kind === 'fail') {
-            await route.fulfill({
-              status: 500,
-              contentType: 'application/json',
-              body: JSON.stringify({ error: 'upstream boom' }),
-            });
-          } else {
-            await route.fulfill({
-              status: 200,
-              contentType: 'application/json',
-              body: transcriptPayload([
-                { start: 0, end: 2, text: 'Good morning everyone' },
-                { start: 2, end: 4, text: 'Welcome to this lesson' },
-                { start: 4, end: 6, text: 'Today we learn vocabulary' },
-              ]),
-            });
-          }
-          resolve();
-        }, responseDelayMs);
-      });
+      await new Promise((resolve) => setTimeout(resolve, responseDelayMs));
     }
     if (kind === 'fail') {
       return route.fulfill({

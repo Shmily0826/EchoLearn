@@ -142,6 +142,9 @@ npm run build
 cd cf-worker && npx wrangler deploy
 ```
 
+See the [testing guide](docs/TESTING.md) for local commands, CI coverage, and
+release acceptance status.
+
 ### Environment Variables
 
 Create a `.env.local` file (never committed) with the following:
