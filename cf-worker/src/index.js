@@ -422,8 +422,8 @@ async function hasDailyQuota(env, bucket, limit) {
   // quota", and should not look permanent to the client.
   //
   // Fails closed. The only caller is paidRouteGuard, whose buckets are
-  // asr:uid: / asr:guest: — this gate guards explicitly paid ASR only and
-  // never the free caption path. So when KV is unreachable the cost of
+  // asr:uid: / asr:guest: — this gate guards ASR and uncached audio requests,
+  // never free captions or cached audio. So when KV is unreachable the cost of
   // refusing is a degraded premium feature; the cost of allowing is that a
   // storage outage becomes an unbounded ASR bill. Refuse.
   //
@@ -552,11 +552,8 @@ export default {
 
     const url = new URL(request.url);
 
-    // Paid routes (VPS yt-dlp/ffmpeg + Groq Whisper) require identity/quota.
-    // Media elements cannot send headers, so /api/audio always takes the
-    // guest path; everything else is gated per-request below.
+    // Gate ASR here. Audio playback checks quota on a cache miss instead.
     const isPaidRoute =
-      url.pathname === '/api/audio' ||
       url.pathname === '/api/audio-transcribe' ||
       ((url.pathname === '/api/transcript' || url.pathname === '/api/bilibili') &&
         url.searchParams.get('allowAsr') === '1');
@@ -1190,6 +1187,9 @@ async function handleAudio(request, env) {
     status = cached.status;
     statusText = cached.statusText;
   } else {
+    // Only a request that goes to the VPS uses quota; cached ranges are free.
+    const rejection = await paidRouteGuard(request, env);
+    if (rejection) return rejection;
     try {
       // First request triggers a download + transcode on the VPS; Bilibili routes
       // through a flaky proxy and may take up to ~1–2 min. The VPS bounds its own
