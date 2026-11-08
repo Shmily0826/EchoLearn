@@ -1,5 +1,5 @@
 // @vitest-environment node
-import { beforeAll, afterAll, beforeEach, describe, expect, it } from 'vitest';
+import { beforeAll, afterAll, beforeEach, describe, expect, it, vi } from 'vitest';
 import rules from '../../../firestore.rules?raw';
 import {
   assertFails,
@@ -19,7 +19,15 @@ import {
   serverTimestamp,
   setDoc,
 } from 'firebase/firestore';
-import { mergeCollection } from '../firestoreSync';
+import type { VocabularyItem } from '../../types';
+import { loadVocabulary, loadVocabularyTombstones, markVocabularyDeleted, saveVocabulary } from '../../utils/storage';
+import { mergeCollection, pushItemsToCloud, syncWithCloud, uploadToCloud } from '../firestoreSync';
+
+let deviceDb: ReturnType<typeof dbFor>;
+vi.mock('../../lib/firebase', () => ({
+  get db() { return deviceDb; },
+  auth: { currentUser: { uid: 'user-a', emailVerified: true } },
+}));
 
 const PROJECT_ID = 'echolearn-emulator';
 const DATA_PATH = (uid: string, collection: string) => `users/${uid}/data/${collection}`;
@@ -230,6 +238,43 @@ describe('Firestore Security Rules', () => {
 });
 
 describe('Firestore sync document integration', () => {
+  it.each([
+    ['automatic save', () => pushItemsToCloud('user-a', ['vocabulary'])],
+    ['manual upload', () => uploadToCloud('user-a')],
+  ])('preserves additions and deletions across three devices after a stale %s', async (_label, saveFromB) => {
+    const uid = 'user-a';
+    const word = (id: string, addedAt: number): VocabularyItem => ({
+      id, word: id, addedAt, meaningCn: '', context: '', sourceVideoId: 'video',
+      mastered: false, reviewCount: 0, lastReviewedAt: 0, nextReviewAt: 0,
+    });
+    const oldWord = word('deleted-on-a', 100);
+    try {
+      deviceDb = dbFor(uid, true);
+      await setDoc(doc(deviceDb, DATA_PATH(uid, 'vocabulary')), { items: [oldWord] });
+      saveVocabulary([word('added-on-a', 300)]);
+      markVocabularyDeleted(oldWord.id, 200);
+      await expect(pushItemsToCloud(uid, ['vocabulary'])).resolves.toMatchObject({ ok: true });
+
+      // B last synced before A's changes; saving a word must preserve both changes.
+      localStorage.clear();
+      deviceDb = dbFor(uid, true);
+      saveVocabulary([oldWord, word('added-on-b', 400)]);
+      const saved = await saveFromB();
+      expect(saved.ok).toBe(true);
+      expect(saved.error).toBeUndefined();
+
+      localStorage.clear();
+      deviceDb = dbFor(uid, true);
+      const result = await syncWithCloud(uid);
+      expect(result.ok).toBe(true);
+      expect(result.error).toBeUndefined();
+      expect(loadVocabulary().map(({ id }) => id).sort()).toEqual(['added-on-a', 'added-on-b']);
+      expect(loadVocabularyTombstones()).toEqual({ [oldWord.id]: 200 });
+    } finally {
+      localStorage.clear();
+    }
+  });
+
   it('round-trips vocabulary, sentences, sessions, tombstones, and server metadata', async () => {
     const user = dbFor('user-a', true);
     const collections = {
