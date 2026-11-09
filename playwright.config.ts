@@ -24,7 +24,7 @@ export default defineConfig({
   projects: [
     {
       name: 'desktop-chromium',
-      testIgnore: '**/mobile-pwa.spec.ts',
+      testIgnore: ['**/mobile-pwa.spec.ts', '**/real-auth-regression.spec.ts'],
     },
     {
       name: 'mobile-chromium',

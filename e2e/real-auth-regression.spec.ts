@@ -5,16 +5,15 @@
 // Credentials come from Windows Credential Manager (scripts/credman.ps1, targets
 // EchoLearn-QA-Account-A/B — see docs/QA_ACCOUNTS.md). They are NEVER committed and
 // NEVER printed. When the credential store is unavailable (e.g. CI), the whole spec
-// skips — the synthetic-session suites (sessionFixture) remain the CI layer.
+// skips. Run explicitly via npm run e2e:real-auth.
 //
-// Cost note: saving a word as an authenticated user triggers translateWord
-// (/api/ai) when the dictionary yields no Chinese meaning — one real provider call
-// per new word saved in E1. Recovery/isolation scenarios (E2/E3) save nothing.
-// Fixtures are idempotent: each run merges a word that is not yet in the account.
+// Dictionary lookups are mocked and the AI route is blocked. Each run
+// merges a new test word into the QA account.
 import { expect, test, type Page } from '@playwright/test';
 import { execFileSync } from 'node:child_process';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { mockDictionaryApi } from './helpers/mockDictionary';
 
 const here = path.dirname(fileURLToPath(import.meta.url));
 const credman = path.resolve(here, '../scripts/credman.ps1');
@@ -35,28 +34,29 @@ function readAccount(letter: 'A' | 'B'): { user: string; password: string } {
   return { user, password };
 }
 
-const credsAvailable = (() => {
-  try {
-    readAccount('A');
-    readAccount('B');
-    return true;
-  } catch {
-    return false;
-  }
-})();
+let A: ReturnType<typeof readAccount> | undefined;
+let B: ReturnType<typeof readAccount> | undefined;
 
-const A = credsAvailable ? readAccount('A') : null;
-const B = credsAvailable ? readAccount('B') : null;
+test.beforeAll(() => {
+  try {
+    A = readAccount('A');
+    B = readAccount('B');
+  } catch {
+    test.skip(true, 'Windows Credential Manager QA credentials unavailable');
+  }
+});
 
 // Candidate words from the bundled sample transcript (Ken Robinson), ordered;
 // each run merges the first one that is not already in Account A's cloud set.
 const CANDIDATE_WORDS = ['leaving', 'conference', 'variety', 'presentations', 'human', 'morning', 'second', 'place'];
 
 test.describe.configure({ mode: 'serial' });
-test.skip(!credsAvailable, 'REAL_AUTH_REGRESSION: Windows Credential Manager QA credentials unavailable (CI runs the synthetic-session suites instead)');
 
 async function appInit(page: Page): Promise<void> {
+  await mockDictionaryApi(page);
+  await page.route('**/api/ai', (route) => route.abort());
   await page.addInitScript(() => {
+    sessionStorage.setItem('echolearn_test_traffic', '1');
     localStorage.setItem('echolearn_lang', 'en');
     localStorage.setItem('echolearn-lang-chosen', '1');
     localStorage.setItem('echolearn-tour-completed-v1', '1');

@@ -2,88 +2,31 @@
 
 A YouTube & Bilibili-powered English learning tool. Paste a video URL, get AI-curated vocabulary and sentence suggestions tailored to your CEFR level, then review them with spaced repetition.
 
-**Live:** [echo-learn.uk](https://echo-learn.uk) (PWA + Android APK) — `app.echo-learn.uk` is a legacy alias that 301-redirects here
+**Live:** [echo-learn.uk](https://echo-learn.uk) (PWA + Android APK)
 
 ## Features
 
-- **Auto transcript fetching** — Two-tier fallback: a local proxy on the developer's machine (residential IP, preferred) and a 7×24 server-side path (Cloudflare Worker fronting a VPS yt-dlp service), degrading gracefully to InnerTube / scraping / Whisper when needed
+- **Transcript fetching** — Load YouTube or Bilibili captions, with an explicit transcription action when captions are unavailable.
 - **AI-powered analysis** — DeepSeek analyzes transcripts to recommend vocabulary and sentences calibrated to CEFR levels (A1–C2)
 - **Interactive transcripts** — Click any word for instant dictionary lookup with phonetics, audio, definitions, and recursive word exploration
-- **Spaced repetition** — Review saved words and sentences on a 3→7→14→30 day schedule
+- **Spaced repetition** — Review saved words and sentences at increasing intervals, with refreshers for mastered items
 - **Cloud sync** — Firebase Firestore for automatic cross-device sync, plus GitHub Gist backup
 - **Guest-friendly accounts** — Core study features work with no login (data stays on your device); optional sign-in (Google or email) unlocks cloud sync, feedback, and cross-device backup
 - **Bilingual UI** — Full English/Chinese interface toggle
-- **Bilibili support** — Paste a Bilibili link (incl. `b23.tv` short links) to fetch captions directly in the Study UI. Native subtitles are used when available; videos without English captions fall back to Whisper ASR (Groq) transcribing the audio into English. YouTube remains the primary source with the broadest native-caption coverage
+- **Bilibili support** — Resolve short links and study native captions when available, including multipart videos.
 - **PWA + Android** — Install as a PWA or use the native Android app (Capacitor)
 
 ## Tech Stack
 
-React 19 · TypeScript · Vite 8 · Tailwind CSS 4 · Firebase Auth & Firestore · Capacitor 8 · React Router 7 · DeepSeek API · Cloudflare Workers · Vercel Edge Functions · FastAPI + yt-dlp (VPS caption service) · Recharts · Vercel Web Analytics (privacy-first, no cookies)
+React 19 · TypeScript · Vite 8 · Tailwind CSS 4 · Firebase Auth & Firestore · Capacitor 8 · React Router 7 · DeepSeek API · Cloudflare Workers · Vercel Functions · FastAPI + yt-dlp (VPS service) · Recharts · Vercel Web Analytics
 
-## Architecture
+## Maintainer links
 
-```
-Video URL → Parse videoId → Fetch captions (two-tier fallback: local proxy → CF Worker → VPS yt-dlp)
-  → Normalize to sentences → Display with video player
-  → AI analysis (DeepSeek) → Vocabulary & sentence suggestions
-  → Save to localStorage → Sync to Firestore
-  → Spaced repetition review
-```
-
-### Caption Fetching — two-tier fallback
-
-The web app always fetches captions through one of two tiers, automatically:
-
-**Tier 1 — Local proxy (developer's PC, client-side, preferred)**
-- Default endpoint `proxy.echo-learn.uk` is a Cloudflare Tunnel to the
-  developer's machine (`local-proxy/`), which uses a residential IP.
-- Tried first on every request. If the PC/tunnel is offline, the request
-  fails fast (4s timeout) and is skipped for the next 5 minutes, then retried.
-- Highest success rate because it is not a throttled datacenter IP.
-
-**Tier 2 — Server-side (CF Worker, 7×24)**
-- Reached automatically when Tier 1 is unavailable. The browser tries the CF
-  Worker first, then the same-origin Vercel `/api/transcript` fallback. The
-  Vercel function keeps `YTDLP_API_KEY` server-side and tries the authenticated
-  VPS before its existing npm fallback.
-- The CF Worker tries, in order:
-  1. **VPS yt-dlp** (Strategy 0) — a small always-on FastAPI service
-     (`vps-ytdlp/`) running yt-dlp with the TVHTML5 client signature. For
-     YouTube it fetches captions directly; for Bilibili the watch page requires
-     a residential proxy (`YTDLP_PROXY` env, applied via env with `NO_PROXY`
-     bypassing the media CDN so audio downloads run direct). Gated by the
-     `YTDLP_API_URL` secret; runs on AWS EC2 (ap-southeast-2) so other users
-     keep getting captions even when the developer's PC is off.
-  2. InnerTube (ANDROID / iOS / WEB / TV clients)
-  3. YouTube page HTML scraping
-  4. Whisper ASR via Groq (audio transcription — only for no-caption videos,
-     and only effective with `YTDLP_PROXY` since datacenter IPs cannot
-     download YouTube audio)
-  5. Invidious / Piped instances (third-party frontends)
-
-> **Reality check:** Strategies 2–5 run from Cloudflare's datacenter IPs,
-> which YouTube throttles/blocks intermittently (`LOGIN_REQUIRED`, 403/530 on
-> public frontends). In practice they are an unreliable safety net. The two
-> paths that actually work are the local proxy (Tier 1) and the VPS yt-dlp
-> service (Tier 2.1). See `vps-ytdlp/README.md` for the free-tier deploy
-> steps.
-
-### Bilibili caption flow
-
-Bilibili URLs are routed through the CF Worker `/api/bilibili` → VPS, which has
-its own two-step fallthrough (`vps-ytdlp/main.py`):
-
-1. **`/api/transcript`** — tries Bilibili's own subtitle tracks. Bilibili videos
-   rarely carry **English** captions, so for an English learner this step
-   commonly returns nothing.
-2. **`/api/asr`** — Whisper ASR (Groq `whisper-large-v3-turbo`) transcribes the
-   audio and returns English. This is the path most Bilibili videos take, so
-   expect a 40–90 s wait on first load (cached afterwards).
-
-A separate **`/api/audio`** endpoint returns a listenable 128 kbps MP3 (used by
-the AudioPlayer listen-only mode). It is more sensitive to the residential proxy
-and may intermittently 502 — the UI tolerates this with a retry box rather than
-crashing.
+- [Architecture](docs/ARCHITECTURE.md) explains how the web app, Vercel API,
+  Worker, VPS, Firebase and Android fit together.
+- [Testing](docs/TESTING.md) lists daily checks, CI and specialist suites.
+- [Maintenance scripts](scripts/README.md) lists local and live tools.
+- [Release checklist](docs/RELEASE_CHECKLIST.md) tracks the current acceptance work.
 
 ## Accounts, Auth & Sync
 
@@ -126,50 +69,23 @@ Two complementary layers (both privacy-first, no third-party cookies):
 > get meaningful EU traffic, add a consent gate before `getAnalytics()` in
 > `src/services/analytics.ts`.
 
-## Getting Started
+## Getting started
+
+Use Node 24 (see [`.nvmrc`](.nvmrc)) and run these commands from the repository root.
 
 ```bash
-# Install dependencies
-npm install
-
-# Start dev server
+npm ci
 npm run dev
-
-# Build for production
-npm run build
-
-# Deploy CF Worker (caption proxy)
-cd cf-worker && npx wrangler deploy
 ```
 
-See the [testing guide](docs/TESTING.md) for local commands, CI coverage, and
-release acceptance status.
+Open the local URL printed by Vite. Use guest mode and the bundled lesson to
+try the study interface. The browser checks in the [testing guide](docs/TESTING.md)
+use local fixtures for core journeys.
 
-### Environment Variables
-
-Create a `.env.local` file (never committed) with the following:
-
-| Variable | Location | Description |
-|----------|----------|-------------|
-| `DEEPSEEK_API_KEY` | Vercel (server) | DeepSeek API key — held server-side in `api/ai.ts`, never in the client bundle |
-| `YOUTUBE_API_KEY` | Vercel (server) | YouTube Data API v3 key — held server-side in `api/youtube.ts` |
-| `VITE_FIREBASE_*` | Client (.env.local) | Firebase project web config (public by design, secured via Firestore Rules) |
-| `VITE_YOUTUBE_PROXY` | Client (.env.production) | (Optional) Custom YouTube CORS proxy base URL |
-
-CF Worker secrets: `YTDLP_API_URL` (base URL of the VPS yt-dlp service, e.g. `https://yt-api.echo-learn.uk`), `YTDLP_API_KEY` (shared key protecting the VPS; keep it server-side in Vercel and the Worker), `GROQ_API_KEY` (Whisper ASR fallback), `SCRAPE_API_KEY` (optional ScrapingBee/ZenRows gateway), `ALLOW_DEBUG` (set to `1` to enable debug logs)
-
-See `.env.example` for a template.
-
-### Firebase setup (required for auth & sync)
-
-The repo already ships `firebase.json` and `.firebaserc` (project `echolearn-9f369`), so no `firebase init` is needed. Two manual steps remain on your Firebase project:
-
-1. **Enable Email/Password sign-in** — Firebase console → Authentication → Sign-in method → add **Email/Password**. Without it, email sign-up fails with `auth/operation-not-allowed`.
-2. **Deploy Firestore rules** — rules live in `firestore.rules` but are **not** deployed by Vercel. Run:
-   ```bash
-   firebase deploy --only firestore:rules
-   ```
-   These rules require a verified email for all cloud writes.
+See [`.env.example`](.env.example) for supported environment options. Firebase
+web settings are currently defined in [the client config](src/lib/firebase.ts).
+The [architecture](docs/ARCHITECTURE.md) describes the external services, and the
+[release checklist](docs/RELEASE_CHECKLIST.md) describes their separate release steps.
 
 ## Legal & Compliance
 
@@ -179,24 +95,6 @@ The repo already ships `firebase.json` and `.firebaserc` (project `echolearn-9f3
 **Transcript fetching disclaimer:** This app fetches YouTube/Bilibili captions via unofficial methods (InnerTube, page scraping, third-party frontends) for personal educational use. This may not comply with those platforms' Terms of Service. A manual transcript-paste fallback exists in the UI for full compliance. Use at your own risk; the developer assumes no liability for misuse.
 
 - **Your data & account** — Export your data anytime (Settings → Data Export) and delete your account (Settings → Delete account), which removes your Firebase account and all associated cloud data.
-
-## Project Structure
-
-```
-src/
-├── pages/          # Dashboard, Study, Vocabulary, Sentences, Review, Settings, Login
-├── components/     # YouTubeEmbed, TranscriptViewer, AIAnalysisPanel, WordDictionaryPopup, etc.
-├── services/       # youtubeTranscript, aiAnalysis, dictionaryService, firestoreSync, etc.
-├── utils/          # storage, transcriptNormalizer, lemmatizer, URL parsers
-├── hooks/          # useAntiTranslate, useInstallPrompt
-├── i18n/           # English/Chinese translations
-├── contexts/       # AuthContext (Firebase Auth)
-└── types/          # TypeScript interfaces
-api/                # Vercel Serverless & Edge Functions
-cf-worker/          # Cloudflare Worker (caption proxy; front-ends the VPS yt-dlp + fallback strategies)
-vps-ytdlp/          # FastAPI + yt-dlp service deployed on a VPS (server-side caption source)
-android/            # Capacitor Android project
-```
 
 ## License
 

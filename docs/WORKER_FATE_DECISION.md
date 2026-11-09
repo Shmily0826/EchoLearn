@@ -13,7 +13,7 @@
 > the 2026-09-06 measurement window only — the SCRAPE_API_KEY/ScrapingBee and
 > Supadata premises have since drifted, so older backlog references to
 > `WORKER_FATE_DECISION` are stale. Treat this document as decision material,
-> not current state; current state lives in `PROGRESS.md`.
+> and see the [current architecture](ARCHITECTURE.md) for the implemented routing.
 
 ## 1. Evidence
 

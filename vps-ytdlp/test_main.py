@@ -432,10 +432,12 @@ class AudioAcquisitionTests(unittest.TestCase):
         self.assertEqual(popen.call_count, 2)
 
     def test_non_blocked_extraction_failure_remains_generic(self):
-        _FakeYtdlpProcess.next_results = [(1, "ERROR: decoder failed", False)]
-        with tempfile.TemporaryDirectory() as directory:
+        with tempfile.TemporaryDirectory() as directory, patch.object(
+            main, "_run_yt_dlp", return_value=(1, "", "ERROR: decoder failed", False)
+        ) as run:
             result = main._download_audio("https://www.youtube.com/watch?v=test", directory)
         self.assertIsNone(result)
+        self.assertEqual(run.call_count, 2 * main.YTDLP_RETRIES)
 
     def test_asr_returns_machine_readable_blocked_error_without_cache_or_groq(self):
         old_groq = main.GROQ_API_KEY
@@ -591,10 +593,12 @@ class CaptionCancellationTests(unittest.TestCase):
 
     def test_connected_process_does_not_create_a_cancellation_watcher(self):
         before = set(threading.enumerate())
-        with patch.object(main.subprocess, "Popen", side_effect=_FakeYtdlpProcess):
+        with tempfile.TemporaryDirectory() as directory, patch.object(
+            main.subprocess, "Popen", side_effect=_FakeYtdlpProcess
+        ):
             _FakeYtdlpProcess.next_results = [(0, "", False)]
             returncode, _stdout, _stderr, timed_out = main._run_yt_dlp(
-                ["yt-dlp"], cwd=".", env={}, timeout=30, cancel_event=threading.Event()
+                ["yt-dlp"], cwd=directory, env={}, timeout=30, cancel_event=threading.Event()
             )
 
         self.assertEqual(returncode, 0)
@@ -612,7 +616,7 @@ class CaptionCancellationTests(unittest.TestCase):
                 with open(phase_path, "w", encoding="utf-8") as phase_file:
                     phase_file.write("metadata_player_ready\nUNSAFE_TOKEN\nhttps://private.example/\n")
                 main._run_yt_dlp(
-                    ["yt-dlp"], cwd=".", env={}, timeout=30, phase_file=phase_path
+                    ["yt-dlp"], cwd=directory, env={}, timeout=30, phase_file=phase_path
                 )
         finally:
             main._TRACE_CONTEXT.reset(token)
@@ -945,6 +949,7 @@ class CaptionExtractionTracingTests(unittest.TestCase):
     def test_caption_budget_caps_each_ytdlp_attempt_timeout(self):
         main.YTDLP_PROXY = ""
         captured = []
+        budget = 0.0625  # Exact in binary floating point.
 
         def completed(*_args, **kwargs):
             captured.append(kwargs["timeout"])
@@ -952,18 +957,20 @@ class CaptionExtractionTracingTests(unittest.TestCase):
 
         with patch.object(main, "_run_yt_dlp", side_effect=completed), patch.object(
             main, "_read_subtitle_file", return_value=None
+        ), patch.object(
+            main.time, "monotonic", return_value=1024.0
         ):
             result = main._run_ytdlp(
                 "YweN5PUyGgc",
                 "en",
-                deadline=main.time.monotonic() + 0.05,
+                deadline=main.time.monotonic() + budget,
                 allow_proxy=False,
             )
 
         self.assertIsNone(result)
         self.assertEqual(len(captured), 1)
         self.assertGreater(captured[0], 0)
-        self.assertLessEqual(captured[0], 0.05)
+        self.assertLessEqual(captured[0], budget)
 
     def test_nonzero_failure_uses_bounded_category_without_stderr_or_url(self):
         secret = "https://user:UNSAFE_PASSWORD@proxy.example:8080/path?token=UNSAFE_TOKEN"

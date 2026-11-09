@@ -14,16 +14,15 @@ const routes = [
 /**
  * Keep this suite away from third-party hosts that fail outside a home network.
  *
- * Stub two things:
+ * Stub three things:
  *  - the YouTube player (iframe API, embed document, player bundle, ad and Waa
  *    endpoints), which some networks refuse from datacenter egress IPs;
  *  - `va.vercel-scripts.com`, Vercel's analytics loader. CI proved this one:
  *    it answered GitHub's runners with `403` (run 35162186590) while loading
- *    fine locally, and the bare console message named no URL.
- *
- * Everything else must keep flowing: Firebase resolves the auth state through
- * the auth.echo-learn.uk helper iframe, and stubbing that document left
- * AuthGate on "Loading…" forever.
+ *    fine locally, and the bare console message named no URL;
+ *  - Firebase's proactive Google API loader, which otherwise emits a resource
+ *    error on offline runners. Complete its callback without loading iframe
+ *    support so Firebase can proceed with guest auth state.
  */
 const THIRD_PARTY_HOSTS = [
   'youtube.com',
@@ -62,6 +61,13 @@ async function stubThirdPartyRequests(page: Page) {
       return route.fulfill({ status: 200, contentType: 'image/gif', body: ONE_PIXEL_GIF });
     }
     return route.fulfill({ status: 200, contentType: 'application/json', body: '{}' });
+  });
+  await page.route(/^https:\/\/apis\.google\.com\/js\/api\.js\?/, (route) => {
+    const callback = new URL(route.request().url()).searchParams.get('onload');
+    return route.fulfill({
+      contentType: 'application/javascript',
+      body: `globalThis.gapi ??= {}; globalThis[${JSON.stringify(callback)}]?.();`,
+    });
   });
 }
 
@@ -118,6 +124,7 @@ test.describe('Batch 11 — mobile/PWA lifecycle', () => {
   });
 
   test('fresh guest can reach Study without a blocking tour', async ({ page }) => {
+    await stubThirdPartyRequests(page);
     await page.addInitScript(() => localStorage.clear());
     await page.goto('/');
     await page.getByRole('button', { name: 'Try without login', exact: true }).click();
@@ -134,12 +141,16 @@ test.describe('Batch 11 — mobile/PWA lifecycle', () => {
     // Keep the failing URL in the report: a bare "403 (Forbidden)" console
     // message does not say which resource was refused.
     const failedResponses: string[] = [];
+    const failedRequests: string[] = [];
     page.on('console', (message) => {
       if (message.type() === 'error') consoleErrors.push(message.text());
     });
     page.on('pageerror', (error) => consoleErrors.push(error.message));
     page.on('response', (response) => {
       if (response.status() >= 400) failedResponses.push(`${response.status()} ${response.url()}`);
+    });
+    page.on('requestfailed', (request) => {
+      failedRequests.push(`${request.failure()?.errorText} ${request.url()}`);
     });
 
     await startGuest(page);
@@ -160,7 +171,7 @@ test.describe('Batch 11 — mobile/PWA lifecycle', () => {
     expect({
       consoleErrors: consoleErrors.filter((message) => !/favicon|service worker/i.test(message)),
       failedResponses,
-    }).toEqual({ consoleErrors: [], failedResponses: [] });
+    }, failedRequests.join('\n')).toEqual({ consoleErrors: [], failedResponses: [] });
   });
 
   test('Vocabulary filter toolbar wraps within a narrow mobile viewport', async ({ page }) => {

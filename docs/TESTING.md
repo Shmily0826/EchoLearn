@@ -1,80 +1,86 @@
-# EchoLearn Testing
+# EchoLearn testing
 
-Start here for the commands to run, the evidence behind the latest changes,
-and the checks that still need acceptance. [GitHub CI](../.github/workflows/ci.yml)
-defines the automated release checks. [TEST_REPORT.md](../TEST_REPORT.md) and
-[PROGRESS.md](../PROGRESS.md) retain the dated evidence and project history.
+Use this guide to choose a local check. [GitHub CI](../.github/workflows/ci.yml)
+defines the automated gate. [Release acceptance](RELEASE_CHECKLIST.md) tracks
+open issues and live checks. [Test evidence](../TEST_REPORT.md) and
+[project history](../PROGRESS.md) keep the dated records.
 
 ## Run locally
 
-From the repo root, use Node 24 to match CI and install dependencies with `npm ci`.
+Use Node 24 from [the repository version file](../.nvmrc) and install
+dependencies with `npm ci`. Install the browser binaries with
+`npx playwright install chromium webkit` before running browser tests.
 
-| What you want to verify | Command |
+| Use case | Entry point |
 | --- | --- |
-| Fast application checks | `npm test` |
-| One application test file | `npm test -- src/services/__tests__/firestoreSync.test.ts` |
-| TypeScript and production build | `npm run build` |
-| Lint | `npm run lint` |
-| Firestore rules and sync against the local emulator (Java 17 in CI) | `npm run test:emulator` |
-| Cloudflare Worker | `node --test cf-worker/test/*.test.mjs` |
-| Reliability tooling | `node --test scripts/reliability-baseline/*.test.mjs` |
-| VPS Python service (Python 3.12 in CI) | In a virtual environment, `python -m pip install "fastapi>=0.110" "python-multipart>=0.0.9" yt-dlp`, then `python -m unittest discover -s vps-ytdlp -p "test*.py"` |
-| Browser journeys | `npm run e2e` after `npx playwright install chromium webkit` |
-| Mobile browser emulation | `npm run e2e:mobile` |
+| Daily application tests | `npm test` |
+| Quick desktop browser smoke | `npm run e2e:smoke` |
+| Application CI checks | `npm run test:ci` runs unit tests, build, lint and the local Firestore emulator. |
+| Service CI checks | `npm run test:worker`, `npm run test:reliability` and `npm run test:vps`. |
+| Browser CI checks | `npm run e2e` runs the default desktop and mobile projects. GitHub runs two shards. |
+| Mobile browser emulation | `npm run e2e:mobile` runs Chromium and WebKit. Use a physical Android device for APK acceptance. |
+| Offline vocabulary evaluation | `npm run ai:rubric -- --transcript <json> --response <json>` and `npm run dict:eval:synthetic`. See the [script index](../scripts/README.md). |
 
-`npm run test:ci` is a local shortcut for the application job. To cover the
-same areas as GitHub CI, also run the Worker, reliability, VPS, and browser
-commands above. GitHub runs the browser suite in two shards.
+Use Java 17 for the Firestore emulator. If port 8080 is occupied on Windows,
+set `$env:ECHOLEARN_EMULATOR_HOST='127.0.0.1:18084'` for the test process.
+For VPS tests, install the dependencies from
+[the VPS requirements](../vps-ytdlp/requirements.txt) in a Python 3.12 virtual
+environment and run the command with that environment active.
 
-On Windows, if port 8080 is occupied, run
-`$env:ECHOLEARN_EMULATOR_HOST='127.0.0.1:18084'` before `npm run test:emulator`.
+### Focused regression paths
 
-### Browser prerequisites and skips
-
-- Playwright starts Vite on port 5173. To include the integrated offline journey,
-  run `npm run build` and keep `npm run preview -- --host 127.0.0.1 --port 5278`
-  running in a second terminal during `npm run e2e`. The journey skips without
-  that build preview. CI starts both servers.
-- For a focused run, use `npm run e2e -- e2e/study-failure-recovery.spec.ts --project=desktop-chromium`.
-  If bundled Chromium is unavailable, set `$env:ECHOLEARN_E2E_BROWSER_CHANNEL='chrome'`
-  in PowerShell to use installed Chrome for that Chromium project. Clear the
-  override before running WebKit.
-- `npm run e2e:mobile` runs `mobile-pwa.spec.ts` in emulated Chromium and WebKit.
-  Android APK acceptance is a separate physical-device check.
-- `real-auth-regression.spec.ts` skips when the Windows Credential Manager QA
-  credentials are unavailable. CI uses synthetic-session tests for that boundary.
-  See [QA accounts](QA_ACCOUNTS.md) for the real-account procedure and its scope.
-- To test analytics suppression locally, set the session marker before app
-  startup or open the localhost URL with `?dogfood=1`.
-
-## Validation status
-
-Snapshot as of 2026-11-09. Update the relevant row when new evidence is recorded,
-with the commit or deployment tested and the environment used.
-
-| Area | Evidence already recorded | Still open |
-| --- | --- | --- |
-| Audio quota, `2b98105` | Locally verified with 14 Worker tests and 50 related Vitest tests. A cache miss consumes quota and subsequent cached byte ranges do not. | Deployed Worker smoke. Two simultaneous cold requests and valid suffix or overlong-end ranges were reproduced locally as separate defects. |
-| Cross-device sync, `3ab9bf2` | 33 local Firestore emulator tests passed, including stale-device automatic save and manual upload. The third device receives both additions and preserves the deletion. The local working tree also passed 1,043 Vitest tests and the production build. | Simultaneous device writes in the emulator, then a QA-account smoke with the updated client on each device. |
-| Prior production baseline, `cc08c94` | Historical GitHub `test` and `e2e` jobs passed. The 2026-10-12 production checks covered AI seek labels and saving a word across reload. | The two local fixes above have separate acceptance work. |
-| VPS YouTube English caption gate | The 2026-10-05 production probe reached the VPS. | Inconclusive. YouTube blocked subtitle acquisition before the gate ran. A successful acquisition is needed to exercise the gate. |
-| Android local audio | The browser import path and file-size contract have prior coverage. | Physical Android device acceptance for a roughly 90 MB audio file with subtitles, playback, and recovery after refresh. |
-
-See the [October production evidence](../TEST_REPORT.md#2026-10-12-echo-20261012-beta-closeout---production-behaviour-evidence),
-[VPS gate evidence](../TEST_REPORT.md#2026-10-05-echo-20261005-vps-gate-doc-closeout---vps-production-evidence),
-[audio regression](../cf-worker/test/quotaGuard.test.mjs), and
-[three-device emulator regression](../src/services/__tests__/firestoreRules.emulator.test.ts).
-
-### Archived browser runners
-
-| Historical runner | Supported Playwright coverage |
+| Area | Suites |
 | --- | --- |
-| [Batch 3 runner](archive/e2e/e2e-batch3-run.mjs) | [Study failure recovery](../e2e/study-failure-recovery.spec.ts) covers failed captions and retry, save/delete, duplicate prevention, recovery from an invalid URL, and persistence across reload. Caption cases use mocked responses. The word cases use the bundled lesson. |
-| [English i18n runner](archive/e2e/e2e-english-i18n-run.mjs) | [Study English i18n](../e2e/study-english-i18n.spec.ts) loads a mocked caption, checks the English source label, and rejects the same five hardcoded Chinese strings. |
+| Learning data and sync | [Sync unit tests](../src/services/__tests__/firestoreSync.test.ts) and [three-device emulator tests](../src/services/__tests__/firestoreRules.emulator.test.ts). |
+| Captions, recovery and local media | [English source labels](../e2e/study-english-i18n.spec.ts), [Study recovery](../e2e/study-failure-recovery.spec.ts), [Bilibili reliability](../e2e/bilibili-reliability.spec.ts) and [local audio](../e2e/local-audio.spec.ts). |
+| Audio quotas | [Worker cache and quota tests](../cf-worker/test/quotaGuard.test.mjs). |
+| AI and CEFR | [Candidate tests](../src/services/__tests__/cefrWordList.test.ts), [cache and model-response tests](../src/services/__tests__/aiCacheTrust.test.ts), and [mocked browser analysis](../e2e/study-ai-authenticated.spec.ts). |
 
-On 2026-11-09, the two supported specs passed all 11 cases in local desktop
-Chromium on the working tree based on `3ab9bf2` with the updated test fixtures.
-The old runners are preserved for historical reference.
+To run one desktop spec, use
+`npm run e2e -- e2e/study-failure-recovery.spec.ts --project=desktop-chromium`.
+Campaign and journey specs are part of the default suite when discovered by
+[Playwright configuration](../playwright.config.ts). Their names describe the
+original coverage work. They still run in CI.
+
+### Browser prerequisites and real-account checks
+
+- Playwright starts Vite on port 5173. For the integrated offline journey, run
+  `npm run build` and start `npm run preview -- --host 127.0.0.1 --port 5278`
+  in a second terminal. The journey skips without that preview. CI starts both servers.
+- If bundled Chromium is unavailable, set
+  `$env:ECHOLEARN_E2E_BROWSER_CHANNEL='chrome'` for the desktop Chromium run.
+  Clear the override before running WebKit.
+- The real Firebase suite is discovered only by `npm run e2e:real-auth`.
+  Its three cases use the Windows Credential Manager QA accounts and can
+  change their data. The suite mocks dictionary lookups and blocks AI requests. Follow the
+  [QA account scope](QA_ACCOUNTS.md) and deployed-host boundaries below.
+  Use `npm run e2e:real-auth -- --list` for discovery without credential reads
+  or network tests.
+- To exercise analytics suppression locally, open the local URL with
+  `?dogfood=1` or set the session marker before app startup.
+
+## Verified local baseline
+
+On 2026-11-09, the maintenance branch based on `3b8364c` passed 1,046
+application tests, 33 Firestore emulator tests, 14 Worker tests, 27 reliability
+tests, 61 VPS tests, and the build. Lint passed with 12 warnings. The
+network-isolated browser checks passed 110 desktop cases, including the
+integrated PWA journey, and 13 of 14 mobile cases after rerunning both mobile
+projects with the updated fixture. The known Windows WebKit skip-link focus
+case still fails. The dedicated smoke command passed both cases.
+
+A separate local probe on `3b8364c` ran two Firestore clients concurrently and
+confirmed the third client received both additions and retained the deletion.
+The [release checklist](RELEASE_CHECKLIST.md) tracks the audio boundary issues
+and live acceptance separately.
+
+### Archived test material
+
+| Archive | Current entry |
+| --- | --- |
+| [Batch 3 runner](archive/e2e/e2e-batch3-run.mjs) | [Study failure recovery](../e2e/study-failure-recovery.spec.ts) covers retry, recovery, duplicate prevention, and persistence. |
+| [English i18n runner](archive/e2e/e2e-english-i18n-run.mjs) | [Study English i18n](../e2e/study-english-i18n.spec.ts) checks the caption source label and rejects the old hardcoded Chinese strings. |
+| [Journey briefs](archive/maintenance) | Historical instructions for creating campaign tests. The current specs run through the [Playwright suite](../e2e). |
 
 ## Deployed-host browser validation
 

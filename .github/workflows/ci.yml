@@ -24,20 +24,14 @@ jobs:
       - uses: actions/setup-python@v5
         with:
           python-version: '3.12'
-      # Glob, not a file list: naming files one by one is how the earlier
-      # .mjs suites went unrun for weeks. New Worker tests are picked up
-      # automatically.
-      - run: node --test cf-worker/test/*.test.mjs
-      # The reliability-baseline suite is node:test + .mjs, so vitest's include
-      # (ts/tsx only) never picks it up and nothing else ran it. Unquoted glob
-      # so the shell expands it; pass the files explicitly on shells that do
-      # not glob (cmd.exe).
-      - run: node --test scripts/reliability-baseline/*.test.mjs
+      # npm scripts discover Worker and reliability .mjs tests by glob.
+      - run: npm run test:worker
+      - run: npm run test:reliability
       # Import-time deps of the VPS test suite: test_main.py imports the real
       # yt_dlp.parse_options to assert CLI option semantics, so the package
       # (not a mock) is required.
       - run: python -m pip install 'fastapi>=0.110' 'python-multipart>=0.0.9' 'yt-dlp'
-      - run: python -m unittest discover -s vps-ytdlp -p 'test*.py'
+      - run: npm run test:vps
 
   test:
     runs-on: ubuntu-latest

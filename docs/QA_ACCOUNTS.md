@@ -6,6 +6,10 @@ belong in here. Note: this doc previously contained the real account emails; the
 remain in Git history (rewrite is forbidden), but current docs intentionally omit
 them.
 
+The [real-account suite](TESTING.md#browser-prerequisites-and-real-account-checks)
+is separate from normal Playwright runs. Use it only for authorized QA-account
+writes. The three-device acceptance scenario remains a separate check.
+
 ## Accounts
 
 | Account | Credential Manager target | Purpose |
