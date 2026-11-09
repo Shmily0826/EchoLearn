@@ -3,7 +3,7 @@
 This file retains durable architecture, product, and operational decisions with explicit `ACTIVE` or `SUPERSEDED` applicability. The current summary wins when applicability differs; historical records remain for traceability. This is not a progress log or test report.
 
 ## CURRENT DECISION SUMMARY — 2026-09-13
-- `PROGRESS.md` is authoritative for current status; `TEST_REPORT.md` is authoritative for validation evidence; this file is for durable decisions. Historical execution records remain traceable in the dated sections.
+- Documentation ownership follows D-019: the [release checklist](RELEASE_CHECKLIST.md) holds current status and acceptance evidence; this file is for durable decisions. The former `PROGRESS.md` and `TEST_REPORT.md` are archived under [`archive/`](archive). Historical execution records remain traceable in the dated sections.
 - **Accepted milestones:** `AI_AUTH_COST_BOUNDARY_V1`, dictionary reference consistency, the Option B/Supadata Vercel-first non-ASR subtitle boundary, and the YouTube route-leave regression remain accepted at their recorded evidence levels. Lemma provenance remains **STALE / NOT A BUG**.
 - **Production AI authority:** current primary is Gemini (`AI_PROVIDER=gemini`), manually verified in the Vercel Dashboard for Production scope on 2026-09-13. `GEMINI_MODEL` and `GEMINI_API_KEY` are configured in Production; no secret value is recorded. Production deployment `ff8f5b7` is **READY**.
 - **Provider compatibility decision:** the DeepSeek V4 refresh in `2146c74` is fallback/provider-compatibility work, not a change to the active Gemini primary. The earlier authenticated Production smoke that observed DeepSeek remains historical evidence.
@@ -17,6 +17,16 @@ This file retains durable architecture, product, and operational decisions with 
 - **2026-10-02 assurance remediation accepted:** three code batches (`d5bd104`..`1dc3ea0`) closed the reliability/incident findings of the second multi-agent review; durable outcomes recorded as D-016 (fail-closed quota gate) and D-017 (Vercel platform facts & cache/deadline policy). Evidence lives in `PROGRESS.md` under `ECHO-20261002-ENG-ASSURANCE-REMEDIATION`.
 - **Still open by decision, not omission:** H-2 shared-storage quota (pending one week of Google Cloud quota-alert data), the caption-fallback aggregate deadline (design pending), CSP + App Check (dedicated session). Correction 2026-10-03: the first-run tour defects (auto-start + `onDestroyed` hand-over) were already fixed in `dcb3937`/`27ae395` — an earlier draft of this addendum wrongly listed them as open.
 - **2026-10-04 HY4-review fixes accepted:** the YouTube language-gate bug (human-zh captions served as English study material) and the AI-quote grounding gap were confirmed by independent reverification and fixed; the transcript-identity invariant (D-018) now covers reload/ASR/import/cross-device replacement paths. Evidence in `PROGRESS.md` under `ECHO-20261004-HY4-REVERIFY-FIXES`.
+
+## D-019 - One current-status record; dated logs are archived
+
+- Date: 2026-11-09
+- Status: ACTIVE
+- Decision: The [release checklist](RELEASE_CHECKLIST.md) is the only place for current status, open issues and acceptance evidence. When a release is accepted and the next cycle starts, its evidence moves to `docs/archive/releases/YYYY-MM-DD.md`. This file holds durable decisions. The [documentation index](README.md) lists where each kind of record lives. The former root `PROGRESS.md` and `TEST_REPORT.md` are archived as [progress-2026-09-to-10.md](archive/progress-2026-09-to-10.md) and [test-report-2026-08-to-10.md](archive/test-report-2026-08-to-10.md).
+- Rationale: By November 2026 current status was split across `PROGRESS.md` (last updated 2026-10-04), `TEST_REPORT.md` (last entry 2026-10-12) and the release checklist (2026-11-09), and the first two no longer matched the released code.
+- Supersedes: D-001.
+- Superseded by: None recorded.
+
 
 ## D-015 - Agents push directly to main (convention change)
 - Date: 2026-10-03
@@ -58,11 +68,11 @@ This file retains durable architecture, product, and operational decisions with 
 ## D-001 — Documentation source-of-truth ownership
 
 - Date: 2026-09-01
-- Status: ACTIVE
+- Status: SUPERSEDED by D-019
 - Decision: `PROGRESS.md` is the current project-status source; `TEST_REPORT.md` is the validation-evidence source; this file contains active durable decisions; `.workbuddy/memory/YYYY-MM-DD.md` contains historical engineering journals; task handoffs contain per-task state.
 - Rationale: Keep current status, validation evidence, durable rules, and historical investigations separate and easy to audit.
 - Supersedes: None recorded.
-- Superseded by: None recorded.
+- Superseded by: D-019 (2026-11-09).
 
 ## HISTORICAL ECHO-20260905-2125 - User-reported Production secret status
 
@@ -219,9 +229,9 @@ Once the active goal, root cause, and acceptance criteria are sufficiently speci
 - Date: 2026-09-04
 - Status: SUPERSEDED
 - Decision: Historical gate only. Local native-caption success did not equal production success, and fixed or cached controls did not prove fresh acquisition. Its former **NO VPS** recommendation and no-VPS next path are superseded by the later accepted Option B non-ASR architecture; the browser fallback remains unintegrated unless separately authorized and gated. The original two-window measurement criteria remain historical evidence, not current scope.
-- Rationale: Avoid overreacting to one hard-video or transient window and avoid infrastructure churn while preserving a measurable escalation path. See the [first native window](docs/archive/caption-reliability-2026-09-04-to-07-evidence.md#2026-09-04-echo-20260904-2235---fresh-native-controls-and-bounded-production-observation) and [second native window](docs/archive/caption-reliability-2026-09-04-to-07-evidence.md#echo-20260904-2325-second-fresh-native-window-and-unblocked-production-path-observation) for the bounded matrices and their evidence boundaries.
+- Rationale: Avoid overreacting to one hard-video or transient window and avoid infrastructure churn while preserving a measurable escalation path. See the [first native window](archive/caption-reliability-2026-09-04-to-07-evidence.md#2026-09-04-echo-20260904-2235---fresh-native-controls-and-bounded-production-observation) and [second native window](archive/caption-reliability-2026-09-04-to-07-evidence.md#echo-20260904-2325-second-fresh-native-window-and-unblocked-production-path-observation) for the bounded matrices and their evidence boundaries.
 - Supersedes: None recorded.
-- Superseded by: Accepted Option B non-ASR architecture. See the [implementation record](docs/archive/caption-reliability-2026-09-04-to-07-progress.md#2026-09-07---option-b-implemented-worker-demoted-from-the-youtube-caption-hot-path) and the [September 7 evidence reconciliation](docs/archive/caption-reliability-2026-09-04-to-07-evidence.md#historical-2026-09-07---post-architecture-consolidation-reconciliation).
+- Superseded by: Accepted Option B non-ASR architecture. See the [implementation record](archive/caption-reliability-2026-09-04-to-07-progress.md#2026-09-07---option-b-implemented-worker-demoted-from-the-youtube-caption-hot-path) and the [September 7 evidence reconciliation](archive/caption-reliability-2026-09-04-to-07-evidence.md#historical-2026-09-07---post-architecture-consolidation-reconciliation).
 
 ## D-013 - Caption Diagnostics V1 stays privacy-safe and browser-local
 

@@ -2,7 +2,7 @@
 
 These dated records describe the original experiments and decisions. Paths in the records refer to the repository root unless specified otherwise. Use the [testing guide](../TESTING.md) for current validation.
 
-[Project progress](../../PROGRESS.md) · [Archived test evidence](caption-reliability-2026-09-04-to-07-evidence.md)
+[Project progress](progress-2026-09-to-10.md) · [Archived test evidence](caption-reliability-2026-09-04-to-07-evidence.md)
 
 ## 2026-09-04 Browser execution feasibility preparation
 

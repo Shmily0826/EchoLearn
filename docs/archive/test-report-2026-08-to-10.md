@@ -1,6 +1,8 @@
 # Historical validation index — through 2026-10-03
 
-For current test commands, validation status, and open acceptance checks, see the [testing guide](docs/TESTING.md). The entries below describe the evidence available on their recorded dates.
+> **Archived 2026-11-09.** This record stopped being maintained in October 2026. For current status see the [release checklist](../RELEASE_CHECKLIST.md); for where each kind of record now lives see the [documentation index](../README.md).
+
+For current test commands, validation status, and open acceptance checks, see the [testing guide](../TESTING.md). The entries below describe the evidence available on their recorded dates.
 
 - **2026-10-03 - `ECHO-20261002-ENG-ASSURANCE-REMEDIATION` reliability/cost gates hardened in three batches (10-02 → 10-03), all CI-green with key claims production-verified.** Batch 1 (`d5bd104`+`c5e196f`): `/api/youtube` search restricted to `type=channel`/`maxResults=1`/`q` 2–100 behind a 3/min/IP search limiter (worst ≈300 units/min/instance/IP vs 3000); typed client errors + honest i18n (`dash.youtubeQuota`/`dash.youtubeRateLimit`/`dash.youtubeProviderError`); health-check BLOCKED = exit 2 with a summary line; `worker-vps` CI job runs the 66 CF-Worker+VPS tests (57 python + 9 node). Monitor unblock (`e17b2a6`): `ECHOLEARN_ALLOW_PAID_PROVIDER='1'` + cap 1 for the dQ probe — run 37077161093 `PASS 6, WARN 1, BLOCKED 0, FAIL 0` with the probe genuinely executing (248ms, cache=MISS) — plus the 27 `scripts/reliability-baseline/*.test.mjs` cases that vitest's include never ran. Batch 2 (`0d44949`/`888712c`/`3dd7c73`): Worker quota gate fail-closed — KV outage answers **503 `quota_unavailable`**, genuine over-limit stays 429 (`quotaGuard.test.mjs` 4 cases; `audioTranscribe.test.mjs` had passed only through the old fail-open and gained a real KV stub); `hasApiKey()` deleted — proxy 500 carries `code:'not_configured'`, DashboardPage's degradation branch now reachable; `/api/youtube` successes carry `Vercel-CDN-Cache-Control: s-maxage=1800, swr=3600` + `Vary: Origin`, **production-proven** (nonexistent handle: MISS → repeat HIT = 0 units; different Origin: MISS with correct ACAO); three lying test names renamed, assertions untouched; falsified `SEARCH_RATE_LIMIT_MAX` 3→30 → red at the limiter assertion. Batch 3 (`22d4a4d`/`1dc3ea0`): 60s time-to-first-byte deadline on all `/api/ai` provider paths — **504 `AI provider timed out`**, signal cancelled on headers so stream tails are never truncated — plus `maxDuration: 120`; falsified 504→502 → both deadline tests red (`expected 502 to be 504`); dictionary's two CDN tiers gained `Vary: Origin` (probes: plain s-maxage DOES drive Vercel's CDN — MISS→HIT×3; the browser-facing `max-age=0, must-revalidate` rewrite is normal). H-7 premise reversed by probe: uncached bilibili audio 200/47.3s/16.6MB ⇒ Fluid 300s default ⇒ the code's 180s deadline is the reachable bound. Gates: Vitest **79 files / 1006 tests** (981→1006 across batches), cf-worker `node --test` **15/15**, reliability-baseline **27/27**, `tsc -b` + build PASS, lint 0 errors / 12 baseline warnings; CI runs 37076873040 / 37088599702 / 37090394200 all four jobs green. Quota probes spent ~2 YouTube units + one ~47s VPS ffmpeg cycle.
 
@@ -206,11 +208,11 @@ Before the fix the same probe on the same origin printed `idx=null scrollTop=0` 
 
 ## How to use this report
 
-Use the [testing guide](docs/TESTING.md) for current commands and status. Use the dated sections here to trace historical results, root causes, and acceptance decisions.
+Use the [testing guide](../TESTING.md) for current commands and status. Use the dated sections here to trace historical results, root causes, and acceptance decisions.
 
 ## Historical validation index — 2026-09-16
 
-This snapshot records the September 16 baseline. See the [testing guide](docs/TESTING.md) for current status.
+This snapshot records the September 16 baseline. See the [testing guide](../TESTING.md) for current status.
 
 - **Local-only work is ahead of Production.** The two prior local commits (`2ae29c2` study playback context, `4156bcc` bulk translation stale list) plus the lifecycle closeout change below form the release train. No Production deployment is claimed; the entries below describe the local evidence and the last deployed state.
 - **Production AI configuration:** current primary is Gemini (`AI_PROVIDER=gemini`), manually verified in the Vercel Dashboard for Production scope on 2026-09-13. `GEMINI_MODEL` and `GEMINI_API_KEY` are configured in Production; no secret value is recorded. **Not re-verified since 2026-09-13.**
@@ -341,7 +343,7 @@ This snapshot records the September 16 baseline. See the [testing guide](docs/TE
 
 ## Historical validation index — 2026-09-10 alignment
 
-See the [testing guide](docs/TESTING.md) for current commands and status.
+See the [testing guide](../TESTING.md) for current commands and status.
 
 | Area | Current local evidence | GitHub | Production boundary |
 |---|---|---|---|
@@ -366,13 +368,13 @@ This alignment block is documentation-only. The current cycle made no commit, pu
 |---|---|---|---|
 | Dictionary browser semantics | 2026-09-10 — current `e2e/dictionary-semantics.spec.ts` | Current HEAD/origin artifact committed in `18fb6a3`; newer 4-scenario browser semantics E2E artifact | Separate from the older P1A 23/23 deterministic semantic-contract run. |
 | Dictionary semantic contract | 2026-09-09 — `ECHO-20260909-2106 P1A DictionaryReference semantic contract` | Local deterministic tests and source/build validation; no browser/provider/Production traffic | 23/23 focused tests PASS; typed source/display/status mapping, v5 cache round-trip, English source semantics, fallback-en quarantine, and Datamuse `source_text` covered. |
-| Architecture / final gate | 2026-09-07 — [Post-architecture-consolidation reconciliation](docs/archive/caption-reliability-2026-09-04-to-07-evidence.md#historical-2026-09-07---post-architecture-consolidation-reconciliation) | Documentation reconciliation; no fresh provider/browser/network/Production verification | Option B and recorded source/deployment evidence reconciled; current state still needs re-verification. |
-| YouTube / caption reliability | 2026-09-07 — [Post-architecture-consolidation reconciliation](docs/archive/caption-reliability-2026-09-04-to-07-evidence.md#historical-2026-09-07---post-architecture-consolidation-reconciliation) | Historical production attribution/A-B and frozen-matrix records; reconciliation only | Worker-only attribution was recorded 0/36; later Option B recorded 12/12 usable `source=supadata`; not a fresh reliability run. |
+| Architecture / final gate | 2026-09-07 — [Post-architecture-consolidation reconciliation](caption-reliability-2026-09-04-to-07-evidence.md#historical-2026-09-07---post-architecture-consolidation-reconciliation) | Documentation reconciliation; no fresh provider/browser/network/Production verification | Option B and recorded source/deployment evidence reconciled; current state still needs re-verification. |
+| YouTube / caption reliability | 2026-09-07 — [Post-architecture-consolidation reconciliation](caption-reliability-2026-09-04-to-07-evidence.md#historical-2026-09-07---post-architecture-consolidation-reconciliation) | Historical production attribution/A-B and frozen-matrix records; reconciliation only | Worker-only attribution was recorded 0/36; later Option B recorded 12/12 usable `source=supadata`; not a fresh reliability run. |
 | Auth / Firestore / data integrity | 2026-09-08 (2) — `CONTROLLED_INTEGRATION：登录态 AI 分析验证（test@test.com）` | One test account, browser dogfood, limited Firebase/Firestore activity | Login and data retention recorded PASS; saving a word triggered sync; multi-device consistency and full lifecycle remain untested. |
 | Study / UX dogfood | 2026-09-08 — `COST_SAFE UX Dogfood Campaign（全新游客视角）` | Real UI/browser with transcript and AI fixtures; provider routes blocked; visitor-only | COST_SAFE_DOGFOOD recorded PASS; visitor AI is gated, invalid URLs are silent, and failed loads leave zero-line sessions. |
 | AI controlled integration | 2026-09-08 (2) — `CONTROLLED_INTEGRATION：登录态 AI 分析验证（test@test.com）` | One authorized real DeepSeek call and one test-account login; no retry/fallback | AI panel completed with relevant output and transparent source; one unlocated `toLowerCase` error was observed. |
 | Mobile / PWA | 2026-08-27 — `Batch 13 — mobile/PWA focused validation (2026-08-27)` | Isolated viewport plus automated Playwright; no physical device or installed-PWA lifecycle proof | 10/10 automated mobile/PWA tests and overflow fix recorded PASS; physical/PWA limitations remain. |
-| Production / release evidence | 2026-09-07 — [Post-architecture-consolidation reconciliation](docs/archive/caption-reliability-2026-09-04-to-07-evidence.md#historical-2026-09-07---post-architecture-consolidation-reconciliation) | Historical production/GitHub/Worker records summarized; no fresh verification | Recorded deployment/smoke evidence remains historical; this reconciliation did not re-establish Production or Git truth. |
+| Production / release evidence | 2026-09-07 — [Post-architecture-consolidation reconciliation](caption-reliability-2026-09-04-to-07-evidence.md#historical-2026-09-07---post-architecture-consolidation-reconciliation) | Historical production/GitHub/Worker records summarized; no fresh verification | Recorded deployment/smoke evidence remains historical; this reconciliation did not re-establish Production or Git truth. |
 
 # EchoLearn 单元测试报告（2026-08-22，更新于 2026-08-23 晚）
 
@@ -732,7 +734,7 @@ vitest 291/291（19 文件）· Playwright E2E 1/1 · CI 门禁（push/PR）· �
 
 ## 历史运行说明（2026 年 8 月）
 
-当前运行方法见[测试指南](docs/TESTING.md)。以下命令和耗时记录的是当时的测试环境。
+当前运行方法见[测试指南](../TESTING.md)。以下命令和耗时记录的是当时的测试环境。
 
 ```bash
 npm test        # = vitest run，约 0.3s 跑完
@@ -1839,7 +1841,7 @@ Batch 12C added safe correlation only. Provider order, timeout budgets, response
 
 ## September 4–7 caption reliability evidence archive
 
-The dated test and provider records are in the [validation archive](docs/archive/caption-reliability-2026-09-04-to-07-evidence.md). See [the testing guide](docs/TESTING.md) for current validation.
+The dated test and provider records are in the [validation archive](caption-reliability-2026-09-04-to-07-evidence.md). See [the testing guide](../TESTING.md) for current validation.
 
 ## HISTORICAL 2026-09-08 - COST_SAFE UX Dogfood Campaign（全新游客视角）
 

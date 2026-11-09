@@ -14,7 +14,7 @@ import path from 'node:path';
  * call to Firebase, so those flows stay testable in CI with no credentials, no
  * Production writes and no provider spend.
  *
- * Mechanism (verified 2026-09-16; evidence in TEST_REPORT.md):
+ * Mechanism (verified 2026-09-16; evidence in docs/archive/test-report-2026-08-to-10.md):
  *   1. Write the SDK's own persistence record into IndexedDB, then boot the page
  *      under test in the same BrowserContext so the SDK reads it while
  *      initialising. IndexedDB is per-context, so the two pages must share one.

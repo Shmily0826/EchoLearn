@@ -14,7 +14,7 @@ import { openSignedInApp } from './helpers/sessionFixture';
  *
  * Fixture provenance: e2e/fixtures/ai-analysis.sample.json is a real response
  * recorded on 2026-09-16 through the production /api/ai for the bundled sample
- * video. See TEST_REPORT.md.
+ * video. See docs/archive/test-report-2026-08-to-10.md.
  *
  * Transport note: StudyPage passes an `onChunk` callback, and aiAnalysis only
  * sets `stream: true` when it gets one, so the real request is SSE. The mocks

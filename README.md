@@ -22,6 +22,7 @@ React 19 · TypeScript · Vite 8 · Tailwind CSS 4 · Firebase Auth & Firestore 
 
 ## Maintainer links
 
+- [Documentation index](docs/README.md) says where each kind of record lives.
 - [Architecture](docs/ARCHITECTURE.md) explains how the web app, Vercel API,
   Worker, VPS, Firebase and Android fit together.
 - [Testing](docs/TESTING.md) lists daily checks, CI and specialist suites.
@@ -52,7 +53,10 @@ Two complementary layers (both privacy-first, no third-party cookies):
   `trackEvent` reports to BOTH Vercel and Firebase. Auth events `sign_up` /
   `login` are fired from `src/contexts/AuthContext.tsx`; product events
   (`video_studied`, `word_saved`, `sentence_saved`, `ai_analysis_used`,
-  `pwa_install`) fire from the relevant pages. Only runs in production builds.
+  `caption_failed`, `review_completed`, `pwa_install`,
+  `pwa_installed_session`) fire from the relevant pages. Funnel events
+  (`session_start`, `first_video_loaded`, `first_item_saved`) are defined in
+  `src/services/analytics.ts`. Only runs in production builds.
 - See registered-user counts and per-user data directly in the Firebase
   console (no code needed):
   - **Registration count** — Firebase console → **Authentication → Users**

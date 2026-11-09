@@ -2,7 +2,7 @@
 
 These dated records describe the original experiments and decisions. Paths in the records refer to the repository root unless specified otherwise. Use the [testing guide](../TESTING.md) for current validation.
 
-[Test report](../../TEST_REPORT.md) · [Archived progress](caption-reliability-2026-09-04-to-07-progress.md)
+[Test report](test-report-2026-08-to-10.md) · [Archived progress](caption-reliability-2026-09-04-to-07-progress.md)
 
 ## 2026-09-04 ECHO-20260904-0021 — AWS browser-host feasibility inventory
 

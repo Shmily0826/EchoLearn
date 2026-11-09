@@ -1,14 +1,21 @@
 # EchoLearn release checklist
 
-## Current release candidate
+This is the only record of current status, open issues and acceptance
+evidence. The [documentation index](README.md) explains where other records
+live and how to archive a finished release.
 
-The release candidate is `4368124` on `echolearn-maintenance`.
-It includes the audio quota and byte-range fixes, cross-device sync, AI
-vocabulary improvements, and maintenance updates. See [draft PR #42](https://github.com/Shmily0826/EchoLearn/pull/42).
-See the [architecture](ARCHITECTURE.md) for service ownership and the
+## Current release
+
+`c1ec954` is in production. It merged [PR #42](https://github.com/Shmily0826/EchoLearn/pull/42)
+on 2026-11-09 after the Worker audio gate passed, and
+[production acceptance](#production-acceptance-on-2026-11-09-utc) is recorded
+below. It includes the audio quota and byte-range fixes, cross-device sync,
+AI vocabulary improvements, and maintenance updates. See the
+[architecture](ARCHITECTURE.md) for service ownership and the
 [testing guide](TESTING.md) for local checks.
 
-Verification for `4368124` passed on 2026-11-09.
+The release candidate was `4368124` on `echolearn-maintenance`. Its
+verification passed on 2026-11-09.
 
 - GitHub CI passed all four jobs, including 19 Worker tests and 124 browser
   tests across both shards. The Linux WebKit skip-link focus case passed.

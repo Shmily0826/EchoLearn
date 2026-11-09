@@ -73,3 +73,6 @@ firebase.emulator.local.json
 evidence/
 prod-dogfood-tmp.mjs
 nul
+
+# Vitest coverage output
+/coverage/

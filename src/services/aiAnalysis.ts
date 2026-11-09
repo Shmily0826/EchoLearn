@@ -45,7 +45,7 @@ const DEEPSEEK_ENDPOINT = '/api/ai';
 //   client — including unverified ones — so its contents cannot be treated as
 //   authoritative AI output; being read-only now does not make past third-party
 //   writes trustworthy. Deleting that corpus is an administrator action on the
-//   `aiAnalyses` collection group (see DECISIONS.md).
+//   `aiAnalyses` collection group (see docs/DECISIONS.md).
 // - Accepted cost consequence: results cached before this change are paid for
 //   once again per learner, and cross-user HITs no longer accrue. Restoring
 //   shared caching needs a privileged server writer (Admin SDK), which is a
