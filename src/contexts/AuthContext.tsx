@@ -96,7 +96,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       console.error('[Auth] auth token refresh/sync error:', error);
     });
     return () => { cancelled = true; };
-  }, [user?.uid, user?.emailVerified]);
+  }, [user, user?.emailVerified]);
 
   const signInWithGoogle = useCallback(async () => {
     if (isCapacitor()) {

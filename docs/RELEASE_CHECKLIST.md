@@ -154,3 +154,26 @@ verification passed on 2026-11-09.
   highlighted the opening caption at 577.044 seconds. The sentence still
   fails the verbatim quote check recorded above. Both desktop checks made
   zero AI or ASR requests.
+
+### Local follow-up
+
+These changes are committed on `echolearn-maintenance` but not yet released.
+
+- The quote filter now requires a continuous word sequence in the
+  transcript. The saved production response is a regression fixture for
+  both fresh analysis and lesson restore. The fuzzy seek matcher is
+  unchanged.
+- The updated dependency tree reports zero findings with
+  `npm audit --omit=dev`. The Android debug Java compile was reported to
+  pass with Capacitor 8.4.3 but was not rerun before commit. The full
+  audit still reports a critical `tar` advisory under the Firebase CLI
+  development dependency. Android device acceptance remains deferred.
+- Lint now reports no warnings.
+- On 2026-11-10 the combined tree passed 1,075 application tests,
+  33 Firestore emulator tests, 19 Worker tests, 27 reliability tests,
+  the build, and 19 desktop Chromium browser tests covering AI analysis,
+  English UI, the golden path, device migration and the signed-in session.
+  The full browser suite and VPS tests were not rerun.
+- A follow-up production VPS probe with `8KkKuTCFvzI` returned HTTP 502
+  before the language gate. Its trace reported `youtube_bot_check` and
+  `signin_required`.

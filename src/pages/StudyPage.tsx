@@ -421,7 +421,6 @@ const StudyPage: React.FC = () => {
       if (saved.lastPosition && saved.lastPosition > 10) {
         const mins = Math.floor(saved.lastPosition / 60);
         const secs = saved.lastPosition % 60;
-        // eslint-disable-next-line react-hooks/set-state-in-effect
         setResumeToast(t('study.resumedAt', { time: `${mins}:${String(secs).padStart(2, '0')}` }));
         setTimeout(() => setResumeToast(null), 5000);
       }
@@ -528,7 +527,7 @@ const StudyPage: React.FC = () => {
 
     setVocabulary(loadVocabulary());
     setSentences(loadSentences());
-  }, []);
+  }, [beginCaptionRequest, endCaptionRequest, failCaptionRequest, refreshTitleForVideo, runCaptionRequest, t]);
 
   // ── Detect new session from Dashboard navigation ──────────
   // Because all pages are always mounted (display:none), the initial
@@ -651,7 +650,7 @@ const StudyPage: React.FC = () => {
 
     setVocabulary(loadVocabulary());
     setSentences(loadSentences());
-  }, [pathname]);
+  }, [pathname, clearCaptionError, failCaptionRequest, refreshTitleForVideo, runCaptionRequest, t]);
 
   // ── Filtered data for current video ────────────────────────
   const filteredVocabulary = useMemo(() => {
@@ -982,7 +981,9 @@ const StudyPage: React.FC = () => {
         },
       });
     }
-  }, [urlInput, rawBlocks, sentenceLines, sessionTitle, session, videoId, persistSession, failCaptionRequest, invalidateCaptionRequests, t]);
+  }, [urlInput, rawBlocks, sentenceLines, sessionTitle, session, videoId, persistSession,
+    beginCaptionRequest, failCaptionRequest, invalidateCaptionRequests, isCaptionRequestCurrent,
+    refreshTitleForVideo, runCaptionRequest, t]);
 
   // ── Import transcript (from TranscriptImporter) ─────────────
   const handleImportTranscript = useCallback(
@@ -1115,7 +1116,7 @@ const StudyPage: React.FC = () => {
     setPlatform('youtube');
     setBiliPage(undefined);
     setBiliParts(undefined);
-  }, [session]);
+  }, [session, clearCaptionError, invalidateCaptionRequests]);
 
   // ── Reload transcript for the current video ────────────────
   const handleReloadTranscript = useCallback(() => {
@@ -1155,7 +1156,7 @@ const StudyPage: React.FC = () => {
         errorMessage: (err) => (err instanceof Error ? err.message : 'Unknown error'),
       },
     );
-  }, [videoId, platform, session, biliPage]);
+  }, [videoId, platform, session, biliPage, failCaptionRequest, runCaptionRequest, t]);
 
   // ASR is deliberately a separate, user-triggered action. It uses the same
   // latest-request-wins machinery as captions, so a video switch invalidates
@@ -1189,7 +1190,7 @@ const StudyPage: React.FC = () => {
         },
       },
     );
-  }, [videoId, platform, biliPage, fetchingCaption, session, t, runCaptionRequest]);
+  }, [videoId, platform, biliPage, fetchingCaption, session, runCaptionRequest]);
 
   // ── Switch Bilibili part (分p) ────────────────────────────
   const handleBiliPartChange = useCallback(
@@ -1235,7 +1236,7 @@ const StudyPage: React.FC = () => {
         errorMessage: (err) => (err instanceof Error ? err.message : 'Failed to load this part'),
       });
     },
-    [videoId, session, biliPage, biliParts],
+    [videoId, session, biliPage, biliParts, runCaptionRequest],
   );
 
   // ── Toggle session completion status ───────────────────────
