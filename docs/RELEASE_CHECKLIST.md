@@ -23,10 +23,10 @@ Verification for `4368124` passed on 2026-11-09.
 
 | Priority | Area | Evidence and remaining check |
 | --- | --- | --- |
-| High | Worker audio and quota | Local regressions verify that cold requests for the same cache key share one VPS fetch and one quota debit within a Worker isolate. Suffix ranges select the trailing bytes, and valid ranges ending past EOF stop at the last byte. On the deployed Worker, verify concurrent and warm byte ranges, origin request count and quota delta. Exercise Bilibili's Vercel audio fallback separately because it has its own rate limiter. |
-| High | Verified-account sync | The local emulator preserves both additions and the deletion across three clients, including a separate concurrent-write probe. With the updated client on three isolated devices, repeat add, delete, stale save, and a clean pull using an authorized QA account. |
-| High | AI vocabulary | Mocked streaming, candidate filtering, fallback, old-cache bypass, same-version reuse and saved-lesson restore passed. Use representative captions and a capped real provider run to judge vocabulary coverage, glosses and CEFR quality. |
-| Medium | VPS English captions | The October probe reached the VPS but YouTube blocked acquisition before the language gate. A successful acquisition of a suitable sample is still required to evaluate the deployed gate. |
+| High | Worker audio and quota | **PASS.** Production cold and warm ranges, origin counts, quota delta and the Bilibili Vercel fallback passed. |
+| High | Verified-account sync | **PASS.** Three isolated Chromium sessions using QA A retained both additions and the deletion after a stale upload to production. |
+| High | AI vocabulary | **PARTIAL.** The single production run passed vocabulary candidate and gloss checks. It returned 6 of 8 requested words, included one clipped vocabulary context, and failed the exact sentence quote check. |
+| Medium | VPS English captions | **INCONCLUSIVE live.** The gate passed four controlled cases using the installed VPS source. All live samples failed at acquisition, so the live gate remains unverified. |
 | Medium | Android local media | Deferred for this release. On a physical Android device, import a roughly 90 MB audio file with subtitles, verify playback, and check that the lesson restores after refresh. |
 
 ## Release sequence
@@ -88,3 +88,62 @@ Verification for `4368124` passed on 2026-11-09.
    `/api/bilibili?audio=1&url=...` on Vercel. Check status, byte range and
    content against the same sample. Count this request separately because it
    goes directly to the VPS.
+
+## Production acceptance on 2026-11-09 UTC
+
+- **Release.** PR #42 was merged as `c1ec954` after the Worker audio gate
+  passed. The production domain served the new Vercel deployment. The
+  homepage and entry script returned HTTP 200. The Bilibili fallback
+  returned HTTP 206 before and after the Web release.
+  [CI](https://github.com/Shmily0826/EchoLearn/actions/runs/42569973413) ·
+  [Production deployment](https://vercel.com/shmily0826s-projects/echolearn/Dv3x356U11vJmqLdekq2B2oYNBG6)
+- **Worker audio.** Version `43b77fea-0e58-4bbe-9b54-079d99538126` returned
+  HTTP 200 from health. The parallel requests returned `MISS` and
+  `COALESCED`. The VPS journal showed one request and QA A's quota went from
+  0 to 1. Warm suffix and overlong-end ranges returned matching bytes with
+  HTTP 206, and a start at EOF returned HTTP 416. The VPS count and quota
+  stayed unchanged during those warm requests.
+- **Verified-account sync.** The first two browser contexts signed in as QA A
+  and started with the same deletion fixture. The first added a word and
+  deleted the fixture. The second added another word and uploaded from its
+  stale state. A fresh third context pulled both new words and all
+  27 original words, with the deleted fixture absent. The run seeded only
+  test items in local storage and used the deployed UI for deletion, upload
+  and sync against production Firestore. The test items were cleaned up.
+- **AI vocabulary.** One capped production request returned HTTP 200 in
+  6.8 seconds using the bundled transcript, B1–C1 and eight requested words.
+  Six unique words matched the prompt candidates, five B2 and one C1. All
+  six had Chinese glosses. The glosses fit the words in context, though the
+  `hierarchy` example starts mid-word. The rubric reported 15 passes and
+  one failure. One sentence joined noncontiguous subtitle lines and failed
+  the exact quote check. The provider call was not retried.
+- **VPS English captions.** The production service returned HTTP 502 for
+  three YouTube and three Bilibili samples before reaching the gate.
+  Journal evidence included YouTube sign-in challenges, HTTP 429 and
+  Bilibili extraction errors. One normal request with the configured
+  YouTube fallback also ended in HTTP 429 at the provider. In a separate
+  process on the VPS, the installed handler passed all four controlled
+  cases with acquisition stubbed. It accepted Chinese for a Chinese
+  request, rejected Chinese for an English request with
+  `404 captions_not_found`, and accepted both `en` and `ai-en` for
+  English requests. A live acquisition that reaches the gate is still
+  needed for end-to-end acceptance.
+- **Android local media.** Deferred for this release.
+
+### Desktop study and saved AI replay
+
+- **Desktop study PASS.** On production Web `c1ec954`, a fresh Chrome guest
+  profile opened a local WAV with supplied SRT captions. Native playback
+  advanced and clicking the second caption moved the playhead to its
+  four-second cue. The learner saved one word, reviewed it through Review
+  Every Saved Item, and completed the round. Reloading Study restored the
+  audio and captions, playback resumed, and the review count remained one.
+  The dictionary used a deterministic fixture. Audio and subtitles came
+  from local test files.
+- **Saved AI sentence seek PASS.** The saved provider response from the
+  earlier production run was loaded into a local lesson with the original
+  caption timings. The stitched sentence had a `@9:37` seek control.
+  Clicking it moved the native player to about 577.05 seconds and
+  highlighted the opening caption at 577.044 seconds. The sentence still
+  fails the verbatim quote check recorded above. Both desktop checks made
+  zero AI or ASR requests.
