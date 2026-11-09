@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import worker from '../src/index.js';
+import worker from '../src/worker.js';
 
 const AUDIO = 'https://worker.test/api/audio?url=https%3A%2F%2Fyoutu.be%2Fexample1234';
 const VPS_ENV = { YTDLP_API_URL: 'https://vps.test' };

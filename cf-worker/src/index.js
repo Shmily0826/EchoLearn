@@ -2486,9 +2486,8 @@ async function fetchViaYtDlp(videoId, lang, env, log, targetUrl = null, traceId 
   }
 }
 
-// Narrow named exports keep the Worker runtime contract unchanged while
-// allowing deterministic unit tests to exercise the deadline primitives and
-// request handler without a deployed Worker.
+// Named exports for deterministic tests. Wrangler uses worker.js, which
+// exposes only the default request handler.
 export {
   TRANSCRIPT_CACHE_HEADER,
   CAPTION_BUDGET_HEADER,
