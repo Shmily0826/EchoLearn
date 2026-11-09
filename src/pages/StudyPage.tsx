@@ -465,7 +465,7 @@ const StudyPage: React.FC = () => {
       // transcript than the one restored here (bound via transcriptId; legacy
       // analyses carry no id and keep today's restore behavior).
       if (saved.aiAnalysis && !isAnalysisStale(saved.aiAnalysis, restoredRawBlocks, restoredSentenceLines)) {
-        setAnalysis(saved.aiAnalysis);
+        setAnalysis(dropUngroundedSuggestions(saved.aiAnalysis, restoredRawBlocks, restoredSentenceLines));
       }
 
       // Auto-fetch captions if no transcript exists for this video
@@ -604,7 +604,7 @@ const StudyPage: React.FC = () => {
     // Same transcript-identity rule as the mount restore: an analysis bound to
     // a different transcript must not come back with the replaced one.
     if (saved.aiAnalysis && !isAnalysisStale(saved.aiAnalysis, restoredRawBlocks, restoredSentenceLines)) {
-      setAnalysis(saved.aiAnalysis);
+      setAnalysis(dropUngroundedSuggestions(saved.aiAnalysis, restoredRawBlocks, restoredSentenceLines));
     }
 
     // Auto-fetch captions if no transcript exists
@@ -1082,7 +1082,7 @@ const StudyPage: React.FC = () => {
     // The learner just paired a (possibly different) subtitle with this
     // session; an analysis bound to the previous transcript must not surface.
     if (restored.aiAnalysis && !isAnalysisStale(restored.aiAnalysis, lines, restoredSentenceLines)) {
-      setAnalysis(restored.aiAnalysis);
+      setAnalysis(dropUngroundedSuggestions(restored.aiAnalysis, lines, restoredSentenceLines));
     } else if (restored.aiAnalysis) {
       setAnalysis(null);
     }
@@ -1297,10 +1297,7 @@ const StudyPage: React.FC = () => {
         (chunk) => setStreamChars((prev) => prev + chunk.length),
         lang,
       );
-      // Re-anchor the probabilistic output to our own input: a suggested
-      // "quote" that cannot be matched back to the transcript it claims to
-      // come from (same matcher and threshold as the seek alignment) is
-      // dropped instead of being stored as learning material.
+      // Save only suggestions that quote a continuous span of the transcript.
       const grounded = dropUngroundedSuggestions(result, rawBlocks, sentenceLines);
       const droppedCount = result.sentenceSuggestions.length - grounded.sentenceSuggestions.length;
       const notice = droppedCount > 0 ? t('ai.ungroundedFiltered', { count: droppedCount }) : '';

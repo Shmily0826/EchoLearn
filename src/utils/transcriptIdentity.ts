@@ -3,7 +3,6 @@ import type {
   TranscriptLine,
   TranscriptMeta,
 } from '../types';
-import { matchSuggestionToLineStart } from './matchTranscriptLine';
 
 /**
  * Content-derived transcript identity.
@@ -85,14 +84,12 @@ export function isAnalysisStale(
   return analysis.transcriptId !== fingerprintTranscriptLines(basis);
 }
 
-/**
- * Grounding gate for AI output: a suggested "quote" that cannot be re-anchored
- * to the transcript it claims to come from is dropped rather than stored as
- * learning material. Uses the same matcher and threshold as the seek
- * alignment, so what the panel can jump to is exactly what survives here.
- * Returns the analysis unchanged when everything grounds (or when there is no
- * transcript to ground against).
- */
+function normalizeQuote(text: string): string {
+  return text.toLowerCase().replace(/[’‘]/g, "'")
+    .match(/[\p{L}\p{M}\p{N}]+(?:'[\p{L}\p{M}\p{N}]+)*/gu)?.join(' ') ?? '';
+}
+
+/** Require the complete word sequence, including across adjacent caption lines. */
 export function dropUngroundedSuggestions(
   analysis: AIAnalysisResult,
   rawBlocks: TranscriptLine[],
@@ -100,9 +97,12 @@ export function dropUngroundedSuggestions(
 ): AIAnalysisResult {
   const basis = alignmentBasis(rawBlocks, sentenceLines);
   if (basis.length === 0) return analysis;
-  const grounded = analysis.sentenceSuggestions.filter(
-    (sug) => matchSuggestionToLineStart(sug.text, basis) !== null,
-  );
+  const transcript = ` ${normalizeQuote(basis.map((line) => line.text).join(' '))} `;
+  const grounded = analysis.sentenceSuggestions.filter((suggestion) => {
+    if (typeof suggestion?.text !== 'string') return false;
+    const quote = normalizeQuote(suggestion.text);
+    return quote.length > 0 && transcript.includes(` ${quote} `);
+  });
   if (grounded.length === analysis.sentenceSuggestions.length) return analysis;
   return { ...analysis, sentenceSuggestions: grounded };
 }

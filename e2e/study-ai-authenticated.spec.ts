@@ -41,6 +41,12 @@ const SAMPLE_ANALYSIS = {
   ],
 };
 
+const STITCHED_SENTENCE = {
+  text: "If you were to visit education as an alien and say 'What's it for, public education?' I think you'd have to conclude, if you look at the output... the whole purpose of public education... is to produce university professors.",
+  meaningCn: '这条建议跳过了中间几行字幕。',
+  reason: 'Recorded production response with a matching opening but skipped captions.',
+};
+
 /** The fallback path is taken when the live call fails; these are its tells. */
 const LOCAL_FALLBACK_BANNER = /AI service unavailable — showing local transcript-based analysis/;
 const LOCAL_SUMMARY_MARKER = /AI analysis is temporarily unavailable/;
@@ -256,10 +262,18 @@ test.describe('AI Analyze (authenticated)', () => {
         transcriptLines,
         aiAnalysis: { ...analysis, learningTasks: [] },
       }));
-    }, { transcriptLines: transcript, analysis: { ...RECORDED_ANALYSIS, vocabularySuggestions: [invalid] } });
+    }, {
+      transcriptLines: transcript,
+      analysis: {
+        ...RECORDED_ANALYSIS,
+        vocabularySuggestions: [invalid],
+        sentenceSuggestions: [...RECORDED_ANALYSIS.sentenceSuggestions, STITCHED_SENTENCE],
+      },
+    });
 
     await reachStudy(page);
     await expect(vocabCard(page, 'capacit')).toBeVisible();
+    await expect(aiPanel(page).getByTestId('ai-sentence-card')).toHaveCount(RECORDED_ANALYSIS.sentenceSuggestions.length);
     expect(captured).toHaveLength(0);
     await analyzeButton(page).click();
     await expect(vocabCard(page, 'capacity')).toBeVisible();
@@ -349,14 +363,9 @@ test.describe('AI Analyze (authenticated)', () => {
    * Grounding filter, end to end. An invented sentence from AI must be removed
    * before it reaches the learner's panel or saved sentence list.
    */
-  test('filters a sentence suggestion that cannot be grounded in the transcript', async ({ context, page }) => {
-    const unplaceable = {
-      text: 'This suggested sentence is invented for the test and appears nowhere in the recorded transcript.',
-      meaningCn: '一句为测试编造、字幕里并不存在的句子。',
-      reason: 'Deliberately absent so the aligner returns null.',
-    };
+  test('filters a stitched sentence even when its opening can be aligned', async ({ context, page }) => {
     const grounded = SAMPLE_ANALYSIS.sentenceSuggestions[0];
-    const mixed = { ...SAMPLE_ANALYSIS, sentenceSuggestions: [grounded, unplaceable] };
+    const mixed = { ...SAMPLE_ANALYSIS, sentenceSuggestions: [grounded, STITCHED_SENTENCE] };
 
     await bootSignedIn(page, context);
     await installApiRoutes(page, { ai: [{ status: 200, body: sseBody(JSON.stringify(mixed)) }] });
@@ -390,7 +399,7 @@ test.describe('AI Analyze (authenticated)', () => {
     await page.locator('a[href="/sentences"]').filter({ visible: true }).first().click();
     await page.waitForURL(/\/sentences$/, { timeout: 20_000 });
     await expect(page.getByText(grounded.text).filter({ visible: true }).first()).toBeVisible({ timeout: 10_000 });
-    await expect(page.getByText(unplaceable.text).filter({ visible: true })).toHaveCount(0);
+    await expect(page.getByText(STITCHED_SENTENCE.text).filter({ visible: true })).toHaveCount(0);
     await expect(page.getByText(/^@\d{1,2}:\d{2}$/).filter({ visible: true })).toHaveText(['@0:43']);
 
     // Study's saved-sentence list preserves that same grounded-only result.
@@ -401,7 +410,7 @@ test.describe('AI Analyze (authenticated)', () => {
     await expect(page.getByText(/Saved to Sentences|已保存到句子/).filter({ visible: true })).toBeHidden({ timeout: 15_000 });
     await page.getByRole('button', { name: /Key Sentences|重点句子/ }).filter({ visible: true }).first().click();
     await expect(page.getByText(grounded.text).filter({ visible: true }).first()).toBeVisible({ timeout: 10_000 });
-    await expect(page.getByText(unplaceable.text).filter({ visible: true })).toHaveCount(0);
+    await expect(page.getByText(STITCHED_SENTENCE.text).filter({ visible: true })).toHaveCount(0);
     await expect(page.getByText(/^@\d{1,2}:\d{2}$/).filter({ visible: true })).toHaveText(['@0:43']);
   });
 
