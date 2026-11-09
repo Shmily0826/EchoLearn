@@ -1,5 +1,4 @@
-// @vitest-environment jsdom
-import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import type { AIAnalysisResult } from '../../types';
 
 const authState = { currentUser: null as { uid: string; emailVerified: boolean } | null };
@@ -26,7 +25,7 @@ vi.mock('firebase/firestore', () => ({
   serverTimestamp: vi.fn(() => 'server-time'),
 }));
 
-import { getCachedAnalysis, setCachedAnalysis } from '../aiAnalysis';
+import { analyzeTranscript, getCachedAnalysis, setCachedAnalysis } from '../aiAnalysis';
 
 const KEY = 'a'.repeat(64);
 const result = { vocabulary: [], sentences: [] } as unknown as AIAnalysisResult;
@@ -91,5 +90,53 @@ describe('AI cache client trust boundary', () => {
     const { getDoc } = await import('firebase/firestore');
     vi.mocked(getDoc).mockRejectedValueOnce(new Error('unavailable'));
     expect(await getCachedAnalysis(KEY)).toBeNull();
+  });
+});
+
+describe('new subtitle vocabulary analyses', () => {
+  const transcript = 'We arranged it. She lives here. He leaves now.';
+  const suggestion = (word: string) => ({ word, context: 'Invented context.', meaningCn: '释义' });
+
+  afterEach(() => vi.unstubAllGlobals());
+
+  it('skips the unversioned cache, validates the model response, and reuses the new cache', async () => {
+    const oldInput = new TextEncoder().encode(`A1|B1|en|8|4|${transcript}`);
+    const oldHash = await crypto.subtle.digest('SHA-256', oldInput);
+    const oldKey = Array.from(new Uint8Array(oldHash), (byte) => byte.toString(16).padStart(2, '0')).join('');
+    const oldPath = `aiCache/user-a/analyses/${oldKey}`;
+    docContents[oldPath] = {
+      content: JSON.stringify({ vocabularySuggestions: [suggestion('arrang')] }),
+      createdAt: Date.now(),
+    };
+    const fetch = vi.fn<typeof globalThis.fetch>(async () => Response.json({
+      choices: [{ message: { content: JSON.stringify({ vocabularySuggestions: [
+        suggestion('“Arrange”'), suggestion('arrang'), suggestion('life'), suggestion('leaf'),
+        suggestion('lives'), suggestion('leaves'), suggestion('arrange'), null,
+      ] }) } }],
+    }));
+    vi.stubGlobal('fetch', fetch);
+
+    const fresh = await analyzeTranscript(transcript, 'A1', 'B1', 8, 4, undefined, 'en');
+    const prompt = JSON.parse(String(fetch.mock.calls[0][1]?.body)).messages[1].content;
+    expect(prompt).toContain('arrange | B1 | "We arranged it."');
+    expect(fresh.vocabularySuggestions.map(({ word, context }) => ({ word, context }))).toEqual([
+      { word: 'arrange', context: 'We arranged it.' },
+      { word: 'lives', context: 'She lives here.' },
+      { word: 'leaves', context: 'He leaves now.' },
+    ]);
+    expect(reads).not.toContain(oldPath);
+    expect(writes).toEqual(reads);
+
+    expect(await analyzeTranscript(transcript, 'A1', 'B1', 8, 4, undefined, 'en')).toEqual(fresh);
+    expect(fetch).toHaveBeenCalledTimes(1);
+  });
+
+  it('uses the same vocabulary rules on fallback, including an empty result for an empty band', async () => {
+    vi.stubGlobal('fetch', vi.fn(async () => new Response('', { status: 503 })));
+    const result = await analyzeTranscript(transcript, 'A1', 'B1');
+    expect(result.vocabularySuggestions.map(({ word }) => word)).toEqual(expect.arrayContaining(['arrange', 'lives', 'leaves']));
+    expect(result.vocabularySuggestions.map(({ word }) => word)).not.toContain('arrang');
+    const empty = await analyzeTranscript(transcript, 'C2', 'C2');
+    expect(empty.vocabularySuggestions).toEqual([]);
   });
 });

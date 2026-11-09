@@ -18,7 +18,7 @@
 import {
   doc,
   getDoc,
-  setDoc,
+  runTransaction,
   serverTimestamp,
   getDocs,
   limit,
@@ -26,7 +26,7 @@ import {
   writeBatch,
   collection,
 } from 'firebase/firestore';
-import type { DocumentReference, DocumentData, WriteBatch } from 'firebase/firestore';
+import type { DocumentReference, DocumentData, DocumentSnapshot, WriteBatch } from 'firebase/firestore';
 import { db, auth } from '../lib/firebase';
 import {
   loadVocabulary,
@@ -367,7 +367,7 @@ export function hasLocalSyncableData(): boolean {
  * Firestore setDoc() rejects `{ field: undefined }` — the key must
  * not exist at all.  This utility makes any object safe to write.
  */
-function stripUndefined<T extends Record<string, unknown>>(obj: T): Record<string, unknown> {
+function stripUndefined(obj: object): Record<string, unknown> {
   const result: Record<string, unknown> = {};
   for (const [key, value] of Object.entries(obj)) {
     if (value !== undefined) result[key] = value;
@@ -385,25 +385,38 @@ function stripSession(s: VideoStudySession): VideoStudySession {
   // Firestore's document limit and are retained locally instead.
   // eslint-disable-next-line @typescript-eslint/no-unused-vars
   const { transcriptData, transcriptLines, aiAnalysis, ...lightweight } = s;
-  return stripUndefined(lightweight as Record<string, unknown>) as unknown as VideoStudySession;
+  return lightweight as VideoStudySession;
 }
 
 // ── Upload ─────────────────────────────────────────────────────
 
-async function uploadCollection<T extends { id: string }>(
+async function uploadCollection<T extends { id: string; addedAt?: number; updatedAt?: number }>(
   uid: string,
   collection: SyncCollection,
   items: T[],
   tombstones: TombstoneMap = {},
+  merge = (local: T[], cloud: T[], localDeletes: TombstoneMap, cloudDeletes: TombstoneMap) =>
+    mergeCollection(local, cloud, localDeletes, cloudDeletes,
+      (item) => item.updatedAt ?? item.addedAt ?? 0),
 ): Promise<void> {
   const ref = getCollectionRef(uid, collection);
-  // Strip undefined values from every item to prevent Firestore errors
-  const cleanItems = items.map((item) => stripUndefined(item as Record<string, unknown>));
-  await setDoc(ref, {
-    items: cleanItems,
-    tombstones,
-    updatedAt: Date.now(),
-    serverUpdatedAt: serverTimestamp(),
+  // Retry against the latest document if another device writes during the merge.
+  await runTransaction(db, async (transaction) => {
+    const cloud = readCollection<T>(await transaction.get(ref));
+    const merged = merge(items, cloud.items, tombstones, cloud.tombstones);
+    transaction.set(ref, {
+      items: merged.items.map(stripUndefined),
+      tombstones: merged.tombstones,
+      updatedAt: Date.now(),
+      serverUpdatedAt: serverTimestamp(),
+    });
+  });
+}
+
+function uploadSessions(uid: string, sessions: VideoStudySession[], tombstones: TombstoneMap): Promise<void> {
+  return uploadCollection(uid, 'sessions', sessions, tombstones, (local, cloud, localDeletes, cloudDeletes) => {
+    const merged = mergeSessions(local, cloud, localDeletes, cloudDeletes);
+    return { ...merged, items: merged.items.map(stripSession) };
   });
 }
 
@@ -419,7 +432,7 @@ export async function uploadToCloud(uid: string): Promise<SyncResult> {
     const results = await Promise.allSettled([
       uploadCollection(uid, 'vocabulary', data.vocabulary, data.vocabularyTombstones),
       uploadCollection(uid, 'sentences', data.sentences, data.sentenceTombstones),
-      uploadCollection(uid, 'sessions', data.sessions.map(stripSession), data.sessionTombstones),
+      uploadSessions(uid, data.sessions, data.sessionTombstones),
     ]);
 
     const errors = results
@@ -470,7 +483,10 @@ async function downloadCollection<T>(
   collection: SyncCollection,
 ): Promise<CollectionData<T>> {
   const ref = getCollectionRef(uid, collection);
-  const snap = await getDoc(ref);
+  return readCollection<T>(await getDoc(ref));
+}
+
+function readCollection<T>(snap: DocumentSnapshot<DocumentData>): CollectionData<T> {
   if (!snap.exists()) return { items: [], tombstones: {} };
   const data = snap.data() as CloudDoc<T>;
   return { items: data.items ?? [], tombstones: data.tombstones ?? {} };
@@ -561,7 +577,7 @@ async function syncWithCloudOnce(uid: string): Promise<SyncResult> {
     const uploadTasks: Array<Promise<void> | null> = [
       downloadFailed[0] ? null : uploadCollection(uid, 'vocabulary', mergedVocab, mergedVocabData.tombstones),
       downloadFailed[1] ? null : uploadCollection(uid, 'sentences', mergedSentences, mergedSentencesData.tombstones),
-      downloadFailed[2] ? null : uploadCollection(uid, 'sessions', mergedSessions.map(stripSession), mergedSessionsData.tombstones),
+      downloadFailed[2] ? null : uploadSessions(uid, mergedSessions, mergedSessionsData.tombstones),
     ];
     const ulResults = await Promise.all(uploadTasks.map((task) => task ? task.then(
       () => ({ status: 'fulfilled' as const }),
@@ -655,8 +671,7 @@ export async function pushItemsToCloud(
 export async function pushSessionToCloud(uid: string): Promise<void> {
   try {
     assertVerified(uid);
-    const sessions = loadAllSessions().map(stripSession);
-    await uploadCollection(uid, 'sessions', sessions, loadSessionTombstones());
+    await uploadSessions(uid, loadAllSessions(), loadSessionTombstones());
     localStorage.setItem(LAST_SYNC_KEY, String(Date.now()));
     localStorage.removeItem(SYNC_PENDING_KEY);
   } catch (err) {

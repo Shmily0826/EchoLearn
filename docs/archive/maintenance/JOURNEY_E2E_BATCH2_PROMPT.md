@@ -1,5 +1,8 @@
 # 第二批任务书：把真实用户旅程的覆盖面补完（可直接复制给执行 agent）
 
+> Historical test brief. Use the [current testing guide](../../TESTING.md) for commands and scope.
+
+
 自包含文档，不需要本仓库之外的上下文。
 
 ---

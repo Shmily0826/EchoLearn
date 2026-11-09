@@ -1,5 +1,5 @@
 /**
- * Manual AI-quality rubric for the real /api/ai (Layer 2, human-run).
+ * Evaluate a saved analysis locally, or opt in to a capped /api/ai run.
  *
  * The CI suite (e2e/study-ai-authenticated.spec.ts) proves the *plumbing*:
  * authenticated request, prompt contents, rendering, fallbacks. It can never
@@ -8,17 +8,17 @@
  * in the requested CEFR band. Those need one real provider call per video, so
  * this script is deliberately manual, opt-in and capped.
  *
- * Usage:
- *   node --experimental-strip-types scripts/ai-quality-rubric.mjs \
- *     --email you@example.invalid --password-stdin
+ * Offline usage:
+ *   npm run ai:rubric -- --transcript transcript.json --response analysis.json
  *
- * Convenience (reads both from env, never echoes them):
+ * Provider usage (credentials from env):
  *   ECHOLEARN_RUBRIC_EMAIL=... ECHOLEARN_RUBRIC_PASSWORD=... \
  *   ECHOLEARN_ALLOW_PAID_PROVIDER=1 ECHOLEARN_PAID_MAX_INVOCATIONS=2 \
  *   node --experimental-strip-types scripts/ai-quality-rubric.mjs
  *
  * Options:
  *   --transcript <file>  JSON array of { text } lines (default: bundled sample)
+ *   --response <file>    saved analysis JSON (offline, zero provider calls)
  *   --min / --max        CEFR range sent to the model (default B1 / C2)
  *   --vocab <n>          requested vocabulary count (default 8)
  *   --sentences <n>      requested sentence count (default 7 — deliberately not
@@ -35,11 +35,13 @@
  */
 
 import fs from 'node:fs';
-import os from 'node:os';
 import path from 'node:path';
 import process from 'node:process';
-import { fileURLToPath, pathToFileURL } from 'node:url';
+import { fileURLToPath } from 'node:url';
 import { createPaidProviderGuard, resolvePaidProviderPolicy, ALLOW_ENV, CAP_ENV } from './paid-provider-guard.mjs';
+
+import { CEFR_LEVELS } from '../src/services/cefrWordList.ts';
+import { analysisCacheKey, analysisWordKey, buildAnalysisRequest } from '../src/services/aiAnalysisRequest.ts';
 
 const HERE = path.dirname(fileURLToPath(import.meta.url));
 const REPO = path.resolve(HERE, '..');
@@ -64,6 +66,7 @@ function parseArgs(argv) {
     email: process.env.ECHOLEARN_RUBRIC_EMAIL ?? null,
     password: process.env.ECHOLEARN_RUBRIC_PASSWORD ?? null,
     allowCache: false,
+    response: null,
   };
   for (let i = 0; i < argv.length; i += 1) {
     const key = argv[i];
@@ -75,6 +78,7 @@ function parseArgs(argv) {
     else if (key === '--sentences') { args.sentences = Number(next); i += 1; }
     else if (key === '--lang') { args.lang = next; i += 1; }
     else if (key === '--base') { args.base = next; i += 1; }
+    else if (key === '--response') { args.response = path.resolve(process.cwd(), next); i += 1; }
     else if (key === '--out') { args.out = path.resolve(process.cwd(), next); i += 1; }
     else if (key === '--email') { args.email = next; i += 1; }
     else if (key === '--password') { args.password = next; i += 1; }
@@ -148,49 +152,6 @@ function normalizeForMatch(text) {
     .trim();
 }
 
-/** Same sampling the app sends (src/services/aiAnalysis.ts smartTruncate). */
-function smartTruncate(text, max = 12000) {
-  if (text.length <= max) return text;
-  const third = Math.floor(max / 3);
-  const midStart = Math.floor((text.length - third) / 2);
-  return (
-    text.slice(0, third) +
-    '\n...[middle]...\n' +
-    text.slice(midStart, midStart + third) +
-    '\n...[later]...\n' +
-    text.slice(text.length - third)
-  );
-}
-
-/**
- * The CEFR word list is TypeScript with extensionless imports, which plain
- * Node cannot resolve. Bundle it once with Vite's build API (already a project
- * dependency) instead of reimplementing the classification.
- */
-async function loadCefrModule() {
-  try {
-    const { build } = await import('vite');
-    const outDir = fs.mkdtempSync(path.join(os.tmpdir(), 'echolearn-cefr-'));
-    await build({
-      configFile: false,
-      logLevel: 'error',
-      publicDir: false,
-      build: {
-        ssr: path.join(REPO, 'src/services/cefrWordList.ts'),
-        outDir,
-        emptyOutDir: true,
-        minify: false,
-        rollupOptions: { output: { format: 'esm', entryFileNames: 'cefr.mjs' } },
-      },
-    });
-    const mod = await import(pathToFileURL(path.join(outDir, 'cefr.mjs')).href);
-    fs.rmSync(outDir, { force: true, recursive: true });
-    return mod.classifyWordCEFR ? mod : null;
-  } catch {
-    return null;
-  }
-}
-
 const rules = [];
 function rule(name, status, detail) {
   rules.push({ name, status, detail });
@@ -203,106 +164,84 @@ async function main() {
     console.log('See the usage block at the top of scripts/ai-quality-rubric.mjs');
     return 0;
   }
-  if (!args.email || !args.password) {
-    console.error('missing credentials: pass --email/--password or set ECHOLEARN_RUBRIC_EMAIL / ECHOLEARN_RUBRIC_PASSWORD');
-    return 2;
-  }
-  if (!args.allowCache && args.sentences === 4) {
-    console.error('refusing to run with the app-default sentenceCount=4: that cache key may already exist. Use --allow-cache to override.');
+  if (!CEFR_LEVELS.includes(args.min) || !CEFR_LEVELS.includes(args.max)
+    || CEFR_LEVELS.indexOf(args.min) > CEFR_LEVELS.indexOf(args.max)
+    || !['en', 'zh'].includes(args.lang)
+    || !Number.isInteger(args.vocab) || args.vocab < 1 || args.vocab > 30
+    || !Number.isInteger(args.sentences) || args.sentences < 1 || args.sentences > 20) {
+    console.error('invalid CEFR range, language, or suggestion count');
     return 2;
   }
 
-  let policy;
-  try {
-    policy = resolvePaidProviderPolicy();
-  } catch (err) {
-    console.error(`${err.code}: ${err.message}`);
-    console.error(`set ${ALLOW_ENV}=1 and ${CAP_ENV}=<n> to authorize up to n paid calls`);
-    return 2;
-  }
-  if (!policy.enabled) {
-    console.error(`paid provider blocked: set ${ALLOW_ENV}=1 and ${CAP_ENV}=1 (or 2)`);
-    return 2;
-  }
-  const guard = createPaidProviderGuard(policy);
-
-  const { apiKey } = readFirebaseConfig();
   const { text: transcript, lineCount } = loadTranscript(args.transcript);
-  const promptTranscript = smartTruncate(transcript);
-  // Judged against the whole transcript — that is the learner-visible truth
-  // ("does this really occur in this video?") — while the model only ever sees
-  // `promptTranscript`, so anything outside that window is reported separately.
+  const { body, candidates, promptTranscript } = buildAnalysisRequest(
+    transcript, args.min, args.max, args.vocab, args.sentences, args.lang, false,
+  );
   const transcriptTokens = tokenize(transcript);
   const normalizedTranscript = normalizeForMatch(transcript);
 
-  // The browser-side 30-day cache is keyed on exactly this string. Printing it
-  // lets a reviewer confirm the rubric is not reading an in-app cached result.
-  const cacheKey = await sha256Hex(`${args.min}|${args.max}|${args.lang}|${args.vocab}|${args.sentences}|${transcript}`);
+  // This key identifies the equivalent browser analysis. The direct API call
+  // bypasses the browser-side cache.
+  const cacheKey = await analysisCacheKey(transcript, args.min, args.max, args.vocab, args.sentences, args.lang);
 
-  const idToken = await signIn({ apiKey, email: args.email, password: args.password });
+  let response;
+  let latencyMs;
+  let invocationCount = '0 (offline)';
+  if (args.response) {
+    // Wrap a saved analysis in the same non-streaming envelope as /api/ai.
+    const content = fs.readFileSync(args.response, 'utf8');
+    response = Response.json({ choices: [{ message: { content } }] });
+  } else {
+    if (!args.email || !args.password) {
+      console.error('missing credentials: set ECHOLEARN_RUBRIC_EMAIL / ECHOLEARN_RUBRIC_PASSWORD');
+      return 2;
+    }
+    if (!args.allowCache && args.sentences === 4) {
+      console.error('refusing to run with the app-default sentenceCount=4: use --allow-cache to override');
+      return 2;
+    }
 
-  const body = {
-    model: 'deepseek-v4-flash',
-    thinking: { type: 'disabled' },
-    messages: [
-      { role: 'system', content: 'You are an expert English-language learning assistant. Reply with JSON only.' },
-      {
-        role: 'user',
-        content: `Analyze this English video transcript for a Chinese-speaking English learner.
+    let policy;
+    try {
+      policy = resolvePaidProviderPolicy();
+    } catch (err) {
+      console.error(`${err.code}: ${err.message}`);
+      console.error(`set ${ALLOW_ENV}=1 and ${CAP_ENV}=<n> to authorize up to n paid calls`);
+      return 2;
+    }
+    if (!policy.enabled) {
+      console.error(`paid provider blocked: set ${ALLOW_ENV}=1 and ${CAP_ENV}=1 (or 2)`);
+      return 2;
+    }
 
-Return JSON exactly in this shape (valid JSON only, no markdown fences):
-{
-  "summaryEn": "2-3 sentence summary",
-  "summaryCn": "2-3句中文摘要",
-  "keyTakeaways": ["point1", "point2", "point3"],
-  "vocabularySuggestions": [{"word":"","context":"","meaningCn":"","reason":""}],
-  "sentenceSuggestions": [{"text":"","meaningCn":"","reason":"","grammarNotes":""}],
-  "note": "optional"
-}
-
-Requirements:
-- "vocabularySuggestions": up to ${args.vocab} words at CEFR ${args.min}–${args.max} from the transcript. Each: lemma + context + meaningCn + reason. Distribute EVENLY across levels.
-- "sentenceSuggestions": exactly ${args.sentences} exact quotes with useful grammar/expressions. "grammarNotes": 用中文简要解析该句的语法结构、重点短语或表达技巧（2-3句话）. Pick from different parts.
-- "keyTakeaways": exactly 3 points in English.
-- Vocabulary words must be actual words found in the transcript; sentences must be exact quotes. Never invent either.
-
-Transcript:
----
-${promptTranscript}
----`,
-      },
-    ],
-    temperature: 0.4,
-    response_format: { type: 'json_object' },
-    max_tokens: 4096,
-    stream: false,
-  };
-
-  const started = Date.now();
-  const response = await guard.invoke(fetch, `${args.base.replace(/\/$/, '')}/api/ai`, {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${idToken}` },
-    body: JSON.stringify(body),
-  });
+    const guard = createPaidProviderGuard(policy);
+    const idToken = await signIn({ ...readFirebaseConfig(), email: args.email, password: args.password });
+    const started = Date.now();
+    response = await guard.invoke(fetch, `${args.base.replace(/\/$/, '')}/api/ai`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${idToken}` },
+      body: JSON.stringify(body),
+    });
+    latencyMs = Date.now() - started;
+    invocationCount = `${guard.invocations}/${guard.maxInvocations}`;
+  }
   const raw = await response.text();
-  const latencyMs = Date.now() - started;
 
   console.log('');
-  console.log('AI quality rubric — manual Layer 2');
-  console.log('==================================');
-  console.log(`target            : ${args.base}/api/ai`);
+  console.log('AI quality rubric');
+  console.log(`target            : ${args.response ? path.relative(REPO, args.response) : `${args.base}/api/ai`}`);
   console.log(`transcript        : ${path.relative(REPO, args.transcript)} (${lineCount} lines, ${transcript.length} chars${promptTranscript.length < transcript.length ? `, smart-truncated to ${promptTranscript.length}` : ''})`);
   console.log(`cefr range        : ${args.min}–${args.max}   vocab=${args.vocab}   sentences=${args.sentences}   lang=${args.lang}`);
-  console.log(`client cache key  : ${cacheKey.slice(0, 16)}… (browser-side only; this call cannot read it)`);
-  console.log(`http              : ${response.status}   bytes=${raw.length}   latency=${latencyMs}ms`);
-  console.log(`paid invocations  : ${guard.invocations}/${guard.maxInvocations}`);
+  console.log(`prompt candidates : ${candidates.length}`);
+  console.log(`client cache key  : ${cacheKey.slice(0, 16)}… (browser-side only)`);
+  if (!args.response) console.log(`http              : ${response.status}   bytes=${raw.length}   latency=${latencyMs}ms`);
+  console.log(`paid invocations  : ${invocationCount}`);
   console.log('');
-
   if (!response.ok) {
     rule('api responds 2xx', 'FAIL', `HTTP ${response.status}`);
     return finish(rules, args);
   }
-  rule('api responds 2xx', 'PASS', `HTTP ${response.status}`);
+  rule(args.response ? 'offline fixture loaded' : 'api responds 2xx', 'PASS', `HTTP ${response.status}`);
 
   let envelope;
   try {
@@ -321,6 +260,7 @@ ${promptTranscript}
   let result;
   try {
     result = JSON.parse(content);
+    if (!result || typeof result !== 'object' || Array.isArray(result)) throw new Error('expected an object');
   } catch {
     rule('content parses as analysis JSON', 'FAIL', 'content is not JSON');
     return finish(rules, args);
@@ -331,8 +271,8 @@ ${promptTranscript}
   // A byte-identical repeat of the recorded fixture would mean we are not
   // looking at a fresh generation for this key.
   const fixturePath = path.join(REPO, 'e2e/fixtures/ai-analysis.sample.json');
-  if (fs.existsSync(fixturePath)) {
-    const fixtureHash = await sha256Hex(fs.readFileSync(fixturePath, 'utf8').trim());
+  if (!args.response && fs.existsSync(fixturePath)) {
+    const fixtureHash = await sha256Hex(JSON.stringify(JSON.parse(fs.readFileSync(fixturePath, 'utf8'))));
     const resultHash = await sha256Hex(JSON.stringify(result));
     rule(
       'fresh generation (not the recorded fixture)',
@@ -346,6 +286,7 @@ ${promptTranscript}
   // under the wrong key must fail loudly instead of being silently skipped.
   // (Observed once: sentences came back under "word" instead of "text".)
   const schemaProblems = [];
+  if (!Array.isArray(result.vocabularySuggestions)) schemaProblems.push('vocabularySuggestions');
   if (!String(result.summaryEn ?? '').trim()) schemaProblems.push('summaryEn');
   if (args.lang === 'zh' && !String(result.summaryCn ?? '').trim()) schemaProblems.push('summaryCn');
   for (const [index, item] of (Array.isArray(result.vocabularySuggestions) ? result.vocabularySuggestions : []).entries()) {
@@ -389,42 +330,21 @@ ${promptTranscript}
 
   // ── Vocabulary ──────────────────────────────────────────────────────────
   const vocab = Array.isArray(result.vocabularySuggestions) ? result.vocabularySuggestions : [];
-  const cefr = await loadCefrModule();
-  const invented = [];
-  const outOfBand = [];
-  const outsideWindow = [];
-  const seenWords = new Set();
-  let duplicateWords = 0;
-  for (const suggestion of vocab) {
-    const word = String(suggestion?.word ?? '').trim();
-    if (!word) continue;
-    const key = word.toLowerCase();
-    if (seenWords.has(key)) duplicateWords += 1;
-    seenWords.add(key);
-    const inTranscript = new RegExp(`\\b${word.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}\\b`, 'i').test(transcript);
-    if (!inTranscript) invented.push(word);
-    else if (!new RegExp(`\\b${word.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}\\b`, 'i').test(promptTranscript)) {
-      outsideWindow.push(word);
-    }
-    if (!cefr) continue;
-    const level = cefr.classifyWordCEFR(key);
-    if (cefr.CEFR_LEVELS.indexOf(level) < cefr.CEFR_LEVELS.indexOf(args.min) || cefr.CEFR_LEVELS.indexOf(level) > cefr.CEFR_LEVELS.indexOf(args.max)) {
-      outOfBand.push(`${word}(${level})`);
-    }
-  }
-  rule('vocabulary suggestions present', vocab.length > 0 ? 'PASS' : 'FAIL', `${vocab.length} items (requested ${args.vocab})`);
-  rule('no invented vocabulary', invented.length === 0 ? 'PASS' : 'FAIL', invented.length ? `not in transcript: ${invented.join(', ')}` : `all ${vocab.length} occur in the transcript`);
+  const allowedWords = new Set(candidates.map(({ word }) => word));
+  const keys = vocab.map((item) => analysisWordKey(String(item?.word ?? '')));
+  const unexpected = keys.filter((word) => !allowedWords.has(word));
+  const duplicateWords = keys.length - new Set(keys).size;
+  rule(
+    'vocabulary count fits the request',
+    vocab.length > args.vocab ? 'FAIL' : vocab.length === 0 && candidates.length > 0 ? 'WARN' : 'PASS',
+    `${vocab.length} items (${args.vocab} requested, ${candidates.length} candidates)`,
+  );
+  rule(
+    'vocabulary matches in-band prompt candidates',
+    unexpected.length === 0 ? 'PASS' : 'FAIL',
+    unexpected.length ? `not in the candidate list: ${unexpected.join(', ')}` : `all ${vocab.length} match`,
+  );
   rule('no duplicate vocabulary', duplicateWords === 0 ? 'PASS' : 'WARN', `${duplicateWords} duplicates`);
-  if (!cefr) {
-    rule('vocabulary inside the requested CEFR band', 'WARN', 'skipped: the CEFR word list could not be bundled');
-  } else {
-    rule(
-      'vocabulary inside the requested CEFR band',
-      vocab.length === 0 || outOfBand.length <= Math.ceil(vocab.length / 2) ? 'PASS' : 'WARN',
-      outOfBand.length ? `outside ${args.min}–${args.max}: ${outOfBand.join(', ')}` : 'all classified inside the band',
-    );
-  }
-
   // ── Sentences ───────────────────────────────────────────────────────────
   const sentences = Array.isArray(result.sentenceSuggestions) ? result.sentenceSuggestions : [];
   const fabricated = [];
@@ -440,16 +360,6 @@ ${promptTranscript}
   rule('sentence suggestions present', sentences.length > 0 ? 'PASS' : 'FAIL', `${sentences.length} items (requested ${args.sentences})`);
   rule('sentences are exact quotes', fabricated.length === 0 ? 'PASS' : 'FAIL', fabricated.length ? `not found verbatim: ${fabricated.join(' | ')}` : `all ${sentences.length} match the transcript`);
   rule('no duplicate sentences', duplicateSentences === 0 ? 'PASS' : 'WARN', `${duplicateSentences} duplicates`);
-
-  if (promptTranscript.length < transcript.length) {
-    rule(
-      'suggestions stay inside the model-visible window',
-      outsideWindow.length === 0 ? 'PASS' : 'WARN',
-      outsideWindow.length
-        ? `in the video but outside the ${promptTranscript.length}-char window: ${outsideWindow.join(', ')}`
-        : 'every suggested word sits in the truncated window the model saw',
-    );
-  }
 
   // ── Translations ────────────────────────────────────────────────────────
   const missingCn = vocab.filter((v) => !String(v?.meaningCn ?? '').trim()).length
@@ -472,8 +382,8 @@ function finish(rules, args, extra = {}) {
   if (args.out && extra.result) {
     fs.writeFileSync(args.out, JSON.stringify({
       generatedAt: new Date().toISOString(),
-      base: args.base,
-      httpStatus: extra.response?.status ?? null,
+      base: args.response ? null : args.base,
+      httpStatus: args.response ? null : extra.response?.status ?? null,
       latencyMs: extra.latencyMs ?? null,
       cacheKey: extra.cacheKey ?? null,
       rules,

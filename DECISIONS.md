@@ -219,9 +219,9 @@ Once the active goal, root cause, and acceptance criteria are sufficiently speci
 - Date: 2026-09-04
 - Status: SUPERSEDED
 - Decision: Historical gate only. Local native-caption success did not equal production success, and fixed or cached controls did not prove fresh acquisition. Its former **NO VPS** recommendation and no-VPS next path are superseded by the later accepted Option B non-ASR architecture; the browser fallback remains unintegrated unless separately authorized and gated. The original two-window measurement criteria remain historical evidence, not current scope.
-- Rationale: Avoid overreacting to one hard-video or transient window and avoid infrastructure churn while preserving a measurable escalation path. See the ECHO-20260904-2235 and ECHO-20260904-2325 entries in `PROGRESS.md` and `TEST_REPORT.md` for the bounded matrices and evidence boundaries.
+- Rationale: Avoid overreacting to one hard-video or transient window and avoid infrastructure churn while preserving a measurable escalation path. See the [first native window](docs/archive/caption-reliability-2026-09-04-to-07-evidence.md#2026-09-04-echo-20260904-2235---fresh-native-controls-and-bounded-production-observation) and [second native window](docs/archive/caption-reliability-2026-09-04-to-07-evidence.md#echo-20260904-2325-second-fresh-native-window-and-unblocked-production-path-observation) for the bounded matrices and their evidence boundaries.
 - Supersedes: None recorded.
-- Superseded by: Accepted Option B non-ASR architecture recorded in `PROGRESS.md` and `TEST_REPORT.md` under the 2026-09-07 entries.
+- Superseded by: Accepted Option B non-ASR architecture. See the [implementation record](docs/archive/caption-reliability-2026-09-04-to-07-progress.md#2026-09-07---option-b-implemented-worker-demoted-from-the-youtube-caption-hot-path) and the [September 7 evidence reconciliation](docs/archive/caption-reliability-2026-09-04-to-07-evidence.md#historical-2026-09-07---post-architecture-consolidation-reconciliation).
 
 ## D-013 - Caption Diagnostics V1 stays privacy-safe and browser-local
 

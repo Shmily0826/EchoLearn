@@ -15,7 +15,7 @@
  *   C2 – Mastery (rare, archaic, highly specialised vocabulary)
  */
 
-import { lemmatize } from '../utils/lemmatizer';
+import { lemmatize } from '../utils/lemmatizer.ts';
 
 export type CEFRLevel = 'A1' | 'A2' | 'B1' | 'B2' | 'C1' | 'C2';
 
@@ -273,7 +273,7 @@ const B1_WORDS = new Set([
   'admit', 'adopt', 'advance', 'advantage', 'adventure', 'advice', 'advise',
   'affair', 'affect', 'afford', 'agency', 'agenda', 'alike', 'alive', 'ancient',
   'annoy', 'anxiety', 'anxious', 'apart', 'apologise', 'apparent', 'appeal',
-  'apply', 'appreciate', 'approach', 'appropriate', 'approve', 'argue', 'arise',
+  'apply', 'appreciate', 'approach', 'appropriate', 'approve', 'argue', 'arise', 'arrange',
   'aspect', 'assess', 'assist', 'assume', 'assure', 'attach', 'attack', 'attract',
   'audience', 'author', 'automatic', 'available', 'avoid', 'aware', 'awful',
   'backbone', 'background', 'balance', 'ban', 'barrier', 'basis', 'behalf',
@@ -546,6 +546,15 @@ const C2_WORDS = new Set([
 
 // ── Classification function ─────────────────────────────────
 
+function listedWordLevel(word: string): CEFRLevel | undefined {
+  if (A1_WORDS.has(word)) return 'A1';
+  if (A2_WORDS.has(word)) return 'A2';
+  if (B1_WORDS.has(word)) return 'B1';
+  if (B2_WORDS.has(word)) return 'B2';
+  if (C1_WORDS.has(word)) return 'C1';
+  if (C2_WORDS.has(word)) return 'C2';
+}
+
 /**
  * Estimate the CEFR level of a word based on local word lists and heuristics.
  *
@@ -556,12 +565,8 @@ const C2_WORDS = new Set([
 export function classifyWordCEFR(word: string): CEFRLevel {
   const lower = word.toLowerCase().replace(/[^a-z]/g, '');
 
-  if (A1_WORDS.has(lower)) return 'A1';
-  if (A2_WORDS.has(lower)) return 'A2';
-  if (B1_WORDS.has(lower)) return 'B1';
-  if (B2_WORDS.has(lower)) return 'B2';
-  if (C1_WORDS.has(lower)) return 'C1';
-  if (C2_WORDS.has(lower)) return 'C2';
+  const listed = listedWordLevel(lower);
+  if (listed) return listed;
 
   // Heuristic classification for unknown words
   const len = lower.length;
@@ -577,6 +582,36 @@ export function classifyWordCEFR(word: string): CEFRLevel {
   return 'B1'; // Default to B1 for unknown words
 }
 
+function resolveCandidate(spelling: string): { word: string; level: CEFRLevel } | undefined {
+  if (spelling.length < 3) return;
+  const surfaceLevel = listedWordLevel(spelling);
+  if (surfaceLevel) return { word: spelling, level: surfaceLevel };
+
+  const guesses = new Set([lemmatize(spelling)]);
+  if (spelling.endsWith('ed')) guesses.add(spelling.slice(0, -1)).add(spelling.slice(0, -2));
+  if (spelling.endsWith('ing')) guesses.add(spelling.slice(0, -3) + 'e');
+  if (spelling.endsWith('ves')) {
+    const stem = spelling.slice(0, -3);
+    guesses.add(spelling.slice(0, -1)).add(stem + 'f').add(stem + 'fe');
+  }
+
+  // shortcut: without sentence-level word senses, keep ambiguous spellings
+  // and use the hardest attested reading as a conservative CEFR estimate.
+  let candidate: { word: string; level: CEFRLevel } | undefined;
+  for (const guess of guesses) {
+    if (guess.length < 3) continue;
+    const level = listedWordLevel(guess);
+    if (!level) continue;
+    if (!candidate) {
+      candidate = { word: guess, level };
+    } else {
+      candidate.word = spelling;
+      if (CEFR_LEVELS.indexOf(level) > CEFR_LEVELS.indexOf(candidate.level)) candidate.level = level;
+    }
+  }
+  return candidate;
+}
+
 /**
  * Filter words from text that fall within the given CEFR level range.
  * Returns unique words with their estimated level and context sentence.
@@ -589,33 +624,24 @@ export function extractWordsByLevel(
   const minIdx = CEFR_LEVELS.indexOf(minLevel);
   const maxIdx = CEFR_LEVELS.indexOf(maxLevel);
 
-  // Extract all words
-  const raw = text.match(/\b[a-zA-Z']+\b/g) || [];
   const seen = new Set<string>();
-  const sentences = text.split(/(?<=[.!?])\s+/);
-
   const results: Array<{ word: string; level: CEFRLevel; context: string }> = [];
 
-  for (const w of raw) {
-    const lower = w.toLowerCase();
-    const lemma = lemmatize(lower);
-    if (lemma.length < 3 || seen.has(lemma)) continue;
-    seen.add(lemma);
+  for (const sentence of text.split(/(?<=[.!?])\s+/)) {
+    const context = sentence.trim();
+    for (const match of context.matchAll(/\b[a-z]+(?:['’][a-z]+)*\b/gi)) {
+      const candidate = resolveCandidate(match[0].toLowerCase().replaceAll('’', "'"));
+      if (!candidate || seen.has(candidate.word)) continue;
+      seen.add(candidate.word);
+      const levelIdx = CEFR_LEVELS.indexOf(candidate.level);
+      if (levelIdx < minIdx || levelIdx > maxIdx) continue;
 
-    const level = classifyWordCEFR(lemma);
-    const levelIdx = CEFR_LEVELS.indexOf(level);
-
-    if (levelIdx >= minIdx && levelIdx <= maxIdx) {
-      // Find the sentence containing this word
-      const ctx = sentences.find((s) => s.toLowerCase().includes(lower)) || text.slice(0, 120);
-      const cleanCtx = ctx.trim();
-      results.push({
-        word: lemma,
-        level,
-        context: cleanCtx.endsWith('.') || cleanCtx.endsWith('!') || cleanCtx.endsWith('?')
-          ? cleanCtx
-          : cleanCtx + '.',
-      });
+      // Unpunctuated captions can form one huge sentence. Keep an excerpt
+      // around the actual subtitle token so the prompt and card both show it.
+      const start = Math.max(0, match.index - 50);
+      const end = match.index + match[0].length + 90;
+      const excerpt = context.length <= 150 ? context : context.slice(start, end).trim();
+      results.push({ ...candidate, context: excerpt });
     }
   }
 

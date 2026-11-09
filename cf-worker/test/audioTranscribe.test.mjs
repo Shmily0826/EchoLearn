@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import worker from '../src/index.js';
+import worker from '../src/worker.js';
 
 // /api/audio-transcribe is a paid route, so it goes through the daily quota
 // gate. That gate fails closed when the binding is missing, meaning an env

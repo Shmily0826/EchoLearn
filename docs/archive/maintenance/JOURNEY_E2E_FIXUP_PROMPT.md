@@ -1,5 +1,8 @@
 # 交接 Prompt：修正两个 journey E2E，并把 seek 与 RESTORE-CLOCK 覆盖补上
 
+> Historical test brief. Use the [current testing guide](../../TESTING.md) for commands and scope.
+
+
 整份文档自包含，可以直接复制给执行 agent。不需要本仓库之外的任何上下文。
 
 ---

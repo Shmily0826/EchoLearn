@@ -21,7 +21,7 @@ import { openSignedInApp } from './helpers/sessionFixture';
  * below therefore emit `data:` frames, not a single JSON envelope.
  */
 
-const SAMPLE_ANALYSIS = JSON.parse(
+const RECORDED_ANALYSIS = JSON.parse(
   fs.readFileSync(path.resolve(process.cwd(), 'e2e/fixtures/ai-analysis.sample.json'), 'utf8'),
 ) as {
   summaryEn: string;
@@ -29,6 +29,16 @@ const SAMPLE_ANALYSIS = JSON.parse(
   keyTakeaways: string[];
   vocabularySuggestions: Array<{ word: string; context: string; meaningCn: string; reason: string }>;
   sentenceSuggestions: Array<{ text: string; meaningCn: string; reason: string; grammarNotes?: string }>;
+};
+
+// Keep the recorded summary and sentences. Use candidates from the current
+// CEFR list for the simulated response because the old response predates it.
+const SAMPLE_ANALYSIS = {
+  ...RECORDED_ANALYSIS,
+  vocabularySuggestions: [
+    { word: 'hierarchy', context: 'Every education system on earth has the same hierarchy of subjects.', meaningCn: '等级体系', reason: 'Describes the ordering of subjects.' },
+    { word: 'capacity', context: 'Our only hope for the future is to adopt a new conception of human capacity.', meaningCn: '能力', reason: 'Describes human potential.' },
+  ],
 };
 
 /** The fallback path is taken when the live call fails; these are its tells. */
@@ -219,6 +229,42 @@ test.describe('AI Analyze (authenticated)', () => {
     expect(prompt, 'the transcript did not reach the prompt').toContain('Good morning');
     expect(prompt, 'the selected CEFR minimum did not reach the prompt').toContain('B2');
     expect(prompt, 'the selected CEFR maximum did not reach the prompt').toContain('C1');
+    expect(prompt).toContain('hierarchy | C1 |');
+  });
+
+  test('restores older saved analysis and filters vocabulary when re-analyzing', async ({ context, page }) => {
+    const captured: CapturedRequest[] = [];
+    const invalid = { ...SAMPLE_ANALYSIS.vocabularySuggestions[1], word: 'capacit' };
+    await bootSignedIn(page, context);
+    await installApiRoutes(page, {
+      ai: [{ status: 200, body: sseBody(JSON.stringify({
+        ...SAMPLE_ANALYSIS,
+        vocabularySuggestions: [invalid, ...SAMPLE_ANALYSIS.vocabularySuggestions],
+      })) }],
+      captured,
+    });
+    const transcript = JSON.parse(fs.readFileSync(path.resolve(process.cwd(), 'src/data/sample-transcript.json'), 'utf8'));
+    await page.evaluate(({ transcriptLines, analysis }) => {
+      localStorage.setItem('echolearn_session', JSON.stringify({
+        id: 'legacy-lesson',
+        youtubeId: 'iG9CE55wbtY',
+        youtubeUrl: 'https://www.youtube.com/watch?v=iG9CE55wbtY',
+        title: 'Saved lesson',
+        status: 'studying',
+        createdAt: Date.now(),
+        updatedAt: Date.now(),
+        transcriptLines,
+        aiAnalysis: { ...analysis, learningTasks: [] },
+      }));
+    }, { transcriptLines: transcript, analysis: { ...RECORDED_ANALYSIS, vocabularySuggestions: [invalid] } });
+
+    await reachStudy(page);
+    await expect(vocabCard(page, 'capacit')).toBeVisible();
+    expect(captured).toHaveLength(0);
+    await analyzeButton(page).click();
+    await expect(vocabCard(page, 'capacity')).toBeVisible();
+    await expect(vocabCard(page, 'capacit')).toHaveCount(0);
+    expect(captured).toHaveLength(1);
   });
 
   test('each suggested sentence carries the moment it came from', async ({ context, page }) => {

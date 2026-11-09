@@ -15,7 +15,13 @@ import { enterGuestMode } from './helpers/guestMode';
 
 test('sample video study → save word → vocabulary and dashboard update', async ({
   page,
+  baseURL,
 }) => {
+  await page.route('**/*', (route) => {
+    const url = new URL(route.request().url());
+    if (url.origin !== baseURL || /^\/(api|yt-proxy)\//.test(url.pathname)) return route.abort();
+    return route.continue();
+  });
   // Keep the save flow deterministic while preserving the real popup,
   // storage mutation, and Dashboard event/update path under test.
   await page.route('**/api/dictionary*', async (route) => {

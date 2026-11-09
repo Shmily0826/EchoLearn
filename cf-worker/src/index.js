@@ -422,8 +422,8 @@ async function hasDailyQuota(env, bucket, limit) {
   // quota", and should not look permanent to the client.
   //
   // Fails closed. The only caller is paidRouteGuard, whose buckets are
-  // asr:uid: / asr:guest: — this gate guards explicitly paid ASR only and
-  // never the free caption path. So when KV is unreachable the cost of
+  // asr:uid: / asr:guest: — this gate guards ASR and uncached audio requests,
+  // never free captions or cached audio. So when KV is unreachable the cost of
   // refusing is a degraded premium feature; the cost of allowing is that a
   // storage outage becomes an unbounded ASR bill. Refuse.
   //
@@ -552,11 +552,8 @@ export default {
 
     const url = new URL(request.url);
 
-    // Paid routes (VPS yt-dlp/ffmpeg + Groq Whisper) require identity/quota.
-    // Media elements cannot send headers, so /api/audio always takes the
-    // guest path; everything else is gated per-request below.
+    // Gate ASR here. Audio playback checks quota on a cache miss instead.
     const isPaidRoute =
-      url.pathname === '/api/audio' ||
       url.pathname === '/api/audio-transcribe' ||
       ((url.pathname === '/api/transcript' || url.pathname === '/api/bilibili') &&
         url.searchParams.get('allowAsr') === '1');
@@ -1086,6 +1083,7 @@ async function fetchViaVpsAsr(
 // Bump AUDIO_CACHE_VER whenever the audio codec/bitrate changes so stale
 // edge-cached variants are never served (e.g. the 128k-stereo → 64k-mono cut).
 const AUDIO_CACHE_VER = '3';
+const audioLoads = new Map();
 
 const LOCAL_AUDIO_MAX_BYTES = 25 * 1024 * 1024;
 const LOCAL_AUDIO_TYPES = {
@@ -1157,11 +1155,6 @@ async function handleAudio(request, env) {
     return jsonResponse({ error: 'Missing url parameter' }, 400);
   }
 
-  const base = env.YTDLP_API_URL.replace(/\/+$/, '');
-  const vpsUrl = `${base}/api/audio?url=${encodeURIComponent(target)}`;
-  const fwd = {};
-  if (env.YTDLP_API_KEY) fwd['X-Api-Key'] = env.YTDLP_API_KEY;
-
   // ── Edge cache (Cloudflare Cache API) ─────────────────────────────
   // Caches the extracted mp3 at the edge so a SECOND user / different device
   // gets it instantly without re-extracting on the VPS. The key is pinned to
@@ -1173,87 +1166,43 @@ async function handleAudio(request, env) {
   cacheKeyUrl.searchParams.set('ec_ver', AUDIO_CACHE_VER);
   const cacheKey = new Request(cacheKeyUrl.toString());
 
-  let buf = null;
-  let originHeaders = null;
-  let status = 200;
-  let statusText = 'OK';
-
-  let cached = null;
-  try {
-    cached = await cache.match(cacheKey);
-  } catch (_) {
-    /* cache unavailable — fall through to origin */
-  }
-  if (cached) {
-    buf = await cached.arrayBuffer();
-    originHeaders = cached.headers;
-    status = cached.status;
-    statusText = cached.statusText;
-  } else {
-    try {
-      // First request triggers a download + transcode on the VPS; Bilibili routes
-      // through a flaky proxy and may take up to ~1–2 min. The VPS bounds its own
-      // work to fit under this window, so stream the result straight through.
-      const resp = await fetchWithTimeout(vpsUrl, { headers: fwd }, 240000);
-      if (!resp.ok) {
-        const detail = await resp.text().catch(() => '');
-        return jsonResponse(
-          {
-            error: `Audio extraction failed (VPS ${resp.status})`,
-            detail: detail.slice(0, 300),
-          },
-          resp.status === 404 ? 404 : 502,
-        );
-      }
-      // Read the body ONCE into a buffer so BOTH the cached response and the
-      // returned (possibly range-sliced) response are built from it. Using
-      // resp.clone() + resp.body shares one stream → cache drains it → 0-byte.
-      buf = await resp.arrayBuffer();
-      originHeaders = resp.headers;
-      status = resp.status;
-      statusText = resp.statusText;
-      const ct = resp.headers.get('content-type') || '';
-      // Only cache real, successful, non-empty audio.
-      if (ct.includes('audio') && buf.byteLength > 0) {
-        try {
-          await cache.put(
-            cacheKey,
-            new Response(buf, {
-              status,
-              statusText,
-              headers: new Headers(resp.headers),
-            }),
-          );
-        } catch (_) {
-          /* cache put failed — still return the audio */
-        }
-      }
-    } catch (err) {
-      return jsonResponse({ error: `Audio request failed: ${err.message}` }, 502);
+  let audio;
+  let coalesced = false;
+  while (!audio) {
+    const pending = audioLoads.get(cacheKey.url);
+    if (pending) {
+      const result = await pending;
+      // A quota or auth denial only applies to the caller that led this load.
+      if (result.denied) continue;
+      audio = result;
+      coalesced = true;
+    } else {
+      const load = loadAudio(request, env, cache, cacheKey, target)
+        .finally(() => audioLoads.delete(cacheKey.url));
+      audioLoads.set(cacheKey.url, load);
+      audio = await load;
     }
   }
+  if (audio.error) return jsonResponse(audio.error, audio.status);
 
-  if (!buf || buf.byteLength === 0) {
+  const { buf, contentType, status, statusText, cacheStatus } = audio;
+  const total = buf.byteLength;
+  if (total === 0) {
     return jsonResponse({ error: 'Audio extraction returned empty body' }, 502);
   }
 
-  const total = buf.byteLength;
-  const ct = originHeaders?.get('content-type') || 'audio/mpeg';
-
-  // Honour Range requests — iOS/Android Safari REQUIRE a 206 + Accept-Ranges
-  // for <audio>/<video>, otherwise they refuse to load the media ("failed").
   const out = new Headers();
-  out.set('Content-Type', ct);
+  out.set('Content-Type', contentType || 'audio/mpeg');
   out.set('Accept-Ranges', 'bytes');
   out.set('Cache-Control', 'no-transform');
-  out.set('X-Cache', cached ? 'HIT' : 'MISS');
+  out.set('X-Cache', coalesced && cacheStatus === 'MISS' ? 'COALESCED' : cacheStatus);
 
   const range = request.headers.get('Range');
-  const m = range && range.match(/bytes=(\d*)-(\d*)/);
-  if (m && total > 0) {
-    const start = m[1] ? parseInt(m[1], 10) : 0;
-    const end = m[2] ? parseInt(m[2], 10) : total - 1;
-    if (Number.isNaN(start) || Number.isNaN(end) || start > end || end >= total) {
+  const m = range?.match(/^bytes=(\d*)-(\d*)$/i);
+  if (m && (m[1] || m[2])) {
+    const start = m[1] ? Number(m[1]) : Math.max(0, total - Number(m[2]));
+    const end = m[1] && m[2] ? Math.min(Number(m[2]), total - 1) : total - 1;
+    if (start > end) {
       out.set('Content-Range', `bytes */${total}`);
       return new Response(null, { status: 416, headers: out });
     }
@@ -1265,6 +1214,57 @@ async function handleAudio(request, env) {
 
   out.set('Content-Length', String(total));
   return new Response(buf, { status, statusText, headers: out });
+}
+
+// Share buffered audio and plain metadata within this isolate. Each request
+// builds its own response and slices the bytes for its own Range header.
+async function loadAudio(request, env, cache, cacheKey, target) {
+  let cached = null;
+  try {
+    cached = await cache.match(cacheKey);
+  } catch (_) {
+    /* cache unavailable — fall through to origin */
+  }
+  if (cached) {
+    return {
+      buf: await cached.arrayBuffer(),
+      contentType: cached.headers.get('Content-Type'),
+      status: cached.status,
+      statusText: cached.statusText,
+      cacheStatus: 'HIT',
+    };
+  }
+
+  const rejection = await paidRouteGuard(request, env);
+  if (rejection) return { denied: true, status: rejection.status, error: await rejection.json() };
+  const base = env.YTDLP_API_URL.replace(/\/+$/, '');
+  const vpsUrl = `${base}/api/audio?url=${encodeURIComponent(target)}`;
+  const headers = {};
+  if (env.YTDLP_API_KEY) headers['X-Api-Key'] = env.YTDLP_API_KEY;
+  try {
+    const resp = await fetchWithTimeout(vpsUrl, { headers }, 240000);
+    if (!resp.ok) {
+      const detail = await resp.text().catch(() => '');
+      return {
+        status: resp.status === 404 ? 404 : 502,
+        error: { error: `Audio extraction failed (VPS ${resp.status})`, detail: detail.slice(0, 300) },
+      };
+    }
+    // Buffer once for both the complete cache entry and individual ranges.
+    const buf = await resp.arrayBuffer();
+    const { status, statusText } = resp;
+    const contentType = resp.headers.get('Content-Type');
+    if (contentType?.includes('audio') && buf.byteLength > 0) {
+      try {
+        await cache.put(cacheKey, new Response(buf, { status, statusText, headers: resp.headers }));
+      } catch (_) {
+        /* cache put failed — still return the audio */
+      }
+    }
+    return { buf, contentType, status, statusText, cacheStatus: 'MISS' };
+  } catch (err) {
+    return { status: 502, error: { error: `Audio request failed: ${err.message}` } };
+  }
 }
 
 // ── InnerTube player API strategy (multi-client) ─────────────
@@ -2486,9 +2486,8 @@ async function fetchViaYtDlp(videoId, lang, env, log, targetUrl = null, traceId 
   }
 }
 
-// Narrow named exports keep the Worker runtime contract unchanged while
-// allowing deterministic unit tests to exercise the deadline primitives and
-// request handler without a deployed Worker.
+// Named exports for deterministic tests. Wrangler uses worker.js, which
+// exposes only the default request handler.
 export {
   TRANSCRIPT_CACHE_HEADER,
   CAPTION_BUDGET_HEADER,

@@ -7,6 +7,7 @@ import { extractWordsByLevel, type CEFRLevel } from './cefrWordList';
 import { t, type Lang } from '../i18n/translations';
 import { checkAiRateLimit, rateLimitWaitSeconds } from './aiRateLimit';
 import { aiEndpointError } from './aiEndpointError';
+import { ANALYSIS_MODEL, analysisCacheKey, analysisWordKey, buildAnalysisRequest } from './aiAnalysisRequest';
 import { doc, getDoc, setDoc, serverTimestamp } from 'firebase/firestore';
 import { aiAuthHeaders } from './apiAuth';
 import { auth, db } from '../lib/firebase';
@@ -30,34 +31,8 @@ export function isLocalNoTranslation(value: string | undefined | null): boolean 
 
 /** Requests go through the server-side proxy at /api/ai (API key stays server-side). */
 const DEEPSEEK_ENDPOINT = '/api/ai';
-// DeepSeek-V4-Flash-0731; disable thinking for routine structured analysis.
-const DEEPSEEK_MODEL = 'deepseek-v4-flash';
 
-/** Max characters of transcript to send (keeps tokens reasonable). */
-const MAX_TRANSCRIPT_CHARS = 12000;
-
-// ── Helpers ────────────────────────────────────────────────────
-
-/**
- * Smart truncation: sample evenly from beginning, middle, and end
- * so the AI sees content from across the entire video, not just the start.
- */
-function smartTruncate(text: string, max = MAX_TRANSCRIPT_CHARS): string {
-  if (text.length <= max) return text;
-  const third = Math.floor(max / 3);
-  const head = text.slice(0, third);
-  const midStart = Math.floor((text.length - third) / 2);
-  const mid = text.slice(midStart, midStart + third);
-  const tail = text.slice(text.length - third);
-  return head + '\n...[middle]...\n' + mid + '\n...[later]...\n' + tail;
-}
-
-// ── AI result cache (Firestore, shared across users) ──────────
-//
-// Popular videos get analyzed by many users. Caching the DeepSeek result
-// keyed by a hash of (levels + lang + counts + transcript) means only the
-// FIRST user pays for the AI call; everyone else reads the cached result.
-// This cuts the dominant cost of running EchoLearn at scale.
+// ── AI result cache (Firestore, per verified user) ───────────
 //
 // Trust boundary (ECHO_AUTH_DATA_AND_AI_CACHE_SAFETY_V1):
 // - Reads and writes both use `aiCache/{writerUid}/analyses/{key}`. A client can
@@ -78,14 +53,6 @@ function smartTruncate(text: string, max = MAX_TRANSCRIPT_CHARS): string {
 
 const AI_CACHE_COLLECTION = 'aiCache';
 const AI_CACHE_TTL_MS = 1000 * 60 * 60 * 24 * 30; // 30 days
-
-async function sha256Hex(input: string): Promise<string> {
-  const data = new TextEncoder().encode(input);
-  const buf = await crypto.subtle.digest('SHA-256', data);
-  return Array.from(new Uint8Array(buf))
-    .map((b) => b.toString(16).padStart(2, '0'))
-    .join('');
-}
 
 /** The signed-in, email-verified uid allowed to write cache docs, if any. */
 function cacheWriterUid(): string | null {
@@ -131,81 +98,6 @@ export async function setCachedAnalysis(cacheKey: string, result: AIAnalysisResu
   }
 }
 
-// ── System prompt ─────────────────────────────────────────────
-
-function buildSystemPrompt(): string {
-  return `You are an expert English-language learning assistant with deep knowledge of CEFR proficiency levels.
-Your job is to analyze YouTube video transcripts and produce structured learning materials for a Chinese-speaking English learner.
-
-Rules:
-1. All Chinese translations (meaningCn) must be natural, accurate, and concise.
-2. Vocabulary words must be actual words found in the transcript — never invent words.
-3. Sentences must be exact quotes from the transcript — never fabricate.
-4. Always respond with valid JSON only — no markdown fences, no explanation outside JSON.
-
-CEFR Level Calibration — follow strictly:
-- A1: Basic function words, greetings, numbers (the, is, have, go, good, big)
-- A2: Common everyday words, basic verbs (beautiful, remember, important, decide, kitchen)
-- B1: Less common words, some abstract concepts, phrasal verbs (struggle, overcome, eventually, rely on, meanwhile)
-- B2: Academic, professional, nuanced vocabulary (substantial, controversy, implement, perceive, inevitable)
-- C1: Sophisticated, formal, literary vocabulary (ubiquitous, juxtaposition, pragmatic, exacerbate)
-- C2: Rare, archaic, highly specialised vocabulary (esoteric, obfuscate, paradigmatic)`;
-}
-
-function buildUserPrompt(
-  transcript: string,
-  minLevel: CEFRLevel,
-  maxLevel: CEFRLevel,
-  vocabCount: number,
-  sentenceCount: number,
-  lang: 'en' | 'zh' = 'zh',
-  candidates?: Array<{ word: string; level: CEFRLevel; context: string }>,
-): string {
-  const grammarInstruction = lang === 'zh'
-    ? '用中文简要解析该句的语法结构、重点短语或表达技巧（2-3句话）'
-    : 'Briefly analyze the grammar structure, key phrases, or expression techniques of this sentence in English (2-3 sentences)';
-
-  const grammarFieldDesc = lang === 'zh'
-    ? '用中文写语法解析'
-    : 'write grammar analysis in English';
-
-  // Two-stage: when candidates exist, vocab section references them directly (saves tokens)
-  const vocabSection = candidates && candidates.length > 0
-    ? `- "vocabularySuggestions": Pick the best ${vocabCount} words from the CANDIDATE LIST below.
-  For each: "word" = lemma as given, "context" = sentence from candidate (or better one from transcript), "meaningCn" = precise translation, "reason" = why worth learning.
-  **Distribute EVENLY across ${minLevel}–${maxLevel}** — do NOT cluster at the highest level.
-  You may add 1-2 words NOT in the list if you spot important ones missed locally.
-  If fewer than ${vocabCount} candidates exist, return all and set "note".
-
-  CANDIDATE LIST (word | level | context):
-${candidates.slice(0, 40).map((c) => `  ${c.word} | ${c.level} | "${c.context.slice(0, 90)}"`).join('\n')}`
-    : `- "vocabularySuggestions": up to ${vocabCount} words at CEFR ${minLevel}–${maxLevel} from the transcript.
-  Each: lemma + context + meaningCn + reason. Distribute EVENLY across levels.`;
-
-  return `Analyze this English video transcript for a ${lang === 'zh' ? 'Chinese-speaking' : 'non-native'} English learner.
-
-Return JSON:
-{
-  "summaryEn": "2-3 sentence summary",
-${lang === 'zh' ? '  "summaryCn": "2-3句中文摘要",\n' : ''}  "keyTakeaways": ["point1", "point2", "point3"],
-  "vocabularySuggestions": [{"word":"","context":"","meaningCn":"","reason":""}],
-  "sentenceSuggestions": [{"text":"","meaningCn":"","reason":"","grammarNotes":""}],
-  "note": "optional"
-}
-
-Requirements:
-${vocabSection}
-- "sentenceSuggestions": exactly ${sentenceCount} exact quotes with useful grammar/expressions.
-  "grammarNotes": ${grammarInstruction}. ${grammarFieldDesc}. Pick from different parts.
-- "keyTakeaways": exactly 3 points in English.
-- "note": omit unless fewer words than requested.
-
-Transcript:
----
-${transcript}
----`;
-}
-
 // ── DeepSeek API call (with SSE streaming) ───────────────────
 
 async function callDeepSeek(
@@ -217,12 +109,10 @@ async function callDeepSeek(
   onChunk?: (chunk: string) => void,
   lang: 'en' | 'zh' = 'zh',
 ): Promise<AIAnalysisResult> {
-  // Stage 1: local CEFR extraction (free, no API tokens)
-  const candidates = extractWordsByLevel(transcriptText, minLevel, maxLevel);
-
-  // Stage 2: smart-truncate transcript (for summary + sentences context)
-  const transcript = smartTruncate(transcriptText);
   const useStreaming = !!onChunk;
+  const { body, candidates } = buildAnalysisRequest(
+    transcriptText, minLevel, maxLevel, vocabCount, sentenceCount, lang, useStreaming,
+  );
 
   const response = await fetch(DEEPSEEK_ENDPOINT, {
     method: 'POST',
@@ -230,21 +120,7 @@ async function callDeepSeek(
       'Content-Type': 'application/json',
       ...(await aiAuthHeaders()),
     },
-    body: JSON.stringify({
-      model: DEEPSEEK_MODEL,
-      thinking: { type: 'disabled' },
-      messages: [
-        { role: 'system', content: buildSystemPrompt() },
-        {
-          role: 'user',
-          content: buildUserPrompt(transcript, minLevel, maxLevel, vocabCount, sentenceCount, lang, candidates),
-        },
-      ],
-      temperature: 0.4,
-      response_format: { type: 'json_object' },
-      max_tokens: 4096,
-      stream: useStreaming,
-    }),
+    body: JSON.stringify(body),
   });
 
   if (!response.ok) {
@@ -329,7 +205,7 @@ async function callDeepSeek(
   // wrapped in markdown code fences, followed by trailing prose, or containing
   // unescaped control characters inside string values. We recover from all.
   const parsed = parseJsonLenient(content);
-  return validateResult(parsed);
+  return validateResult(parsed, candidates, vocabCount);
 }
 
 /**
@@ -443,21 +319,6 @@ function sanitizeControlCharsInJsonStrings(input: string): string {
   return out;
 }
 
-/** Strip surrounding quotes/apostrophes and trim a word. */
-function cleanWord(w: string): string {
-  let s = String(w).trim();
-  // Strip matched surrounding quotes: 'word', "word", "word", 'word'
-  while (s.length >= 2 && (
-    (s[0] === "'" && s[s.length - 1] === "'") ||
-    (s[0] === '"' && s[s.length - 1] === '"') ||
-    (s[0] === '\u2018' && s[s.length - 1] === '\u2019') ||
-    (s[0] === '\u201C' && s[s.length - 1] === '\u201D')
-  )) {
-    s = s.slice(1, -1).trim();
-  }
-  return s;
-}
-
 /** Trim and strip outer quotes from sentence text. */
 function cleanSentence(s: string): string {
   let t = String(s).trim();
@@ -472,24 +333,34 @@ function cleanSentence(s: string): string {
 }
 
 /** Validate and map raw JSON to AIAnalysisResult. */
-function validateResult(parsed: Record<string, unknown>): AIAnalysisResult {
+function validateResult(
+  parsed: Record<string, unknown>,
+  candidates: ReturnType<typeof extractWordsByLevel>,
+  vocabCount: number,
+): AIAnalysisResult {
+  const byWord = new Map(candidates.map(({ word, context }) => [word, context]));
+  const vocabularySuggestions: VocabularySuggestion[] = [];
+  for (const suggestion of Array.isArray(parsed.vocabularySuggestions) ? parsed.vocabularySuggestions : []) {
+    if (vocabularySuggestions.length >= vocabCount) break;
+    if (typeof suggestion?.word !== 'string') continue;
+    const word = analysisWordKey(suggestion.word);
+    const context = byWord.get(word);
+    if (context === undefined) continue;
+    byWord.delete(word);
+    vocabularySuggestions.push({
+      word,
+      context,
+      meaningCn: String(suggestion.meaningCn ?? ''),
+      reason: String(suggestion.reason ?? ''),
+    });
+  }
   return {
     summaryEn: String(parsed.summaryEn ?? ''),
     summaryCn: String(parsed.summaryCn ?? ''),
     keyTakeaways: Array.isArray(parsed.keyTakeaways)
       ? (parsed.keyTakeaways as string[]).map(String)
       : [],
-    vocabularySuggestions: Array.isArray(parsed.vocabularySuggestions)
-      ? (parsed.vocabularySuggestions as VocabularySuggestion[])
-          .filter((v) => v.word && v.context)
-          .map((v) => ({
-            word: cleanWord(v.word),
-            context: cleanSentence(v.context),
-            meaningCn: String(v.meaningCn ?? ''),
-            reason: String(v.reason ?? ''),
-          }))
-          .filter((v) => v.word.length > 0)
-      : [],
+    vocabularySuggestions,
     sentenceSuggestions: Array.isArray(parsed.sentenceSuggestions)
       ? (parsed.sentenceSuggestions as SentenceSuggestion[])
           .filter((s) => s.text)
@@ -590,15 +461,11 @@ export async function analyzeTranscript(
   vocabCount = Math.max(1, Math.min(vocabCount, 30));
   sentenceCount = Math.max(1, Math.min(sentenceCount, 20));
 
-  // ── Shared result cache ───────────────────────────────────
-  // Hash the inputs so identical (video/transcript + settings) analyses
-  // share one cached DeepSeek result across all users.
+  // Reuse this learner's result for the same transcript and settings.
   let cacheKey: string | undefined;
   let cached: AIAnalysisResult | null = null;
   try {
-    cacheKey = await sha256Hex(
-      `${minLevel}|${maxLevel}|${lang}|${vocabCount}|${sentenceCount}|${transcriptText}`,
-    );
+    cacheKey = await analysisCacheKey(transcriptText, minLevel, maxLevel, vocabCount, sentenceCount, lang);
     cached = await getCachedAnalysis(cacheKey);
   } catch {
     // cache read failed → fall through to live call
@@ -620,7 +487,7 @@ export async function analyzeTranscript(
 
   try {
     const result = await callDeepSeek(transcriptText, minLevel, maxLevel, vocabCount, sentenceCount, onChunk, lang);
-    // Store successful DeepSeek result for future users (best-effort).
+    // Store the validated result for the same learner (best-effort).
     if (cacheKey) void setCachedAnalysis(cacheKey, result);
     return result;
   } catch (err) {
@@ -629,6 +496,6 @@ export async function analyzeTranscript(
     const fallback = localFallback(transcriptText, minLevel, maxLevel, vocabCount, sentenceCount, lang);
     // Retain a short diagnostic for internal troubleshooting while the UI
     // presents a safe, localized fallback message to the learner.
-    return { ...fallback, error: `[${DEEPSEEK_MODEL}] ${msg.slice(0, 460)}` };
+    return { ...fallback, error: `[${ANALYSIS_MODEL}] ${msg.slice(0, 460)}` };
   }
 }

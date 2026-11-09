@@ -9,8 +9,8 @@ import { enterGuestMode } from './helpers/guestMode';
  * the hardcoded Chinese literals that previously shipped ("来源：", "YouTube 官方字幕",
  * "加载中…", "视频仍在准备中").
  *
- * Network is mocked: the local proxy is aborted so we reach the same-origin
- * /api/transcript path, which we fulfill with a YouTube source payload.
+ * External requests are blocked so the test exercises a mocked same-origin
+ * /api/transcript response with a YouTube source payload.
  */
 
 const SAMPLE_VIDEO_URL = 'https://www.youtube.com/watch?v=dQw4w9WgXcQ';
@@ -28,13 +28,16 @@ async function seedCleanVisitor(page: Page) {
 }
 
 async function routeTranscript(page: Page) {
-  await page.route('**/proxy.echo-learn.uk/**', (route) => route.abort());
-  await page.route('**/api/transcript**', (route) =>
+  await page.route('**/*', (route) => {
+    const host = new URL(route.request().url()).hostname;
+    return host === 'localhost' || host === '127.0.0.1' ? route.continue() : route.abort();
+  });
+  await page.route(/^http:\/\/(?:localhost|127\.0\.0\.1):5173\/api\/transcript\b/, (route) =>
     route.fulfill({
       status: 200,
       contentType: 'application/json',
       body: transcriptPayload([
-        { start: 0, end: 2, text: 'Good morning everyone' },
+        { start: 0, end: 2, text: 'Hummingbirds visit the garden' },
         { start: 2, end: 4, text: 'Welcome to this lesson' },
       ]),
     }),
@@ -55,8 +58,8 @@ test('English UI shows no hardcoded Chinese after a successful load', async ({ p
   await urlInput.fill(SAMPLE_VIDEO_URL);
   await page.locator('#tour-study-load').click();
 
-  // Wait for the transcript to appear.
-  await expect(page.getByText(/good/i).filter({ visible: true }).first()).toBeVisible({ timeout: 15000 });
+  // Wait for a word only present in the loaded transcript, not the bundled sample.
+  await expect(page.getByText('Hummingbirds', { exact: true }).filter({ visible: true }).first()).toBeVisible({ timeout: 20000 });
 
   // The source label must be English.
   await expect(page.getByText('YouTube official subtitles')).toBeVisible();

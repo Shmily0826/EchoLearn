@@ -1,6 +1,6 @@
 # EchoLearn 生产就绪（上线推广）优化 Prompt
 
-> 复制下面引号内的内容，发给目标 agent 即可。
+> 2026 年 7 月的历史任务书。当前发布入口见 [Release checklist](../../RELEASE_CHECKLIST.md)。
 
 ---
 

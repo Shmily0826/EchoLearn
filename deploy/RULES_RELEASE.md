@@ -3,6 +3,10 @@
 Campaign: `ECHO_AUTH_DATA_AND_AI_CACHE_SAFETY_V1` → release `ECHO_AUTH_DATA_AND_AI_CACHE_RELEASE_V1`.
 Firebase project: `echolearn-9f369`. Frontend hosting: Vercel (merged `main` auto-deploys).
 
+The staged rollout below records the September 2026 release. For a new release,
+start with the [current checklist](../docs/RELEASE_CHECKLIST.md) and identify
+the ruleset that actually needs to ship before using any deployment command.
+
 Rules and the frontend cannot ship in an arbitrary order, so this runbook fixes the
 order, the exact artifacts, the evidence that gates each step, and the rollback.
 Nothing here requires editing rules by hand from memory: every deployable ruleset is
@@ -22,19 +26,16 @@ as an archived, separately deployable file rather than as the canonical one.
 | Stage 5 artifact (byte-identical to canonical) | `deploy/firestore.stage2.rules` | `npx firebase-tools deploy --only firestore:rules --config firebase.stage2.json --project echolearn-9f369` |
 | pre-campaign — full rollback | `deploy/firestore.pre-campaign.rules` | `npx firebase-tools deploy --only firestore:rules --config firebase.rollback.json --project echolearn-9f369` |
 
-Check the Stage-5 artifact is still exactly Stage 1 plus one condition, before and
-after generating:
+Compare canonical rules with the committed Stage-5 artifact:
 
 ```
-node scripts/rules-stage2.mjs
-diff firestore.rules deploy/firestore.stage2.rules
+git diff --no-index -- firestore.rules deploy/firestore.stage2.rules
 ```
 
-Expected: one hunk, the 7-line legacy flat-feedback `allow create: if isVerified() …`
-becoming `allow create: if false; // STAGE-2: …`. sha256 of the checked-in Stage-5 file
-(LF): `029fe52f0611ff8279ce539cf800d0155974987af5da048337ad45c809357e53`.
-`firestore.rules` is CRLF in a Windows working checkout, so compare content with
-`diff`, not raw byte size.
+The comparison is empty at this maintenance baseline. The difference between
+the historical Stage-1 and Stage-5 artifacts is the legacy flat-feedback create
+rule. The [original generator](../docs/archive/maintenance/rules-stage2.mjs)
+used the Stage-1-era canonical file and is now archived.
 
 Compatibility proof for the whole sequence, run against the real emulator:
 
@@ -48,7 +49,7 @@ and probes 16 operations against each one, then asserts which cells may change.
 ## Stage 1 — deploy the compatibility rules
 
 ```
-npx firebase-tools deploy --only firestore:rules --project echolearn-9f369
+npx firebase-tools deploy --only firestore:rules --config firebase.stage1.json --project echolearn-9f369
 ```
 
 This adds `aiCache/{writerUid}/analyses/{key}` (owner + verified only), makes the legacy
@@ -130,15 +131,12 @@ Provider-free checks, in this order. Any failure stops the sequence and triggers
 Only after Stage 4 passes:
 
 ```
-node scripts/rules-stage2.mjs --write
 npx firebase-tools deploy --only firestore:rules --config firebase.stage2.json --project echolearn-9f369
 ```
 
-Applied on 2026-09-21. The canonical file was then promoted to the Stage-5 content (see
-the Artifacts table), so from here on `node scripts/rules-stage2.mjs` exits 1 with
-`found 0` — the generator's way of reporting that the tightening has already landed, not
-a broken tool. Confirm effectiveness with the previous deployment's client, not with this
-repository's tests: see the operational note below.
+Applied on 2026-09-21. The canonical file was then promoted to the Stage-5 content.
+Use the committed artifact above for this stage. The operational note below
+describes how to confirm the deployed effect with the previous deployment's client.
 
 ## Rollback
 

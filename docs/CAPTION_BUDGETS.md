@@ -1,5 +1,8 @@
 # Caption Timeout / Budget Register
 
+> Historical snapshot from 2026-09-06. See the [current architecture](ARCHITECTURE.md)
+> for the owning code and current routes.
+
 > Phase 1 consolidation artefact (2026-09-06). Every caption-related timeout or
 > budget constant, its location, and its rationale. Consolidation target: these
 > become a single budget table with propagation tests instead of ~30 scattered

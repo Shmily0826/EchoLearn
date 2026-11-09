@@ -1,5 +1,8 @@
 # 任务 Prompt：为 EchoLearn 补两条「真实用户旅程」E2E
 
+> Historical test brief. Use the [current testing guide](../../TESTING.md) for commands and scope.
+
+
 下面这份文档是自包含的，可以直接整段复制给执行 agent。它假定 agent 从零开始读这个仓库，不需要本轮对话的任何上下文。
 
 ---
