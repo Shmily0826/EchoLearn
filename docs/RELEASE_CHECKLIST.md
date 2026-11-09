@@ -2,11 +2,20 @@
 
 ## Current release candidate
 
-The seven-commit candidate ends at `3b8364c` on `codex/echolearn-release-check`.
-It combines the audio quota, cross-device sync and AI vocabulary fixes with
-testing and history changes. The maintenance branch starts from that candidate.
+The release candidate is `4bc16e7` on `echolearn-maintenance`.
+It includes the audio quota and byte-range fixes, cross-device sync, AI
+vocabulary improvements, and maintenance updates. See [draft PR #42](https://github.com/Shmily0826/EchoLearn/pull/42).
 See the [architecture](ARCHITECTURE.md) for service ownership and the
 [testing guide](TESTING.md) for local checks.
+
+Verification for `4bc16e7` passed on 2026-11-09.
+
+- GitHub CI passed all four jobs, including 19 Worker tests and 124 browser
+  tests across both shards. The Linux WebKit skip-link focus case passed.
+  The known Windows WebKit failure remains reproducible locally.
+  [GitHub CI run](https://github.com/Shmily0826/EchoLearn/actions/runs/42557822122)
+- The Vercel Preview check passed.
+  [Vercel Preview deployment](https://vercel.com/shmily0826s-projects/echolearn/8AyWPekLnnunUMGawu6iBXmoGiUb)
 
 ## Open issues and acceptance
 
@@ -20,10 +29,9 @@ See the [architecture](ARCHITECTURE.md) for service ownership and the
 
 ## Release sequence
 
-- [ ] Run the relevant local checks and the GitHub CI gate for the candidate.
-   Record the revision, suites and any skipped checks. Confirm the
-   [skip-link focus case](../e2e/mobile-pwa.spec.ts) in Linux CI WebKit.
-   The known Windows WebKit failure remains reproducible locally.
+- [x] Run the relevant local checks and the GitHub CI gate for `4bc16e7`,
+   including the [skip-link focus case](../e2e/mobile-pwa.spec.ts) in Linux
+   WebKit. The evidence above is tied to that revision.
 - [ ] Verify which components need a release. The candidate changes Web and
    Worker code. Its diff leaves canonical Firestore rules, VPS source and
    Android native source intact. A Vercel build covers the web and Vercel
