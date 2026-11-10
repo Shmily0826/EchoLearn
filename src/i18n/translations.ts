@@ -262,7 +262,7 @@ const translations: Record<string, Record<Lang, string>> = {
   'study.sourceYoutubeAuto': { en: 'YouTube auto-generated subtitles', zh: 'YouTube 自动字幕' },
   'study.sourceVpsDirect':  { en: 'VPS direct', zh: 'VPS 直连' },
   'study.sourceWhisper':    { en: 'AI transcription (Whisper)', zh: 'AI 转录 (Whisper)' },
-  'study.sourceLocalAudio': { en: 'Local audio (Whisper)', zh: '本地音频 (Whisper)' },
+  'study.sourceLocalAudio': { en: 'Local audio subtitles', zh: '本地音频字幕' },
   'study.localAudioMissing': { en: 'This local audio file is unavailable after reload. Re-import the file to continue.', zh: '刷新后本地音频文件不可用。请重新导入文件以继续。' },
   'study.restoreAudioCta': { en: 'Restore Audio for This Lesson', zh: '恢复本课的音频' },
   'study.restoreAudioNote': { en: 'The audio and subtitle files you select will be reattached to this existing lesson. Its saved words, sentences, and progress stay connected.', zh: '所选的音频和字幕将重新附加到本课。本课已保存的生词、句子和学习进度保持关联。' },

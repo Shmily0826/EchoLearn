@@ -27,6 +27,7 @@ import {
   hasUsableTranscriptData,
   hasUsableSessionTranscript,
   normalizeStudyUrl,
+  repairStudySessionLink,
 } from '../utils/studySession';
 import { lemmatize } from '../utils/lemmatizer';
 import { analyzeTranscript } from '../services/aiAnalysis';
@@ -264,6 +265,7 @@ const StudyPage: React.FC = () => {
       sessionId: string,
       vid: string,
       fetcher: (u: string) => Promise<{ title: string; partCount?: number; parts?: BiliPart[] } | null>,
+      savedTitle?: string,
     ) => {
       if (titleSyncedForRef.current === vid) {
         // title already correct for this video — just restore the cached parts
@@ -271,22 +273,24 @@ const StudyPage: React.FC = () => {
         return;
       }
       titleSyncedForRef.current = vid;
-      setSessionTitle(url); // immediate fallback = raw URL
+      const keepSavedTitle = Boolean(savedTitle && savedTitle !== url);
+      setSessionTitle(savedTitle || url);
       fetcher(url)
         .then((info) => {
-        if (!info?.title) return;
-        const parts = info.parts && info.parts.length ? info.parts : undefined;
-        partsCacheRef.current = parts ? { vid, parts } : null;
-        setBiliParts(parts);
-        setSessionTitle(info.title);
-          setSession((prev) => {
-            if (prev && prev.id === sessionId) {
-              const u = { ...prev, title: info.title };
-              if (hasUsableSessionTranscript(prev)) saveCurrentSession(u);
-              return u;
-            }
-            return prev;
-          });
+          if (!info?.title || loadedSessionIdRef.current !== sessionId) return;
+          const parts = info.parts?.length ? info.parts : undefined;
+          partsCacheRef.current = { vid, parts };
+          setBiliParts(parts);
+          if (keepSavedTitle) return;
+          setSessionTitle(info.title);
+          const persisted = loadCurrentSession();
+          if (persisted?.id === sessionId && hasUsableSessionTranscript(persisted)) {
+            saveCurrentSession({ ...persisted, title: info.title });
+          }
+          if (sessionRef.current?.id === sessionId) {
+            sessionRef.current = { ...sessionRef.current, title: info.title };
+          }
+          setSession(prev => prev?.id === sessionId ? { ...prev, title: info.title } : prev);
         })
         .catch(() => {
           /* keep the URL fallback if the title lookup fails */
@@ -398,8 +402,10 @@ const StudyPage: React.FC = () => {
     if (restoredRef.current) return;
     restoredRef.current = true;
 
-    const saved = loadCurrentSession();
-    if (saved) {
+    const current = loadCurrentSession();
+    if (current) {
+      const saved = repairStudySessionLink(current);
+      if (saved !== current) saveCurrentSession(saved);
       loadedSessionIdRef.current = saved.id;
       // Restore the persisted session once after mount.
       // eslint-disable-next-line react-hooks/set-state-in-effect
@@ -438,6 +444,7 @@ const StudyPage: React.FC = () => {
           saved.platform === 'bilibili'
             ? () => getBilibiliVideoTitle(saved.youtubeId, saved.biliPage)
             : getVideoTitle,
+          saved.title,
         );
       }
 
@@ -537,14 +544,16 @@ const StudyPage: React.FC = () => {
   useEffect(() => {
     if (pathname !== '/study') return;
 
-    const saved = loadCurrentSession();
-    if (!saved) return;
-
-    // If this is the same session we already loaded, skip
-    if (saved.id === loadedSessionIdRef.current) return;
+    const current = loadCurrentSession();
+    if (!current || current.id === loadedSessionIdRef.current) return;
 
     // New session detected — reload everything
+    const saved = repairStudySessionLink(current);
+    if (saved !== current) saveCurrentSession(saved);
     loadedSessionIdRef.current = saved.id;
+    invalidateCaptionRequests();
+    endCaptionRequest();
+    clearFetchToast();
     const localAudioRestoreToken = ++localAudioRestoreTokenRef.current;
     setLocalAudioUrl(null);
     setSession(saved);
@@ -575,6 +584,7 @@ const StudyPage: React.FC = () => {
         saved.platform === 'bilibili'
           ? () => getBilibiliVideoTitle(saved.youtubeId, saved.biliPage)
           : getVideoTitle,
+        saved.title,
       );
     }
 
@@ -650,7 +660,7 @@ const StudyPage: React.FC = () => {
 
     setVocabulary(loadVocabulary());
     setSentences(loadSentences());
-  }, [pathname, clearCaptionError, failCaptionRequest, refreshTitleForVideo, runCaptionRequest, t]);
+  }, [pathname, clearCaptionError, clearFetchToast, endCaptionRequest, failCaptionRequest, invalidateCaptionRequests, refreshTitleForVideo, runCaptionRequest, t]);
 
   // ── Filtered data for current video ────────────────────────
   const filteredVocabulary = useMemo(() => {
@@ -738,9 +748,10 @@ const StudyPage: React.FC = () => {
       try { pos = Math.floor(playerRef.current?.getCurrentTime?.() ?? pos); } catch { /* noop */ }
       const updated: VideoStudySession = {
         id: session?.id || `session_${now}`,
-        youtubeUrl: normalizeStudyUrl(yUrl),
+        youtubeUrl: normalizeStudyUrl(session?.youtubeUrl || yUrl),
         youtubeId: yId,
         platform,
+        biliPage: session?.biliPage,
         title,
         transcriptLines: raw, // legacy compat
         transcriptData: { rawBlocks: raw, sentenceLines: sLines },
@@ -811,7 +822,9 @@ const StudyPage: React.FC = () => {
       const sLines = normalizeTranscriptToSentences(lines);
       setRawBlocks(lines);
       setSentenceLines(sLines);
-      const updated = attachTranscriptToSession(sess, lines, sLines, Date.now(), provenance);
+      const active = sessionRef.current;
+      const current = active?.id === sess.id ? active : sess;
+      const updated = attachTranscriptToSession(current, lines, sLines, Date.now(), provenance);
       saveCurrentSession(updated);
       setSession(updated);
     };
@@ -836,7 +849,7 @@ const StudyPage: React.FC = () => {
       // Persist the genuinely-old session (a real studied video) before
       // switching. The sample video has no session, so it is never saved.
       if (session && rawBlocks.length > 0 && videoId) {
-        persistSession(videoId, urlInput.trim(), rawBlocks, sentenceLines, sessionTitle || urlInput.trim());
+        persistSession(videoId, session.youtubeUrl, rawBlocks, sentenceLines, sessionTitle || session.title);
       }
 
       const now = Date.now();
@@ -934,7 +947,7 @@ const StudyPage: React.FC = () => {
       const st = parseStartTime(urlInput);
 
       if (session && rawBlocks.length > 0 && videoId) {
-        persistSession(videoId, urlInput.trim(), rawBlocks, sentenceLines, sessionTitle || urlInput.trim());
+        persistSession(videoId, session.youtubeUrl, rawBlocks, sentenceLines, sessionTitle || session.title);
       }
 
       const now = Date.now();
@@ -1096,6 +1109,8 @@ const StudyPage: React.FC = () => {
     // Invalidate any in-flight caption request so it cannot repopulate the
     // cleared session when it eventually resolves.
     invalidateCaptionRequests();
+    loadedSessionIdRef.current = null;
+    titleSyncedForRef.current = null;
     const localMediaId = session?.localMediaId;
     clearCurrentSession();
     if (localMediaId) void deleteLocalAudioMedia(localMediaId);
@@ -1642,7 +1657,7 @@ const StudyPage: React.FC = () => {
               </div>
             )}
 
-            {videoId && displayLines.length > 0 && !audioMode && platform === 'youtube' && (
+            {videoId && displayLines.length > 0 && !audioMode && platform === 'youtube' && session?.sourceType !== 'local_audio' && (
               <p className="mt-2 w-full min-w-0 max-w-full overflow-hidden px-3 py-2 text-xs text-slate-600 dark:text-slate-300 bg-slate-100 dark:bg-slate-800/80 rounded-lg break-words" role="status">
                 {t('study.playerStillLoading')}
               </p>
