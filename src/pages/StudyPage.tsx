@@ -27,6 +27,7 @@ import {
   hasUsableTranscriptData,
   hasUsableSessionTranscript,
   normalizeStudyUrl,
+  repairStudySessionLink,
 } from '../utils/studySession';
 import { lemmatize } from '../utils/lemmatizer';
 import { analyzeTranscript } from '../services/aiAnalysis';
@@ -264,6 +265,7 @@ const StudyPage: React.FC = () => {
       sessionId: string,
       vid: string,
       fetcher: (u: string) => Promise<{ title: string; partCount?: number; parts?: BiliPart[] } | null>,
+      savedTitle?: string,
     ) => {
       if (titleSyncedForRef.current === vid) {
         // title already correct for this video — just restore the cached parts
@@ -271,22 +273,24 @@ const StudyPage: React.FC = () => {
         return;
       }
       titleSyncedForRef.current = vid;
-      setSessionTitle(url); // immediate fallback = raw URL
+      const keepSavedTitle = Boolean(savedTitle && savedTitle !== url);
+      setSessionTitle(savedTitle || url);
       fetcher(url)
         .then((info) => {
-        if (!info?.title) return;
-        const parts = info.parts && info.parts.length ? info.parts : undefined;
-        partsCacheRef.current = parts ? { vid, parts } : null;
-        setBiliParts(parts);
-        setSessionTitle(info.title);
-          setSession((prev) => {
-            if (prev && prev.id === sessionId) {
-              const u = { ...prev, title: info.title };
-              if (hasUsableSessionTranscript(prev)) saveCurrentSession(u);
-              return u;
-            }
-            return prev;
-          });
+          if (!info?.title || loadedSessionIdRef.current !== sessionId) return;
+          const parts = info.parts?.length ? info.parts : undefined;
+          partsCacheRef.current = parts ? { vid, parts } : null;
+          setBiliParts(parts);
+          if (keepSavedTitle) return;
+          setSessionTitle(info.title);
+          const persisted = loadCurrentSession();
+          if (persisted?.id === sessionId && hasUsableSessionTranscript(persisted)) {
+            saveCurrentSession({ ...persisted, title: info.title });
+          }
+          if (sessionRef.current?.id === sessionId) {
+            sessionRef.current = { ...sessionRef.current, title: info.title };
+          }
+          setSession(prev => prev?.id === sessionId ? { ...prev, title: info.title } : prev);
         })
         .catch(() => {
           /* keep the URL fallback if the title lookup fails */
@@ -398,8 +402,10 @@ const StudyPage: React.FC = () => {
     if (restoredRef.current) return;
     restoredRef.current = true;
 
-    const saved = loadCurrentSession();
-    if (saved) {
+    const current = loadCurrentSession();
+    if (current) {
+      const saved = repairStudySessionLink(current);
+      if (saved !== current) saveCurrentSession(saved);
       loadedSessionIdRef.current = saved.id;
       // Restore the persisted session once after mount.
       // eslint-disable-next-line react-hooks/set-state-in-effect
@@ -421,7 +427,6 @@ const StudyPage: React.FC = () => {
       if (saved.lastPosition && saved.lastPosition > 10) {
         const mins = Math.floor(saved.lastPosition / 60);
         const secs = saved.lastPosition % 60;
-        // eslint-disable-next-line react-hooks/set-state-in-effect
         setResumeToast(t('study.resumedAt', { time: `${mins}:${String(secs).padStart(2, '0')}` }));
         setTimeout(() => setResumeToast(null), 5000);
       }
@@ -439,6 +444,7 @@ const StudyPage: React.FC = () => {
           saved.platform === 'bilibili'
             ? () => getBilibiliVideoTitle(saved.youtubeId, saved.biliPage)
             : getVideoTitle,
+          saved.title,
         );
       }
 
@@ -465,7 +471,7 @@ const StudyPage: React.FC = () => {
       // transcript than the one restored here (bound via transcriptId; legacy
       // analyses carry no id and keep today's restore behavior).
       if (saved.aiAnalysis && !isAnalysisStale(saved.aiAnalysis, restoredRawBlocks, restoredSentenceLines)) {
-        setAnalysis(saved.aiAnalysis);
+        setAnalysis(dropUngroundedSuggestions(saved.aiAnalysis, restoredRawBlocks, restoredSentenceLines));
       }
 
       // Auto-fetch captions if no transcript exists for this video
@@ -528,7 +534,7 @@ const StudyPage: React.FC = () => {
 
     setVocabulary(loadVocabulary());
     setSentences(loadSentences());
-  }, []);
+  }, [beginCaptionRequest, endCaptionRequest, failCaptionRequest, refreshTitleForVideo, runCaptionRequest, t]);
 
   // ── Detect new session from Dashboard navigation ──────────
   // Because all pages are always mounted (display:none), the initial
@@ -538,14 +544,16 @@ const StudyPage: React.FC = () => {
   useEffect(() => {
     if (pathname !== '/study') return;
 
-    const saved = loadCurrentSession();
-    if (!saved) return;
-
-    // If this is the same session we already loaded, skip
-    if (saved.id === loadedSessionIdRef.current) return;
+    const current = loadCurrentSession();
+    if (!current || current.id === loadedSessionIdRef.current) return;
 
     // New session detected — reload everything
+    const saved = repairStudySessionLink(current);
+    if (saved !== current) saveCurrentSession(saved);
     loadedSessionIdRef.current = saved.id;
+    invalidateCaptionRequests();
+    endCaptionRequest();
+    clearFetchToast();
     const localAudioRestoreToken = ++localAudioRestoreTokenRef.current;
     setLocalAudioUrl(null);
     setSession(saved);
@@ -576,6 +584,7 @@ const StudyPage: React.FC = () => {
         saved.platform === 'bilibili'
           ? () => getBilibiliVideoTitle(saved.youtubeId, saved.biliPage)
           : getVideoTitle,
+        saved.title,
       );
     }
 
@@ -604,7 +613,7 @@ const StudyPage: React.FC = () => {
     // Same transcript-identity rule as the mount restore: an analysis bound to
     // a different transcript must not come back with the replaced one.
     if (saved.aiAnalysis && !isAnalysisStale(saved.aiAnalysis, restoredRawBlocks, restoredSentenceLines)) {
-      setAnalysis(saved.aiAnalysis);
+      setAnalysis(dropUngroundedSuggestions(saved.aiAnalysis, restoredRawBlocks, restoredSentenceLines));
     }
 
     // Auto-fetch captions if no transcript exists
@@ -651,7 +660,7 @@ const StudyPage: React.FC = () => {
 
     setVocabulary(loadVocabulary());
     setSentences(loadSentences());
-  }, [pathname]);
+  }, [pathname, clearCaptionError, clearFetchToast, endCaptionRequest, failCaptionRequest, invalidateCaptionRequests, refreshTitleForVideo, runCaptionRequest, t]);
 
   // ── Filtered data for current video ────────────────────────
   const filteredVocabulary = useMemo(() => {
@@ -739,9 +748,10 @@ const StudyPage: React.FC = () => {
       try { pos = Math.floor(playerRef.current?.getCurrentTime?.() ?? pos); } catch { /* noop */ }
       const updated: VideoStudySession = {
         id: session?.id || `session_${now}`,
-        youtubeUrl: normalizeStudyUrl(yUrl),
+        youtubeUrl: normalizeStudyUrl(session?.youtubeUrl || yUrl),
         youtubeId: yId,
         platform,
+        biliPage: session?.biliPage,
         title,
         transcriptLines: raw, // legacy compat
         transcriptData: { rawBlocks: raw, sentenceLines: sLines },
@@ -812,7 +822,9 @@ const StudyPage: React.FC = () => {
       const sLines = normalizeTranscriptToSentences(lines);
       setRawBlocks(lines);
       setSentenceLines(sLines);
-      const updated = attachTranscriptToSession(sess, lines, sLines, Date.now(), provenance);
+      const active = sessionRef.current;
+      const current = active?.id === sess.id ? active : sess;
+      const updated = attachTranscriptToSession(current, lines, sLines, Date.now(), provenance);
       saveCurrentSession(updated);
       setSession(updated);
     };
@@ -837,7 +849,7 @@ const StudyPage: React.FC = () => {
       // Persist the genuinely-old session (a real studied video) before
       // switching. The sample video has no session, so it is never saved.
       if (session && rawBlocks.length > 0 && videoId) {
-        persistSession(videoId, urlInput.trim(), rawBlocks, sentenceLines, sessionTitle || urlInput.trim());
+        persistSession(videoId, session.youtubeUrl, rawBlocks, sentenceLines, sessionTitle || session.title);
       }
 
       const now = Date.now();
@@ -935,7 +947,7 @@ const StudyPage: React.FC = () => {
       const st = parseStartTime(urlInput);
 
       if (session && rawBlocks.length > 0 && videoId) {
-        persistSession(videoId, urlInput.trim(), rawBlocks, sentenceLines, sessionTitle || urlInput.trim());
+        persistSession(videoId, session.youtubeUrl, rawBlocks, sentenceLines, sessionTitle || session.title);
       }
 
       const now = Date.now();
@@ -982,7 +994,9 @@ const StudyPage: React.FC = () => {
         },
       });
     }
-  }, [urlInput, rawBlocks, sentenceLines, sessionTitle, session, videoId, persistSession, failCaptionRequest, invalidateCaptionRequests, t]);
+  }, [urlInput, rawBlocks, sentenceLines, sessionTitle, session, videoId, persistSession,
+    beginCaptionRequest, failCaptionRequest, invalidateCaptionRequests, isCaptionRequestCurrent,
+    refreshTitleForVideo, runCaptionRequest, t]);
 
   // ── Import transcript (from TranscriptImporter) ─────────────
   const handleImportTranscript = useCallback(
@@ -1082,7 +1096,7 @@ const StudyPage: React.FC = () => {
     // The learner just paired a (possibly different) subtitle with this
     // session; an analysis bound to the previous transcript must not surface.
     if (restored.aiAnalysis && !isAnalysisStale(restored.aiAnalysis, lines, restoredSentenceLines)) {
-      setAnalysis(restored.aiAnalysis);
+      setAnalysis(dropUngroundedSuggestions(restored.aiAnalysis, lines, restoredSentenceLines));
     } else if (restored.aiAnalysis) {
       setAnalysis(null);
     }
@@ -1095,6 +1109,8 @@ const StudyPage: React.FC = () => {
     // Invalidate any in-flight caption request so it cannot repopulate the
     // cleared session when it eventually resolves.
     invalidateCaptionRequests();
+    loadedSessionIdRef.current = null;
+    titleSyncedForRef.current = null;
     const localMediaId = session?.localMediaId;
     clearCurrentSession();
     if (localMediaId) void deleteLocalAudioMedia(localMediaId);
@@ -1115,7 +1131,7 @@ const StudyPage: React.FC = () => {
     setPlatform('youtube');
     setBiliPage(undefined);
     setBiliParts(undefined);
-  }, [session]);
+  }, [session, clearCaptionError, invalidateCaptionRequests]);
 
   // ── Reload transcript for the current video ────────────────
   const handleReloadTranscript = useCallback(() => {
@@ -1155,7 +1171,7 @@ const StudyPage: React.FC = () => {
         errorMessage: (err) => (err instanceof Error ? err.message : 'Unknown error'),
       },
     );
-  }, [videoId, platform, session, biliPage]);
+  }, [videoId, platform, session, biliPage, failCaptionRequest, runCaptionRequest, t]);
 
   // ASR is deliberately a separate, user-triggered action. It uses the same
   // latest-request-wins machinery as captions, so a video switch invalidates
@@ -1189,7 +1205,7 @@ const StudyPage: React.FC = () => {
         },
       },
     );
-  }, [videoId, platform, biliPage, fetchingCaption, session, t, runCaptionRequest]);
+  }, [videoId, platform, biliPage, fetchingCaption, session, runCaptionRequest]);
 
   // ── Switch Bilibili part (分p) ────────────────────────────
   const handleBiliPartChange = useCallback(
@@ -1235,7 +1251,7 @@ const StudyPage: React.FC = () => {
         errorMessage: (err) => (err instanceof Error ? err.message : 'Failed to load this part'),
       });
     },
-    [videoId, session, biliPage, biliParts],
+    [videoId, session, biliPage, biliParts, runCaptionRequest],
   );
 
   // ── Toggle session completion status ───────────────────────
@@ -1297,10 +1313,7 @@ const StudyPage: React.FC = () => {
         (chunk) => setStreamChars((prev) => prev + chunk.length),
         lang,
       );
-      // Re-anchor the probabilistic output to our own input: a suggested
-      // "quote" that cannot be matched back to the transcript it claims to
-      // come from (same matcher and threshold as the seek alignment) is
-      // dropped instead of being stored as learning material.
+      // Save only suggestions that quote a continuous span of the transcript.
       const grounded = dropUngroundedSuggestions(result, rawBlocks, sentenceLines);
       const droppedCount = result.sentenceSuggestions.length - grounded.sentenceSuggestions.length;
       const notice = droppedCount > 0 ? t('ai.ungroundedFiltered', { count: droppedCount }) : '';
@@ -1644,7 +1657,7 @@ const StudyPage: React.FC = () => {
               </div>
             )}
 
-            {videoId && displayLines.length > 0 && !audioMode && platform === 'youtube' && (
+            {videoId && displayLines.length > 0 && !audioMode && platform === 'youtube' && session?.sourceType !== 'local_audio' && (
               <p className="mt-2 w-full min-w-0 max-w-full overflow-hidden px-3 py-2 text-xs text-slate-600 dark:text-slate-300 bg-slate-100 dark:bg-slate-800/80 rounded-lg break-words" role="status">
                 {t('study.playerStillLoading')}
               </p>

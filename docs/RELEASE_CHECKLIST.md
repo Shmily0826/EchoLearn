@@ -1,14 +1,21 @@
 # EchoLearn release checklist
 
-## Current release candidate
+This is the only record of current status, open issues and acceptance
+evidence. The [documentation index](README.md) explains where other records
+live and how to archive a finished release.
 
-The release candidate is `4368124` on `echolearn-maintenance`.
-It includes the audio quota and byte-range fixes, cross-device sync, AI
-vocabulary improvements, and maintenance updates. See [draft PR #42](https://github.com/Shmily0826/EchoLearn/pull/42).
-See the [architecture](ARCHITECTURE.md) for service ownership and the
+## Current release
+
+`c1ec954` is in production. It merged [PR #42](https://github.com/Shmily0826/EchoLearn/pull/42)
+on 2026-11-09 after the Worker audio gate passed, and
+[production acceptance](#production-acceptance-on-2026-11-09-utc) is recorded
+below. It includes the audio quota and byte-range fixes, cross-device sync,
+AI vocabulary improvements, and maintenance updates. See the
+[architecture](ARCHITECTURE.md) for service ownership and the
 [testing guide](TESTING.md) for local checks.
 
-Verification for `4368124` passed on 2026-11-09.
+The release candidate was `4368124` on `echolearn-maintenance`. Its
+verification passed on 2026-11-09.
 
 - GitHub CI passed all four jobs, including 19 Worker tests and 124 browser
   tests across both shards. The Linux WebKit skip-link focus case passed.
@@ -23,11 +30,13 @@ Verification for `4368124` passed on 2026-11-09.
 
 | Priority | Area | Evidence and remaining check |
 | --- | --- | --- |
-| High | Worker audio and quota | Local regressions verify that cold requests for the same cache key share one VPS fetch and one quota debit within a Worker isolate. Suffix ranges select the trailing bytes, and valid ranges ending past EOF stop at the last byte. On the deployed Worker, verify concurrent and warm byte ranges, origin request count and quota delta. Exercise Bilibili's Vercel audio fallback separately because it has its own rate limiter. |
-| High | Verified-account sync | The local emulator preserves both additions and the deletion across three clients, including a separate concurrent-write probe. With the updated client on three isolated devices, repeat add, delete, stale save, and a clean pull using an authorized QA account. |
-| High | AI vocabulary | Mocked streaming, candidate filtering, fallback, old-cache bypass, same-version reuse and saved-lesson restore passed. Use representative captions and a capped real provider run to judge vocabulary coverage, glosses and CEFR quality. |
-| Medium | VPS English captions | The October probe reached the VPS but YouTube blocked acquisition before the language gate. A successful acquisition of a suitable sample is still required to evaluate the deployed gate. |
-| Medium | Android local media | Deferred for this release. On a physical Android device, import a roughly 90 MB audio file with subtitles, verify playback, and check that the lesson restores after refresh. |
+| High | Worker audio and quota | **PASS.** Production cold and warm ranges, origin counts, quota delta and the Bilibili Vercel fallback passed. |
+| High | Verified-account sync | **PASS.** Three isolated Chromium sessions using QA A retained both additions and the deletion after a stale upload to production. |
+| High | AI vocabulary | **PARTIAL.** The single production run passed vocabulary candidate and gloss checks. It returned 6 of 8 requested words, included one clipped vocabulary context, and failed the exact sentence quote check. |
+| Medium | VPS English captions | **INCONCLUSIVE live.** The gate passed four controlled cases using the installed VPS source. All live samples failed at acquisition, so the live gate remains unverified. |
+| High | Android APK upgrade | **PASS on the signed validation APK.** The original phone profile retained all checked legacy record IDs and its Google session. An isolated profile migrated and resumed a 90.1 MiB audio lesson. A real historical audio lesson requires re-import because its original file was absent before the upgrade. |
+| Medium | Android local media | **PASS on the signed validation APK with test media.** A physical Android 16 phone recovered the 90.1 MiB WAV, captions and position after replacement, then resumed playback after a force-stop. |
+| Medium | Study history switching | A production visit reproduced a YouTube history entry with the next Bilibili URL. The local candidate preserves the current lesson's link when switching and repairs saved mismatches when opening history. |
 
 ## Release sequence
 
@@ -88,3 +97,169 @@ Verification for `4368124` passed on 2026-11-09.
    `/api/bilibili?audio=1&url=...` on Vercel. Check status, byte range and
    content against the same sample. Count this request separately because it
    goes directly to the VPS.
+
+## Production acceptance on 2026-11-09 UTC
+
+- **Release.** PR #42 was merged as `c1ec954` after the Worker audio gate
+  passed. The production domain served the new Vercel deployment. The
+  homepage and entry script returned HTTP 200. The Bilibili fallback
+  returned HTTP 206 before and after the Web release.
+  [CI](https://github.com/Shmily0826/EchoLearn/actions/runs/42569973413) ·
+  [Production deployment](https://vercel.com/shmily0826s-projects/echolearn/Dv3x356U11vJmqLdekq2B2oYNBG6)
+- **Worker audio.** Version `43b77fea-0e58-4bbe-9b54-079d99538126` returned
+  HTTP 200 from health. The parallel requests returned `MISS` and
+  `COALESCED`. The VPS journal showed one request and QA A's quota went from
+  0 to 1. Warm suffix and overlong-end ranges returned matching bytes with
+  HTTP 206, and a start at EOF returned HTTP 416. The VPS count and quota
+  stayed unchanged during those warm requests.
+- **Verified-account sync.** The first two browser contexts signed in as QA A
+  and started with the same deletion fixture. The first added a word and
+  deleted the fixture. The second added another word and uploaded from its
+  stale state. A fresh third context pulled both new words and all
+  27 original words, with the deleted fixture absent. The run seeded only
+  test items in local storage and used the deployed UI for deletion, upload
+  and sync against production Firestore. The test items were cleaned up.
+- **AI vocabulary.** One capped production request returned HTTP 200 in
+  6.8 seconds using the bundled transcript, B1–C1 and eight requested words.
+  Six unique words matched the prompt candidates, five B2 and one C1. All
+  six had Chinese glosses. The glosses fit the words in context, though the
+  `hierarchy` example starts mid-word. The rubric reported 15 passes and
+  one failure. One sentence joined noncontiguous subtitle lines and failed
+  the exact quote check. The provider call was not retried.
+- **VPS English captions.** The production service returned HTTP 502 for
+  three YouTube and three Bilibili samples before reaching the gate.
+  Journal evidence included YouTube sign-in challenges, HTTP 429 and
+  Bilibili extraction errors. One normal request with the configured
+  YouTube fallback also ended in HTTP 429 at the provider. In a separate
+  process on the VPS, the installed handler passed all four controlled
+  cases with acquisition stubbed. It accepted Chinese for a Chinese
+  request, rejected Chinese for an English request with
+  `404 captions_not_found`, and accepted both `en` and `ai-en` for
+  English requests. A live acquisition that reaches the gate is still
+  needed for end-to-end acceptance.
+- **Android local media.** Deferred for this release.
+
+### Desktop study and saved AI replay
+
+- **Desktop study PASS.** On production Web `c1ec954`, a fresh Chrome guest
+  profile opened a local WAV with supplied SRT captions. Native playback
+  advanced and clicking the second caption moved the playhead to its
+  four-second cue. The learner saved one word, reviewed it through Review
+  Every Saved Item, and completed the round. Reloading Study restored the
+  audio and captions, playback resumed, and the review count remained one.
+  The dictionary used a deterministic fixture. Audio and subtitles came
+  from local test files.
+- **Saved AI sentence seek PASS.** The saved provider response from the
+  earlier production run was loaded into a local lesson with the original
+  caption timings. The stitched sentence had a `@9:37` seek control.
+  Clicking it moved the native player to about 577.05 seconds and
+  highlighted the opening caption at 577.044 seconds. The sentence still
+  fails the verbatim quote check recorded above. Both desktop checks made
+  zero AI or ASR requests.
+
+### Local follow-up
+
+These changes are committed on `echolearn-maintenance` but not yet released.
+
+- The quote filter now requires a continuous word sequence in the
+  transcript. The saved production response is a regression fixture for
+  both fresh analysis and lesson restore. The fuzzy seek matcher is
+  unchanged.
+- The updated dependency tree reports zero findings with
+  `npm audit --omit=dev`. The Android debug Java compile was reported to
+  pass with Capacitor 8.4.3 but was not rerun before commit. The full
+  audit still reports a critical `tar` advisory under the Firebase CLI
+  development dependency. Android device acceptance remains deferred.
+- Lint now reports no warnings.
+- On 2026-11-10 the combined tree passed 1,075 application tests,
+  33 Firestore emulator tests, 19 Worker tests, 27 reliability tests,
+  the build, and 19 desktop Chromium browser tests covering AI analysis,
+  English UI, the golden path, device migration and the signed-in session.
+  The full browser suite and VPS tests were not rerun.
+- A follow-up production VPS probe with `8KkKuTCFvzI` returned HTTP 502
+  before the language gate. Its trace reported `youtube_bot_check` and
+  `signin_required`.
+
+### Android device follow-up on 2026-11-10 NZDT
+
+- On a physical Android 16 phone, the installed `0.1.8-beta` APK
+  (version code 13) reproduced the cold-start redirect in a temporary Android
+  user. The shell passed the new URL to the system browser. The embedded
+  Capacitor config and the old host's HTTP 301 confirmed the cause.
+- A separate debug APK built from `cf4cb79` uses `echo-learn.uk` as its
+  launch URL and includes the host in its navigation allowlist. It reached
+  the sign-in screen within the app on cold launch and entered guest mode.
+  It used a separate package ID and the hosted web app.
+- The Android file pickers imported a 94,464,044-byte WAV and its SRT.
+  Playback advanced and Android reported an active 48 kHz media stream.
+  Tapping the second cue sought to 0:05 and highlighted the cue. Android
+  Back returned from Study to Dashboard, and reopening Study stayed paused
+  at 0:11. After force-stopping the app and removing both source files, the
+  app restored the 8:12 audio, three cues and the 0:11 position, then played
+  again. The web UI incorrectly labels the imported SRT as Whisper output
+  and displays a video loading hint for the audio-only lesson.
+
+### Signed Android update follow-up on 2026-11-10 NZDT
+
+- A release APK with the existing package ID and matching signing
+  certificate replaced the installed APK without uninstalling it. It kept
+  version code 13 for rollback and loaded `echo-learn.uk` inside the app.
+- A temporary read-only WebView probe after replacement counted 32 words,
+  four sentences and 20 study sessions at `app.echo-learn.uk`. It counted
+  zero for all three at `echo-learn.uk`. The new shell cannot read the old
+  origin's local study data directly. This was a count, not a full comparison
+  of every record or a verification of local audio files.
+- **Google sign-in PASS after network recovery.** The first attempt returned
+  status 7 (`NETWORK_ERROR`) while the phone could not resolve
+  `accounts.google.com`. The same signed APK completed Google sign-in once
+  access was restored. After a force-stop and relaunch, Settings still
+  showed “Signed in with Google” and a last-sync entry. The dashboard showed
+  44 words, 11 sentences and 110 study sessions following account sync.
+  This verifies cloud-backed recovery for the tested account. The separate
+  old-origin local data migration check remains open.
+- After the checks, the original APK was installed over the validation
+  APK. Its SHA-256 matched the backup of the original installed file.
+- The local web build labels imported subtitles as local audio subtitles and
+  hides the video loading hint for local audio lessons. Eight local audio
+  browser tests passed, including checks immediately after import and after
+  reload. The signed shell still loads the hosted web build.
+
+### Android local data migration follow-up on 2026-11-10 NZDT
+
+- The Android shell copies allowlisted study data and the audio files
+  referenced by restored lessons from the old WebView origin. It preserves
+  the old origin as a recovery source and does not copy sign-in tokens. If
+  the two origins have different signed-in accounts, the shell waits for
+  the original account before migrating.
+- Three browser regression tests passed. They cover an interrupted
+  multi-chunk audio transfer, a same-account merge with a deletion, and a
+  mismatch between accounts. All 33 Firestore emulator tests passed.
+- In an isolated Android 17 emulator, a fixture APK populated the old
+  origin with a word, sentence, lesson, cue and 94,464,044-byte WAV.
+  After an in-place replacement and a forced stop shortly after the first
+  launch, the new shell showed all three records. Study resumed at 0:11
+  in the 8:12 WAV, and Android reported active audio playback. A separate
+  check of the hosted origin after another APK replacement confirmed the
+  migrated metadata and completion marker persisted. Changing the synthetic
+  word at the old origin and restarting again left only the migrated word
+  in Vocabulary.
+- The signed candidate uses the original APK's certificate and version
+  code 13 for a reversible device test.
+
+### Final signed Android device check on 2026-11-10 NZDT
+
+- The exact signed migration candidate replaced the original APK on the
+  Android 16 phone. A read-only check found the migration marker and matched
+  32 of 32 old vocabulary IDs, 4 of 4 sentence IDs and 20 of 20 lesson IDs
+  in the new origin. Settings displayed “Signed in with Google” and a
+  last-sync entry after replacement. This checked the existing session
+  without signing the owner's account out.
+- The owner's pre-upgrade old and new origins both held zero files in the
+  local audio database. One real historical audio lesson opened with its
+  12:34 position and the re-import message. The original audio itself
+  could not be played because the file was absent before replacement.
+- A separate Android user held a 94,464,044-byte WAV, three subtitle cues
+  and the 0:11 playhead under the old origin. The exact signed candidate
+  migrated the fixture and played it to 0:14. After a force-stop and
+  relaunch, it resumed at 0:14 and played to 0:16. The isolated user was
+  removed afterward. The owner retained the signed candidate.

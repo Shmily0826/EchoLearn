@@ -128,7 +128,7 @@ function assertVerified(uid: string): void {
  * LEGACY `feedback/{docId}` documents are NOT reachable here: they live in the
  * `feedback` collection group with ids no client ever kept, and rules have never
  * allowed a client to read or list them. Removing them is an administrator
- * action (see DECISIONS.md), not something this function can promise.
+ * action (see docs/DECISIONS.md), not something this function can promise.
  */
 export async function deleteUserData(uid: string): Promise<void> {
   const current = auth.currentUser;

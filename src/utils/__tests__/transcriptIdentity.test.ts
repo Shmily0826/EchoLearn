@@ -110,16 +110,16 @@ describe('dropUngroundedSuggestions', () => {
     const analysis = makeAnalysis({
       sentenceSuggestions: [
         { text: "In fact, I'm leaving.", meaningCn: '', reason: '' },
-        // Spans two neighbouring lines — the matcher accepts windows, so a
-        // stitched-but-real quote must survive.
-        { text: "In fact, I'm leaving. It's been great, hasn't it?", meaningCn: '', reason: '' },
+        { text: "IN FACT, I’m leaving. It’s been great, hasn’t it?", meaningCn: '', reason: '' },
+        { text: "In fact, I'm leaving. There have been three themes running through the conference.", meaningCn: '', reason: '' },
+        { text: 'Good everyone morning.', meaningCn: '', reason: '' },
         { text: 'Quantum mechanics explains the double slit experiment.', meaningCn: '', reason: '' },
       ],
     });
     const result = dropUngroundedSuggestions(analysis, lines, []);
     expect(result.sentenceSuggestions.map((s) => s.text)).toEqual([
       "In fact, I'm leaving.",
-      "In fact, I'm leaving. It's been great, hasn't it?",
+      "IN FACT, I’m leaving. It’s been great, hasn’t it?",
     ]);
   });
 

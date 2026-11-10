@@ -1,6 +1,6 @@
 # EchoLearn architecture
 
-This map describes the source on the maintenance baseline at `3b8364c`. Use the
+This map describes the source as released in `c1ec954` (2026-11-09). Use the
 [testing guide](TESTING.md) to verify behaviour and the
 [release checklist](RELEASE_CHECKLIST.md) to track deployment and acceptance.
 
@@ -63,7 +63,7 @@ browser retains full transcripts and local audio on the originating device.
   [September budget register](CAPTION_BUDGETS.md) and
   [old caption map](archive/maintenance/caption-architecture-2026-09-06.md)
   retain the historical investigation.
-- [Decision history](../DECISIONS.md) and [validation evidence](../TEST_REPORT.md)
+- [Decision history](DECISIONS.md) and [validation evidence](archive/test-report-2026-08-to-10.md)
   keep dated records.
 - [Maintenance scripts](../scripts/README.md) separate local checks from live
   probes and release helpers.

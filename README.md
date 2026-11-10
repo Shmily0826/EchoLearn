@@ -7,7 +7,7 @@ A YouTube & Bilibili-powered English learning tool. Paste a video URL, get AI-cu
 ## Features
 
 - **Transcript fetching** — Load YouTube or Bilibili captions, with an explicit transcription action when captions are unavailable.
-- **AI-powered analysis** — DeepSeek analyzes transcripts to recommend vocabulary and sentences calibrated to CEFR levels (A1–C2)
+- **AI-powered analysis** — Gemini (DeepSeek as a configurable alternative) analyzes transcripts to recommend vocabulary and sentences calibrated to CEFR levels (A1–C2)
 - **Interactive transcripts** — Click any word for instant dictionary lookup with phonetics, audio, definitions, and recursive word exploration
 - **Spaced repetition** — Review saved words and sentences at increasing intervals, with refreshers for mastered items
 - **Cloud sync** — Firebase Firestore for automatic cross-device sync, plus GitHub Gist backup
@@ -18,10 +18,11 @@ A YouTube & Bilibili-powered English learning tool. Paste a video URL, get AI-cu
 
 ## Tech Stack
 
-React 19 · TypeScript · Vite 8 · Tailwind CSS 4 · Firebase Auth & Firestore · Capacitor 8 · React Router 7 · DeepSeek API · Cloudflare Workers · Vercel Functions · FastAPI + yt-dlp (VPS service) · Recharts · Vercel Web Analytics
+React 19 · TypeScript · Vite 8 · Tailwind CSS 4 · Firebase Auth & Firestore · Capacitor 8 · React Router 7 · Gemini API (DeepSeek optional) · Cloudflare Workers · Vercel Functions · FastAPI + yt-dlp (VPS service) · Recharts · Vercel Web Analytics
 
 ## Maintainer links
 
+- [Documentation index](docs/README.md) says where each kind of record lives.
 - [Architecture](docs/ARCHITECTURE.md) explains how the web app, Vercel API,
   Worker, VPS, Firebase and Android fit together.
 - [Testing](docs/TESTING.md) lists daily checks, CI and specialist suites.
@@ -52,7 +53,10 @@ Two complementary layers (both privacy-first, no third-party cookies):
   `trackEvent` reports to BOTH Vercel and Firebase. Auth events `sign_up` /
   `login` are fired from `src/contexts/AuthContext.tsx`; product events
   (`video_studied`, `word_saved`, `sentence_saved`, `ai_analysis_used`,
-  `pwa_install`) fire from the relevant pages. Only runs in production builds.
+  `caption_failed`, `review_completed`, `pwa_install`,
+  `pwa_installed_session`) fire from the relevant pages. Funnel events
+  (`session_start`, `first_video_loaded`, `first_item_saved`) are defined in
+  `src/services/analytics.ts`. Only runs in production builds.
 - See registered-user counts and per-user data directly in the Firebase
   console (no code needed):
   - **Registration count** — Firebase console → **Authentication → Users**

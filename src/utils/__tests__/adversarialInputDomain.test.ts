@@ -16,7 +16,7 @@ import { parseSrtTranscript, parseVttTranscript } from '../transcriptParser';
  * the next bad value.
  *
  * These assertions pin behavior that was measured, not behavior that seemed
- * plausible: see the dated section of TEST_REPORT.md for the probe that produced
+ * plausible: see the dated section of docs/archive/test-report-2026-08-to-10.md for the probe that produced
  * the domain and the observed results.
  */
 

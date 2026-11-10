@@ -4,4 +4,8 @@
     <string name="title_activity_main">EchoLearn</string>
     <string name="package_name">uk.echolearn.app</string>
     <string name="custom_url_scheme">uk.echolearn.app</string>
+    <string name="study_migration_running">Checking for study data from the previous version…</string>
+    <string name="study_migration_account">To restore study data from the previous version, use the same EchoLearn account, then close and reopen the app. If you used the previous version as a guest, reopen while signed out.</string>
+    <string name="study_migration_retry">EchoLearn could not finish restoring study data from the previous version. Close and reopen the app to retry.</string>
+    <string name="study_migration_open">Open EchoLearn</string>
 </resources>

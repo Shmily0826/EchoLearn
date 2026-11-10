@@ -1,6 +1,6 @@
 # EchoLearn progress snapshots — September 2026
 
-These snapshots describe the project at the time of each entry. See the [project progress log](../../PROGRESS.md) for subsequent decisions and the [testing guide](../TESTING.md) for current validation status. Paths in the original notes are relative to the repository root unless specified otherwise.
+These snapshots describe the project at the time of each entry. See the [project progress log](progress-2026-09-to-10.md) for subsequent decisions and the [testing guide](../TESTING.md) for current validation status. Paths in the original notes are relative to the repository root unless specified otherwise.
 
 ## Snapshot — 2026-09-21 (auth data lifecycle & AI cache trust, PRODUCTION VERIFIED)
 

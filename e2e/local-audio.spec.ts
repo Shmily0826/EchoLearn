@@ -68,6 +68,8 @@ test('V2 imports SRT with zero ASR and restores the existing Study flow', async 
   const openButton = importer.getByRole('button', { name: 'Open in Study' });
   await openButton.dblclick();
   await expect(page.getByText('Hello local audio.').filter({ visible: true }).first()).toBeVisible();
+  await expect(page.getByText('Captions: 2 cues · Local audio subtitles')).toBeVisible();
+  await expect(page.getByText('The video player loads separately', { exact: false })).toHaveCount(0);
   await expect.poll(() => page.locator('audio').count()).toBe(1);
   await expect.poll(async () => page.locator('audio').first().getAttribute('src')).toMatch(/^blob:/);
   expect(asrRequests).toBe(0);
@@ -83,6 +85,8 @@ test('V2 imports SRT with zero ASR and restores the existing Study flow', async 
 
   await page.reload();
   await expect(page.getByText('Hello local audio.').filter({ visible: true }).first()).toBeVisible();
+  await expect(page.getByText('Captions: 2 cues · Local audio subtitles')).toBeVisible();
+  await expect(page.getByText('The video player loads separately', { exact: false })).toHaveCount(0);
   await expect.poll(async () => page.locator('audio').first().getAttribute('src')).toMatch(/^blob:/);
   expect(asrRequests).toBe(0);
 

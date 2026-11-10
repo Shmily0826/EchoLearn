@@ -124,8 +124,9 @@ const SettingsPage: React.FC<{ onLoginRequest?: () => void }> = ({ onLoginReques
         setProxyMessage(result.ok ? 'Proxy is running' : (result.error || 'Not reachable'));
       });
     }
+  }, []);
 
-    // Auto-sync with cloud on mount (if user is logged in)
+  useEffect(() => {
     if (user && shouldAutoSyncUser(user)) {
       // This external sync begins after mount; show its progress immediately.
       // eslint-disable-next-line react-hooks/set-state-in-effect
@@ -146,7 +147,7 @@ const SettingsPage: React.FC<{ onLoginRequest?: () => void }> = ({ onLoginReques
         setFbSyncMessage({ type: 'error', text: err instanceof Error ? err.message : 'Auto-sync error.' });
       });
     }
-  }, [user?.uid, user?.emailVerified]);
+  }, [user, user?.emailVerified, refreshDataSize]);
 
   // ── Firebase sync now ─────────────────────────────────────
   const handleSyncNow = useCallback(async () => {
@@ -358,7 +359,7 @@ const SettingsPage: React.FC<{ onLoginRequest?: () => void }> = ({ onLoginReques
       setSyncMessage({ type: 'error', text: result.error || t('settings.syncLoadFailed') });
     }
     setSyncAction('idle');
-  }, [t]);
+  }, [t, refreshDataSize]);
 
   // ── Delete cloud backup ───────────────────────────────────
   const handleDeleteCloud = useCallback(async () => {
@@ -509,7 +510,7 @@ const SettingsPage: React.FC<{ onLoginRequest?: () => void }> = ({ onLoginReques
     } catch {
       setFeedbackError(t('feedback.error'));
     }
-  }, [user, includeEmail, feedbackText, lang, t, onLoginRequest]);
+  }, [user, includeEmail, feedbackText, lang, t, onLoginRequest, closeFeedback]);
 
   // ── Render ────────────────────────────────────────────────
   return (

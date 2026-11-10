@@ -6,6 +6,8 @@ import type {
 } from '../types';
 import { extractUrl } from './urlExtract';
 import { buildTranscriptMeta } from './transcriptIdentity';
+import { detectPlatform, isValidBilibiliBvid, parseBilibiliId } from './bilibili';
+import { parseYouTubeId } from './youtube';
 
 export interface FreshStudySessionInput {
   id: string;
@@ -26,6 +28,23 @@ export interface TranscriptProvenance {
 /** Normalize pasted share text without touching persistence or browser state. */
 export function normalizeStudyUrl(url: string): string {
   return extractUrl(url) ?? url;
+}
+
+/** Recover an overwritten link from the saved player identity. */
+export function repairStudySessionLink(session: VideoStudySession): VideoStudySession {
+  if (session.sourceType === 'local_audio') return session;
+  const { youtubeId: id, youtubeUrl: previousUrl } = session;
+  let url: string;
+  if (session.platform === 'bilibili') {
+    const previousId = parseBilibiliId(previousUrl);
+    if (!isValidBilibiliBvid(id) || previousId === id || /^https?:\/\/b23\.tv\//i.test(previousId ?? '')) return session;
+    url = `https://www.bilibili.com/video/${id}${session.biliPage ? `?p=${session.biliPage}` : ''}`;
+  } else {
+    if (!/^[a-zA-Z0-9_-]{11}$/.test(id)
+      || (detectPlatform(previousUrl) === 'youtube' && parseYouTubeId(previousUrl) === id)) return session;
+    url = `https://www.youtube.com/watch?v=${id}`;
+  }
+  return { ...session, youtubeUrl: url, title: session.title === previousUrl ? url : session.title };
 }
 
 /** Only persisted transcript data with usable line content counts as restored. */

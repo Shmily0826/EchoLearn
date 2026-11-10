@@ -1,0 +1,7 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="study_migration_running">正在检查旧版学习数据…</string>
+    <string name="study_migration_account">请登录旧版使用的 EchoLearn 账号，然后退出并重新打开应用以恢复学习数据。如果旧版使用的是访客模式，请退出登录后重新打开。</string>
+    <string name="study_migration_retry">旧版学习数据尚未恢复。请退出并重新打开应用以重试。</string>
+    <string name="study_migration_open">打开 EchoLearn</string>
+</resources>
