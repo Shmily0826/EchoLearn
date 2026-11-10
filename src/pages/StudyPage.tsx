@@ -279,7 +279,7 @@ const StudyPage: React.FC = () => {
         .then((info) => {
           if (!info?.title || loadedSessionIdRef.current !== sessionId) return;
           const parts = info.parts?.length ? info.parts : undefined;
-          partsCacheRef.current = { vid, parts };
+          partsCacheRef.current = parts ? { vid, parts } : null;
           setBiliParts(parts);
           if (keepSavedTitle) return;
           setSessionTitle(info.title);
