@@ -34,7 +34,9 @@ verification passed on 2026-11-09.
 | High | Verified-account sync | **PASS.** Three isolated Chromium sessions using QA A retained both additions and the deletion after a stale upload to production. |
 | High | AI vocabulary | **PARTIAL.** The single production run passed vocabulary candidate and gloss checks. It returned 6 of 8 requested words, included one clipped vocabulary context, and failed the exact sentence quote check. |
 | Medium | VPS English captions | **INCONCLUSIVE live.** The gate passed four controlled cases using the installed VPS source. All live samples failed at acquisition, so the live gate remains unverified. |
-| Medium | Android local media | Deferred for this release. On a physical Android device, import a roughly 90 MB audio file with subtitles, verify playback, and check that the lesson restores after refresh. |
+| High | Android APK upgrade | **PASS on the signed validation APK.** The original phone profile retained all checked legacy record IDs and its Google session. An isolated profile migrated and resumed a 90.1 MiB audio lesson. A real historical audio lesson requires re-import because its original file was absent before the upgrade. |
+| Medium | Android local media | **PASS on the signed validation APK with test media.** A physical Android 16 phone recovered the 90.1 MiB WAV, captions and position after replacement, then resumed playback after a force-stop. |
+| Medium | Study history switching | A production visit reproduced a YouTube history entry with the next Bilibili URL. The local candidate preserves the current lesson's link when switching and repairs saved mismatches when opening history. |
 
 ## Release sequence
 
@@ -177,3 +179,87 @@ These changes are committed on `echolearn-maintenance` but not yet released.
 - A follow-up production VPS probe with `8KkKuTCFvzI` returned HTTP 502
   before the language gate. Its trace reported `youtube_bot_check` and
   `signin_required`.
+
+### Android device follow-up on 2026-11-10 NZDT
+
+- On a physical Android 16 phone, the installed `0.1.8-beta` APK
+  (version code 13) reproduced the cold-start redirect in a temporary Android
+  user. The shell passed the new URL to the system browser. The embedded
+  Capacitor config and the old host's HTTP 301 confirmed the cause.
+- A separate debug APK built from `cf4cb79` uses `echo-learn.uk` as its
+  launch URL and includes the host in its navigation allowlist. It reached
+  the sign-in screen within the app on cold launch and entered guest mode.
+  It used a separate package ID and the hosted web app.
+- The Android file pickers imported a 94,464,044-byte WAV and its SRT.
+  Playback advanced and Android reported an active 48 kHz media stream.
+  Tapping the second cue sought to 0:05 and highlighted the cue. Android
+  Back returned from Study to Dashboard, and reopening Study stayed paused
+  at 0:11. After force-stopping the app and removing both source files, the
+  app restored the 8:12 audio, three cues and the 0:11 position, then played
+  again. The web UI incorrectly labels the imported SRT as Whisper output
+  and displays a video loading hint for the audio-only lesson.
+
+### Signed Android update follow-up on 2026-11-10 NZDT
+
+- A release APK with the existing package ID and matching signing
+  certificate replaced the installed APK without uninstalling it. It kept
+  version code 13 for rollback and loaded `echo-learn.uk` inside the app.
+- A temporary read-only WebView probe after replacement counted 32 words,
+  four sentences and 20 study sessions at `app.echo-learn.uk`. It counted
+  zero for all three at `echo-learn.uk`. The new shell cannot read the old
+  origin's local study data directly. This was a count, not a full comparison
+  of every record or a verification of local audio files.
+- **Google sign-in PASS after network recovery.** The first attempt returned
+  status 7 (`NETWORK_ERROR`) while the phone could not resolve
+  `accounts.google.com`. The same signed APK completed Google sign-in once
+  access was restored. After a force-stop and relaunch, Settings still
+  showed “Signed in with Google” and a last-sync entry. The dashboard showed
+  44 words, 11 sentences and 110 study sessions following account sync.
+  This verifies cloud-backed recovery for the tested account. The separate
+  old-origin local data migration check remains open.
+- After the checks, the original APK was installed over the validation
+  APK. Its SHA-256 matched the backup of the original installed file.
+- The local web build labels imported subtitles as local audio subtitles and
+  hides the video loading hint for local audio lessons. Eight local audio
+  browser tests passed, including checks immediately after import and after
+  reload. The signed shell still loads the hosted web build.
+
+### Android local data migration follow-up on 2026-11-10 NZDT
+
+- The Android shell copies allowlisted study data and the audio files
+  referenced by restored lessons from the old WebView origin. It preserves
+  the old origin as a recovery source and does not copy sign-in tokens. If
+  the two origins have different signed-in accounts, the shell waits for
+  the original account before migrating.
+- Three browser regression tests passed. They cover an interrupted
+  multi-chunk audio transfer, a same-account merge with a deletion, and a
+  mismatch between accounts. All 33 Firestore emulator tests passed.
+- In an isolated Android 17 emulator, a fixture APK populated the old
+  origin with a word, sentence, lesson, cue and 94,464,044-byte WAV.
+  After an in-place replacement and a forced stop shortly after the first
+  launch, the new shell showed all three records. Study resumed at 0:11
+  in the 8:12 WAV, and Android reported active audio playback. A separate
+  check of the hosted origin after another APK replacement confirmed the
+  migrated metadata and completion marker persisted. Changing the synthetic
+  word at the old origin and restarting again left only the migrated word
+  in Vocabulary.
+- The signed candidate uses the original APK's certificate and version
+  code 13 for a reversible device test.
+
+### Final signed Android device check on 2026-11-10 NZDT
+
+- The exact signed migration candidate replaced the original APK on the
+  Android 16 phone. A read-only check found the migration marker and matched
+  32 of 32 old vocabulary IDs, 4 of 4 sentence IDs and 20 of 20 lesson IDs
+  in the new origin. Settings displayed “Signed in with Google” and a
+  last-sync entry after replacement. This checked the existing session
+  without signing the owner's account out.
+- The owner's pre-upgrade old and new origins both held zero files in the
+  local audio database. One real historical audio lesson opened with its
+  12:34 position and the re-import message. The original audio itself
+  could not be played because the file was absent before replacement.
+- A separate Android user held a 94,464,044-byte WAV, three subtitle cues
+  and the 0:11 playhead under the old origin. The exact signed candidate
+  migrated the fixture and played it to 0:14. After a force-stop and
+  relaunch, it resumed at 0:14 and played to 0:16. The isolated user was
+  removed afterward. The owner retained the signed candidate.

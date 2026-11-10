@@ -7,7 +7,7 @@ A YouTube & Bilibili-powered English learning tool. Paste a video URL, get AI-cu
 ## Features
 
 - **Transcript fetching** — Load YouTube or Bilibili captions, with an explicit transcription action when captions are unavailable.
-- **AI-powered analysis** — DeepSeek analyzes transcripts to recommend vocabulary and sentences calibrated to CEFR levels (A1–C2)
+- **AI-powered analysis** — Gemini (DeepSeek as a configurable alternative) analyzes transcripts to recommend vocabulary and sentences calibrated to CEFR levels (A1–C2)
 - **Interactive transcripts** — Click any word for instant dictionary lookup with phonetics, audio, definitions, and recursive word exploration
 - **Spaced repetition** — Review saved words and sentences at increasing intervals, with refreshers for mastered items
 - **Cloud sync** — Firebase Firestore for automatic cross-device sync, plus GitHub Gist backup
@@ -18,7 +18,7 @@ A YouTube & Bilibili-powered English learning tool. Paste a video URL, get AI-cu
 
 ## Tech Stack
 
-React 19 · TypeScript · Vite 8 · Tailwind CSS 4 · Firebase Auth & Firestore · Capacitor 8 · React Router 7 · DeepSeek API · Cloudflare Workers · Vercel Functions · FastAPI + yt-dlp (VPS service) · Recharts · Vercel Web Analytics
+React 19 · TypeScript · Vite 8 · Tailwind CSS 4 · Firebase Auth & Firestore · Capacitor 8 · React Router 7 · Gemini API (DeepSeek optional) · Cloudflare Workers · Vercel Functions · FastAPI + yt-dlp (VPS service) · Recharts · Vercel Web Analytics
 
 ## Maintainer links
 
