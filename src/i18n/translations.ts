@@ -185,6 +185,7 @@ const translations: Record<string, Record<Lang, string>> = {
   // ── Study ────────────────────────────────────────────────
   'study.sessionTitlePh':{ en: 'Session title...', zh: '学习标题...' },
   'study.urlPh':         { en: 'Paste YouTube / Bilibili URL or BV id...', zh: '粘贴 YouTube / Bilibili 链接或 BV 号...' },
+  'study.biliTemporarilyUnavailable': { en: 'Bilibili is temporarily unavailable. Existing study records are still available.', zh: 'B 站功能暂时不可用，已有学习记录仍可查看。' },
   'study.urlEmpty':      { en: 'Paste a YouTube or Bilibili link first, then press Load Video.', zh: '请先粘贴 YouTube 或 Bilibili 链接，再点击加载视频。' },
   'study.sampleNote':    { en: "This is a sample lesson. Your saved words and sentences are kept, but this lesson won't appear in your study history.", zh: '这是一节示例课程。保存的单词和句子会保留，但示例课程本身不会出现在学习记录中。' },
   'study.loadVideo':     { en: 'Load Video', zh: '加载视频' },

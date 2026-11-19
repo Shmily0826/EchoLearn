@@ -798,6 +798,10 @@ const StudyPage: React.FC = () => {
       failInvalidInput(t('study.invalidVideo'));
       return;
     }
+    if (['bilibili'].includes(detected)) {
+      failInvalidInput(t('study.biliTemporarilyUnavailable'));
+      return;
+    }
 
     setAsrRecoveryRequested(false);
     localAudioRestoreTokenRef.current += 1;
@@ -1466,6 +1470,7 @@ const StudyPage: React.FC = () => {
               </button>
             )}
           </div>
+          <p className="mt-2 text-xs text-amber-700 dark:text-amber-400">{t('study.biliTemporarilyUnavailable')}</p>
           {urlError && (
             <p
               role="alert"
