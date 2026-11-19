@@ -23,7 +23,7 @@ import { enterGuestMode } from './helpers/guestMode';
  */
 
 const SAMPLE_VIDEO_MARKER = 'Good morning';
-const EMPTY_STATE_TEXT = /paste a youtube or bilibili url above to start/i;
+const EMPTY_STATE_TEXT = /paste a youtube url above to start/i;
 
 const visibleTranscriptRows = (page: Page) => page.locator('[data-transcript-line]').filter({ visible: true });
 

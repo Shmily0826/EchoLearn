@@ -75,7 +75,7 @@ test('A: invalid URL on the Sample shows a form error and keeps the lesson', asy
   await page.getByPlaceholder(/paste youtube/i).fill('hello this is not a video');
   await page.getByRole('button', { name: 'Load Video' }).click();
 
-  await expect(page.getByTestId('study-url-error')).toHaveText(/valid YouTube or Bilibili/i);
+  await expect(page.getByTestId('study-url-error')).toHaveText(/valid YouTube video/i);
   await expect(rows).toHaveCount(before);
   await expect(page.locator('text=Unable to fetch captions').filter({ visible: true })).toHaveCount(0);
   // Sample still usable: its note is visible and a word click still opens the popup.
@@ -84,7 +84,7 @@ test('A: invalid URL on the Sample shows a form error and keeps the lesson', asy
   // IV2: empty input gets its own actionable message, still non-destructive.
   await page.getByPlaceholder(/paste youtube/i).fill('');
   await page.getByRole('button', { name: 'Load Video' }).click();
-  await expect(page.getByTestId('study-url-error')).toHaveText(/paste a youtube or bilibili link first/i);
+  await expect(page.getByTestId('study-url-error')).toHaveText(/paste a youtube link first/i);
   await expect(rows).toHaveCount(before);
 });
 

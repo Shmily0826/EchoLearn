@@ -127,7 +127,8 @@ function visibleText(page: Page, text: string | RegExp) {
   return page.getByText(text).filter({ visible: true }).first();
 }
 
-test.describe('Bilibili subtitle reliability', () => {
+// New Bilibili imports are disabled; keep these for when the feature returns.
+test.describe.skip('Bilibili subtitle reliability', () => {
   test('guest canonical import stays caption-only, offers explicit ASR recovery, switches parts, and restores', async ({ page }) => {
     await seedCleanVisitor(page);
     const calls = await routeBilibili(page, {
