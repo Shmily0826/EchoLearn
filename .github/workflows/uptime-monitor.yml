@@ -5,8 +5,8 @@
 # never depend on these endpoints.)
 #
 # GitHub emails the repo owner when a scheduled workflow run fails, which is
-# the alerting path for outages like "CF Worker down" or "YTDLP_API_KEY not
-# configured on Vercel". Runs twice a day; can also be triggered manually
+# the alerting path for homepage and required YouTube caption checks.
+# Runs twice a day and can also be triggered manually
 # from the Actions tab ("Run workflow").
 
 name: Uptime Monitor

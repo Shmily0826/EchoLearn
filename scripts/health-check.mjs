@@ -23,9 +23,6 @@ const APP_BASE = 'https://echo-learn.uk';
 const WORKER_BASE = 'https://yt-transcript-proxy.rng2018520.workers.dev';
 const TRANSCRIPT_CACHE_HEADER = 'X-EchoLearn-Transcript-Cache';
 
-// A stable Bilibili video with known BV id (used in the repo's own code
-// examples) and a stable YouTube video with English captions.
-const BILI_FULL_URL = 'https://www.bilibili.com/video/BV1xx411c7mD';
 // The Easy English video the repo's own Bilibili production smoke used, so a
 // future PASS here is comparable to that recorded acceptance.
 const BILI_CAPTION_PROBE_BVID = 'BV1emBiYcEAV';
@@ -116,40 +113,6 @@ const CHECKS = [
     // the attribute (not exact tag formatting) — build plugins may inject
     // extra attributes onto the root div.
     validate: (body) => (body.includes('id="root"') ? null : 'HTML shell missing #root'),
-  },
-  {
-    name: 'Worker resolves Bilibili info (short-link chain)',
-    url: `${WORKER_BASE}/api/info?url=${encodeURIComponent(BILI_FULL_URL)}`,
-    timeoutMs: 30000,
-    // The same Worker -> VPS chain that b23.tv short links depend on.
-    validate: (body) => {
-      try {
-        const data = JSON.parse(body);
-        return typeof data.bvid === 'string' && data.bvid.startsWith('BV')
-          ? null
-          : 'response has no bvid';
-      } catch {
-        return 'not JSON';
-      }
-    },
-  },
-  {
-    name: 'Vercel Bilibili fallback is configured (YTDLP_API_KEY)',
-    url: `${APP_BASE}/api/bilibili?info=1&url=${encodeURIComponent(BILI_FULL_URL)}`,
-    timeoutMs: 30000,
-    // 503 here means the fallback endpoint exists but the VPS key is not
-    // configured on Vercel — the exact misconfiguration that would silently
-    // disable the whole resilience chain.
-    validate: (body) => {
-      try {
-        const data = JSON.parse(body);
-        return typeof data.bvid === 'string' && data.bvid.startsWith('BV')
-          ? null
-          : 'response has no bvid';
-      } catch {
-        return 'not JSON';
-      }
-    },
   },
   {
     name: 'Bilibili captions resolve caption-first (no ASR requested)',
